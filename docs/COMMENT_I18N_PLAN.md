@@ -6,13 +6,13 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **12, `src/allies`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
+> **Next session starts here:** queue item **13, `src/game`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
 > before picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this
 > file originally described**; the old one let a deleted `*/` through, and **§3 step 4b**, which `src/tutorial` added
-> after catching a re-typed Korean label. `src/allies` is 561 lines over 22 files; `src/player` (item 9) already fixed
-> the body · pose · avatar nouns it shares with them, `src/enemies` (item 3) the AI-phase ones, and CLAUDE.md §3.2's
-> `src/allies` row plus §4.6's two android bullets are what settle roster · harness · order · roam wording.
-> `src/shared/allies.ts` is already English and is the contract this folder points at — read it first.
+> after catching a re-typed Korean label. `src/game` is 537 lines over 14 files, and it is the folder every other one
+> ends in: the phase state machine · death / corpses · the raid session save and resume · the ESC policy · result-screen
+> data. CLAUDE.md §4.3's save / resume bullets and §4.6's death and leader bullets are what settle its wording, and
+> `src/allies` (item 12) already fixed the wipe-decision nouns it shares with `game/parts/Death`.
 
 > **§3 step 4b earns its place again.** In `src/items` an agent re-typed the csv item name `강화합금 잉곳` as
 > `강화합금 잉고` in **two** `Salvage.ts` comments, and its own report said the audit was clean — it had run the
@@ -42,15 +42,15 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`, `src/gadgets`) | 20,962 | 517 |
-| **Remaining** ([§2](#2-queue)) | **5,654** | **230** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`, `src/gadgets`, `src/allies`) | 21,523 | 539 |
+| **Remaining** ([§2](#2-queue)) | **5,093** | **208** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 64 lines, because a comment whose entire substance is
+**Intended permanent exceptions.** A finished folder still prints 71 lines, because a comment whose entire substance is
 a quoted label, a quoted document heading or a verbatim user decision keeps its Korean (§3 rule 2 — the reader has to be
-able to grep it against the real string). So a raw run over everything prints 5,718 / 276, sixty-four more than the
+able to grep it against the real string). So a raw run over everything prints 5,164 / 259, seventy-one more than the
 queue. `src/ui` alone contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice —
 so its rows are grouped into one line instead of listed file by file:
 
@@ -84,6 +84,7 @@ so its rows are grouped into one line instead of listed file by file:
 | `player/RemoteAvatar.ts:611` | a verbatim user decision (`마지막 함선을 탔을 때 PC 가 함선 내부에 실루엣으로 보이지 않도록`) |
 | `items/Loot.ts:552` | a verbatim user decision (`잠긴 방은 지금 그대로, 나머지는 서사 이상 절반`) |
 | `gadgets/GadgetDefs.ts:205` | a `docs/DECISIONS.md` section heading (`2026-09-15 — 땅굴벌레 · 진동 장치`) |
+| `allies/parts/` — **7 lines in 5 files** | verbatim user decisions, each the *whole* substance of its line: `Loot.ts:3` · `:5` (「먹고 있을 때 PC 가 그 상자를 열면 중단」, 「핑이 먼저고, 혼자 주워 담는 것은 한가할 때뿐」), `Rescue.ts:3-4` (the two-line rescue decision), `Commands.ts:271` (「일반 범위의 2배로 각자 일대를 수색, 일정 시간 뒤 자동 해제」), `Contract.ts:4` (the tail of 「계약에 따라 다르나, …」), `Support.ts:3` (the hand-over conditions). This folder is written almost entirely out of quoted decisions, which is why it keeps more than most |
 
 ---
 
@@ -104,7 +105,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~9~~ | ~~`src/player`~~ | 949 | 30 | **Done 2026-09-19** (lead + 6 agents, one commit). 2 quoted-only lines stay (§1). Cut **by subject** and it held: controller · vitals / damage · wake + spawn + camera · body modes · soldier model · remote avatars, lead on `PlayerSystem` · `model` · `index`. Its body-mode · stance / pose · scene-lock · intro-wake · shouldering · rig vocabulary is now the reference for every controller- and avatar-shaped folder after it. |
 | ~~10~~ | ~~`src/items`~~ | 612 | 12 | **Done 2026-09-19** (lead + 3 agents, one commit). 1 quoted-only line stays (§1). Cut **by subject** and it held: the roll engine (`Loot`) · the csv→table loaders (`LootTables` · `Recipes`) · the craft economy and spec rows (`Salvage` · `ItemSpec` · `WeaponStats`), lead on the item defs (`ItemDefs` · `WeaponDefs` · `ArmorDefs` · `ImplantDefs` · `ItemText` · `index`). Its roll · draw · pick · candidate pool · epic+ gate · bucket · craft-inputs vocabulary is now the reference for every data- and economy-shaped folder after it. |
 | ~~11~~ | ~~`src/gadgets`~~ | 573 | 22 | **Done 2026-09-19** (lead + 3 agents, one commit). 1 quoted-only line stays (§1). Cut **by subject** and it held: drone bodies (`AirDrone` · `GroundDrone` · `Lifecycle` · `Scan`) · drone core + mounting (`drones/model` · `DroneSystem` · `Control` · `drones/Wire` · `parts/Mount`) · placement (`Preview` · `Deploy` · `Thumper`), lead on the host-authoritative centre (`GadgetDefs` · `GadgetSystem` · `GadgetVisuals` · `Queries` · `Simulate` · `Remote` · `Wire` · `Deployable` · `model` · `ThrownGadget`). Its deployable · placement-test · footprint · arming · detonation · mounting · drone-body vocabulary is now the reference for every deployable- and vehicle-shaped folder after it. |
-| 12 | `src/allies` | 561 | 22 | |
+| ~~12~~ | ~~`src/allies`~~ | 561 | 22 | **Done 2026-09-19** (lead + 4 agents, one commit, 10 scripts in 1 min 10 s, green first try). 7 quoted-only lines stay (§1) — the most of any folder so far, because the folder *is* a transcription of user decisions. Cut **by subject** and it held: orders · pings · requests · hand-over (`Commands` · `Support` · `Ping` · `Console`) · movement · free search · harness · combat (`Nav` · `Roam` · `Harness` · `Combat`) · bag · looting · objectives · vitals · extraction (`Bag` · `Loot` · `Extract` · `Rescue` · `Contract` · `Vitals`) · roster · ship · raid entry · wire (`Roster` · `Hub` · `Spawn` · `Sync`), lead on the centre (`AllySystem` · `model` · `Body` · `Fsm` · `index`). Its roster · unit · bay · proposal · rank · reaction-delay · harness · free-search · point-of-interest · designation · bound-kit vocabulary is now the reference for every AI-squad- and roster-shaped folder after it. |
 | 13 | `src/game` | 537 | 14 | |
 | 14 | `src/meta` | 305 | 15 | |
 | 15 | `src/audio` | 273 | 2 | |
@@ -300,6 +301,16 @@ second `src/world`):
    `world/README.md` and CLAUDE.md §4.6 already call the **ghost band**; another wrote *an old peer* where the folder's
    existing English says *an older peer*. Grep the finished folder for each newly coined noun and make it agree with
    the English already in the READMEs — that, not the glossary hand-out, is what makes the folder read in one voice.
+   **`src/allies` shows the check earns its keep even when the glossary was handed out and every agent reported
+   cleanly**: it caught three, one of them the lead's own. Two agents coined *the designation* for 지목 while the lead
+   had written *the marked enemy* (wrong on its own terms — §7 binds 표식 to *the mark*); one wrote *the walk blend* and
+   the lead *Look direction* where `shared/allies.ts` already says **movement blend** and **Look / aim point**. The
+   pattern is the same every time: the conflicting word is one the *contract file* already names, so grep the contract,
+   not only the READMEs.
+   **Also expect an agent's applier to stop reproducing its own output.** One `src/allies` agent made three
+   English→English polish edits with the Edit tool after running its script, so the script alone no longer rebuilds the
+   final bytes. That is fine — the tree is authoritative, the scripts are not — but it means a re-run of an applier is
+   never a recovery plan, which is the same reason §3 gives for measuring the tree when an agent dies.
 
 **When an agent dies mid-bundle** — a rate limit will do it — the tree is left half-translated and its applier script
 is **not re-runnable** (a later pair may match text an earlier pair already produced). Do not reason from the agent's
@@ -320,9 +331,12 @@ English runs longer than the Korean it replaces, so a pass blows through it with
 lines across two bundles, before the lead caught it). Only pre-existing **code** lines may exceed it. Growing the
 line count to stay inside is fine and expected — `src/hub` and `src/tutorial` both did.
 
-**`src/tutorial` cost 4 scripts and 1 min 26 s**, the cheapest folder-sized run in the queue so far
-(`smoke-tutorial` · `smoke-tutorial-raid` · `smoke-tutorial-ship` · `smoke-intro-wake`, plus the four static checks
-and `net-selftest`) — a folder's smoke map, not its size, sets the cost.
+**`src/allies` cost 10 scripts and 1 min 10 s**, the cheapest folder-sized run in the queue so far
+(`smoke-enemy-allies` · `smoke-allies-core` · `smoke-allies-orders` · `smoke-ally-avatars` · `smoke-ally-ui`, plus the
+four static checks and `net-selftest`); `src/tutorial` cost 4 scripts and 1 min 26 s (`smoke-tutorial` ·
+`smoke-tutorial-raid` · `smoke-tutorial-ship` · `smoke-intro-wake`). **A folder's smoke map, not its size, sets the
+cost** — and not its script count either: `src/allies` runs more than twice as many scripts as `src/tutorial` in less
+wall-clock, because four of its five are short and the 4 lanes absorb them.
 
 - **A normal feature folder** costs 16–25 scripts and ~6 min: 16 for the pilot, 25 for `src/world`, 25 for
   `src/enemies` — whose folder map pulls in **`e2e-mp`**, so a red there is a real two-client run, not a unit check.
@@ -512,7 +526,13 @@ few hundred, because a Korean **label** inside English prose is correct and stay
   thing disagreeing, one of them in this folder's own `README.md`),
   `B-55` · `B-56` · `B-57` · `B-58` (`src/gadgets`, 11 + 5 + 3 + 3 — `B-58` is the first one that reaches
   **outside** the folder, into `data/constants.csv` and `src/shared/constants.ts`, because the 2026-09-15 fire
-  merge left stale prose on both sides of the contract).
+  merge left stale prose on both sides of the contract),
+  `B-59` · `B-60` · `B-61` · `B-62` (`src/allies`, 14 + 6 + 9 + 2 — the richest folder yet, and `B-61` holds **two
+  live bugs**: a crate ping carries the HUD's display label where the code reads a container id, so 「a pinged crate
+  first, with no distance limit」 never actually loots, and an `item` ping can never become a pickup task, which in turn
+  made a whole `parts/Loot` branch and the guard justifying it unreachable — `B-60`. `B-62` is a second one reaching
+  outside the folder: one 2 m-separation decision written three different ways across `parts/Nav.ts`,
+  `data/constants.csv` and `docs/DECISIONS.md`, so rule 2's grep chain was already broken for it).
   Reading a folder this closely is the most productive defect hunt in the project — expect five to ten per folder (`src/ui`
   gave 23 and `src/housing` 35, each with a live bug in it: a member row that is built and never appended, and a stir-fry
   score whose denominator is the number of clicks that were judged), and keep filing rather than fixing.
@@ -830,3 +850,25 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 낮은 턱 | a **low ledge** — the thing `PROP_STEP_UP_MAX` lets a body ride onto. Kept apart from `world/structures`' 콘크리트 턱 = *sill* | `gadgets/drones/AirDrone.ts` |
 | 건물 바닥 | a **building floor** (the walkable inside of a structure) — kept apart from `world/structures`' **floor plate**, which names the collider | `gadgets/parts/Preview.ts` |
 | 조작감 · 설계안 | **handling feel** (a drone tuning section; `AirDrone` writes the short *Handling*) · the **design note** (`설계안 §3`) | `gadgets/drones` (folder-wide) |
+| 명단 · 치트 명단 · 로컬 명단 | the **roster** · the **cheat roster** · the **local roster** — `shared/allies.ts`'s own words | `allies` (folder-wide) |
+| 기 (한 기 · 기마다 · 세 기) | **unit** (§7's `ui/hud/Squad.ts` row): one unit · per unit · three units. The **body** is never a unit — `AllyBodyView` is the body | `allies` (folder-wide) |
+| 슬롯 (allies) | **bay** wherever it means an android bay (`getAndroidBays` · `dormantIdOf` · `onReturned(bay)`), **slot** only for the lobby slot (`AllyRosterEntry.slot`, colour · launch pod · `getPodStandPose`). One Korean word, two things — decided from the code, as `hub` does for its own 칸 | `allies/parts/Hub.ts`, `Roster.ts` |
+| 제안 · 서열 · 전이 · 반응 지연 | a **proposal** / proposes (`Fsm.propose`) · **rank** (the README's word — `PRIO.follow` ≡ `PRIO.roam` *share one rank*) · a **transition** · the **reaction delay** | `allies/parts/Fsm.ts`, `model.ts` |
+| 하네스 · 자유 탐색 · 관심 지점 | the **harness** and its radius · the **free search** (`roam`) · a **point of interest** (`roamPoi*`; the identifier stays `POI`) — all three `allies/README.md`'s own words | `allies` (folder-wide) |
+| 탈출구 | the **way out** (`shared/allies.ts`'s own word for `seekExtract`), kept apart from the **extraction pad** (the object), the extraction **console** and the **ship bay** (`ExtractionRef.isInShipBay`) | `allies/parts/Extract.ts` |
+| 선착순 | **first one wins** for the rule, *the first one that arrived* in prose — both `shared/allies.ts` / `README.md` wording. Kept apart from an **order** (leader-only) and from **agreeing to** a PC's ping: three different things `parts/Commands.ts` needs side by side | `allies` (folder-wide) |
+| 가자 · 주의 · 앞장 · 앞장서라 · 탈출 · 탈출하고 싶다 | **kept Korean in backticks / `「」`** — they are comms-wheel and ping labels (CLAUDE.md §4.6 and `allies/README.md` both keep them). Where the Korean had one bare, put it in backticks: `shared/allies.ts` already writes "a `주의` ping" | `allies` (folder-wide) |
+| 지목 · 지목된 적 | the **designation** · a **designated enemy** (`AllySystem.preferredEnemyId`) — deliberately **not** *marked*, which §7 binds to 표식 = *the mark*, and not the field's own *preferred* | `allies/parts/Combat.ts`, `Commands.ts`, `AllySystem.ts` |
+| 킷 · 기본 킷 · 묶인 물건 | **kit** · the **base kit** (`ANDROID_KIT`) · a **bound thing** — `shared/allies.ts`'s own words, and the rule is stated there in English already: do not coin a second phrasing for it | `allies/parts/Bag.ts`, `Hub.ts`, `Spawn.ts` |
+| 배치값 | **a layout constant** (§7's `housing` row), keeping the Korean's closing "…, not a csv number". Two of them are really **judgement** constants by the `enemies` taxonomy (`Commands.PING_PAD_MATCH_M`, whose own sentence calls it a 판정 창) — translated as the Korean claims, filed rather than re-classified | `allies` (folder-wide) |
+| 사선 (allies) | **line of sight** for sensing / re-targeting (`hasLineOfSight`) · **line of fire** for the friendly-fire block (`blockedByFriend`) — a third split of the word `world/tutorial` (diagonal) and `enemies` already divided | `allies/parts/Combat.ts` |
+| 간격 (allies) | **separation** for `Nav.separate` (the 2 m squad rule) but **spacing** for `Spawn.SPAWN_GAP_M` — `shared/allies.ts` already writes "spawn spacing", so the two never merge | `allies/parts/Nav.ts` vs `Spawn.ts` |
+| 옆으로 · 산개 · 조향 · 회피 · 우회 · 칸 (산개) | **sidesteps** (§7) · **spread** (`spreadToward`) · **steering** · **avoidance** (`avoidObstacles`) · **detour** (around a `주의` ping) · a **lane** (the code's own `lane` local: one lane left / right) | `allies/parts/Nav.ts` |
+| 짐 · 짐 버리기 · 이관 | the **load** (weight) · **junk dropping** (`dropJunk`) · the **deposit** (`ally deposit`) | `allies` (folder-wide) |
+| 건네주기 · 자율 루팅 · 상자 후보 · 내용물 미리보기 | **handing over** / the **hand-over** · **autonomous looting** · the **crate candidates** · the **contents preview** (`peek`) | `allies/parts/Support.ts`, `Loot.ts` |
+| 대기 피해 | **atmosphere damage** (the planet-atmosphere tick) — kept apart from a **hazard** tick, which is the other half of `Vitals.update` | `allies/parts/Vitals.ts` |
+| 걸음 (블렌드) vs 걸음 (위상) | the **movement blend** (`moveBlend`) vs the **stride phase** (`stridePhase`) — `shared/allies.ts` names both, so neither becomes a *walk blend* | `allies/parts/Nav.ts` |
+| 시선 · 시선 점 | the **look point** (`lookVec` · `LOOK_DIST_M`) — `shared/allies.ts` writes "Look / aim point" for `lookAt`, so never a *look direction* | `allies/parts/Body.ts`, `Roam.ts` |
+| 연출 동기값 · 질의 창 · 저수지 표본 | a **cutscene sync value** (`Spawn.POD_LAND_S`, which tracks `player/Hellpod.ts`'s cutscene length) · a **query window** (`Nav.OBS_QUERY_M`) · the **reservoir sample** (`Roam.consider`) | `allies/parts` |
+| 대체값 · 크루 카드 · 조작된 id | a **stand-in** (`shared/allies.ts` already writes "Stand-in PeerId") · the **crew card** (`NetRef.getCrewCard`) · a **tampered id** | `allies/parts` |
+| 한 마디 · 한 줄 말한다 | **says a line** / **one line** — a *spoken* chat line (`Ping.say`), never a comms-wheel entry, which is an **order** | `allies` (folder-wide) |

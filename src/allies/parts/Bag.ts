@@ -1,14 +1,17 @@
 /**
- * src/allies/parts/Bag.ts — **장비 · 가방 · 무게**.
+ * src/allies/parts/Bag.ts — **gear · bag · weight**.
  *
- * 기본 킷(`ANDROID_KIT`)은 **묶인 물건**이다 (계약 `shared/allies.ts`): 떨구지도 · 건네지도 · 시체에 남기지도 ·
- * 창고로 보내지도 않는다. 그러지 않으면 매 레이드 공짜 장비가 생긴다. 그래서 `kitUids` 가 바깥으로 나가는 모든 길의 문이다.
+ * The base kit (`ANDROID_KIT`) is a **bound thing** (contract `shared/allies.ts`): never dropped · never handed
+ * over · never left in a corpse · never sent to the stash. Otherwise every raid would mint free gear, so `kitUids`
+ * is the gate on every way out of the body.
  *
- * 2026-09-16 (사용자 결정): 킷은 **레이드에서만 생기는 것이 아니다** — 명단에 들어오는 순간부터 입고 있다.
- * 함선 = `ensureKit`(멱등), 레이드 진입 = `clearKit` → `equipKit`(새 킷). 킷의 uid 는 두 경로 모두 `kitUids` 에 들어간다.
+ * 2026-09-16 (user's decision): the kit is **not something the raid alone makes** — it is worn from the moment the
+ * android enters the roster. The ship = `ensureKit` (idempotent), raid entry = `clearKit` → `equipKit` (a fresh kit).
+ * The kit's uids go into `kitUids` on both paths.
  *
- * 갈아끼우기: 주운 장비(`raidFound`)가 지금 낀 것보다 좋으면 바꾼다 — 벗겨진 킷 장비는 **그 자리에서 사라지고**
- * (묶인 물건이라 바닥에도 못 둔다), 벗겨진 주운 장비는 가방으로, 안 들어가면 바닥으로 간다.
+ * Swapping: gear it picked up (`raidFound`) that beats what it has equipped replaces that — the kit piece taken off
+ * **vanishes on the spot** (a bound thing cannot be left on the ground either), and a picked-up piece taken off goes
+ * to the bag, or to the ground when it does not fit.
  */
 import * as THREE from 'three';
 import {
@@ -20,14 +23,14 @@ import type { AllySystem } from '../AllySystem';
 import type { Ally } from './Body';
 import { _v1 } from '../model';
 
-/** 무게 없는 대체값 — `InventoryRef.weightInfoFor` 가 아직 없는 동안 조용히 「보통」으로 둔다. */
+/** The stand-in when there is no weight — silently 「보통」 while `InventoryRef.weightInfoFor` is still missing. */
 const CALM: WeightInfo = { weight: 0, capacity: 0, ratio: 0, state: 'normal', moveMul: 1, staminaRegenMul: 1 };
 
 export function weightOf(sys: AllySystem, a: Ally): WeightInfo {
   const inv = sys.ctx.inventory;
   const carried = a.carried();
   if (typeof inv?.weightInfoFor === 'function') {
-    try { return inv.weightInfoFor(carried, a.equip.bag); } catch { /* 계약 구현이 아직이면 조용히 보통 */ }
+    try { return inv.weightInfoFor(carried, a.equip.bag); } catch { /* not implemented yet → silently normal */ }
   }
   let w = 0;
   for (const it of carried) w += kgOf(sys, it);
@@ -39,19 +42,20 @@ export function defOf(sys: AllySystem, defId: string | null | undefined): ItemDe
   return sys.ctx.loot?.getItemDef(defId);
 }
 
-/* ── 기본 킷 ──────────────────────────────────────────────────────────────── */
+/* ── the base kit ────────────────────────────────────────────────────────── */
 
-/** 기본 킷이 갖춰져 있는가 — 세 칸이 다 차고 가방 격자까지 있다 (`ensureKit` 의 멱등 조건). */
+/** Is the base kit in place — all three slots filled and the bag grid there too (`ensureKit`'s idempotent test). */
 function hasKit(a: Ally): boolean {
   return a.kitUids.size > 0 && !!a.equip.primary && !!a.equip.armor && !!a.equip.bag && !!a.bag;
 }
 
 /**
- * 2026-09-16 (사용자 결정 「안드로이드는 호출되는 순간 기본 킷을 장착한 채로 선다」): **함선에서의 킷 보장**.
- * 명단에 들어오는 순간(`parts/Roster.syncBodies`)과 함선에 서 있는 동안(`parts/Hub.update`) 반복해서 불린다 —
- * 이미 갖췄으면 아무것도 하지 않는다. 함선에서 지은 킷도 똑같이 **묶인 물건**이라 `kitUids` 가 나가는 모든 길의
- * 문을 그대로 지키고(떨구기 · 건네기 · 시체 · 창고), 애초에 함선에는 그 길 자체가 없다.
- * 레이드에 들어가면 `parts/Spawn` 이 `clearKit` → `equipKit` 으로 **새 킷**을 세우므로 공짜 장비가 생기지 않는다.
+ * 2026-09-16 (user's decision 「안드로이드는 호출되는 순간 기본 킷을 장착한 채로 선다」): **the kit is guaranteed in the
+ * ship**. Called over and over — the moment it enters the roster (`parts/Roster.syncBodies`) and while it stands in
+ * the ship (`parts/Hub.update`) — and does nothing once the kit is in place. A kit built in the ship is just as much
+ * a **bound thing**, so `kitUids` keeps the gate on every way out (dropping · handing over · a corpse · the stash),
+ * and in the ship those ways do not exist in the first place.
+ * On raid entry `parts/Spawn` stands a **fresh kit** up with `clearKit` → `equipKit`, so no free gear is ever minted.
  */
 export function ensureKit(sys: AllySystem, a: Ally): void {
   if (hasKit(a)) return;
@@ -59,10 +63,11 @@ export function ensureKit(sys: AllySystem, a: Ally): void {
 }
 
 /**
- * 몸에서 킷을 통째로 걷어낸다 — 레이드 진입 초기화(`parts/Spawn.onWorldReady`)가 모든 몸에 부른다.
- * 권위는 바로 뒤에서 `equipKit` 으로 새 킷을 세우고, 리플리카는 여기서부터 `ally bag` 와이어만 본다.
- * 함선에서 지은 **빈 가방이 남아 있으면 안 된다**: 호스트 승계가 `!a.bag` 갈래(`parts/Sync.onHostChanged`)를
- * 건너뛰어 그 빈 가방을 이어받고, 와이어로만 알던 안드로이드의 전리품이 통째로 사라진다.
+ * Strips the kit off the body whole — the raid-entry reset (`parts/Spawn.onWorldReady`) calls it on every body.
+ * The authority stands a fresh kit up right behind it with `equipKit`; a replica reads only the `ally bag` wire from
+ * here on. **No empty bag built in the ship may be left behind**: host migration would skip the `!a.bag` branch
+ * (`parts/Sync.onHostChanged`), inherit that empty bag, and the loot of an android it knew only from the wire would
+ * vanish whole.
  */
 export function clearKit(a: Ally): void {
   a.kitUids.clear();
@@ -77,7 +82,7 @@ export function clearKit(a: Ally): void {
   a.bagDefId = null;
 }
 
-/** 기본 킷을 새로 채운다 (레이드 진입 · 함선 입장) — 있던 것은 버리고 갈아 세운다. */
+/** Fills a fresh base kit (raid entry · entering the ship) — whatever was there is thrown away and rebuilt. */
 export function equipKit(sys: AllySystem, a: Ally): void {
   const loot = sys.ctx.loot;
   if (!loot) return;
@@ -95,7 +100,7 @@ export function equipKit(sys: AllySystem, a: Ally): void {
   refreshLook(sys, a);
 }
 
-/** 몸에 그려지는 def id 세 개 (`AllyBodyView`) 와 탄창을 지금 장비에서 다시 읽는다. */
+/** Re-reads the three drawn def ids (`AllyBodyView`) and the magazine from what is equipped right now. */
 export function refreshLook(sys: AllySystem, a: Ally): void {
   a.weaponDefId = a.equip.primary?.defId ?? null;
   a.armorDefId = a.equip.armor?.defId ?? null;
@@ -112,9 +117,9 @@ export function isKit(a: Ally, item: ItemInstance | null | undefined): boolean {
   return !!item && a.kitUids.has(item.uid);
 }
 
-/* ── 가치 · 등급 비교 ─────────────────────────────────────────────────────── */
+/* ── value · grade comparison ────────────────────────────────────────────── */
 
-/** 이 아이템 한 스택의 값어치 (버릴 것을 고를 때 · 상자에서 무엇을 집을지). */
+/** What one stack of this item is worth (picking the junk to drop · picking what to take from a crate). */
 export function valueOf(sys: AllySystem, it: ItemInstance): number {
   const def = defOf(sys, it.defId);
   return (def?.value ?? 0) * Math.max(1, it.qty);
@@ -128,7 +133,7 @@ export function cellsOf(sys: AllySystem, it: ItemInstance): number {
   return Math.max(1, (def?.width ?? 1) * (def?.height ?? 1));
 }
 
-/** 무기의 「좋음」 — 등급 우선, 같으면 피해, 같으면 남은 내구도. */
+/** How 「good」 a weapon is — grade first, then damage, then remaining durability. */
 function weaponScore(sys: AllySystem, it: ItemInstance | null): number {
   if (!it) return -1;
   const st = sys.ctx.loot?.getEffectiveStats(it);
@@ -136,7 +141,7 @@ function weaponScore(sys: AllySystem, it: ItemInstance | null): number {
   const dur = st.maxDurability > 0 ? (it.durability ?? st.maxDurability) / st.maxDurability : 1;
   return st.grade * 1e6 + st.damage * 1e2 + dur;
 }
-/** 방탄복의 「좋음」 — 실드 최대치 우선, 같으면 남은 내구도. */
+/** How 「good」 armor is — max shield first, then remaining durability. */
 function armorScore(sys: AllySystem, it: ItemInstance | null): number {
   if (!it) return -1;
   const def = defOf(sys, it.defId);
@@ -152,7 +157,7 @@ function bagScore(sys: AllySystem, it: ItemInstance | null): number {
   return bag ? bag.cols * bag.rows : -1;
 }
 
-/** `item` 이 지금 낀 것보다 나은 같은 종류의 장비면 그 슬롯, 아니면 null. */
+/** The slot when `item` is gear of the same kind and better than what it has equipped, else null. */
 export function upgradeSlotOf(sys: AllySystem, a: Ally, item: ItemInstance): 'primary' | 'armor' | 'bag' | null {
   const def = defOf(sys, item.defId);
   if (!def) return null;
@@ -162,7 +167,7 @@ export function upgradeSlotOf(sys: AllySystem, a: Ally, item: ItemInstance): 'pr
   return null;
 }
 
-/** 같은 잣대로 **분대장이 낀 것**보다 나은가 (사용자 결정 — 더 좋은 장비를 찾으면 건네준다). */
+/** Better than **what the squad leader has equipped**, by the same measure (user's decision — it hands that over). */
 export function beatsLeader(sys: AllySystem, item: ItemInstance): boolean {
   const def = defOf(sys, item.defId);
   if (!def) return false;
@@ -173,7 +178,7 @@ export function beatsLeader(sys: AllySystem, item: ItemInstance): boolean {
   return false;
 }
 
-/** 분대장의 장착 장비 — 로컬이면 인벤토리, 원격이면 마지막 크루 카드. */
+/** What the squad leader has equipped — the inventory when local, the last crew card when remote. */
 function leaderGear(sys: AllySystem): { primary: ItemInstance | null; armor: ItemInstance | null; bag: ItemInstance | null } {
   const ctx = sys.ctx;
   const localId = ctx.net?.localId ?? null;
@@ -181,16 +186,16 @@ function leaderGear(sys: AllySystem): { primary: ItemInstance | null; armor: Ite
     const l = ctx.inventory?.getLoadout();
     return { primary: l?.primary ?? null, armor: l?.armor ?? null, bag: l?.bag ?? null };
   }
-  // 원격 분대장의 장비는 크루 카드가 아는 만큼만이다 (무기 · 방탄복 def id, 가방은 카드에 없다).
+  // A remote squad leader's gear is only what the crew card knows (weapon · armor def id — no bag on the card).
   const card = ctx.net?.getCrewCard(sys.leaderId) ?? null;
   const asInst = (defId: string | null | undefined): ItemInstance | null =>
     defId ? ctx.loot?.createItem(defId) ?? null : null;
   return { primary: asInst(card?.primary), armor: asInst(card?.armor), bag: null };
 }
 
-/* ── 장비 갈아끼우기 ─────────────────────────────────────────────────────── */
+/* ── gear swapping ───────────────────────────────────────────────────────── */
 
-/** 가방에 있는 주운 장비 중 지금 낀 것보다 나은 것이 있으면 갈아 낀다. 바꿨으면 true. */
+/** Swaps in picked-up gear from the bag when it beats what is equipped. True when something changed. */
 export function tryUpgrade(sys: AllySystem, a: Ally): boolean {
   if (!a.bag) return false;
   const seed = raidFoundSeed(sys.ctx);
@@ -203,7 +208,8 @@ export function tryUpgrade(sys: AllySystem, a: Ally): boolean {
     a.equip[slot] = it;
     if (slot === 'bag') resizeBag(sys, a);
     if (old && !isKit(a, old)) {
-      // 벗은 **주운** 장비는 가방으로, 안 들어가면 바닥에 둔다. 킷은 묶인 물건이라 그냥 사라진다.
+      // A **picked-up** piece taken off goes to the bag, or the ground when it does not fit. A kit piece is a
+      // bound thing, so it just vanishes.
       if (!a.bag.autoPlace(old)) dropAt(sys, a, old);
     } else if (old) a.kitUids.delete(old.uid);
     a.bagDirty = true;
@@ -220,18 +226,18 @@ function resizeBag(sys: AllySystem, a: Ally): void {
   for (const it of spill) dropAt(sys, a, it);
 }
 
-/** 발밑에 떨군다 (묶인 물건은 절대 여기 오지 않는다). */
+/** Drops it at its feet (a bound thing never reaches here). */
 export function dropAt(sys: AllySystem, a: Ally, item: ItemInstance): void {
   if (isKit(a, item)) return;
   _v1.copy(a.position);
   sys.ctx.pickups?.spawn(item, _v1);
 }
 
-/* ── 짐 버리기 ───────────────────────────────────────────────────────────── */
+/* ── junk dropping ───────────────────────────────────────────────────────── */
 
 /**
- * 「무거움」을 벗어나려고 **한 번에 하나씩** 버린다 (사용자 결정 — 가치가 제일 낮은 것 → 무게 가성비가 나쁜 것 →
- * 칸 가성비가 나쁜 것 순). 버렸으면 true.
+ * Drops **one at a time** to get out of 「무거움」 (user's decision — the lowest value first → the worst value per kg
+ * → the worst value per cell). True when something was dropped.
  */
 export function dropWorst(sys: AllySystem, a: Ally): boolean {
   if (!a.bag) return false;
@@ -239,7 +245,7 @@ export function dropWorst(sys: AllySystem, a: Ally): boolean {
   let worst: ItemInstance | null = null;
   let worstKey: [number, number, number] | null = null;
   for (const it of a.bag.items()) {
-    if (!isRaidFound(it, seed)) continue;   // 킷 · 표식 없는 것은 버릴 대상이 아니다
+    if (!isRaidFound(it, seed)) continue;   // the kit · anything without the mark is not junk to drop
     const v = valueOf(sys, it);
     const key: [number, number, number] = [v, v / kgOf(sys, it), v / cellsOf(sys, it)];
     if (!worstKey || key[0] < worstKey[0] || (key[0] === worstKey[0] && key[1] < worstKey[1])
@@ -254,14 +260,14 @@ export function dropWorst(sys: AllySystem, a: Ally): boolean {
   return true;
 }
 
-/** 가방에 넣는다 (안 들어가면 바닥으로). 주운 것으로 표시한다. */
+/** Puts it in the bag (to the ground when it does not fit). Marks it as found in the raid. */
 export function take(sys: AllySystem, a: Ally, item: ItemInstance): void {
   markRaidFound(item, raidFoundSeed(sys.ctx));
   if (!a.bag || !a.bag.autoPlace(item)) dropAt(sys, a, item);
   a.bagDirty = true;
 }
 
-/** 가방에서 조건에 맞는 첫 아이템 (주운 것만 — 킷은 건네지 않는다). */
+/** The first item in the bag that matches the test (picked-up only — the kit is never handed over). */
 export function findInBag(sys: AllySystem, a: Ally, pred: (def: ItemDef, it: ItemInstance) => boolean): ItemInstance | null {
   if (!a.bag) return null;
   const seed = raidFoundSeed(sys.ctx);
@@ -273,5 +279,5 @@ export function findInBag(sys: AllySystem, a: Ally, pred: (def: ItemDef, it: Ite
   return null;
 }
 
-/** 스크래치를 쓰지 않는 위치 복사 (요청 · 목적지 보관용). */
+/** A position copy that uses no scratch (for keeping a request · a destination). */
 export function clone(v: THREE.Vector3): THREE.Vector3 { return v.clone(); }

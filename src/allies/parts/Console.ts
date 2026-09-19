@@ -1,8 +1,10 @@
 /**
- * src/allies/parts/Console.ts — 개발 치트 `/android 1|0` (사용자 결정 — **서버 없이** 안드로이드를 한 기 넣고 뺀다).
+ * src/allies/parts/Console.ts — the dev cheat `/android 1|0` (user's decision — puts one android in and takes it
+ * out again **with no server**).
  *
- * 도킹된 로비 안에서는 진짜 경로를 탄다 (`NetRef.setAndroidBay` → 릴레이 봇 멤버). 로비가 없으면 **로컬 명단**에
- * 한 기를 넣는다 — 개인 함선에서도 보이고 솔로 레이드에 같이 간다. 로컬 명단은 세션 동안만 살고 저장되지 않는다.
+ * Inside a docked lobby it takes the real road (`NetRef.setAndroidBay` → a relay bot member). With no lobby it puts
+ * one unit on the **local roster** — it shows in the personal ship too and comes along on a solo raid. The local
+ * roster lives for the session only and is never saved.
  */
 import { ANDROID_BAY_COUNT, androidOnBay, isDockedLobby } from '@/shared';
 import type { AllySystem } from '../AllySystem';
@@ -23,7 +25,7 @@ export function register(sys: AllySystem): void {
   if (unreg) sys.unsubs.push(unreg);
 }
 
-/** `AlliesRef.devSetAndroid` — 결과 한 줄(한국어). */
+/** `AlliesRef.devSetAndroid` — one line of result (Korean). */
 export function devSetAndroid(sys: AllySystem, on: boolean): string {
   const net = sys.ctx.net;
   const lobby = net?.lobby ?? null;

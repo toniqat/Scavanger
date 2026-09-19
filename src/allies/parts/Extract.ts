@@ -1,15 +1,19 @@
 /**
- * src/allies/parts/Extract.ts — **탈출**. 사용자 결정 세 가지가 여기 산다.
+ * src/allies/parts/Extract.ts — **extraction**. Three user's decisions live here.
  *
- *  ① 「탈출하고 싶다」 핑 → 하네스 안에서 **이미 밝혀진** 탈출 패드를 찾아 핑을 찍는다. 같은 사람이
- *     `ALLY_EXTRACT_CONFIRM_S` 안에 다시 말하면 거기까지 걸어가 **호출 버튼을 누른다**.
- *  ② 가방이 「조금 무거움」이 되면 탈출 핑 — **레이드당 한 번**. 「무거움」이 되면 또 한 번이고, 이쪽은 보통으로
- *     돌아왔다가 다시 무거워지면 다시 찍는다 (사용자 결정의 비대칭을 그대로 옮긴 것이다).
- *  ③ 함선이 내려앉고 분대장이 타러 가면 같이 탄다. 이륙하면 **레이드에서 주운 것**이 분대장 창고로 간다
- *     (`ally deposit` → `inventory:allyDeposit`); 기본 킷은 묶인 물건이라 따라가지 않는다.
- *  ④ 2026-09-16 사용자 결정: **PC 가 탈출구 핑을 찍고** 「탈출하고 싶다」면 스스로 패드를 찾지 않고 **그 핑 자리로**
- *     간다 — 「PC 하네스 범위 내에서 해당 탈출구를 향해 이동」. 동의와 표시는 `parts/Commands.agreeToHumanExtract`,
- *     걸음은 여기 `seek` 의 `hasExtractPing` 갈래다. 확인 창(①)은 그대로라 한 번 더 말하면 콘솔을 누른다.
+ *  ① A 「탈출하고 싶다」 ping → it looks inside the harness for an **already discovered** extraction pad and pings it.
+ *     When the same person says it again within `ALLY_EXTRACT_CONFIRM_S`, it walks there and **presses the call
+ *     button**.
+ *  ② An extract ping once the bag reaches 「조금 무거움」 — **once per raid**. 「무거움」 gets one more, and that one
+ *     fires again every time the load comes back to normal and grows heavy again (the asymmetry of the user's
+ *     decision carried over as it stands).
+ *  ③ When the ship has landed and the squad leader goes to board, it boards too. On liftoff **what was found in the
+ *     raid** goes to the squad leader's stash (`ally deposit` → `inventory:allyDeposit`); the base kit is a bound
+ *     thing and does not follow.
+ *  ④ 2026-09-16 user's decision: when **a PC has pinged the way out** and says 「탈출하고 싶다」, it does not search for
+ *     a pad itself and walks **to that ping spot** — 「PC 하네스 범위 내에서 해당 탈출구를 향해 이동」. Agreeing and
+ *     marking live in `parts/Commands.agreeToHumanExtract`, the walking in `seek`'s `hasExtractPing` branch here. The
+ *     confirm window (①) is unchanged, so saying it once more presses the console.
  */
 import type * as THREE from 'three';
 import {
@@ -27,7 +31,7 @@ export function proposal(sys: AllySystem, a: Ally): Proposal | null {
   weightPing(sys, a);
   if (a.state === 'aboard') return null;
 
-  // 함선이 내려앉았고 분대장이 타러 간다 → 같이 탄다.
+  // The ship has landed and the squad leader goes to board → it boards too.
   const ex = sys.ctx.extraction;
   if (ex && (ex.stage === 'landed' || ex.stage === 'departing') && sys.leaderKnown) {
     const bp = ex.boardingPoint?.(_v1) ?? null;
@@ -50,9 +54,9 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
   }
 }
 
-/* ── ① 탈출구 탐색 ──────────────────────────────────────────────────────── */
+/* ── ① searching for the way out ─────────────────────────────────────────── */
 
-/** 하네스 안에서 이미 밝혀진 패드를 찾아 `out` 에 쓰고 그 id 를 돌려준다. 없으면 null. */
+/** Finds an already discovered pad inside the harness, writes it into `out` and returns its id. Null with none. */
 function findPad(sys: AllySystem, out: THREE.Vector3): string | null {
   const pads = sys.ctx.extraction?.getPads?.() ?? [];
   const fog = sys.ctx.world?.fog ?? null;
@@ -60,7 +64,7 @@ function findPad(sys: AllySystem, out: THREE.Vector3): string | null {
   let bestD = Infinity;
   for (const p of pads) {
     if (sys.leaderKnown && dist2D(p.position, sys.leaderPos) > sys.harness) continue;
-    if (fog && !fog.isDiscovered(p.position)) continue;      // 발견하지 못한 것은 없는 것이다 (안개 규약)
+    if (fog && !fog.isDiscovered(p.position)) continue;      // undiscovered = does not exist (the fog contract)
     const d = sys.leaderKnown ? dist2D(p.position, sys.leaderPos) : 0;
     if (d < bestD) { bestId = p.id; bestD = d; out.copy(p.position); }
   }
@@ -68,12 +72,13 @@ function findPad(sys: AllySystem, out: THREE.Vector3): string | null {
 }
 
 function seek(sys: AllySystem, a: Ally, dt: number): void {
-  // ④ PC 가 찍어 둔 탈출구가 있으면 스스로 찾지 않는다 — 하네스 안에서 그 자리로 걸어간다.
+  // ④ With a way out a PC has pinged it does not search itself — it walks to that spot, inside the harness.
   if (a.hasExtractPing) {
     Nav.clampToHarness(sys.leaderKnown ? sys.leaderPos : a.position, sys.harness, a.extractPingPos, _v1);
     a.running = true;
     if (Nav.step(sys, a, _v1, ALLY_RUN_SPEED, dt) <= ALLY_MOVE_ARRIVE_M) {
-      // 도착했다 — 하네스가 분대장에게 묶여 있으니 여기 서서 기다린다 (분대장이 오면 ③ 탑승이 이어받는다).
+      // Arrived — the harness is tied to the squad leader, so it stands and waits here (when the leader comes,
+      // ③ boarding takes over).
       Nav.halt(a);
       a.running = false;
     }
@@ -81,7 +86,7 @@ function seek(sys: AllySystem, a: Ally, dt: number): void {
   }
   Nav.halt(a);
   void dt;
-  if (a.oneShot) return;      // 이번 진입에서 이미 찾아 봤다 (전이 지연 동안 반복 실행 금지 — `Ally.oneShot`)
+  if (a.oneShot) return;      // already searched on this entry (no repeat during the transition — `Ally.oneShot`)
   a.oneShot = true;
   const id = findPad(sys, _v2);
   if (!id) {
@@ -93,11 +98,12 @@ function seek(sys: AllySystem, a: Ally, dt: number): void {
   a.extractPingAt = sys.ctx.time;
   a.extractRequester = a.taskBy;
   Ping.place(sys, a, 'extraction', _v2);
-  // 확인 창이 열렸다 — 요청 자체는 끝난다 (다시 말하면 `Commands.onExtractComms` 가 `confirmExtract` 를 켠다).
+  // The confirm window is open — the request itself ends (saying it again turns `confirmExtract` on in
+  // `Commands.onExtractComms`).
   Commands.finishTask(sys, a);
 }
 
-/* ── 호출 버튼 ──────────────────────────────────────────────────────────── */
+/* ── the call button ─────────────────────────────────────────────────────── */
 
 function call(sys: AllySystem, a: Ally, dt: number): void {
   const pads = sys.ctx.extraction?.getPads?.() ?? [];
@@ -114,7 +120,7 @@ function call(sys: AllySystem, a: Ally, dt: number): void {
   Commands.finishTask(sys, a);
 }
 
-/* ── ③ 탑승 ────────────────────────────────────────────────────────────── */
+/* ── ③ boarding ──────────────────────────────────────────────────────────── */
 
 function board(sys: AllySystem, a: Ally, dt: number): void {
   const ex = sys.ctx.extraction;
@@ -125,7 +131,7 @@ function board(sys: AllySystem, a: Ally, dt: number): void {
   Nav.step(sys, a, bp, ALLY_RUN_SPEED, dt);
 }
 
-/* ── ② 무게로 인한 탈출 핑 ─────────────────────────────────────────────── */
+/* ── ② the weight-driven extract ping ────────────────────────────────────── */
 
 function weightPing(sys: AllySystem, a: Ally): void {
   const w = a.weightState;
@@ -147,9 +153,9 @@ function sayExtract(sys: AllySystem, a: Ally): void {
   if (id) Ping.place(sys, a, 'extraction', _v2);
 }
 
-/* ── 이륙 ──────────────────────────────────────────────────────────────── */
+/* ── liftoff ─────────────────────────────────────────────────────────────── */
 
-/** 이륙 — 화물칸 안에 살아 있는 기는 탈출한 것으로 보고 전리품을 분대장 창고로 보낸다. */
+/** Liftoff — a unit alive in the ship bay counts as extracted; its loot goes to the squad leader's stash. */
 export function onLiftoff(sys: AllySystem): void {
   if (!sys.simulating) return;
   const ex = sys.ctx.extraction;
@@ -159,7 +165,7 @@ export function onLiftoff(sys: AllySystem): void {
     a.state = 'aboard';
     a.hidden = true;
     sys.depositToLeader(a, loot);
-    // 주운 장비까지 같이 나갔다 — 낀 자리를 비우고 가방을 턴다 (킷은 그대로 남는다).
+    // Picked-up gear went out with it — the equipment slots are emptied and the bag stripped (the kit stays).
     for (const slot of ['primary', 'armor', 'bag'] as const) {
       const it = a.equip[slot];
       if (it && !a.kitUids.has(it.uid)) a.equip[slot] = null;
@@ -169,5 +175,5 @@ export function onLiftoff(sys: AllySystem): void {
   }
 }
 
-/** 확인 창의 길이 (s) — `AllySystem` 이 읽는다. */
+/** How long the confirm window lasts (s) — `AllySystem` reads it. */
 export const CONFIRM_WINDOW_S = ALLY_EXTRACT_CONFIRM_S;

@@ -85,6 +85,7 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
 ## Recent changes
 
 Last 5 only — older: `git log -- src/allies`.
+- 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); the seven verbatim user decisions inside `「」` and every Korean on-screen / ping label (`가자` · `주의` · `앞장서라` · `탈출하고 싶다` · the weight states) kept verbatim, no string literal touched.
 - 2026-09-18 — Androids never engage a nest egg: `queryNear` leaves props out, so sensing / targeting / contract 「적」 pings skip them, and an 「적」 ping that names an egg is refused rather than agreed to (`parts/Commands.onEnemyPing` · `tickEnemyPing`).
 - 2026-09-16 — AI pass 2: `roam` free search · 2 m separation · spread · per-weapon engage range · contact-range firing fix ·
   move-ping oscillation fix · agreeing to a PC's enemy / extraction ping · 앞장서라 doubles the harness and expires ·

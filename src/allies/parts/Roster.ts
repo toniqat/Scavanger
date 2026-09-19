@@ -1,10 +1,10 @@
 /**
- * src/allies/parts/Roster.ts — **명단**. 「내 분대의 안드로이드는 누구인가」 한 곳.
+ * src/allies/parts/Roster.ts — **the roster**. The one place that answers 「who are my squad's androids」.
  *
- * 규약 (계약 `shared/allies.ts`):
- *  - 도킹된 로비의 공용 함선 · 그 레이드 안에서는 **릴레이 봇 멤버**가 명단이다 (`androidPlayersOf(lobby)`).
- *  - 그 밖(개인 함선 · 서버 없음)에서는 치트 `/android` 가 만든 **로컬 명단**뿐이다.
- * 두 경우 모두 모든 클라이언트가 **같은 로비 상태에서 스스로 계산한다** — 명단에는 와이어가 없다.
+ * The contract (`shared/allies.ts`):
+ *  - A docked lobby's shared ship · its raid: the **relay bot members** are the roster (`androidPlayersOf(lobby)`).
+ *  - Outside that (personal ship · no server) there is only the **local roster** the `/android` cheat built.
+ * In both cases every client **computes it from the same lobby state** — the roster has no wire.
  */
 import * as THREE from 'three';
 import {
@@ -16,22 +16,22 @@ import type { AllySystem } from '../AllySystem';
 import { Ally } from './Body';
 import * as Bag from './Bag';
 
-/** 지금 들어가 있는 로비 — 공용 함선 세션이거나 그 레이드 안일 때만. 아니면 null (= 치트 명단). */
+/** The current lobby — only in a shared-ship session or inside its raid. Otherwise null (= the cheat roster). */
 function lobbyOf(sys: AllySystem): LobbyState | null {
   const net = sys.ctx.net;
   if (!net) return null;
   const lobby = net.lobby;
   if (!lobby) return null;
-  // 「도킹된 분대인가」 — 초대만 받고 아직 도킹하지 않은 로비는 공용 함선이 아니다 (CLAUDE.md §4.3).
+  // 「Docked?」 — a lobby that only got an invite and has not docked yet is not the shared ship (CLAUDE.md §4.3).
   if (lobby.docked === false) return null;
   if (!net.inHubSession && !net.inSession) return null;
   return lobby;
 }
 
 /**
- * 명단을 지금 상태에서 다시 계산하고, 바뀌었으면 몸을 맞추고 `ally:rosterChanged` 를 낸다.
- * 매 프레임 부르면 배열 두 개가 계속 생기므로, 프레임 루프는 `rosterDirty` 가 설 때만 부른다
- * (`net:lobbyUpdated` · `net:lobbyLeft` · `net:androidReturned` · 함선 출입 · 치트가 세운다).
+ * Recomputes the roster from the current state; if it changed, matches the bodies and emits `ally:rosterChanged`.
+ * Calling it every frame keeps minting two arrays, so the frame loop calls it only while `rosterDirty` is raised
+ * (`net:lobbyUpdated` · `net:lobbyLeft` · `net:androidReturned` · ship entry / exit · the cheat raise it).
  */
 export function refresh(sys: AllySystem): void {
   sys.rosterDirty = false;
@@ -72,12 +72,16 @@ function sameRoster(a: readonly AllyRosterEntry[], b: readonly AllyRosterEntry[]
   return true;
 }
 
-/** 명단에 맞춰 몸을 만들고 지운다. 공용 함선에서는 **비어 있는 슬롯의 잠든 몸**도 만든다 (`parts/Hub`). */
+/**
+ * Creates and removes bodies to match the roster. In the shared ship the **dormant body of an empty bay** is created
+ * too (`parts/Hub`).
+ */
 export function syncBodies(sys: AllySystem): void {
   const wanted = new Map<AllyId, AllyRosterEntry>();
   for (const e of sys.roster) wanted.set(e.id, e);
 
-  // 공용 함선에서는 모집되지 않은 슬롯에도 잠든 몸이 서 있다 (사용자 결정 — 슬롯 안의 안드로이드가 보인다).
+  // In the shared ship a dormant body stands in a bay that was not recruited from too (user's decision — the
+  // android inside the bay is visible).
   const bays = sys.ctx.hub?.getAndroidBays?.() ?? [];
   for (const b of bays) {
     const id = dormantIdOf(sys, b.bay);
@@ -103,18 +107,21 @@ export function syncBodies(sys: AllySystem): void {
     a.slot = e.slot;
     a.local = e.local;
     /*
-     * 2026-09-16 (사용자 결정 「호출되는 순간 기본 킷을 장착한 채로 선다」): 명단에 들어온 순간 = 몸이 생기는 순간이
-     * 곧 킷을 입는 순간이다. 여기가 **로비 모집 · `/android` 치트 · 늦게 들어온 클라이언트**가 모두 지나는 한 곳이고
-     * (`refresh` · `Hub.onHubEntered` · 슬롯이 늦게 생겼을 때의 `Hub.update`), `ensureKit` 은 멱등이라 반복 호출이 싸다.
-     * **레이드 중에는 부르지 않는다**: 레이드의 킷은 `parts/Spawn` 이 세우고 리플리카는 `ally bag` 와이어로만 알아야 한다
-     * (레이드 도중 `net:lobbyUpdated` 로 여기 들어오면 리플리카에 빈 가방이 생겨 호스트 승계가 전리품을 잃는다).
+     * 2026-09-16 (user's decision 「호출되는 순간 기본 킷을 장착한 채로 선다」): the moment it enters the roster = the
+     * moment its body is created is also the moment it puts the kit on.
+     * **Lobby recruiting · the `/android` cheat · a late-joining client** all pass through here (`refresh` ·
+     * `Hub.onHubEntered` · `Hub.update` when a bay appears late), and `ensureKit` is idempotent, so a repeated
+     * call is cheap.
+     * **It is not called during a raid**: the raid's kit is built by `parts/Spawn` and a replica must learn it
+     * from the `ally bag` wire only (coming through here on a mid-raid `net:lobbyUpdated` mints an empty bag
+     * on the replica, and host migration then loses the android's loot).
      */
     if (!sys.raidActive) Bag.ensureKit(sys, a);
   }
   sys.bodies.sort((x, y) => x.bay - y.bay);
 }
 
-/** 공용 함선의 `bay` 슬롯에 서 있는 잠든 몸의 id. 공용 함선이 아니면 null. */
+/** The id of the dormant body standing in bay `bay` of the shared ship. null when this is not the shared ship. */
 function dormantIdOf(sys: AllySystem, bay: number): AllyId | null {
   const net = sys.ctx.net;
   const code = net?.lobby?.code;
@@ -123,12 +130,12 @@ function dormantIdOf(sys: AllySystem, bay: number): AllyId | null {
   return androidIdOf(code, bay);
 }
 
-/** 명단에 든(= 분대원인) 안드로이드인가 — 잠든 슬롯 몸과 가른다. */
+/** Is this android on the roster (= a squadmate) — tells it apart from a dormant bay body. */
 export function isRecruited(sys: AllySystem, id: AllyId): boolean {
   return sys.roster.some((e) => e.id === id);
 }
 
-/** 릴레이가 한 기를 슬롯으로 돌려보냈다 (`human_joined` = 사람이 이겼다 · `full` = 자리 없음). */
+/** The relay sent one unit back to its bay (`human_joined` = the person won · `full` = no room). */
 export function onReturned(sys: AllySystem, bay: number, reason: 'human_joined' | 'full'): void {
   if (reason !== 'human_joined') return;
   const code = sys.ctx.net?.lobby?.code;
@@ -136,9 +143,9 @@ export function onReturned(sys: AllySystem, bay: number, reason: 'human_joined' 
   refresh(sys);
 }
 
-/* ── 치트 명단 (서버 없음) ─────────────────────────────────────────────────── */
+/* ── The cheat roster (no server) ──────────────────────────────────── */
 
-/** 로컬 플레이어가 쓰지 않는 첫 로비 슬롯 — 색 · 발사 포드가 겹치지 않게. */
+/** The first lobby slot the local player is not using — so the colour · the launch pod do not collide. */
 export function freeLocalSlot(sys: AllySystem): number {
   const mine = sys.ctx.net?.localSlot ?? 0;
   const used = new Set<number>([mine]);
@@ -166,12 +173,12 @@ export function removeLocal(sys: AllySystem): AllyRosterEntry | null {
   return gone;
 }
 
-/* ── 소지품 보기 ───────────────────────────────────────────────────────────── */
+/* ── What it carries ──────────────────────────────────────────────────── */
 
 /**
- * `AlliesRef.getLoadout` — 몸이 지금 들고 있는 것. 2026-09-16 부터 **함선에서도** 기본 킷이 채워져 있으므로
- * (`syncBodies` → `Bag.ensureKit`) 발사 슬롯 카드가 빈 장비를 그리지 않는다. 리플리카의 레이드 중 소지품은
- * 가방 격자가 없어 마지막 `ally bag`(`wireItems`) 이다.
+ * `AlliesRef.getLoadout` — what the body holds now. Since 2026-09-16 the base kit is filled **in the ship too**
+ * (`syncBodies` → `Bag.ensureKit`), so the launch slot card never draws empty gear. A replica's mid-raid loadout
+ * is the last `ally bag` (`wireItems`), because it has no bag grid.
  */
 export function loadoutOf(sys: AllySystem, id: AllyId): AllyLoadoutView | null {
   const a = sys.byId.get(id);
@@ -188,7 +195,7 @@ export function loadoutOf(sys: AllySystem, id: AllyId): AllyLoadoutView | null {
   };
 }
 
-/** 스모크용 지급 — 레이드에서 주운 것으로 표시해 건네기 · 창고 이관 경로를 그대로 타게 한다. */
+/** A give for the smokes — marked as raid loot so the hand-over · stash deposit paths run unchanged. */
 export function debugGive(sys: AllySystem, id: AllyId, defId: string, qty: number): boolean {
   const a = sys.byId.get(id);
   if (!a || !a.bag) return false;
@@ -200,16 +207,16 @@ export function debugGive(sys: AllySystem, id: AllyId, defId: string, qty: numbe
   return true;
 }
 
-/** 안드로이드 id 인가 (계약의 `isAndroidId` 를 한 번 더 감싸 파트에서 짧게 쓴다). */
+/** Is it an android id (wraps the contract's `isAndroidId` once more, so the parts can write it short). */
 export function isAlly(id: unknown): boolean { return isAndroidId(id); }
 
-/** 로컬 플레이어의 PeerId — 서버가 없으면 `ALLY_LOCAL_PEER`. */
+/** The local player's PeerId — `ALLY_LOCAL_PEER` when there is no server. */
 export function myPeer(sys: AllySystem): string {
   return sys.ctx.net?.localId ?? ALLY_LOCAL_PEER;
 }
 
-/** 스크래치 없이 한 번 쓰고 버리는 위치 복사 (요청 보관용 — 재사용 벡터를 보관하면 안 된다). */
+/** A throwaway position copy, not a scratch (for keeping a request — a reused vector must never be kept). */
 export function copyOf(v: THREE.Vector3): THREE.Vector3 { return v.clone(); }
 
-/** 가방 아이템 목록을 얕게 복사한다 (시체 · 창고 이관은 원본을 넘겨서는 안 된다). */
+/** Shallow-copies the bag's item list (a corpse · a stash deposit must never be handed the original). */
 export function snapshotItems(items: readonly ItemInstance[]): ItemInstance[] { return items.slice(); }

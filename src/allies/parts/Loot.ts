@@ -1,15 +1,17 @@
 /**
- * src/allies/parts/Loot.ts — **루팅**. 사용자 결정 「PC 가 버린 아이템 / 상자 핑을 찍으면 그리로 간다」 ·
+ * src/allies/parts/Loot.ts — **looting**. User's decisions 「PC 가 버린 아이템 / 상자 핑을 찍으면 그리로 간다」 ·
  * 「먹고 있을 때 PC 가 그 상자를 열면 중단」.
  *
- * 2026-09-16 사용자 결정 「**핑이 먼저고, 혼자 주워 담는 것은 한가할 때뿐**」:
- *  - **핑으로 찍힌** 상자 · 바닥 아이템(`taskKind` `'crate'` / `'item'`)은 우선순위 `PRIO.orderLoot` 그대로이고
- *    **거리 제한이 없다** — 하네스 밖이라도 간다. 맡으면 한 줄 말한다 (`CHAT_KO.agreeCrate`).
- *  - **자율 루팅**은 명령 · 요청 · 전투 · 구조가 하나도 없을 때(`isIdle`)만, 그것도 `ALLY_IDLE_LOOT_M` 안의
- *    컨테이너만 본다 (시체 컨테이너도 같은 문을 지난다 — `getLootContainers()` 가 유일한 자율 후보 목록이다).
+ * 2026-09-16 user's decision 「**핑이 먼저고, 혼자 주워 담는 것은 한가할 때뿐**」:
+ *  - A **pinged** crate · ground item (`taskKind` `'crate'` / `'item'`) keeps the priority `PRIO.orderLoot` and has
+ *    **no distance limit** — it goes even outside the harness. Taking it on it says one line (`CHAT_KO.agreeCrate`).
+ *  - **Autonomous looting** happens only with no order · request · combat · rescue at all (`isIdle`), and even then
+ *    it looks only at containers inside `ALLY_IDLE_LOOT_M` (a corpse container passes the same gate —
+ *    `getLootContainers()` is the only list of autonomous candidates).
  *
- * 내용물은 **여는 것과 같은 굴림**으로 미리 본다 (`InventoryRef.peekContainerItems` — 2026-09-12 드론 스캔이 쓰던 길).
- * 실제로 가져가는 것은 호스트 권위의 `takeContainerItemFor` 뿐이다 — 사람의 가져가기와 같은 기록 · 방송을 탄다.
+ * The contents are previewed with **the same roll as opening** (`InventoryRef.peekContainerItems` — the path the
+ * 2026-09-12 drone scan used). Only the host authority's `takeContainerItemFor` actually takes anything — it rides
+ * the same record · broadcast as a person's take.
  */
 import type * as THREE from 'three';
 import {
@@ -24,21 +26,24 @@ import * as Nav from './Nav';
 import * as Bag from './Bag';
 import * as Ping from './Ping';
 
-/** 상자 후보를 다시 훑는 주기 (s) — 배치값이다. */
+/** How often the crate candidates are scanned again (s) — a layout constant. */
 const LOOT_SCAN_S = 1;
-/** 핑 자리와 컨테이너를 맞추는 창 (m) — 안드로이드가 갈 수 있는 거리의 제한이 아니라 「그 핑이 이 상자인가」다. */
+/**
+ * The match window (m) between a ping spot and a container — not a limit on how far an android may go, but
+ * 「is this ping this crate」.
+ */
 const PING_CRATE_MATCH_M = ALLY_LOOT_REACH_M * 4;
 
 export function onEnter(sys: AllySystem, a: Ally): void { a.lootTakeT = 0; void sys; }
 export function onExit(sys: AllySystem, a: Ally): void { a.lootTakeT = 0; void sys; }
 
-/** 자율 루팅 · 명령받은 상자 · 바닥 아이템을 한 곳에서 제안한다. */
+/** Proposes autonomous looting · an ordered crate · a ground item, all in one place. */
 export function autoProposal(sys: AllySystem, a: Ally): Proposal | null {
-  // ── 핑으로 찍힌 것 — 거리 제한 없음 ──
+  // ── pinged — no distance limit ──
   if (a.taskKind === 'crate') {
     const id = a.taskTargetId ?? nearestContainerId(sys, a, a.taskAt);
     if (id) {
-      if (a.lootContainerId !== id) Ping.say(sys, a, CHAT_KO.agreeCrate);   // 반복은 `Ping.say` 가 막는다
+      if (a.lootContainerId !== id) Ping.say(sys, a, CHAT_KO.agreeCrate);   // `Ping.say` blocks the repeat
       a.lootContainerId = id;
       return { state: 'loot', prio: PRIO.orderLoot };
     }
@@ -47,11 +52,12 @@ export function autoProposal(sys: AllySystem, a: Ally): Proposal | null {
     const p = sys.ctx.pickups?.findNear(a.taskAt, ALLY_LOOT_REACH_M * 3) ?? null;
     if (p) { a.pickupId = p.id; return { state: 'pickup', prio: PRIO.orderLoot }; }
   }
-  // ── 자율 루팅 — 한가할 때만, `ALLY_IDLE_LOOT_M` 안에서만 ──
+  // ── autonomous looting — only while idle, only inside `ALLY_IDLE_LOOT_M` ──
   if (!isIdle(sys, a)) { a.lootContainerId = null; return null; }
-  // 내용물 미리보기는 싸지 않다 — 이미 고른 상자가 살아 있으면 그대로 두고, 아니면 주기마다만 다시 훑는다.
+  // The contents preview is not cheap — a crate already picked is left alone while it lives, and otherwise the
+  // candidates are scanned again only once per period.
   if (a.lootContainerId && stillWorth(sys, a, a.lootContainerId)) return { state: 'loot', prio: PRIO.autoLoot };
-  if (a.lootScanT > 0) return null;          // 주기는 `parts/Fsm` 이 깎는다
+  if (a.lootScanT > 0) return null;          // `parts/Fsm` ticks the period down
   a.lootScanT = LOOT_SCAN_S;
   const id = pickContainer(sys, a);
   if (!id) { a.lootContainerId = null; return null; }
@@ -60,16 +66,16 @@ export function autoProposal(sys: AllySystem, a: Ally): Proposal | null {
 }
 
 /**
- * 「한가한가」 — 명령(가자 · 주의 · 앞장) · 요청 · 전투(적 핑 포함) · 구조가 하나도 없을 때만 스스로 줍는다
- * (2026-09-16 사용자 결정 「상자 · 컨테이너 · 시체로 달려가지 않는다」).
+ * 「is it idle」 — it picks things up on its own only with no order (`가자` · `주의` · `앞장`) · request · combat
+ * (an enemy ping included) · rescue at all (2026-09-16 user's decision 「상자 · 컨테이너 · 시체로 달려가지 않는다」).
  */
 function isIdle(sys: AllySystem, a: Ally): boolean {
-  if (a.taskKind) return false;                                       // 요청을 맡고 있다
-  if (a.targetEnemyId !== null || sys.preferredEnemyId !== null) return false;   // 교전 · 적 핑
-  if (a.rescueTarget || a.carrying) return false;                     // 구조 · 업기
+  if (a.taskKind) return false;                                       // it is holding a request
+  if (a.targetEnemyId !== null || sys.preferredEnemyId !== null) return false;   // engaged · an enemy ping
+  if (a.rescueTarget || a.carrying) return false;                     // rescue · carrying
   const now = sys.ctx.time;
-  if (now < sys.watchUntil) return false;                             // 주의 핑
-  if (sys.orderKind && now < sys.orderUntil) return false;            // 가자 · 앞장
+  if (now < sys.watchUntil) return false;                             // a `주의` ping
+  if (sys.orderKind && now < sys.orderUntil) return false;            // `가자` · `앞장`
   return true;
 }
 
@@ -103,7 +109,7 @@ function actPickup(sys: AllySystem, a: Ally, dt: number): void {
   a.taskKind = null;
 }
 
-/* ── 상자 고르기 ─────────────────────────────────────────────────────────── */
+/* ── picking a crate ─────────────────────────────────────────────────────── */
 
 function containers(sys: AllySystem): readonly LootContainerInfo[] {
   return sys.ctx.world?.getLootContainers?.() ?? [];
@@ -115,8 +121,9 @@ function containerOf(sys: AllySystem, id: string | null): LootContainerInfo | nu
 }
 
 /**
- * 스스로 주울 상자 — **바로 곁(`ALLY_IDLE_LOOT_M`)** 이면서 하네스 안이고, 아직 가져갈 것이 남은 가장 가까운 것.
- * 멀리 있는 것을 향해 달려가지 않는 것이 이 두 조건의 전부다 (핑으로 찍힌 상자는 이 길로 오지 않는다).
+ * The crate it loots on its own — **right beside it (`ALLY_IDLE_LOOT_M`)**, inside the harness, still holding
+ * something to take, and the nearest of those. Those two conditions say one thing: it never runs off toward a distant
+ * crate (a pinged crate does not come down this path).
  */
 function pickContainer(sys: AllySystem, a: Ally): string | null {
   if (!sys.leaderKnown) return null;
@@ -136,7 +143,10 @@ function pickContainer(sys: AllySystem, a: Ally): string | null {
   return best;
 }
 
-/** 핑 자리에 놓인 컨테이너 (`PING_CRATE_MATCH_M` 안에 아무것도 없으면 null — 그 핑은 상자가 아니었다). */
+/**
+ * The container standing at the ping spot (null when nothing is inside `PING_CRATE_MATCH_M` — that ping was not a
+ * crate).
+ */
 function nearestContainerId(sys: AllySystem, a: Ally, near: THREE.Vector3): string | null {
   let best: string | null = null;
   let bestD = Infinity;
@@ -155,7 +165,7 @@ function stillWorth(sys: AllySystem, a: Ally, id: string): boolean {
   return !!peekBest(sys, c);
 }
 
-/** 이 상자에서 가장 값어치 있는 한 줄 (없으면 null). 여는 것과 **같은 굴림**이라 미리 보기와 결과가 같다. */
+/** The most valuable row in this crate (null with none). **The same roll** as opening, so peek equals take. */
 function peekBest(sys: AllySystem, c: LootContainerInfo): ItemInstance | null {
   const items = sys.ctx.inventory?.peekContainerItems?.(c.id, c.tier) ?? null;
   if (!items || items.length === 0) return null;
@@ -168,7 +178,7 @@ function peekBest(sys: AllySystem, c: LootContainerInfo): ItemInstance | null {
   return best;
 }
 
-/** 한 줄 가져간다. 가져갔으면 true. */
+/** Takes one row. True when it took something. */
 function takeOne(sys: AllySystem, a: Ally, c: LootContainerInfo): boolean {
   const want = peekBest(sys, c);
   if (!want) return false;
@@ -177,7 +187,7 @@ function takeOne(sys: AllySystem, a: Ally, c: LootContainerInfo): boolean {
   const slot = Bag.upgradeSlotOf(sys, a, got);
   Bag.take(sys, a, got);
   if (slot) Bag.tryUpgrade(sys, a);
-  // 분대장보다 좋은 장비면 알린다 (사용자 결정 — 아이템 핑 → 건네주기).
+  // Gear better than the squad leader's is announced (user's decision — an item ping → handing it over).
   if (Bag.beatsLeader(sys, got)) sys.offerToLeader(a, got);
   return true;
 }

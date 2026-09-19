@@ -1,9 +1,10 @@
 /**
- * src/allies/parts/Support.ts — **건네주기**. 사용자 결정의 조건을 그대로 옮긴다:
+ * src/allies/parts/Support.ts — **handing over**. It carries the user's decision across exactly as stated:
  * 「회복 아이템이 있으면 핑을 찍고, PC 근처에 와서, PC 가 멈추거나 자신을 바라보고 있을 때 떨군 뒤 다시 핑」.
  *
- * 건네는 것은 **레이드에서 주운 것**뿐이다 — 기본 킷은 묶인 물건이라 손을 못 댄다 (`parts/Bag`).
- * `ALLY_DELIVER_WAIT_MAX_S` 를 넘게 기다리면 그냥 발밑에 떨구고 핑을 찍는다 (영영 들고 서 있지 않게).
+ * Only what was **found in the raid** is handed over — the base kit is a bound thing and cannot be touched
+ * (`parts/Bag`). Waiting longer than `ALLY_DELIVER_WAIT_MAX_S` it simply drops the item at its own feet and pings
+ * (so it never stands there holding it forever).
  */
 import {
   ALLY_DELIVER_LOOK_DOT, ALLY_DELIVER_RANGE_M, ALLY_DELIVER_STILL_SPEED, ALLY_DELIVER_WAIT_MAX_S,
@@ -20,7 +21,7 @@ import * as Ping from './Ping';
 import * as Bag from './Bag';
 import * as Commands from './Commands';
 
-/** 건넬 물건을 찾는다 (요청 종류별). 없으면 null. */
+/** Finds the thing to hand over (by request kind). Null with none. */
 function pick(sys: AllySystem, a: Ally): ItemInstance | null {
   if (a.deliverUid) {
     const held = a.bag?.items().find((i) => i.uid === a.deliverUid) ?? null;
@@ -45,7 +46,7 @@ function pick(sys: AllySystem, a: Ally): ItemInstance | null {
 
 export function proposal(sys: AllySystem, a: Ally): Proposal | null {
   if (a.taskKind !== 'heal' && a.taskKind !== 'shield' && a.taskKind !== 'ammo' && a.taskKind !== 'item') return null;
-  if (a.taskKind === 'item' && !a.taskDefId) return null;    // 바닥 아이템 줍기는 `parts/Loot`
+  if (a.taskKind === 'item' && !a.taskDefId) return null;    // picking an item up off the ground is `parts/Loot`
   return pick(sys, a) ? { state: 'deliver', prio: PRIO.deliver } : null;
 }
 
@@ -54,7 +55,7 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
   if (!item || !a.taskBy) { Commands.finishTask(sys, a); Nav.halt(a); return; }
   a.deliverUid = item.uid;
 
-  // ① 먼저 무엇을 줄지 핑을 찍는다.
+  // ① First it pings what it is going to give.
   if (!a.deliverPinged) {
     a.deliverPinged = true;
     Ping.place(sys, a, 'item', a.position, Bag.defOf(sys, item.defId)?.name);
@@ -63,7 +64,7 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
   const who = Commands.requesterOf(sys, a.taskBy);
   if (!who) { Commands.finishTask(sys, a); Nav.halt(a); return; }
 
-  // ② 요청자 곁으로.
+  // ② Over beside the requester.
   _v1.copy(who.position);
   const left = Nav.step(sys, a, _v1, ALLY_RUN_SPEED, dt);
   if (left > ALLY_DELIVER_RANGE_M) { a.running = true; return; }
@@ -71,7 +72,7 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
   Nav.halt(a);
   Nav.face(a, who.position, dt);
 
-  // ③ 멈췄거나 나를 보고 있을 때 떨군다.
+  // ③ Drops it once the requester stopped or is looking at it.
   a.deliverWaitT += dt;
   const still = who.speed < ALLY_DELIVER_STILL_SPEED;
   forwardOf(who.yaw, _v2);
@@ -82,7 +83,7 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
 
   const taken = a.bag?.remove(item.uid) ?? null;
   if (taken) {
-    // 요청자 앞에 둔다 (조건이 안 맞아 시간이 다 됐으면 발밑).
+    // Puts it in front of the requester (at its own feet when the condition never held and the time ran out).
     _v1.copy(who.position);
     if (still || looking) _v1.addScaledVector(_v2, 1);
     sys.ctx.pickups?.spawn(taken, _v1);
@@ -92,9 +93,12 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
   Commands.finishTask(sys, a);
 }
 
-/** 분대장이 낀 것보다 좋은 장비를 주웠다 — 핑을 찍고 건네주는 일감으로 잡는다 (사용자 결정). */
+/**
+ * Picked up better gear than what the squad leader has equipped — pings it and takes it on as a hand-over task
+ * (user's decision).
+ */
 export function offerToLeader(sys: AllySystem, a: Ally, item: ItemInstance): void {
-  if (a.taskKind) return;                       // 이미 다른 요청을 맡고 있으면 나중에
+  if (a.taskKind) return;                       // already holding another request → later
   if (!sys.leaderKnown) return;
   a.taskKind = 'item';
   a.taskBy = sys.leaderId;

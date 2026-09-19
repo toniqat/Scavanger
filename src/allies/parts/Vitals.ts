@@ -1,14 +1,16 @@
 /**
- * src/allies/parts/Vitals.ts — **체력 · 실드 · 쓰러짐 · 사망 · 재해**.
+ * src/allies/parts/Vitals.ts — **hp · shield · downed · death · hazard**.
  *
- * 사람과 같은 규칙을 쓴다 (사용자 결정 「사람처럼 쓰러지고 PC 가 일으킬 수 있다」): 실드 → 체력 → 쓰러짐
- * (`ALLY_DOWN_HP` 출혈, 속도는 사람의 `PLAYER_DOWN_BLEED_PER_SEC`) → 사망. 체력만 사람의 `ALLY_HP_MUL` 배다.
- * 실드는 **장착 방탄복의 `ArmorDef.shield`** 그대로이고 레이드 중에는 차지 않는다 (사람과 같다).
+ * It runs the same rules as a person (user's decision 「사람처럼 쓰러지고 PC 가 일으킬 수 있다」): shield → hp → downed
+ * (`ALLY_DOWN_HP` bleed-out, at a person's `PLAYER_DOWN_BLEED_PER_SEC`) → death. Only hp is a person's ×
+ * `ALLY_HP_MUL`. The shield is the **equipped armor's `ArmorDef.shield`** as it stands and never refills during a
+ * raid (the same as a person).
  *
- * 재해 · 행성 대기는 사람과 같은 초당 피해를 같은 주기로 넣는다. 대기(`PLANET_ENV_DPS`)는 **실드를 건너뛴다** —
- * 「대기를 방탄복이 막는 것이 이상하다」 는 근거를 그대로 옮긴 것이다 (2026-09-11 A-13).
+ * A hazard · the planet atmosphere deal a person's damage per second on the same tick. Atmosphere damage
+ * (`PLANET_ENV_DPS`) **skips the shield** — the reasoning 「대기를 방탄복이 막는 것이 이상하다」 carried over as it
+ * stands (2026-09-11 A-13).
  *
- * 피해는 **권위에서만** 들어간다 (`AlliesRef.damage` 는 리플리카에서 무시된다) — 두 곳에서 깎으면 체력이 갈린다.
+ * Damage lands **on the authority only** (`AlliesRef.damage` is ignored on a replica) — cut in two places, hp splits.
  */
 import {
   ALLY_DOWN_HP, ALLY_HP_MUL, ALLY_REVIVE_HP, HAZARD_DPS, HAZARD_TICK_S,
@@ -19,7 +21,7 @@ import type * as THREE from 'three';
 import type { AllySystem } from '../AllySystem';
 import type { Ally } from './Body';
 
-/** 레이드에 들어갈 때의 기본 체력 (사람 × `ALLY_HP_MUL`). */
+/** Base hp on raid entry (a person's × `ALLY_HP_MUL`). */
 export function resetVitals(a: Ally): void {
   a.maxHp = PLAYER_MAX_HP * ALLY_HP_MUL;
   a.hp = a.maxHp;
@@ -54,7 +56,7 @@ export function update(sys: AllySystem, dt: number): void {
   }
 }
 
-/** `AlliesRef.damage` — enemies 가 권위에서만 부른다. */
+/** `AlliesRef.damage` — enemies calls it on the authority only. */
 export function damage(sys: AllySystem, id: AllyId, amount: number, source?: PlayerDamageSource, from?: THREE.Vector3): void {
   if (!sys.simulating) return;
   const a = sys.byId.get(id);
@@ -63,7 +65,7 @@ export function damage(sys: AllySystem, id: AllyId, amount: number, source?: Pla
   apply(sys, a, amount, false);
 }
 
-/** 실드 → 체력 → 쓰러짐. `bypassShield` 는 대기 피해 (실드를 건너뛴다). */
+/** Shield → hp → downed. `bypassShield` is atmosphere damage (it skips the shield). */
 function apply(sys: AllySystem, a: Ally, amount: number, bypassShield: boolean): void {
   if (amount <= 0) return;
   let left = amount;
@@ -102,7 +104,7 @@ function die(sys: AllySystem, a: Ally): void {
   a.pose = 'dead';
   a.velocity.set(0, 0, 0);
   a.carrying = null;
-  // 시체는 game/ 이 만든다 — **레이드에서 주운 것만** 들어간다 (기본 킷은 묶인 물건).
+  // game/ makes the corpse — **only what was found in the raid** goes in (the base kit is a bound thing).
   sys.ctx.corpses?.spawnAllyCorpse?.(a.id, a.name, a.slot, a.position, a.yaw, a.loot());
   a.hidden = true;
   if (a.bag) a.bag.clear();
@@ -114,7 +116,7 @@ function die(sys: AllySystem, a: Ally): void {
   sys.ctx.bus.emit('ally:died', { id: a.id, name: a.name });
 }
 
-/** `AlliesRef.requestRevive` — 권위면 바로, 아니면 `allyq revive`. */
+/** `AlliesRef.requestRevive` — at once on the authority, otherwise `allyq revive`. */
 export function requestRevive(sys: AllySystem, id: AllyId, opts?: { defib?: boolean }): boolean {
   const a = sys.byId.get(id);
   if (!a || !a.downed || a.dead) return false;
@@ -123,7 +125,7 @@ export function requestRevive(sys: AllySystem, id: AllyId, opts?: { defib?: bool
   return true;
 }
 
-/** 실제로 일으킨다 (권위에서만). */
+/** Actually gets it up (on the authority only). */
 export function revive(sys: AllySystem, a: Ally, by: PeerId | null): void {
   if (!a.downed || a.dead) return;
   a.downed = false;

@@ -1,10 +1,11 @@
 /**
- * src/allies/parts/Rescue.ts — **구조**. 사용자 결정 그대로:
+ * src/allies/parts/Rescue.ts — **rescue**. Exactly the user's decision:
  * 「PC 가 쓰러지면 주변을 안전하게 만든 뒤(적 먼저 처치) 일으킨다. 제세동기가 있으면 안전하지 않아도 쓴다.
  *  환경 기믹(폭풍 · 눈보라) 안이면 들쳐업고 안전 범위까지 뛴다.」
  *
- * 일으키는 길은 둘이다 — **호스트 자신의 몸**은 `ctx.player.revive()` 로 바로, 다른 사람은 `ally revive` 로
- * (받는 쪽 player/ 가 처리한다). 둘을 섞으면 같은 사람을 두 번 일으키거나 아무도 못 일으킨다.
+ * There are two paths to getting one up — **the host's own body** straight through `ctx.player.revive()`, anybody
+ * else through `ally revive` (the receiving player/ handles it). Mixing the two gets the same person up twice, or
+ * nobody up.
  */
 import type * as THREE from 'three';
 import {
@@ -20,10 +21,10 @@ import * as Nav from './Nav';
 import * as Combat from './Combat';
 import * as Bag from './Bag';
 
-/** 제세동기 아이템 def id — 아이템 이름이라 csv 수치가 아니다 (계약 `ANDROID_KIT` 와 같은 자리). */
+/** The defibrillator item def id — a name, not a csv number (the same place as the contract's `ANDROID_KIT`). */
 const DEFIB_DEF_ID = 'gad_defib';
 
-/** 쓰러진 사람의 위치를 `out` 에 쓴다. 없으면 null. */
+/** Writes the position of a downed person into `out`. Null with none. */
 function downedTarget(sys: AllySystem, out: THREE.Vector3): PeerId | null {
   const ctx = sys.ctx;
   const localId = ctx.net?.localId ?? 'local';
@@ -51,7 +52,7 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
   if (!who) { Nav.halt(a); return; }
   const at = _v1;
   if (downedTarget(sys, at) !== who) {
-    // 이미 누가 일으켰다 (또는 죽었다).
+    // Somebody already got them up (or they died).
     a.carrying = null;
     a.rescueTarget = null;
     a.reviveHoldT = 0;
@@ -62,7 +63,7 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
   if (a.state === 'carry') { carry(sys, a, at, dt); return; }
 
   const defib = Bag.findInBag(sys, a, (d) => d.id === DEFIB_DEF_ID);
-  // 제세동기가 없으면 먼저 주변을 안전하게 만든다 — 그동안은 전투 행동을 그대로 쓴다.
+  // With no defibrillator it makes the area safe first — until then it runs its combat behaviour as it stands.
   if (!defib && Combat.enemiesNear(sys, at, ALLY_RESCUE_SAFE_RADIUS_M)) {
     const target = Combat.senseEnemy(sys, a);
     if (target) { a.targetEnemyId = target.id; Combat.act(sys, a, dt); return; }
@@ -82,10 +83,10 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
   a.rescueTarget = null;
 }
 
-/** 재해 안이면 업고 뛴다 — 가장 가까운 안전 지점까지. */
+/** Inside a hazard it carries them and runs — to the nearest safe point. */
 function carry(sys: AllySystem, a: Ally, at: THREE.Vector3, dt: number): void {
   if (a.carrying !== a.rescueTarget) {
-    // 먼저 몸까지 간다.
+    // First, get to the body.
     a.running = true;
     const left = Nav.step(sys, a, at, ALLY_RUN_SPEED, dt);
     if (left > PLAYER_REVIVE_RANGE) return;
@@ -95,14 +96,14 @@ function carry(sys: AllySystem, a: Ally, at: THREE.Vector3, dt: number): void {
   if (!a.hasCarryDest) {
     const hz = sys.ctx.world?.hazard ?? null;
     const safe = hz?.nearestSafePoint?.(a.position.x, a.position.z, ALLY_HAZARD_SAFE_MARGIN_M, _v2) ?? null;
-    if (!safe) { a.carrying = null; return; }     // 맵이 다 덮였다 — 업어도 갈 곳이 없다
+    if (!safe) { a.carrying = null; return; }     // the map is fully covered — carrying leads nowhere
     a.carryDest.copy(safe);
     a.hasCarryDest = true;
   }
   a.running = true;
   const left = Nav.step(sys, a, a.carryDest, ALLY_CARRY_SPEED, dt);
   if (left > 1) return;
-  // 내려놓고 일으킨다.
+  // Put them down and get them up.
   a.carrying = null;
   a.hasCarryDest = false;
   a.running = false;

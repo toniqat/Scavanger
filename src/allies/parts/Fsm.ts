@@ -1,13 +1,14 @@
 /**
- * src/allies/parts/Fsm.ts — **상태 기계**. 사용자 결정의 두 축을 지킨다.
+ * src/allies/parts/Fsm.ts — the **state machine**. It keeps the two axes of the user's decision.
  *
- *  ① 매 프레임 **하나의 제안**만 고른다 (조건들 중 우선순위가 가장 높은 것 — `PRIO`).
- *  ② 상태가 바뀌면 행동까지 `ALLY_REACT_MIN_S … ALLY_REACT_MAX_S` 의 **무작위 지연**을 둔다 — 무거운 행동일수록 길다
- *     (`ALLY_STATE_WEIGHT`). 「실제 PC 의 반응속도를 반영」. 더 급한 제안은 기다리던 제안을 밀어낸다.
- *     쓰러짐 · 사망은 지연 없이 즉시 적용된다.
+ *  ① Exactly **one proposal** per frame (the highest-priority condition of them all — `PRIO`).
+ *  ② A state change waits a **random delay** of `ALLY_REACT_MIN_S … ALLY_REACT_MAX_S` before acting — the heavier the
+ *     action the longer (`ALLY_STATE_WEIGHT`). 「실제 PC 의 반응속도를 반영」. A more urgent proposal pushes out the
+ *     one that was waiting. Downed · dead are applied instantly, with no delay.
  *
- * 바닥 서열은 하나가 아니라 **둘 중 하나**다 (2026-09-16 사용자 결정): 하네스 밖이면 `follow`(돌아간다),
- * 안이면 `roam`(자유 탐색 — `parts/Roam`). 같은 서열(`PRIO.follow` ≡ `PRIO.roam`)이라 `decide` 가 하나만 제안한다.
+ * The floor rank is not one state but **one of two** (2026-09-16 user's decision): outside the harness `follow` (it
+ * goes back), inside it `roam` (the free search — `parts/Roam`). They share one rank (`PRIO.follow` ≡ `PRIO.roam`),
+ * so `decide` proposes only one.
  */
 import {
   ALLY_FLAGS, ALLY_FOLLOW_NEAR_M, ALLY_RUN_SPEED, ALLY_WALK_SPEED,
@@ -29,10 +30,10 @@ import * as Bag from './Bag';
 
 export interface Proposal { state: AllyStateId; prio: number }
 
-/** 무게를 다시 재는 주기 (s) — 배치값이다 (짐이 바뀌면 `bagDirty` 로 곧바로 다시 잰다). */
+/** Period (s) for re-weighing — a layout constant, not a csv number (`bagDirty` re-weighs at once on a change). */
 const WEIGHT_RECHECK_S = 0.5;
 
-/** 상태를 지금 곧바로 바꾼다 (반응 지연 없음 — 쓰러짐 · 사망 · 디버그). */
+/** Changes the state right now (no reaction delay — downed · dead · debug). */
 export function enter(sys: AllySystem, a: Ally, state: AllyStateId, prio: number): void {
   if (a.state === state) { a.statePrio = prio; return; }
   onExit(sys, a, a.state);
@@ -45,7 +46,7 @@ export function enter(sys: AllySystem, a: Ally, state: AllyStateId, prio: number
   onEnter(sys, a, state);
 }
 
-/** 전이를 제안한다 — 지연 뒤에 적용된다. */
+/** Proposes a transition — it is applied after the delay. */
 export function propose(sys: AllySystem, a: Ally, state: AllyStateId, prio: number): void {
   if (a.state === state) {
     a.statePrio = prio;
@@ -81,19 +82,19 @@ function onExit(sys: AllySystem, a: Ally, state: AllyStateId): void {
   if (state === 'roam') Roam.onExit(sys, a);
 }
 
-/* ═══════════════════════════ 프레임 ═══════════════════════════ */
+/* ═══════════════════════════ Frame ═══════════════════════════ */
 
 export function update(sys: AllySystem, dt: number): void {
   for (const a of sys.bodies) {
     if (a.mode !== 'raid') continue;
     a.stateT += dt;
     if (a.dead) { a.flags = ALLY_FLAGS.HIDDEN; continue; }
-    if (a.hidden) continue;            // 강하 포드 안 · 이륙한 함선 안
+    if (a.hidden) continue;            // Inside the drop pod · inside a ship that lifted off
     if (a.downed) { Nav.halt(a); continue; }
-    // 무게는 배열을 만들어 재므로 주기마다만 (짐이 바뀌면 곧바로) 다시 잰다.
+    // Weighing builds an array, so it is redone once a period only (at once when the load changed).
     a.weightT -= dt;
     a.lootScanT -= dt;
-    a.roamPoiT -= dt;                  // 관심 지점 다시 고르기 주기 (`parts/Roam`) — 월드 질의는 싸지 않다
+    a.roamPoiT -= dt;                  // Point-of-interest re-pick period (`parts/Roam`) — a world query is not cheap
     if (a.weightT <= 0 || a.bagDirty) { a.weightT = WEIGHT_RECHECK_S; a.weightState = Bag.weightOf(sys, a).state; }
     const best = decide(sys, a);
     if (best) propose(sys, a, best.state, best.prio);
@@ -102,13 +103,14 @@ export function update(sys: AllySystem, dt: number): void {
   }
 }
 
-/** 지금 조건에서 가장 급한 제안 하나. */
+/** The single most urgent proposal under the current conditions. */
 function decide(sys: AllySystem, a: Ally): Proposal | null {
   let best: Proposal | null = null;
   const take = (p: Proposal | null): void => { if (p && (!best || p.prio > best.prio)) best = p; };
 
-  // 하네스 밖이면 분대장에게 돌아가고(`follow`), 안이면 자유롭게 탐색한다(`roam`) — 2026-09-16 사용자 결정.
-  // 둘은 같은 서열이라 **둘 중 하나만** 제안한다 (둘 다 넣으면 먼저 넣은 쪽이 늘 이겨 한쪽이 죽은 코드가 된다).
+  // Outside the harness it goes back to the squad leader (`follow`), inside it searches freely (`roam`) —
+  // 2026-09-16 user's decision. The two share one rank, so **only one of them** is proposed (with both in, the one
+  // added first always wins and the other becomes dead code).
   const inHarness = sys.leaderKnown && dist2D(a.position, sys.leaderPos) <= sys.harness;
   take(inHarness ? { state: 'roam', prio: PRIO.roam } : { state: 'follow', prio: PRIO.follow });
   take(Loot.autoProposal(sys, a));
@@ -122,13 +124,13 @@ function decide(sys: AllySystem, a: Ally): Proposal | null {
   return best;
 }
 
-/** 무거움 상태를 벗어나려 짐을 버린다 (사용자 결정). */
+/** Drops junk to get out of the heavy weight state (user's decision). */
 function junkProposal(sys: AllySystem, a: Ally): Proposal | null {
   void sys;
   return a.weightState === 'heavy' || a.weightState === 'over' ? { state: 'dropJunk', prio: PRIO.junk } : null;
 }
 
-/* ═══════════════════════════ 행동 ═══════════════════════════ */
+/* ═══════════════════════════ Acting ═══════════════════════════ */
 
 function act(sys: AllySystem, a: Ally, dt: number): void {
   a.flags = 0;
@@ -180,9 +182,10 @@ function act(sys: AllySystem, a: Ally, dt: number): void {
 }
 
 /**
- * 하네스를 벗어나면 뛰어서 따라간다 — 다만 `ALLY_FOLLOW_NEAR_M` 보다 가까이 붙지 않고, 목적지는
- * `Nav.spreadToward` 로 기마다 옆으로 벌린다 (2026-09-16 사용자 결정 「PC 를 향해 갈 때 산개」).
- * 하네스 **안**은 이제 `roam` 이 맡는다 (`decide`) — 여기 서 있는 가지는 분대장을 모를 때와 `idle` 뿐이다.
+ * Once it leaves the harness it runs to follow — but never closer than `ALLY_FOLLOW_NEAR_M`, and the destination is
+ * spread to the side per unit by `Nav.spreadToward` (2026-09-16 user's decision 「PC 를 향해 갈 때 산개」).
+ * **Inside** the harness is `roam`'s job now (`decide`) — the only branches standing here are "the squad leader is
+ * unknown" and `idle`.
  */
 export function follow(sys: AllySystem, a: Ally, dt: number): void {
   if (!sys.leaderKnown) { Nav.halt(a); a.running = false; return; }
@@ -194,7 +197,7 @@ export function follow(sys: AllySystem, a: Ally, dt: number): void {
     return;
   }
   if (d < ALLY_FOLLOW_NEAR_M) {
-    // 너무 붙었다 — 분대장 반대쪽으로 한 걸음 물러난다.
+    // Too close — it steps back one pace away from the squad leader.
     _v1.set(
       a.position.x + (a.position.x - sys.leaderPos.x),
       a.position.y,
@@ -205,7 +208,7 @@ export function follow(sys: AllySystem, a: Ally, dt: number): void {
     return;
   }
   a.running = true;
-  // 분대장 발밑이 아니라 옆으로 벌린 자리로 — 세 기가 한 줄로 겹쳐 오지 않는다.
+  // Toward a spot spread to the side, not the leader's feet — three units never come in overlapping in one line.
   Nav.spreadToward(a, sys.leaderPos, _v1);
   Nav.step(sys, a, _v1, ALLY_RUN_SPEED, dt);
 }
@@ -214,7 +217,7 @@ function dropJunk(sys: AllySystem, a: Ally, dt: number): void {
   Nav.halt(a);
   void dt;
   if (!Bag.dropWorst(sys, a)) {
-    // 버릴 것이 없으면 짐 상태가 아니어도 여기 머물 이유가 없다.
+    // With no junk to drop there is no reason to stay here, weight state or not.
     enter(sys, a, 'follow', PRIO.follow);
   }
 }

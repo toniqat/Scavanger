@@ -1,28 +1,31 @@
 /**
- * src/allies/AllySystem.ts — **안드로이드 분대원** (`ctx.allies`, 계약 `shared/allies.ts`).
+ * src/allies/AllySystem.ts — **android squadmates** (`ctx.allies`, contract `shared/allies.ts`).
  *
- * 계약은 `@/shared` 의 `allies.ts` · `net.ts` 끝 절이 전부다. 이 클래스는 상태와 한 줄 위임만 갖고, 일은 `parts/` 가 한다:
- *  - `parts/Roster`   — 명단 (로비 봇 멤버 / 치트 명단) · 몸 만들기 · `ally:rosterChanged`
- *  - `parts/Hub`      — 공용 함선의 잠든 슬롯 몸 · 나오기/돌아가기 · 발사 포드 앞 대기 · 개인 함선 치트 추종
- *  - `parts/Spawn`    — 레이드 진입 (기본 킷 · 강하 포드)
- *  - `parts/Fsm`      — 제안 → 반응 지연 → 전이, 상태별 행동 분기
- *  - `parts/Harness`  — 분대장 추적 · 하네스 반경 (한 방향 이동이면 절반으로)
- *  - `parts/Nav`      — 조향 · 장애물 회피 · 지면/충돌 (world 질의 순서를 지킨다)
- *  - `parts/Combat`   — 감지 · 적 핑 · 엄폐 · 연사
- *  - `parts/Vitals`   — 실드/체력/쓰러짐/사망 · 재해 · 소생
- *  - `parts/Commands` — 핑 · 의사소통 휠 · 인벤토리 요청 (선착순 하나)
- *  - `parts/Bag`      — 무게 · 장비 갈아끼우기 · 짐 버리기
- *  - `parts/Loot`     — 컨테이너 · 바닥 아이템
- *  - `parts/Support`  — 요청자에게 건네주기
- *  - `parts/Extract`  — 탈출구 탐색 · 호출 · 탑승 · 창고 이관
- *  - `parts/Contract` — 계약 목표 탐색
- *  - `parts/Rescue`   — 쓰러진 PC 일으키기 · 재해 밖으로 업고 뛰기
- *  - `parts/Ping`     — 안드로이드 이름으로 나가는 핑 · 채팅
- *  - `parts/Sync`     — `ally` / `allyq` 와이어 (호스트 권위)
- *  - `parts/Console`  — 개발 치트 `/android 1|0`
+ * The contract is `allies.ts` plus the last section of `net.ts`, both in `@/shared`. This class holds state and
+ * one-line delegates only; `parts/` does the work:
+ *  - `parts/Roster`   — the roster (lobby bot members / the cheat roster) · body creation · `ally:rosterChanged`
+ *  - `parts/Hub`      — dormant bay bodies in the shared ship · emerge / retire · waiting at the launch pod ·
+ *                       the cheat android following in the personal ship
+ *  - `parts/Spawn`    — raid entry (the base kit · the drop pod)
+ *  - `parts/Fsm`      — proposal → reaction delay → transition, and the per-state action branch
+ *  - `parts/Harness`  — squad leader tracking · the harness radius (halved while it keeps one heading)
+ *  - `parts/Nav`      — steering · obstacle avoidance · surface/collision (it keeps the world query order)
+ *  - `parts/Combat`   — sensing · the enemy ping · cover · bursts
+ *  - `parts/Vitals`   — shield/hp/downed/death · hazards · revive
+ *  - `parts/Commands` — pings · the comms wheel · inventory requests (one, first one wins)
+ *  - `parts/Bag`      — weight · gear swapping · junk dropping
+ *  - `parts/Loot`     — containers · items on the ground
+ *  - `parts/Support`  — handing an item to the requester
+ *  - `parts/Extract`  — searching for the way out · the call · boarding · the stash deposit
+ *  - `parts/Contract` — contract objective search
+ *  - `parts/Rescue`   — getting a downed PC up · carrying one out of a hazard
+ *  - `parts/Ping`     — pings and chat going out under the android's name
+ *  - `parts/Sync`     — the `ally` / `allyq` wire (host authority)
+ *  - `parts/Console`  — the dev cheat `/android 1|0`
  *
- * 이 폴더는 **메시를 만들지 않는다** — player/ 가 `getBodies()` 를 읽어 `SoldierModel` 로 그린다.
- * `main.ts` 에서 `ExtractionSystem` 바로 뒤에 등록된다: 적 · 인벤토리 · 줍기 · 탈출이 이번 프레임 상태를 낸 뒤에 판단한다.
+ * This folder **builds no meshes** — player/ reads `getBodies()` and draws them with `SoldierModel`.
+ * It is registered in `main.ts` right after `ExtractionSystem`: it decides after enemies · inventory · pickups ·
+ * extraction have published this frame's state.
  */
 import * as THREE from 'three';
 import { ALLY_EXTRACT_CONFIRM_S, ALLY_LOCAL_PEER, PLAYER_REVIVE_RANGE } from '@/shared';
@@ -48,76 +51,82 @@ export class AllySystem implements GameSystem, AlliesRef {
   readonly name = 'allies';
   ctx!: GameContext;
 
-  /** 이 클라이언트가 아는 모든 몸 (bay 순). `getBodies()` 가 이 배열을 그대로 준다. */
+  /** Every body this client knows (in bay order). `getBodies()` hands this very array out. */
   readonly bodies: Ally[] = [];
   readonly byId = new Map<AllyId, Ally>();
-  /** 지금 명단 (`AlliesRef.roster`). 바뀔 때만 새 배열이다. */
+  /** The current roster (`AlliesRef.roster`). A new array only when it changed. */
   roster: readonly AllyRosterEntry[] = [];
-  /** 서버 없는 치트 명단 — 세션 동안만 산다 (저장하지 않는다). */
+  /** The serverless cheat roster — it lives for the session only (it is never saved). */
   readonly localRoster: AllyRosterEntry[] = [];
-  /** 사람이 이겨 슬롯으로 돌아간 기 — 다음 `ally:rosterChanged` 의 `evicted` 가 된다. */
+  /** A unit a person outranked and sent back to its bay — it becomes `evicted` on the next `ally:rosterChanged`. */
   readonly evictedPending: AllyId[] = [];
-  /** 명단을 다시 계산해야 한다 (프레임 루프는 이것이 설 때만 `Roster.refresh` 를 부른다 — 배열 할당을 줄인다). */
+  /**
+   * The roster has to be recomputed (the frame loop calls `Roster.refresh` only while this is raised — it keeps array
+   * allocation down).
+   */
   rosterDirty = true;
 
-  /** `getCombatBodies()` 의 재사용 배열. */
+  /** The reused array `getCombatBodies()` returns. */
   readonly combatBuf: Ally[] = [];
 
-  /* ── 분대장 · 하네스 (`parts/Harness`) ── */
+  /* ── Squad leader · harness (`parts/Harness`) ── */
   leaderId: PeerId = ALLY_LOCAL_PEER;
   readonly leaderPos = new THREE.Vector3();
   readonly leaderPrev = new THREE.Vector3();
   readonly leaderDir = new THREE.Vector3();
   leaderKnown = false;
-  /** 한 방향으로 계속 가는 정도 0..1 (EMA). 1 이면 하네스가 `ALLY_HARNESS_MIN_FRAC` 까지 줄어든다. */
+  /** How steadily it keeps one heading, 0..1 (EMA). At 1 the harness shrinks to `ALLY_HARNESS_MIN_FRAC`. */
   commit = 0;
   harness = 0;
 
-  /* ── 명령 · 요청 ── */
-  /** 분대장의 이동 명령 (`attack` 핑 · `lead` 한 마디). */
+  /* ── Orders · requests ── */
+  /** The squad leader's movement order (an `attack` ping · a `lead` line on the comms wheel). */
   orderKind: 'moveTo' | 'lead' | null = null;
   readonly orderPos = new THREE.Vector3();
   orderUntil = -Infinity;
   /**
-   * 「앞장서라」가 살아 있는 시각(`ctx.time`)까지 — 그동안 하네스 반경이 `ALLY_LEAD_HARNESS_MUL` 배다
-   * (`parts/Harness`). `orderKind` 와 따로 사는 이유: 앞서 나가는 걸음은 도착하면 끝나지만, **넓어진 수색 범위는**
-   * `ALLY_LEAD_DURATION_S` 동안 남아 자유 탐색(`roam`)이 일대를 훑는다 (2026-09-16 사용자 결정).
+   * Until the `ctx.time` at which `앞장서라` expires — the harness radius is ×`ALLY_LEAD_HARNESS_MUL` until then
+   * (`parts/Harness`). Why it lives apart from `orderKind`: the walk out ahead ends on arrival, but **the widened
+   * search range** stays for `ALLY_LEAD_DURATION_S` so the free search (`roam`) sweeps the area (2026-09-16 user's
+   * decision).
    */
   leadUntil = -Infinity;
-  /** 주의 핑 (`caution`). */
+  /** The `주의` ping (`caution`). */
   readonly watchPos = new THREE.Vector3();
   watchUntil = -Infinity;
   /**
-   * 사람이 적 핑을 찍었다 — 분대가 그 적을 우선해 요격한다 (2026-09-16 사용자 결정, 분대장 전용이 아니다).
-   * 해제는 `parts/Commands.tickEnemyPing` 하나뿐이다: 죽음 · 아무도 `ALLY_WATCH_S` 동안 못 봄 · 새 핑.
+   * A person placed an enemy ping — the squad intercepts that enemy first (2026-09-16 user's decision; it is not
+   * leader-only). It is released in exactly one place, `parts/Commands.tickEnemyPing`: death · nobody saw it for
+   * `ALLY_WATCH_S` · a new ping.
    */
   preferredEnemyId: number | null = null;
-  /** 지목된 적의 마지막으로 알려진 자리 — 아직 못 본 기는 하네스 안에서 여기로 다가간다. */
+  /** The designated enemy's last known spot — a unit that has not seen it yet closes on this, inside the harness. */
   readonly preferredEnemyPos = new THREE.Vector3();
   preferredEnemyUntil = -Infinity;
   /**
-   * 사람이 찍은 마지막 탈출구 핑 (자리 · 누가 · 언제). 사람이 「탈출하고 싶다」를 말하면 분대가 동의하고
-   * **이 자리로** 간다 (2026-09-16 사용자 결정) — `parts/Commands.agreeToHumanExtract` · `parts/Extract.seek`.
+   * The last extraction ping a person placed (the spot · who · when). When that person says 「탈출하고 싶다」 the squad
+   * agrees and goes **to this spot** (2026-09-16 user's decision) — `parts/Commands.agreeToHumanExtract` ·
+   * `parts/Extract.seek`.
    */
   readonly humanExtractPos = new THREE.Vector3();
   humanExtractBy: PeerId | null = null;
   humanExtractAt = -Infinity;
   hasHumanExtractPing = false;
-  /** 지금 받아들인 요청 하나 (선착순). */
+  /** The one request currently taken (first one wins). */
   request: AllyRequest | null = null;
-  /** 그 요청과 함께 온 한국어 문장 (원격 계약 요청의 유일한 단서). */
+  /** The Korean sentence that came with it (the only clue a remote contract request gives). */
   requestText = '';
-  /** 이 시각(`ctx.time`)까지는 새 요청을 무시한다. */
+  /** New requests are ignored until this `ctx.time`. */
   requestBlockedUntil = -Infinity;
-  /** 탈출 확인 창의 길이 (s). */
+  /** Length of the extraction confirm window (s). */
   readonly extractConfirmWindow = ALLY_EXTRACT_CONFIRM_S;
-  /** 호스트가 `allyq revive` 를 받아 주는 거리 (m) — 사람의 소생 거리와 같다. */
+  /** The distance (m) within which the host accepts `allyq revive` — the same as a person's revive range. */
   readonly reviveRange = PLAYER_REVIVE_RANGE;
 
-  /* ── 컨테이너 · 시간 · 동기화 ── */
-  /** 사람이 열어 본 컨테이너 — 그 상자를 먹던 안드로이드는 멈춘다. */
+  /* ── Containers · timers · sync ── */
+  /** Containers a person has looked into — an android looting that crate stops. */
   readonly viewedContainers = new Set<string>();
-  /** 강하 포드가 땅에 닿는 시각 (`ctx.time`). */
+  /** The `ctx.time` at which the drop pod touches the ground. */
   readonly landAt = new Map<AllyId, number>();
   hazardTimer = 0;
   envTimer = 0;
@@ -125,14 +134,14 @@ export class AllySystem implements GameSystem, AlliesRef {
   netHooked = false;
   readonly unsubs: Array<() => void> = [];
   readonly netUnsubs: Array<() => void> = [];
-  /** 와이어를 풀 때 쓰는 스크래치 (이벤트로 나가는 벡터는 읽고 바로 쓴다). */
+  /** Scratch for unpacking the wire (a vector going out on an event is read and used at once). */
   readonly fireFrom = new THREE.Vector3();
   readonly fireTo = new THREE.Vector3();
 
-  /** 지금 레이드 시뮬레이션이 돌고 있다 (`world:ready` 뒤). */
+  /** The raid simulation is running (after `world:ready`). */
   raidActive = false;
 
-  /* ═══════════════════════════ 수명 ═══════════════════════════ */
+  /* ═══════════════════════════ Lifecycle ═══════════════════════════ */
   init(ctx: GameContext): void {
     this.ctx = ctx;
     ctx.allies = this;
@@ -165,7 +174,7 @@ export class AllySystem implements GameSystem, AlliesRef {
       if (this.simulating) {
         Vitals.update(this, dt);
         Commands.tickRequest(this);
-        Commands.tickEnemyPing(this);     // 지목된 적의 자리 · 해제 (기마다 훑으면 배열이 계속 생긴다)
+        Commands.tickEnemyPing(this);     // The designated enemy's spot · release (a sweep per unit makes arrays)
         Fsm.update(this, dt);
       } else Sync.updateReplicas(this, dt);
     }
@@ -173,8 +182,9 @@ export class AllySystem implements GameSystem, AlliesRef {
   }
 
   /**
-   * 레이드 밖으로 나가거나 새 맵이 열릴 때의 **핑 기반 명령** 청소 (2026-09-16 에 붙은 것들 — `parts/Spawn` 이 지우는
-   * 예전 필드와 같은 자리다). 남겨 두면 지난 맵의 탈출구 좌표로 달려가거나 하네스가 넓어진 채로 시작한다.
+   * Cleanup of the **ping-based orders** when leaving a raid or when a new map opens (the ones added on 2026-09-16 —
+   * the same place as the older fields `parts/Spawn` clears). Left behind, they send it running to the last map's
+   * way-out coordinates, or start it with a widened harness.
    */
   private clearPingOrders(): void {
     this.leadUntil = -Infinity;
@@ -194,7 +204,7 @@ export class AllySystem implements GameSystem, AlliesRef {
   }
 
   /* ═══════════════════════════ AlliesRef ═══════════════════════════ */
-  /** 이 클라이언트가 안드로이드를 굴리는가 — 솔로 · 로비 호스트. */
+  /** Does this client run the androids — solo · the lobby host. */
   get simulating(): boolean { return this.ctx?.isAuthority ?? true; }
 
   getBodies(): readonly AllyBodyView[] { return this.bodies; }
@@ -220,7 +230,7 @@ export class AllySystem implements GameSystem, AlliesRef {
   }
   devSetAndroid(on: boolean): string { return Console.devSetAndroid(this, on); }
 
-  /* ═══════════════════════════ parts 가 쓰는 한 줄 위임 ═══════════════════════════ */
+  /* ═══════════════════════════ One-line delegates for parts/ ═══════════════════════════ */
   sendPing(a: Ally, kind: PingKind, p: THREE.Vector3, label?: string, enemyId?: number): void {
     Sync.sendPing(this, a, kind, p, label, enemyId);
   }
@@ -232,21 +242,21 @@ export class AllySystem implements GameSystem, AlliesRef {
   depositToLeader(a: Ally, items: readonly ItemInstance[]): void { Sync.depositToLeader(this, a, items); }
   offerToLeader(a: Ally, item: ItemInstance): void { Support.offerToLeader(this, a, item); }
 
-  /* ═══════════════════════════ 디버그 · 스모크 ═══════════════════════════ */
-  /** 한 기를 특정 상태로 밀어 넣는다 (반응 지연 없이). 모르는 id 면 false. */
+  /* ═══════════════════════════ Debug · smokes ═══════════════════════════ */
+  /** Pushes one unit into a given state (with no reaction delay). False on an unknown id. */
   debugForceState(id: AllyId, state: AllyStateId): boolean {
     const a = this.byId.get(id);
     if (!a) return false;
     Fsm.enter(this, a, state, 1000);
     return true;
   }
-  /** 가방에 아이템 하나를 넣는다 (`raidFound` 표시 — 건네기 · 창고 이관 대상). */
+  /** Puts one item in the bag (marked `raidFound` — eligible for handing over · the stash deposit). */
   debugGive(id: AllyId, defId: string, qty = 1): boolean { return Roster.debugGive(this, id, defId, qty); }
-  /** 분대장 위치를 덮어쓴다 (하네스 · 따라가기 확인). null 이면 해제. */
+  /** Overrides the squad leader position (to check the harness · following). Null releases it. */
   debugLeaderAt(pos: THREE.Vector3 | null): void { Harness.debugOverride(this, pos); }
-  /** 지금 하네스 반경(m) 과 방향 일관성 0..1. */
+  /** The current harness radius (m) and heading consistency 0..1. */
   debugHarness(): { radius: number; commit: number } { return { radius: this.harness, commit: this.commit }; }
-  /** 한 기를 그 자리로 옮긴다. */
+  /** Moves one unit to that spot. */
   debugTeleport(id: AllyId, x: number, y: number, z: number): boolean {
     const a = this.byId.get(id);
     if (!a) return false;
@@ -254,7 +264,7 @@ export class AllySystem implements GameSystem, AlliesRef {
     a.hidden = false;
     return true;
   }
-  /** 한 기의 지금 상태 · 체력 · 소지품 (스모크 판정용). */
+  /** One unit's current state · hp · what it carries (for a smoke's assertions). */
   debugInfo(id: AllyId): {
     state: AllyStateId; mode: string; hp: number; shield: number; downed: boolean; dead: boolean; hidden: boolean;
     items: string[]; task: string | null; pos: [number, number, number];

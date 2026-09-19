@@ -1,10 +1,12 @@
 /**
- * src/allies/parts/Spawn.ts — **레이드 진입**. 사람과 같은 자리에 **강하 포드**로 내려온다.
+ * src/allies/parts/Spawn.ts — **raid entry**. It comes down in a **drop pod** at the same spot as the people.
  *
- * 권위에서만 몸을 세운다 (솔로 · 로비 호스트). 훈련장 · 튜토리얼은 건너뛴다 — 안드로이드는 본편 레이드의 분대원이다.
- * 매 레이드 기본 킷(`ANDROID_KIT`)으로 다시 시작하고(사용자 결정), 착지 전까지는 `hidden` 이라 아무도 그리지 않는다.
- * 2026-09-16 부터 함선에서도 킷을 입고 있으므로(`parts/Hub`), 여기서는 그것을 걷어내고(`Bag.clearKit`) **새 킷**을 세운다 —
- * 킷은 묶인 물건이라 걷어낸 쪽은 그대로 사라지고, 어느 경로로도 창고 · 시체 · 바닥에 남지 않는다.
+ * Only the authority stands the bodies up (solo · the lobby host). The training range · the tutorial are
+ * skipped — an android is a squadmate of the real raid. Every raid starts over from the base kit (`ANDROID_KIT`)
+ * (user's decision), and until it lands it is `hidden`, so nobody draws it.
+ * Since 2026-09-16 it wears the kit in the ship too (`parts/Hub`), so here that one is stripped (`Bag.clearKit`)
+ * and a **new kit** is built — the kit is a bound thing, so the stripped one simply vanishes and by no road at all
+ * ends up in the stash · a corpse · on the ground.
  */
 import { ALLY_LOCAL_PEER } from '@/shared';
 import type * as THREE from 'three';
@@ -15,11 +17,12 @@ import * as Vitals from './Vitals';
 import * as Nav from './Nav';
 
 /**
- * 강하 포드가 땅에 닿아 몸이 나오기까지 (s). `player/Hellpod.ts` 의 연출 길이(낙하 2.4 + 충격 0.35 + 문 0.55)를
- * 맞춘 **연출 동기값**이다 — 균형 수치가 아니라서 csv 가 아니라 여기 있고, 그쪽이 바뀌면 같이 바꾼다.
+ * From the drop pod touching the ground to the body coming out (s). It matches the cutscene length of
+ * `player/Hellpod.ts` (fall 2.4 + impact 0.35 + door 0.55), a **cutscene sync value** — not a balance number, so it
+ * lives here and not in csv, and it changes together with that one.
  */
 const POD_LAND_S = 3.3;
-/** 분대원끼리 겹치지 않게 벌리는 간격 (m) — 몸 지름보다 넉넉한 배치값이다. */
+/** The spacing (m) that keeps squadmates from overlapping — a layout constant, wider than a body's diameter. */
 const SPAWN_GAP_M = 2.5;
 
 export function onAbort(sys: AllySystem): void {
@@ -33,9 +36,10 @@ export function onAbort(sys: AllySystem): void {
 }
 
 /**
- * ⚠ 이 폴더는 `game:newMission` 을 **듣지 않는다**. world 가 자기 `game:newMission` 핸들러 **안에서** 동기로 월드를 만들기
- * 때문에 `world:ready` 가 뒤에 등록된 시스템의 `game:newMission` 보다 **먼저** 온다 (docs/ARCHITECTURE.md 의 gotcha).
- * 여기서 새 임무 정리까지 같이 하지 않으면, 세워 둔 몸을 그 뒤에 오는 `game:newMission` 이 곧바로 지운다.
+ * ⚠ This folder does **not listen** to `game:newMission`. Because world builds the world synchronously
+ * **inside** its own `game:newMission` handler, `world:ready` arrives **before** the `game:newMission` of a
+ * system registered after it (the gotcha in docs/ARCHITECTURE.md). Unless the new-mission cleanup happens here
+ * too, the `game:newMission` that comes afterwards wipes the bodies just stood up.
  */
 export function onWorldReady(sys: AllySystem, playerSpawn: THREE.Vector3): void {
   const ctx = sys.ctx;
@@ -47,18 +51,19 @@ export function onWorldReady(sys: AllySystem, playerSpawn: THREE.Vector3): void 
   sys.watchUntil = -Infinity;
   sys.preferredEnemyId = null;
   /*
-   * 2026-09-16 (함선 킷): 함선에서 입고 있던 킷을 **먼저 걷어낸다**. 권위는 바로 아래에서 새 킷을 세우고(겹쳐 짓지 않는다),
-   * 리플리카는 여기서부터 `ally bag` 와이어만 본다 — 함선에서 만든 빈 가방이 남으면 호스트 승계(`parts/Sync.onHostChanged`)가
-   * 그것을 이어받아 안드로이드의 전리품을 통째로 잃는다.
+   * 2026-09-16 (the ship kit): the kit worn in the ship is **stripped first**. The authority builds a new kit
+   * just below (it does not build one on top of another), and from here on a replica looks only at the
+   * `ally bag` wire — if an empty bag made in the ship is left behind, host migration
+   * (`parts/Sync.onHostChanged`) picks that up and loses the android's loot wholesale.
    */
   for (const a of sys.bodies) { a.resetSim(); Bag.clearKit(a); a.mode = 'dormant'; a.hidden = true; }
   if (ctx.missionMode !== 'raid') { sys.raidActive = false; return; }
   sys.raidActive = true;
-  if (!sys.simulating) return;                      // 리플리카는 `ally state` 를 기다린다
+  if (!sys.simulating) return;                      // a replica waits for `ally state`
 
   let i = 0;
   for (const a of sys.bodies) {
-    if (!sys.roster.some((e) => e.id === a.id)) continue;   // 잠든 슬롯 몸은 레이드에 오지 않는다
+    if (!sys.roster.some((e) => e.id === a.id)) continue;   // a dormant bay body does not come to the raid
     a.mode = 'raid';
     const ang = (i / Math.max(1, sys.roster.length)) * Math.PI * 2;
     a.position.set(playerSpawn.x + Math.cos(ang) * SPAWN_GAP_M, playerSpawn.y, playerSpawn.z + Math.sin(ang) * SPAWN_GAP_M);
@@ -69,7 +74,7 @@ export function onWorldReady(sys: AllySystem, playerSpawn: THREE.Vector3): void 
     a.hidden = true;
     a.state = 'idle';
     a.pose = 'stand';
-    // 강하 포드 — player/ 가 그리고, 착지 시각에 몸이 나온다.
+    // The drop pod — player/ draws it, and the body comes out at the landing time.
     _v1.copy(a.position);
     ctx.bus.emit('ally:podDrop', { id: a.id, position: _v1, yaw: a.yaw });
     sys.sendPodDrop(a);
@@ -78,7 +83,7 @@ export function onWorldReady(sys: AllySystem, playerSpawn: THREE.Vector3): void 
   }
 }
 
-/** 착지 시각이 지난 기를 드러낸다 (매 프레임). */
+/** Reveals every unit whose landing time has passed (each frame). */
 export function updateLanding(sys: AllySystem): void {
   if (sys.landAt.size === 0) return;
   for (const [id, at] of sys.landAt) {
@@ -91,7 +96,7 @@ export function updateLanding(sys: AllySystem): void {
   }
 }
 
-/** 이 클라이언트를 가리키는 PeerId (서버 없으면 `ALLY_LOCAL_PEER`). */
+/** The PeerId that names this client (`ALLY_LOCAL_PEER` when there is no server). */
 export function localPeer(sys: AllySystem): string {
   return sys.ctx.net?.localId ?? ALLY_LOCAL_PEER;
 }

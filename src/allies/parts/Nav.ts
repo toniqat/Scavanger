@@ -1,14 +1,18 @@
 /**
- * src/allies/parts/Nav.ts — **걷기**. 길찾기는 이 게임에 없다 — 적 AI 와 같은 조향 + 장애물 회피다
- * (`enemies/ai/Steering` 과 같은 얼개를 **다시 구현한다**: 다른 폴더의 내부는 import 하지 않는다 — CLAUDE.md §4.1).
+ * src/allies/parts/Nav.ts — **walking**. This game has no pathfinding — it is the same steering + obstacle
+ * avoidance the enemy AI runs (the same shape as `enemies/ai/Steering`, **implemented again**: another
+ * folder's internals are never imported — CLAUDE.md §4.1).
  *
- * 월드 규약 (CLAUDE.md §4.4) 을 지킨다:
- *  - 바닥은 `WorldRef.getSurfaceY(x, z, feetY)`, **`resolveCollision` 보다 먼저** 부른다 (뒤집으면 낮은 턱에 못 올라선다).
- *  - 함선 안에서는 `InteriorCollider.getFloorAt` · `resolveCollision` 을 쓴다.
- *  - 막히면 옆으로 비켜 간다 (`sideT`) — 길찾기가 없으니 이것이 유일한 탈출구다.
+ * It keeps the world contract (CLAUDE.md §4.4):
+ *  - the floor is `WorldRef.getSurfaceY(x, z, feetY)`, called **before `resolveCollision`** (reversed, it
+ *    cannot step onto a low ledge).
+ *  - inside a ship it uses `InteriorCollider.getFloorAt` · `resolveCollision`.
+ *  - when it is stuck it sidesteps (`sideT`) — with no pathfinding that is the only way out.
  *
- * 조향에 접히는 것은 셋이다: 장애물 회피(`avoidObstacles`) · 분대 몸 사이 간격(`separate`) · 주의 핑 우회(`avoid`).
- * 셋 다 **원하는 방향에 더하는 성분**일 뿐이라 이동을 막지 않는다. 사람에게 다가가는 목적지는 `spreadToward` 로 벌린다.
+ * Three things fold into the steering: obstacle avoidance (`avoidObstacles`) · the separation between squad
+ * bodies (`separate`) · the detour around a `주의` ping (`avoid`). All three are only **a component added to
+ * the wanted direction**, so they never block the movement. A destination that approaches a person is spread
+ * apart with `spreadToward`.
  */
 import * as THREE from 'three';
 import { ALLY_LOCAL_PEER, ALLY_SEPARATION_M, ALLY_SPREAD_M, ALLY_TURN_RATE, PLAYER_RADIUS } from '@/shared';
@@ -16,28 +20,31 @@ import type { AllySystem } from '../AllySystem';
 import type { Ally } from './Body';
 import { turnToward, yawToward } from '../model';
 
-/** Nav 전용 스크래치 — 부르는 쪽이 `model` 의 공용 스크래치에 목적지를 담아 넘기므로 여기서 그것을 쓰면 덮어쓴다. */
+/**
+ * Nav's own scratch — the caller passes its destination in `model`'s shared scratch, so using that one here
+ * would overwrite it.
+ */
 const _n1 = new THREE.Vector3();
 const _n2 = new THREE.Vector3();
 const _n3 = new THREE.Vector3();
 
-/** 근처 장애물을 다시 받는 주기 (s) — 매 프레임 `getObstaclesNear` 를 부르면 배열이 계속 생긴다. */
+/** How often nearby obstacles are fetched again (s) — `getObstaclesNear` every frame keeps making arrays. */
 const OBS_REFRESH_S = 0.35;
-/** 회피에 쓰는 질의 반경 (m) — 몸 반지름 + 한 걸음. 균형 수치가 아니라 질의 창이다. */
+/** The query radius the avoidance uses (m) — body radius + one step. Not a balance number but a query window. */
 const OBS_QUERY_M = 6;
-/** 같은 자리에 이만큼(s) 머물면 막힌 것으로 보고 옆으로 비킨다. */
+/** Staying in the same spot this long (s) counts as stuck, and it sidesteps. */
 const STUCK_S = 0.8;
-/** 비켜 가는 시간 (s). */
+/** How long a sidestep lasts (s). */
 const SIDE_S = 1.2;
 
-/** 몸을 `target` 쪽으로 돌린다. */
+/** Turns the body toward `target`. */
 export function face(a: Ally, target: THREE.Vector3, dt: number): void {
   a.yaw = turnToward(a.yaw, yawToward(a.position, target), ALLY_TURN_RATE, dt);
 }
 
 /**
- * `target` 을 향해 한 프레임 걷는다. 남은 XZ 거리를 돌려준다.
- * `avoid` 가 있으면 그 지점 반경 `avoidR` 안으로는 들어가지 않는다 (주의 핑).
+ * Walks one frame toward `target`. Returns the XZ distance left.
+ * With `avoid` it never comes inside `avoidR` of that point (a `주의` ping).
  */
 export function step(
   sys: AllySystem, a: Ally, target: THREE.Vector3, speed: number, dt: number,
@@ -50,10 +57,10 @@ export function step(
   if (dt <= 0) return dist;
   if (dist < 1e-4) { a.velocity.set(0, 0, 0); a.moveBlend = 0; return dist; }
 
-  // 원하는 방향
+  // the wanted direction
   _n1.set(dx / dist, 0, dz / dist);
 
-  // 주의 핑: 그 자리 주변을 크게 돈다
+  // the `주의` ping: it swings wide around that spot
   if (avoid && avoidR > 0) {
     const ax = pos.x - avoid.x, az = pos.z - avoid.z;
     const ad = Math.hypot(ax, az);
@@ -69,8 +76,9 @@ export function step(
 
   if (a.sideT > 0) {
     a.sideT -= dt;
-    // 비켜 가기: 진행 방향의 오른쪽/왼쪽 (앞 = (x, z) 의 수직은 (z, −x)). 두 성분을 같이 읽어야 한다 —
-    // x 를 먼저 덮어쓰고 z 를 계산하면 방향이 회전이 아니라 찌그러진다.
+    // The sidestep: right/left of the heading (forward = (x, z), whose perpendicular is (z, −x)). Both
+    // components have to be read together — overwriting x first and computing z from it squashes the
+    // direction instead of rotating it.
     const fx = _n1.x, fz = _n1.z;
     _n1.x = fx + fz * a.sideSign;
     _n1.z = fz - fx * a.sideSign;
@@ -83,7 +91,7 @@ export function step(
   const nx = pos.x + _n1.x * s * dt;
   const nz = pos.z + _n1.z * s * dt;
 
-  // 지면 → 충돌 순서 (뒤집으면 낮은 턱을 못 넘는다)
+  // surface → collision order (reversed, it cannot get over a low ledge)
   const interior = ctx.player?.interior ?? null;
   if (interior) {
     _n2.set(nx, interior.getFloorAt(nx, nz), nz);
@@ -101,7 +109,7 @@ export function step(
   a.velocity.set((_n2.x - pos.x) / dt, 0, (_n2.z - pos.z) / dt);
   pos.copy(_n2);
 
-  // 막힘 감지
+  // stuck detection
   if (moved < s * dt * 0.25) {
     a.stuckT += dt;
     if (a.stuckT > STUCK_S && a.sideT <= 0) {
@@ -118,13 +126,13 @@ export function step(
   return Math.hypot(target.x - pos.x, target.z - pos.z);
 }
 
-/** 제자리 — 속도 · 걸음을 0 으로 (그 자리에 선 프레임마다 부른다). */
+/** In place — velocity · the movement blend to 0 (called every frame it stands still). */
 export function halt(a: Ally): void {
   a.velocity.set(0, 0, 0);
   a.moveBlend = 0;
 }
 
-/** 지면에 다시 붙인다 (강하 착지 · 텔레포트 뒤). */
+/** Sticks it back onto the ground (after a drop-pod landing · a teleport). */
 export function snapToGround(sys: AllySystem, a: Ally): void {
   const ctx = sys.ctx;
   const interior = ctx.player?.interior ?? null;
@@ -159,12 +167,13 @@ function avoidObstacles(sys: AllySystem, a: Ally, dir: THREE.Vector3, dt: number
 }
 
 /**
- * 분대 몸끼리 **겹치지 않게** 비껴 간다 (2026-09-16 사용자 결정 「2 m 이내에 겹치지 않도록 피해서 가기,
- * 부득이 겹칠 경우 갈 수 있음」). `avoidObstacles` 와 **같은 모양의 부드러운 밀어냄**이다 — 원하는 방향에 더할 뿐
- * 멈추지도 막지도 않는다: 딱딱하게 막으면 문간에서 두 몸이 영영 엉킨다.
+ * Squad bodies step aside so they **do not overlap** (2026-09-16 user's decision 「2 m 이내에 겹치지 않도록 피해서 가기,
+ * 부득이 겹칠 경우 갈 수 있음」). It is **the same shape of soft push** as `avoidObstacles` — it only adds to the
+ * wanted direction and neither stops nor blocks: a hard block leaves two bodies tangled in a doorway forever.
  *
- * 밀어냄에서 빼는 것: 자기 자신 · 죽거나 감춰진 몸 · **업고 있는 사람** · **지금 걸어가는 목적지에 서 있는 상대**.
- * 마지막 것이 핵심이다 — 일으키러 가는 쓰러진 PC, 물건을 건넬 사람, 상자 앞의 사람에게는 밀어냄 없이 코앞까지 간다.
+ * Left out of the push: itself · a dead or hidden body · **the person it is carrying** · **whoever stands on
+ * the destination it is walking to**. The last one is the point — it walks right up to a downed PC it is
+ * getting up, a person it hands an item to, a person in front of a crate, with no push at all.
  */
 function separate(sys: AllySystem, a: Ally, dir: THREE.Vector3, target: THREE.Vector3): void {
   const ctx = sys.ctx;
@@ -178,15 +187,18 @@ function separate(sys: AllySystem, a: Ally, dir: THREE.Vector3, target: THREE.Ve
   if (me && !me.isDead && a.carrying !== localId) pushApart(a.position, dir, target, me.position);
   if (!net) return;
   for (const rp of net.getRemotePlayers()) {
-    // 업힌 몸의 좌표는 뜻이 없다 (계약 `RemotePlayerRef.isCarried`).
+    // The coordinates of a body being carried mean nothing (the contract's `RemotePlayerRef.isCarried`).
     if (rp.isDead || rp.isCarried || a.carrying === rp.id) continue;
     pushApart(a.position, dir, target, rp.position);
   }
 }
 
-/** 한 상대에게서 멀어지는 성분을 `dir` 에 더한다 (닿을수록 세게, 최대 1 — 원하는 방향을 뒤집지는 못한다). */
+/**
+ * Adds to `dir` the component that moves away from one other body (stronger the closer it is, at most 1 — it
+ * cannot flip the wanted direction).
+ */
 function pushApart(pos: THREE.Vector3, dir: THREE.Vector3, target: THREE.Vector3, other: THREE.Vector3): void {
-  // 목적지에 서 있는 상대 = 일부러 다가가는 상대다. 밀어내면 영영 닿지 못한다.
+  // Whoever stands on the destination is the one it means to reach. Pushed away, it never gets there.
   if (Math.hypot(target.x - other.x, target.z - other.z) < ALLY_SEPARATION_M) return;
   const dx = pos.x - other.x, dz = pos.z - other.z;
   const d = Math.hypot(dx, dz);
@@ -197,10 +209,11 @@ function pushApart(pos: THREE.Vector3, dir: THREE.Vector3, target: THREE.Vector3
 }
 
 /**
- * 사람에게 다가갈 때의 **산개 목적지** — 사람 자리 그대로를 향하면 세 기가 한 줄로 겹쳐 온다 (2026-09-16 사용자 결정
- * 「PC 를 향해 갈 때 산개」). 규약: 진행 방향의 수직 `(dz, −dx)` 으로 bay 0 = 한 칸 왼쪽 · bay 1 = 한 칸 오른쪽 ·
- * bay 2 = 두 칸 왼쪽 … `ALLY_SPREAD_M` 간격으로 번갈아 벌린다 (bay 는 조종실 슬롯이라 레이드 내내 변하지 않는다).
- * 남은 거리보다 크게 비껴 서지는 않는다 — 코앞에서 옆으로 크게 도는 것을 막는다.
+ * The **spread destination** for approaching a person — aimed straight at the person's spot, three units come
+ * in one line (2026-09-16 user's decision 「PC 를 향해 갈 때 산개」). The contract: along the perpendicular of
+ * the heading `(dz, −dx)`, bay 0 = one lane left · bay 1 = one lane right · bay 2 = two lanes left …
+ * alternating at `ALLY_SPREAD_M` steps (the bay is the cockpit bay, so it does not change for the whole raid).
+ * It never steps further aside than the distance left — that stops a wide swing right in front of the person.
  */
 export function spreadToward(a: Ally, person: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
   const dx = person.x - a.position.x, dz = person.z - a.position.z;
@@ -212,7 +225,7 @@ export function spreadToward(a: Ally, person: THREE.Vector3, out: THREE.Vector3)
   return out.set(person.x + (dz / d) * off, person.y, person.z - (dx / d) * off);
 }
 
-/** 하네스 안의 한 점 — `center` 주변 `radius` 안에서 `want` 에 가장 가까운 지점을 `out` 에 쓴다. */
+/** A point inside the harness — writes into `out` the spot closest to `want` within `radius` of `center`. */
 export function clampToHarness(center: THREE.Vector3, radius: number, want: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
   const dx = want.x - center.x, dz = want.z - center.z;
   const d = Math.hypot(dx, dz);

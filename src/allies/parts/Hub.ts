@@ -1,17 +1,20 @@
 /**
- * src/allies/parts/Hub.ts — **함선의 안드로이드**.
+ * src/allies/parts/Hub.ts — **the android in the ship**.
  *
- * 공용 함선: 조종실 슬롯(`HubRef.getAndroidBays`) 안에 잠든 몸이 서 있고, 분대장이 들이면 그 기가 캡슐 밖으로 나와
- * (`emerge`) 자기 **발사 포드 앞**(`HubRef.getPodStandPose`)까지 걸어가 대기한다(`hubIdle`). 돌려보내면 반대로
- * 걸어 들어간다(`retire` → `dormant`).
+ * Shared ship: a dormant body stands inside the cockpit bay (`HubRef.getAndroidBays`). The squad leader calls it
+ * in, and that unit steps out of the capsule (`emerge`) and walks to the front of its own **launch pod**
+ * (`HubRef.getPodStandPose`) to wait there (`hubIdle`). Sent back, it walks back in (`retire` → `dormant`).
  *
- * **함선에는 와이어가 없다** — 모든 클라이언트가 같은 로비 상태에서 같은 자리를 스스로 계산한다. 함선 안의 몸은
- * 위치가 로비로부터 결정되므로 스냅샷을 주고받을 이유가 없고, 그래야 늦게 들어온 사람도 즉시 같은 그림을 본다.
+ * **The ship has no wire** — every client computes the same spot from the same lobby state. A body in the ship
+ * takes its position from the lobby, so there is nothing to trade snapshots for, and that is what lets a late
+ * joiner see the same picture at once.
  *
- * 개인 함선의 치트 안드로이드는 슬롯이 없다 (사용자 결정 「공용 함선 전용」) — PC 곁에 `ALLY_HUB_FOLLOW_M` 로 선다.
+ * The cheat android of the personal ship has no bay (user's decision 「공용 함선 전용」) — it stands
+ * `ALLY_HUB_FOLLOW_M` beside the PC.
  *
- * **함선의 몸도 기본 킷 차림이다** (2026-09-16 사용자 결정): 들어설 때 `Bag.equipKit` 으로 새로 세우고, 서 있는 동안은
- * 멱등한 `Bag.ensureKit` 이 지킨다. 함선에는 떨구기 · 건네기 · 시체 · 창고가 없으므로 묶인 킷이 밖으로 새는 길도 없다.
+ * **The body in the ship wears the base kit too** (2026-09-16 user's decision): entering builds it fresh with
+ * `Bag.equipKit`, and the idempotent `Bag.ensureKit` keeps it while it stands there. The ship has no dropping ·
+ * handing over · corpse · stash, so a bound kit has no road out of it either.
  */
 import { ALLY_HUB_FOLLOW_M, ALLY_WALK_SPEED } from '@/shared';
 import type { HubAndroidBay } from '@/shared';
@@ -22,7 +25,7 @@ import * as Bag from './Bag';
 import * as Nav from './Nav';
 import * as Roster from './Roster';
 
-/** 걸어서 「도착」으로 보는 거리 (m) — 배치값이다. */
+/** The distance (m) that counts as 「arrived」 when walking — a layout constant. */
 const ARRIVE_M = 0.4;
 
 export function onHubEntered(sys: AllySystem): void {
@@ -37,13 +40,14 @@ export function onHubEntered(sys: AllySystem): void {
     a.dead = false;
     a.downed = false;
     /*
-     * 2026-09-16 (사용자 결정 「호출되는 순간 기본 킷을 장착한 채로 선다」): 함선에 들어서면 **기본 킷으로 다시 선다** —
-     * 레이드 진입(`parts/Spawn`)과 대칭이다. 멱등한 `ensureKit` 이 아니라 새로 짓는 이유: 방금 끝난 레이드에서 주운
-     * 장비로 갈아 끼웠거나 가방에 전리품이 남아 있을 수 있고(탈출 이관은 `raidFound` 만 옮긴다), 그러면 함선의 안드로이드가
-     * 저마다 다른 차림으로 서서 발사 슬롯 카드가 레이드 잔재를 보여 준다. 새 킷도 묶인 물건이라 밖으로 나가는 길은 없다.
+     * 2026-09-16 (user's decision 「호출되는 순간 기본 킷을 장착한 채로 선다」): entering the ship **stands it up in
+     * the base kit again** — symmetrical with raid entry (`parts/Spawn`). Why a fresh build and not the idempotent
+     * `ensureKit`: the raid that just ended may have left looted gear equipped or loot in the bag (the extraction
+     * deposit moves only `raidFound` items), and then the androids in the ship stand in different outfits and
+     * the launch slot card shows raid leftovers. The new kit is a bound thing too, so it has no road out either.
      */
     Bag.equipKit(sys, a);
-    a.shield = a.maxShield;   // 방탄복을 막 입었다 — 실드는 가득이다 (`equipKit` → `refreshLook` 이 최대치만 정한다)
+    a.shield = a.maxShield;   // armor just put on — the shield is full (`equipKit` → `refreshLook` only sets the max)
     place(sys, a, true);
   }
 }
@@ -55,15 +59,17 @@ export function onHubLeft(sys: AllySystem): void {
 export function update(sys: AllySystem, dt: number): void {
   const ship = sys.ctx.hub?.ship ?? null;
   if (!ship) return;
-  // 조종실 슬롯은 함선이 다 지어진 **뒤에** 생길 수 있다 (hub 가 짓는 순서). 빠진 슬롯이 보이면 몸을 다시 맞춘다.
+  // A cockpit bay can appear **after** the ship is fully built (the order hub builds in). When a bay is missing,
+  // the bodies are matched again.
   if (ship === 'shared') {
     for (const b of sys.ctx.hub?.getAndroidBays?.() ?? []) {
       if (!sys.bodies.some((x) => x.bay === b.bay)) { Roster.syncBodies(sys); break; }
     }
   }
   for (const a of sys.bodies) {
-    // 함선에 서 있는 동안은 언제나 기본 킷 차림이다 (2026-09-16 사용자 결정). 멱등한 검사라 매 프레임 불러도 싸고,
-    // `hub:entered` 를 놓친 경로(슬롯이 늦게 생겨 여기서 만들어진 몸 등)까지 한 자리에서 메운다.
+    // While it stands in the ship it always wears the base kit (2026-09-16 user's decision). The test is
+    // idempotent, so calling it every frame is cheap, and it fills in one place even the paths that missed
+    // `hub:entered` (a body created here because its bay appeared late, and the like).
     Bag.ensureKit(sys, a);
     const recruited = Roster.isRecruited(sys, a.id);
     if (ship === 'personal') { personal(sys, a, recruited, dt); continue; }
@@ -71,7 +77,7 @@ export function update(sys: AllySystem, dt: number): void {
   }
 }
 
-/* ── 공용 함선 ─────────────────────────────────────────────────────────── */
+/* ── The shared ship ─────────────────────────────────────────────── */
 
 function bayOf(sys: AllySystem, a: Ally): HubAndroidBay | null {
   for (const b of sys.ctx.hub?.getAndroidBays?.() ?? []) if (b.bay === a.bay) return b;
@@ -81,7 +87,7 @@ function bayOf(sys: AllySystem, a: Ally): HubAndroidBay | null {
 function shared(sys: AllySystem, a: Ally, recruited: boolean, dt: number): void {
   const bay = bayOf(sys, a);
   a.hidden = false;
-  // 상태 전이 — 들였으면 나오고, 돌려보냈으면 들어간다.
+  // The transition — called in it comes out, sent back it goes in.
   if (recruited && (a.state === 'dormant' || a.state === 'retire')) a.state = 'emerge';
   if (!recruited && (a.state === 'hubIdle' || a.state === 'emerge')) a.state = 'retire';
   a.mode = a.state === 'dormant' ? 'dormant' : 'hub';
@@ -95,7 +101,7 @@ function shared(sys: AllySystem, a: Ally, recruited: boolean, dt: number): void 
     case 'emerge': {
       a.pose = 'stand';
       const stand = sys.ctx.hub?.getPodStandPose?.(a.slot) ?? null;
-      // 먼저 캡슐 밖 한 걸음, 그 다음 발사 포드 앞으로.
+      // One step out of the capsule first, then on to the front of the launch pod.
       const target = bay && dist2D(a.position, bay.exit) > ARRIVE_M && !leftBay(a, bay) ? bay.exit : stand?.position ?? null;
       if (!target) { a.state = 'hubIdle'; Nav.halt(a); break; }
       const left = Nav.step(sys, a, target, ALLY_WALK_SPEED, dt);
@@ -127,12 +133,12 @@ function shared(sys: AllySystem, a: Ally, recruited: boolean, dt: number): void 
   }
 }
 
-/** 캡슐 밖으로 이미 나왔는가 (한 걸음 지점을 지났다). */
+/** Has it already come out of the capsule (past the one-step spot). */
 function leftBay(a: Ally, bay: HubAndroidBay): boolean {
   return dist2D(a.position, bay.position) > dist2D(bay.exit, bay.position);
 }
 
-/* ── 개인 함선 (치트) ───────────────────────────────────────────────────── */
+/* ── The personal ship (cheat) ────────────────────────── */
 
 function personal(sys: AllySystem, a: Ally, recruited: boolean, dt: number): void {
   if (!recruited) { a.hidden = true; return; }
@@ -147,7 +153,7 @@ function personal(sys: AllySystem, a: Ally, recruited: boolean, dt: number): voi
   else { Nav.halt(a); a.yaw = yawToward(a.position, p.position); }
 }
 
-/** 치트 안드로이드를 PC 곁에 처음 세운다. */
+/** Stands the cheat android beside the PC for the first time. */
 export function place(sys: AllySystem, a: Ally, snap: boolean): void {
   const ship = sys.ctx.hub?.ship ?? null;
   if (ship === 'shared') {

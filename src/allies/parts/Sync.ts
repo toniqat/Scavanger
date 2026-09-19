@@ -1,11 +1,14 @@
 /**
- * src/allies/parts/Sync.ts — **와이어** (`ally` 사실 · `allyq` 요청, 계약 `shared/net.ts` 끝 절).
+ * src/allies/parts/Sync.ts — **the wire** (`ally` facts · `allyq` requests, contract: the last section of
+ * `shared/net.ts`).
  *
- * 권위는 호스트 하나다: 호스트가 `ALLY_NET_INTERVAL_S` 마다 모든 기의 스냅샷을 보내고, 리플리카는 **호스트가 보낸
- * `ally` 만** 받아들인다 (`lobby.hostId` 확인 — 아무나 보낸 안드로이드 상태를 받으면 그것이 곧 치트다).
- * 리플리카는 `NET_INTERP_DELAY` 만큼 늦춰 보간한다 — 원격 플레이어와 같은 규약이라 몸이 따로 놀지 않는다.
+ * The authority is one host: the host sends a snapshot of every unit every `ALLY_NET_INTERVAL_S`, and a replica
+ * accepts **only the `ally` the host sent** (`lobby.hostId` is checked — taking an android state from anyone at
+ * all would itself be a cheat).
+ * A replica interpolates `NET_INTERP_DELAY` behind — the same contract as a remote player, so a body never moves
+ * out of step.
  *
- * 함선에는 와이어가 없다 (`parts/Hub`) — 레이드 세션 동안만 보낸다.
+ * The ship has no wire (`parts/Hub`) — it only sends during a raid session.
  */
 import {
   ALLY_FLAGS, ALLY_MODES, ALLY_NET_INTERVAL_S, ALLY_POSES, ALLY_STATES, NET_INTERP_DELAY, isAndroidId,
@@ -21,10 +24,10 @@ import * as Bag from './Bag';
 function tup(v: THREE.Vector3): Vec3Tuple {
   return [round(v.x), round(v.y), round(v.z)];
 }
-/** 좌표는 소수 2자리로 줄여 보낸다 (계약). */
+/** Coordinates are sent cut down to 2 decimal places (contract). */
 function round(n: number): number { return Math.round(n * 100) / 100; }
 
-/* ═══════════════════════════ 훅 ═══════════════════════════ */
+/* ═══════════════════════════ Hooks ═══════════════════════════ */
 
 export function ensureNetHooks(sys: AllySystem): void {
   const net = sys.ctx.net;
@@ -42,7 +45,7 @@ export function unhook(sys: AllySystem): void {
   sys.netHooked = false;
 }
 
-/* ═══════════════════════════ 보내기 ═══════════════════════════ */
+/* ═══════════════════════════ Sending ═══════════════════════════ */
 
 function live(sys: AllySystem): boolean {
   return !!sys.ctx.net && sys.ctx.isMultiplayer;
@@ -112,14 +115,14 @@ export function sendPodDrop(sys: AllySystem, a: Ally): void {
   sys.ctx.net?.send({ t: 'ally', ev: 'drop', id: a.id, p: tup(a.position), yaw: round(a.yaw) }, 'others');
 }
 
-/** 리플리카에서 소생 홀드가 끝났다 → 호스트가 거리 · 상태를 다시 본다. */
+/** The revive hold finished on a replica → the host looks at the distance · state again. */
 export function sendReviveRequest(sys: AllySystem, id: AllyId, defib: boolean): boolean {
   if (!live(sys)) return false;
   sys.ctx.net?.send(defib ? { t: 'allyq', ev: 'revive', id, defib: 1 } : { t: 'allyq', ev: 'revive', id }, 'host');
   return true;
 }
 
-/** 안드로이드가 사람을 일으켰다 — 호스트 자신이면 바로, 아니면 `ally revive`. */
+/** An android got a person up — directly when that person is the host itself, otherwise `ally revive`. */
 export function revivePlayer(sys: AllySystem, a: Ally, target: PeerId, defib: boolean): void {
   const ctx = sys.ctx;
   const localId = ctx.net?.localId ?? 'local';
@@ -132,7 +135,7 @@ export function revivePlayer(sys: AllySystem, a: Ally, target: PeerId, defib: bo
   ctx.net?.send(defib ? { t: 'ally', ev: 'revive', id: a.id, target, defib: 1 } : { t: 'ally', ev: 'revive', id: a.id, target }, target);
 }
 
-/** 탈출한 기의 전리품을 분대장 창고로. 분대장이 이 클라이언트면 이벤트 하나로 끝난다. */
+/** An extracted unit's loot goes to the squad leader's stash — one event when the leader is this client. */
 export function depositToLeader(sys: AllySystem, a: Ally, items: readonly ItemInstance[]): void {
   if (items.length === 0) return;
   const ctx = sys.ctx;
@@ -144,7 +147,7 @@ export function depositToLeader(sys: AllySystem, a: Ally, items: readonly ItemIn
   ctx.net?.send({ t: 'ally', ev: 'deposit', id: a.id, to: sys.leaderId, items: items.slice() }, sys.leaderId);
 }
 
-/* ═══════════════════════════ 받기 ═══════════════════════════ */
+/* ═══════════════════════════ Receiving ═══════════════════════════ */
 
 function fromHost(sys: AllySystem, from: PeerId): boolean {
   const host = sys.ctx.net?.lobby?.hostId ?? null;
@@ -152,7 +155,7 @@ function fromHost(sys: AllySystem, from: PeerId): boolean {
 }
 
 function onAlly(sys: AllySystem, msg: Extract<GameMessage, { t: 'ally' }>, from: PeerId): void {
-  if (!fromHost(sys, from)) return;             // 호스트 권위 — 다른 사람이 보낸 안드로이드 상태는 버린다
+  if (!fromHost(sys, from)) return;             // host authority — an android state sent by anyone else is dropped
   switch (msg.ev) {
     case 'state': {
       for (const w of msg.allies) applyWire(sys, w);
@@ -204,7 +207,7 @@ function onAlly(sys: AllySystem, msg: Extract<GameMessage, { t: 'ally' }>, from:
       break;
     }
     case 'deposit': {
-      // 분대장인 나에게 온 전리품 — inventory 가 창고에 넣는다.
+      // Loot that arrived because this client is the squad leader — inventory puts it in the stash.
       const a = sys.byId.get(w2id(msg.id));
       sys.ctx.bus.emit('inventory:allyDeposit', { id: msg.id, name: a?.name ?? msg.id, items: msg.items });
       break;
@@ -215,7 +218,7 @@ function onAlly(sys: AllySystem, msg: Extract<GameMessage, { t: 'ally' }>, from:
 }
 
 function onAllyq(sys: AllySystem, msg: Extract<GameMessage, { t: 'allyq' }>, from: PeerId): void {
-  if (!sys.simulating) return;                  // 요청은 호스트만 처리한다
+  if (!sys.simulating) return;                  // only the host handles requests
   switch (msg.ev) {
     case 'sync': {
       const allies: AllyWire[] = [];
@@ -228,7 +231,7 @@ function onAllyq(sys: AllySystem, msg: Extract<GameMessage, { t: 'allyq' }>, fro
       const a = sys.byId.get(w2id(msg.id));
       if (!a || !a.downed || a.dead) break;
       const rp = sys.ctx.net?.getRemotePlayer(from);
-      // 호스트가 거리를 다시 본다 — 멀리서 보낸 요청은 버린다.
+      // The host looks at the distance again — a request sent from far away is dropped.
       if (rp && rp.position.distanceTo(a.position) > sys.reviveRange) break;
       Vitals.revive(sys, a, from);
       break;
@@ -246,7 +249,7 @@ function onAllyq(sys: AllySystem, msg: Extract<GameMessage, { t: 'allyq' }>, fro
 
 function w2id(id: PeerId): AllyId { return id; }
 
-/* ═══════════════════════════ 리플리카 보간 ═══════════════════════════ */
+/* ═══════════════════════════ Replica interpolation ═══════════════════════════ */
 
 function applyWire(sys: AllySystem, w: AllyWire): void {
   if (!isAndroidId(w.id)) return;
@@ -294,12 +297,13 @@ export function updateReplicas(sys: AllySystem, dt: number): void {
   }
 }
 
-/** 호스트가 바뀌었다 — 새 호스트는 마지막 스냅샷 · 가방에서 이어받고, 내려온 쪽은 리플리카가 된다. */
+/** The host changed — the new host picks up from the last snapshot · bag, the demoted one becomes a replica. */
 export function onHostChanged(sys: AllySystem, isLocalHost: boolean): void {
   if (isLocalHost) {
     for (const a of sys.bodies) {
       if (a.mode !== 'raid') continue;
-      // 마지막으로 받은 상태를 그대로 이어받고 AI 만 다시 시작한다 (몸 · 가방은 이미 `ally bag` 으로 안다).
+      // Takes over the last state received as it is and restarts only the AI (the body · bag are already known
+      // from `ally bag`).
       a.pendingState = null;
       a.pendingT = 0;
       a.statePrio = 0;
@@ -319,7 +323,7 @@ export function onHostChanged(sys: AllySystem, isLocalHost: boolean): void {
   }
 }
 
-/** 늦은 합류 · 재접속 — 호스트에게 현황을 묻는다. */
+/** A late join · a reconnect — asks the host for the current state. */
 export function askSync(sys: AllySystem): void {
   if (!live(sys) || sys.simulating) return;
   sys.ctx.net?.send({ t: 'allyq', ev: 'sync' }, 'host');

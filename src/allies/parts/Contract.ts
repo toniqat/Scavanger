@@ -1,10 +1,12 @@
 /**
- * src/allies/parts/Contract.ts — **계약 목표 찾기**. 「내 계약」 한 마디를 들으면 하네스 안에서 목표에 해당하는 것을
- * 하나 찾아 핑을 찍는다 (사용자 결정 「계약에 따라 다르나, 하네스 범위 내에서 계약 목표를 찾으면 핑」).
+ * src/allies/parts/Contract.ts — **finding a contract objective**. One 「내 계약」 line and it looks inside the harness
+ * for one thing that answers the objective and pings it (user's decision 「계약에 따라 다르나, 하네스 범위 내에서
+ * 계약 목표를 찾으면 핑」).
  *
- * ⚠ **한계**: 호스트가 확실히 아는 계약은 **자기 것**뿐이다 (`ctx.meta.activeContract` · `ctx.meta.npc.getRaidTracks()`).
- * 원격 분대원의 계약은 와이어에 없고 `comms:sent.text` 한 줄만 오므로, 그 문장에 든 목표어를 훑어 가장 그럴듯한
- * 종류로 맞춰 본다 — 맞는 것이 없으면 호스트 자신의 목표로 대신한다.
+ * ⚠ **A limit**: the only contract the host knows for sure is **its own** (`ctx.meta.activeContract` ·
+ * `ctx.meta.npc.getRaidTracks()`). A remote squadmate's contract is not on the wire — only the one line of
+ * `comms:sent.text` arrives — so it scans that sentence for objective words and matches the most likely kind; with
+ * no match it stands in the host's own objective instead.
  */
 import { ALLY_SENSE_RADIUS_M } from '@/shared';
 import type { AllySystem } from '../AllySystem';
@@ -15,7 +17,7 @@ import * as Nav from './Nav';
 import * as Ping from './Ping';
 import * as Commands from './Commands';
 
-/** 목표의 큰 갈래 — 무엇을 찾아 핑을 찍을지만 가른다. */
+/** The broad kind of objective — it only decides what to look for and ping. */
 type Want = 'enemy' | 'container' | 'item' | 'structure';
 
 export function proposal(sys: AllySystem, a: Ally): Proposal | null {
@@ -25,7 +27,7 @@ export function proposal(sys: AllySystem, a: Ally): Proposal | null {
 export function act(sys: AllySystem, a: Ally, dt: number): void {
   Nav.halt(a);
   void dt;
-  if (a.oneShot) return;      // 탈출구 탐색과 같은 이유 (`Ally.oneShot`)
+  if (a.oneShot) return;      // the same reason as the search for the way out (`Ally.oneShot`)
   a.oneShot = true;
   for (const want of wants(sys)) {
     if (find(sys, a, want)) { Commands.finishTask(sys, a); return; }
@@ -34,11 +36,12 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
   Commands.finishTask(sys, a);
 }
 
-/** 지금 찾아야 하는 것들 (우선순위 순). */
+/** What it has to look for right now (in priority order). */
 function wants(sys: AllySystem): Want[] {
   const out: Want[] = [];
   const text = sys.requestText;
-  // 원격 요청자의 문장에서 읽어 본다 (한국어 목표 문구 — `CONTRACT_GOAL_LABEL_KO` · NPC 목표 문구와 같은 말들).
+  // Reads what it can from a remote requester's sentence (the Korean objective words — the same ones as
+  // `CONTRACT_GOAL_LABEL_KO` and the NPC objective text).
   if (text) {
     if (/처치|사살/.test(text)) out.push('enemy');
     if (/상자|개봉|보관함/.test(text)) out.push('container');
@@ -61,7 +64,7 @@ function wants(sys: AllySystem): Want[] {
   return out;
 }
 
-/** 하네스 안에서 그 갈래의 첫 대상을 찾아 핑을 찍는다. 찍었으면 true. */
+/** Finds the first target of that kind inside the harness and pings it. True when it pinged. */
 function find(sys: AllySystem, a: Ally, want: Want): boolean {
   const ctx = sys.ctx;
   const center = sys.leaderKnown ? sys.leaderPos : a.position;
@@ -86,7 +89,7 @@ function find(sys: AllySystem, a: Ally, want: Want): boolean {
     case 'item': {
       const p = ctx.pickups?.findNear(center, sys.harness) ?? null;
       if (p) { Ping.place(sys, a, 'item', p.position); return true; }
-      // 바닥에 없으면 상자를 가리킨다 — 회수 목표는 결국 상자에서 나온다.
+      // With nothing on the ground it points at a crate — a recovery objective comes out of a crate in the end.
       return find(sys, a, 'container');
     }
     case 'structure': {

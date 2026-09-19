@@ -1,14 +1,16 @@
 /**
- * src/allies/parts/Harness.ts — **분대장과 하네스**.
+ * src/allies/parts/Harness.ts — **the squad leader and the harness**.
  *
- * 하네스 = 안드로이드가 따라다니고 탐색하는 반경. 중심은 **분대장**(`lobby.hostId`, 로비가 없으면 로컬 플레이어 —
- * 사용자 결정). 사용자 결정 「PC 가 한쪽 방향으로 계속 움직이면 하네스가 절반으로 줄어든다」를 방향 일관성의
- * 지수평균(`commit`)으로 구현한다: 빠르게 + 같은 방향으로 갈수록 1 에 가까워지고, 반경은
- * `ALLY_HARNESS_RADIUS_M × lerp(1, ALLY_HARNESS_MIN_FRAC, commit)` 이 된다.
+ * The harness = the radius an android follows and searches inside. Its centre is the **squad leader**
+ * (`lobby.hostId`, or the local player when there is no lobby — user's decision). The user's decision 「PC 가 한쪽
+ * 방향으로 계속 움직이면 하네스가 절반으로 줄어든다」 is implemented as an exponential average of heading
+ * consistency (`commit`): the faster and the more in one direction the leader goes, the closer it gets to 1,
+ * and the radius becomes `ALLY_HARNESS_RADIUS_M × lerp(1, ALLY_HARNESS_MIN_FRAC, commit)`.
  *
- * 2026-09-16 사용자 결정 「앞장서라 = 일반 범위의 2배로 각자 일대를 수색」 — `sys.leadUntil` 까지는 마지막에
- * `ALLY_LEAD_HARNESS_MUL` 을 곱한다. **반경 하나만 넓히면** 따라가기 · 자유 탐색 · 엄폐 자리 · 탈출 클램프가
- * 모두 같은 값을 읽으므로, 소비자마다 따로 손볼 것이 없다 (`sys.harness` 가 유일한 출구다).
+ * 2026-09-16 user's decision 「앞장서라 = 일반 범위의 2배로 각자 일대를 수색」 — up to `sys.leadUntil` it multiplies
+ * by `ALLY_LEAD_HARNESS_MUL` last. **Widening the one radius** is enough: following · the free search · the
+ * cover spot · the extraction clamp all read the same value, so no consumer needs a fix of its own
+ * (`sys.harness` is the only way out).
  */
 import * as THREE from 'three';
 import {
@@ -21,20 +23,23 @@ import type { AllySystem } from '../AllySystem';
 const _dir = new THREE.Vector3();
 let override: THREE.Vector3 | null = null;
 
-/** 스모크용 — 분대장 위치를 덮어쓴다 (null 이면 해제). */
+/** For the smokes — overwrites the squad leader's position (null clears it). */
 export function debugOverride(sys: AllySystem, pos: THREE.Vector3 | null): void {
   override = pos ? pos.clone() : null;
   void sys;
 }
 
-/** 지금 분대장의 PeerId — 로비 호스트, 로비가 없으면 로컬 플레이어. 봇은 절대 호스트가 되지 않는다 (릴레이 규약). */
+/**
+ * The squad leader's PeerId now — the lobby host, or the local player when there is no lobby. A bot is never
+ * the host (the relay contract).
+ */
 export function leaderOf(sys: AllySystem): PeerId {
   const host = sys.ctx.net?.lobby?.hostId;
   if (host && !isAndroidId(host)) return host;
   return sys.ctx.net?.localId ?? ALLY_LOCAL_PEER;
 }
 
-/** 분대장의 발 위치를 `out` 에 쓴다. 모르면 false (그 프레임은 따라가지 않는다). */
+/** Writes the squad leader's feet position into `out`. false when it is unknown (that frame follows nothing). */
 export function leaderPos(sys: AllySystem, out: THREE.Vector3): boolean {
   if (override) { out.copy(override); return true; }
   const ctx = sys.ctx;
@@ -69,7 +74,8 @@ export function update(sys: AllySystem, dt: number): void {
   let sample = 0;
   if (speed >= ALLY_HARNESS_COMMIT_SPEED) {
     _dir.normalize();
-    // 「같은 방향으로 계속」 — 지금 방향과 그동안 누적한 방향의 내적 (처음에는 1 로 본다).
+    // 「in one direction, continuously」 — the dot product of the current heading and the direction
+    // accumulated so far (1 at the start).
     const consistency = sys.leaderDir.lengthSq() > 1e-6 ? Math.max(0, sys.leaderDir.dot(_dir)) : 1;
     sample = consistency;
     sys.leaderDir.lerp(_dir, Math.min(1, dt / Math.max(1e-3, ALLY_HARNESS_COMMIT_TAU_S))).normalize();
@@ -82,7 +88,7 @@ export function update(sys: AllySystem, dt: number): void {
   sys.harness = ALLY_HARNESS_RADIUS_M * (1 + (ALLY_HARNESS_MIN_FRAC - 1) * sys.commit) * leadMul(sys);
 }
 
-/** 「앞장서라」가 살아 있는 동안의 반경 배수 (`ALLY_LEAD_DURATION_S` 가 지나면 저절로 1 로 돌아온다). */
+/** The radius multiplier while 「앞장서라」 is alive (past `ALLY_LEAD_DURATION_S` it returns to 1 by itself). */
 function leadMul(sys: AllySystem): number {
   return sys.ctx && sys.ctx.time < sys.leadUntil ? ALLY_LEAD_HARNESS_MUL : 1;
 }
