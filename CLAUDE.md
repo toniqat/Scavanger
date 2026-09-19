@@ -28,7 +28,7 @@ The relay server keeps a per-token **profile store** (credits · meta · stash �
 | **When / what / why something changed** | `git log` — **commit messages are the source** (`git log -- src/<folder>`, `git log --grep '<keyword>'`) |
 | **Work to do** | [docs/TODO.md](docs/TODO.md) (Korean) — to-do only; an intended limit lives in the owning folder's `README.md` |
 | Completed phases | [docs/HISTORY.md](docs/HISTORY.md) |
-| **Frame hitches with many bodies** (measure-first plan, next session) | [docs/PERF_PLAN.md](docs/PERF_PLAN.md) — Phase 0 measurement table · ranked findings with file:line · phases per folder · questions for the user |
+| **Frame hitches with many bodies** | [docs/PERF_PLAN.md](docs/PERF_PLAN.md) — **Phase 0 measured 2026-09-19** (results table · measured verdict per finding · re-ranked phases · questions for the user). Harness: `node scripts/perf-measure.mjs` |
 | **Which folder's comments are still Korean** (§4.1 migration, in progress) | [docs/COMMENT_I18N_PLAN.md](docs/COMMENT_I18N_PLAN.md) — folder queue with counts · per-folder method and verification cost · the measuring script. Delete the file when the queue empties |
 | What the user chose and what was rejected | [docs/DECISIONS.md](docs/DECISIONS.md) |
 | **Investor / publisher wiki** (HTML, no build, public at **https://toniqat.github.io/Scavanger/**) | [docs/pitch/README.md](docs/pitch/README.md) → `docs/pitch/index.html`; page order · file numbers · section numbers come from `TREE` in `docs/pitch/app.js`; `node scripts/smoke-pitch.mjs` catches breakage |

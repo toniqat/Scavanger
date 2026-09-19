@@ -25,6 +25,7 @@ each script's header comment — read it before editing a smoke.
 | `shots-pitch.mjs` | Pitch-wiki screenshots into `docs/pitch/assets/` (needs `npm run dev`; staging dir outside the repo, retry per shot; raids start from `game:newMission`, never `hub.setPlanet`) |
 | `shots-factions.mjs` | Humanoid faction look check → `scripts/logs/factions-look*.png` |
 | `shots-uiux.mjs` | Screenshots of character / craft / corporation screens → `scripts/shots/uiux-*.png` |
+| `perf-measure.mjs` | **`docs/PERF_PLAN.md` Phase 0 harness** — plays S1-S4 in a **headful** Chrome (a headless window does not present frames, so its cadence means nothing) and prints frame time, per-system script time, draw calls and heap. Wraps every system's `update` / `lateUpdate`, the render block, the light budget, `AudioSystem.play` and the spawn paths **on the live page** — no `src/` change. `--only s1,s3a` · `--seconds` · `--label` · `--spike` (autopsy threshold) · `--headless`. Writes `scripts/logs/perf/<label>.json`; re-run it with the same options after each phase for the before/after delta. Asserts nothing, so `verify` never runs it |
 | `logs/`, `shots/` | Runner output and screenshots (git-ignored) |
 
 ## Smokes

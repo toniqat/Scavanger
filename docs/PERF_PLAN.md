@@ -1,198 +1,205 @@
 # Performance plan — frame hitches with many bodies
 
-**Status:** analysis done 2026-09-18 by static code reading (three parallel audits + spot checks). **Nothing has been
-measured yet and nothing has been changed.** The next session starts at [Phase 0](#phase-0--measure-first) and must not
-touch code before the numbers exist. Line numbers below are from the 2026-09-18 working tree and may drift by a few lines.
+**Status:** **Phase 0 measured on 2026-09-19** (`scripts/perf-measure.mjs`, headful Chrome on the real GPU). The static
+analysis of 2026-09-18 ranked by reasoning; the numbers below replace that ranking, and several of its findings are
+**struck**. Nothing has been changed in `src/` yet. Line numbers are from the 2026-09-18 working tree and may drift.
 
 **Symptom (user report):** the frame rate drops or stutters badly (a) with several other bodies present — remote human
 players, or the 3 android squadmates — and (b) when many bugs are alive, worst of all at the moment a new group spawns.
 
-**One-line diagnosis:** two separate problems overlap. A **spawn spike** (bodies are built on the spawning frame because no
-pool is pre-warmed, placement raycasts once per player per candidate, one WebAudio graph per emerging bug) and a **sustained
-per-body cost** (17–18 meshes per bug, ~130 draw calls per soldier body, no batching / instancing / distance LOD, plus
-host-only android AI that allocates and searches cover every frame).
+**One-line diagnosis, after measuring:** **the render block is the frame.** Submitting the scene costs ~4 µs per draw
+call on the CPU, so a raid with 60 bugs alive spends **7.6 ms of its 16.7 ms budget inside `renderer.render`** — and
+every frame that actually dropped was render-dominated (11–30 ms). Second, and cheap to fix, is a **forced layout** the
+HUD triggers once per frame (1.1 ms/frame with 160 bodies, 7.3 ms at worst). The spawn spike the analysis expected is
+**not** what the user sees: building 60 bodies in one frame costs 5.8 ms and the natural patrol tick costs 0.1 ms.
 
 ---
 
 ## How to work this plan
 
-1. **Read first:** `CLAUDE.md` §4.1 (no numbers in code → csv), §4.5 (never change the point-light count at runtime; every
-   scene compiles through `ctx.shaders`), §6 (verify). Then the README of every folder you touch.
-2. **Phase 0 before anything else.** The analysis ranks by reasoning; only a profile decides. If a measured item turns out
-   cheap, drop it — do not implement fixes whose cause was not observed.
-3. **Ask the user before Phase 2** (`AskUserQuestion`): the visual trade-offs listed in [Decisions needed](#decisions-needed)
+1. **Read first:** `CLAUDE.md` §4.1 (no numbers in code → csv), §4.5 (never change the point-light count at runtime;
+   every scene compiles through `ctx.shaders`), §6 (verify). Then the README of every folder you touch.
+2. **Re-measure around every phase**: `node scripts/perf-measure.mjs --label <before|after-phaseN>`, same options both
+   times, and put the delta in the commit message. The harness changes no game code — it wraps the live page.
+3. **Ask the user before Phase 1** (`AskUserQuestion`): the visual trade-offs in [Decisions needed](#decisions-needed)
    are theirs, not ours.
 4. **One phase = one verify cycle** (`npm run verify`; `verify:all` at the end of the session). Record results as
    `CLAUDE.md` §6 says: numbers and what changed → commit message; new invariants → comment above the code; the user's
-   choices → `docs/DECISIONS.md`; this file is updated with the measured table and then, once every phase is done or
-   retired, **deleted** (plans do not live on — `docs/plans` was retired in `dd1fd69`).
-5. Parallel agents: follow the memory rule — lead owns vite/relay; agents run smokes with `--only --keep-relay --log-dir`;
-   nobody but the lead runs `e2e:mp`.
+   choices → `docs/DECISIONS.md`; and once every phase is done or retired this file is **deleted** (plans do not live
+   on — `docs/plans` was retired in `dd1fd69`).
+5. Parallel agents: follow the memory rule — lead owns vite/relay; agents run smokes with `--only --keep-relay
+   --log-dir`; nobody but the lead runs `e2e:mp`.
 
 ---
 
-## Phase 0 — measure first
+## Phase 0 — measured (2026-09-19)
 
-Goal: a table with **frame time, script time, draw calls and GC** for five scenarios, on the host and on a replica, so
-every later phase has a before/after number.
+### How
 
-### Tools already in the repo
-- `window.__game` is the `Engine` (`src/main.ts:122`). `__game.ctx.renderer.info.render.calls` / `.triangles`,
-  `__game.getSystem('enemies')`, `__game.getSystem('allies')`, `__game.ctx.timeScale`.
-- Enemy debug hooks on `getSystem('enemies')` (`src/enemies/EnemySystem.ts`): `debugSpawn(type, {x,z}, chase)`,
-  `debugSpawnBurrow(type, {x,z}, seconds)`, `debugAmbientGroup(threat)`, `debugSpawnNamed`, `debugSnapshot`.
-- Android squadmates without a relay: dev console `/android 1` up to three times (`src/allies/parts/Console.ts`).
-- Two real clients through the relay: `scripts/e2e-multiplayer.mjs` (puppeteer, `--use-angle=d3d11`) is the template for a
-  measurement script; `scripts/smoke-burrow.mjs` shows how to trigger burrow spawns headlessly.
-- Chrome DevTools Performance panel (or puppeteer `page.tracing`) for the spike frames; `performance.mark` around
-  `Pool.spawn` / `Spawner.update` / `NestDirector` refill gives the spawn cost without a trace.
+`node scripts/perf-measure.mjs` (see `scripts/README.md`). It wraps, on the live page, every system's `update` /
+`lateUpdate`, `renderer.render` / `compile`, `ShaderWarmup.beforeRender` (the light budget), `Outline.prepare`,
+`AudioSystem.play`, `EnemySystem.spawn` / `ensureCapacity`, `AmbientSpawner.update`, each HUD widget's `lateUpdate`,
+and `Engine.frame` itself. Frame cadence is the rAF timestamps; JS cost is a timer around the frame body. A frame whose
+JS runs past one 60 Hz interval gets a per-mark **autopsy**. Scenario actions are queued to run *inside* a frame, so a
+spawn's cost lands in that frame's number.
 
-### Scenarios (record each on the host and, where marked, on a replica)
-| # | Scenario | How to reach it | Replica too |
-|---|---|---|---|
-| S1 | Solo raid, idle, ambient population only | start a threat-2 raid, stand still 30 s | — |
-| S2 | Solo + 60 bugs alive around the player | `debugSpawn('scavenger', …)` ×40, `'warrior'` ×10, `'hunter'` ×10 in a ring at 25–40 m, `chase=false` | — |
-| S3 | Burrow group spawn spike | `debugSpawnBurrow` ×8 in one frame (patrol-sized group), also the natural patrol tick (`Spawner.update` timer 12–25 s) | yes |
-| S4 | 3 androids in combat | `/android 1` ×3 in the ship, launch, pull a group | host only (AI) — body cost on replica too |
-| S5 | 2 humans + 2 androids, 60 bugs | e2e-style two clients + `/android`, then S2 spawn | yes |
+**Headful, deliberately**: a headless Chrome does not present on a real swap chain (the smokes even drive
+`__game.frame` from a `setInterval` when its rAF stalls), so its cadence is meaningless. Audio is silenced with
+Chrome's `--mute-audio`, which mutes the output stream while the page still builds every WebAudio node — the in-game
+volume would have removed those graphs from the measurement.
 
-### Metrics per scenario
-- Frame time p50 / p95 / max over 20 s (`requestAnimationFrame` deltas); count of frames > 50 ms (`Engine.MAX_DT`).
-- `renderer.info.render.calls` at rest.
-- Script time split from a 10 s trace: `EnemySystem.update`, `AllySystem.update`, `LightBudget.update`
-  (via `ShaderWarmup.beforeRender`), `AudioSystem` node creation, `JSON.parse/stringify`, GC (minor + major count, longest pause).
-- For S3: wall time of the frame that contains the spawn calls, split into rig construction (`new Enemy`), placement search
-  (`findSpawnCenter` + `placeMember`), `ensureCapacity`, audio (`burrow_emerge`), net sends.
-- Machine, GPU, browser, resolution scale and bloom/shadow settings — record them; the perf guard turns bloom off after 240 slow
-  frames (`Engine.perfGuard`), which would silently change the baseline mid-run.
+**Machine**: Windows 11 · Ryzen 7800X3D · RTX 4080 SUPER (ANGLE D3D11) · Chrome 1280×720, dpr 1, resolution scale 1,
+bloom **on**, shadows **on** (`Engine.perfGuard` never fired — no window was long enough). Planet `tundra` (threat 2),
+seed 7001, 20 s windows. Logs: `scripts/logs/perf/phase0-2026-09-19.json`, plus the two targeted runs
+`phase0-s2-render.json` (render block split) and `phase0-s2-layout.json` (forced layout confirmed).
 
-### Results table (fill in)
-| Scenario | Host p50 / p95 / max ms | Frames > 50 ms | Draw calls | Replica p95 ms | Dominant cost (from trace) |
+**S5 (relay, two humans) was not run** — the user scoped this session to S1–S4. Nothing here measures a replica.
+
+### Results
+
+| Scenario | Host p50 / p95 / max ms | Frames > 50 ms | Draw calls | Replica p95 ms | Dominant cost (from the autopsy) |
 |---|---|---|---|---|---|
-| S1 | | | | | |
-| S2 | | | | | |
-| S3 | | | | | |
-| S4 | | | | | |
-| S5 | | | | | |
+| S1 idle (99 bodies, 56 of them eggs) | 16.7 / 16.8 / 16.9 | 0 | 1 142 | not measured | render block 4.2 ms of 4.9 ms js; all systems together 0.83 ms |
+| S2 + 60 bugs (158 bodies) | 16.7 / 16.8 / 66.8 | 0–2 | 1 790–1 932 | not measured | `renderer.render` **7.6 ms/frame** (worst 32.3) · forced layout **1.14** · `EnemySystem.update` 1.1–1.3 |
+| S3a burrow ×8 in one frame | 16.7 / 16.8 / 33.5 | 0 | 1 338 | not measured | the 8 spawns are **4.9 ms** cold / 3.9 warm; the one dropped frame was a 16.9 ms `EnemySystem.update` **unrelated to them** |
+| S3b natural patrol tick ×6 | 16.7 / 16.8 / 16.9 | 0 | 733 | not measured | nothing — the tick costs **0.0–0.1 ms** |
+| S4 3 androids + a pulled group | 16.7 / 16.8 / 16.9 | 0 | 1 555 | not measured | one **10.0 ms** `AllySystem.update` at first contact, then 0.055 ms/frame |
 
-**Exit criterion for Phase 0:** the table is full and each later phase below has been re-ranked (or struck) by the trace.
+Heap: 18–55 MB/s allocated, ~2.4 GC drops/s, peak 150–213 MB. **No dropped frame in any scenario was attributable to
+GC** — every one of them is explained by its marks.
+
+### What the numbers say
+
+- **On this machine nothing sustains a drop.** p50 and p95 are pinned to the 60 Hz vsync in every scenario. What the
+  user feels is **individual frames**, not a lower frame rate.
+- **The render block is the frame.** `renderer.render` (the scene draw plus the composer / outline passes) is
+  4.2 ms/frame at 1 142 draw calls and 7.6 ms/frame at ~1 900 — **≈ 4 µs per draw call, on the CPU**, not the GPU.
+  Every frame that actually dropped had 11–30 ms of it. This is finding **B1**, and it is the whole story.
+- **A forced synchronous layout, once per frame.** `WorldMarkers.lateUpdate` draws 2–3 extraction diamonds, yet its
+  cost moved 25× with the body count (0.044 ms at S1 → 1.0 ms at S2). Reading `ctx.uiRoot.clientWidth` one line earlier
+  moved the whole cost into that read (`x:layoutFlush` 1.14 ms/frame, worst 7.3 ms) and `WorldMarkers` fell off the
+  list: it is the first layout read after a frame of HUD style writes, so it pays for laying out the whole UI. **New
+  finding — nowhere in the 2026-09-18 inventory.**
+- **The spawn spike is not the problem.** 60 bodies built in one frame = 5.8 ms; 8 burrowing bodies = 4.9 ms with a
+  cold pool and 3.9 ms with a warm one (**≈ 0.12 ms per body** for the whole rig, so pre-warming buys ~1 ms on a group
+  of 8); the ambient patrol tick, placement search included, is 0.0–0.1 ms. **A1 · A2 · A3 · A4 are struck.**
+- **What does spike is a handful of one-off calls**: `EnemySystem.update` 16.9 ms once per raid (S3a and S3b both saw
+  one, neither on a spawn job frame), `AudioSystem.play` 16.3 ms once (a first synth build — `x:audioPlay` averages
+  0.27 ms over 5 600 calls), `AllySystem.update` 10.0 ms on the frame androids first make contact. Each loses 1–3
+  frames. Their cause is not yet known; finding them is Phase 3.
+- **Android AI is cheap.** 3 androids cost 0.055 ms/frame — B2's per-frame `queryNear` / `pickCoverSpot` is not worth
+  a phase. The old Phase 3 is struck down to its one-off.
+- **Bug footsteps are cheap.** `AudioSystem.play` is 0.27 ms/frame across 5 600 calls in S2. B5's scan-before-range-gate
+  is real but small.
+- **Garbage is not the stutter.** B6 stays on the list only as tidiness.
+
+**Exit criterion for Phase 0: met.** The table is full and the phases below are re-ranked.
 
 ---
 
-## Findings inventory (ranked by expected impact, from the analysis)
+## Findings inventory — measured verdicts
 
-**A. Spawn-frame spikes** (visible mid-raid: patrol tick, nest refill, artillery + escorts, raider drop, sandworm spit; the
-`world:ready` mass spawn is hidden behind the load hold and is *not* what the user sees)
+**A. Spawn-frame spikes**
 
-| # | Finding | Where | Who pays | Scales with |
-|---|---|---|---|---|
-| A1 | Pools are never pre-warmed: `acquire` builds `new Enemy` (full rig: 17–18 meshes + ~23 groups, 3 cloned materials) on the spawning frame when the type's pool is empty | `src/enemies/parts/Pool.ts:184-211`, `Enemy.ts:507-519`, `models/BugModel.ts:375-473` (clones `:378-380`) | host + replica (`net/Replica.ts:311` takes the same path) | bodies spawned per frame with a cold pool |
-| A2 | Shared geometry of a type is baked lazily on its first appearance (10–25 primitive geometries merged, per-vertex colour loops); only the sandworm pre-warms | `BugModel.ts:77-133, 219-241`; `RogueModel.ts:85-142`; `FactionLooks.ts`; `EggModel.ts:166-173`; sandworm exception `sandworm/Director.ts:259-271` | host + replica | first hunter / toxic / behemoth / raider / named of the raid |
-| A3 | Placement search raycasts once **per living player** per candidate (`isVisibleToAnyPlayer`), over the whole nest list + 6 candidates + fallback; big types retry `ENEMY_SPAWN_RETRIES` (12) times each with `obstacleCoverage`; artillery repeats the whole search up to 13 times | `src/enemies/Spawner.ts:236-253, 273-324, 351-364, 532-540` | host | players (androids count) × candidates × retries |
-| A4 | `ensureCapacity` rescans all active enemies once per recycled corpse (do/while) and `despawn` uses `indexOf` | `Pool.ts:115-143, 219` | host | O(n²) when the cap is full |
-| A5 | `burrow_emerge` synthesises ~15 sources per bug, each BufferSource + BiquadFilter + Gain (~45 nodes), plus a `setTimeout` teardown per voice; capped at 4 voices by `BURROW_EMERGE_VOICE_CAP` | `src/audio/Synth.ts:1678-1690, 79-96`, `AudioSystem.ts:1076-1104`, `enemies/parts/Burrow.ts:53-58` | host + replica | up to 4 × ~45 nodes in one frame |
-| A6 | One `ee spawn` JSON send per body; the next 10 Hz snapshot carries every new id with all fields | `Pool.ts:154-158`, `net/HostSync.ts:158-171` | host | bodies per frame |
-| A7 | No shader compile on spawn (cloned materials share the program key) — **not a cause**, except first-draw material init (parameters, uniform clone, attribute bind) per clone | `core/ShaderWarmup.ts:129-157` compiles pooled invisible rigs too | — | — |
+| # | Finding | Measured | Verdict |
+|---|---|---|---|
+| A1 | Pools are never pre-warmed: `acquire` builds `new Enemy` on the spawning frame (`src/enemies/parts/Pool.ts:184-211`, `Enemy.ts:507-519`, `models/BugModel.ts:375-473`) | cold 4.9 ms vs warm 3.9 ms for 8 bodies → **0.12 ms/body** | **struck** — a group of 8 would gain ~1 ms, and the frame never dropped |
+| A2 | Shared geometry baked lazily on a type's first appearance (`BugModel.ts:77-133`, `RogueModel.ts:85-142`, `EggModel.ts:166-173`) | not isolated; a 16.9 ms `EnemySystem.update` did fire once per raid | **open, folded into Phase 3** — the prime suspect for that one-off |
+| A3 | Placement search raycasts per living player per candidate (`Spawner.ts:236-253, 273-324, 351-364, 532-540`) | patrol tick 0.0–0.1 ms total | **struck** |
+| A4 | `ensureCapacity` rescans all active enemies per recycled corpse; `despawn` uses `indexOf` (`Pool.ts:115-143, 219`) | never above the noise floor | **struck** |
+| A5 | `burrow_emerge` synthesises ~15 sources per bug (`audio/Synth.ts:1678-1690`, `AudioSystem.ts:1076-1104`) | 0.27 ms/frame over 5 600 calls; **one 16.3 ms call** | **one-off only** → Phase 3 |
+| A6 | One `ee spawn` JSON send per body (`Pool.ts:154-158`, `net/HostSync.ts:158-171`) | solo only, not measured | **open, needs S5** |
+| A7 | First-draw material init per cloned material (`core/ShaderWarmup.ts:129-157`) | no compile spike seen (`x:rendererCompile` never appeared) | **struck** |
 
 **B. Sustained per-body cost**
 
-| # | Finding | Where | Who pays | Scales with |
-|---|---|---|---|---|
-| B1 | Draw calls: bug = 17–18 meshes (+1 shadow draw, body only); soldier body = 43 meshes × (main + shadow + silhouette) ≈ 130 draw calls; no batching, instancing or LOD anywhere | `BugModel.ts:387-471`; `src/player/SoldierModel.ts:450-470` (`castShadow`/`receiveShadow` on every mesh `:452`, silhouette clones `:459-470`); `AllyAvatars.ts:191`, `RemoteAvatar.ts:285` silhouette on by default | everyone | 60 bugs ≈ 1 000+ calls; each soldier +130 |
-| B2 | Android combat AI per ally **per frame**: `queryNear` allocates a new array twice, `pickCoverSpot` runs every frame while not in contact (allocating `getObstaclesNear` + up to 3 rays per improving candidate), LOS ray per improving sense candidate | `src/allies/parts/Combat.ts:58-69, 106-116, 155-161, 190-197`; `EnemySystem.ts:648-673`; `shared/cover.ts:125-167`; `world/WorldSystem.ts:1019-1021` | host | androids × frame |
-| B3 | `LightBudget.update` walks the whole visible scene every frame to count point lights | `src/core/LightBudget.ts:7, 55, 75` ← `ShaderWarmup.beforeRender` ← `Engine.ts:253` | everyone | scene nodes (60 bugs ≈ +2 400) |
-| B4 | Enemy AI has no distance LOD or time slicing; per bug per frame 2× `getSurfaceY`, `resolveCollision`, slope (`getNormalAt` = 4× `getHeightAt`), full animation; `pickTarget` scans all active enemies every 0.5–0.9 s per enemy (amortised O(n²)); shot/noise alerts scan all enemies per bullet | `EnemySystem.ts:451-528` (AI loop `:474`), `ai/EnemyAI.ts:614-662`, `parts/Alerts.ts:80-159, 273-295`, `world/WorldSystem.ts:766-773` | host (replica does interp + surface + slope per body) | n, n², bullets × n |
-| B5 | Bug footsteps: every type steps, min gap 0.12 s, and each emit does `camera.getWorldPosition` + a scan of all active enemies (`bugStepCrowd`) **before** the range gate; surviving voices build a Gain + Panner + source graph each (cap 6) | `src/enemies/model.ts:311-341` (`ENEMY_STEP_MIN_GAP :298`), `AudioSystem.ts:1076-1104` | host + replica | steps/s × n |
-| B6 | Recurring garbage: `queryNear` / `getObstaclesNear` arrays, one object + tuple per moving enemy per 10 Hz delta (~1 200/s at 60), 5.4 kB keyframe JSON every `NET_ENEMY_KEYFRAME_S` (2 s), `Array.from(set)` per inbound relay message, nameplate key strings | `HostSync.ts:140-197`, `net/parts/Messages.ts:401`, `ui/hud/Nameplates.ts:117-152` | host / everyone | periodic GC pauses |
-
-**C. Multiplayer / squadmate-specific**
-
-| # | Finding | Where | Who pays |
+| # | Finding | Measured | Verdict |
 |---|---|---|---|
-| C1 | `SoldierPool.acquire` builds `new SoldierModel` (86 meshes) inside the frame loop when nothing is parked; nothing pre-fills it at load | `src/player/SoldierPool.ts:31`, `AllyAvatars.ts:333-354`, `RemotePlayerSystem.ts:433-444` | everyone |
-| C2 | Corpses build a fresh `SoldierModel` per death + 6 settle updates | `src/game/Corpses.ts:60, 110, 121` | everyone |
-| C3 | `ally state` at `ALLY_NET_INTERVAL_S` (0.1 s) allocates per body; `allyq sync` re-encodes everything + one bag message per ally | `src/allies/parts/Sync.ts:51-90, 220-224` | host |
-| C4 | `snapshotFace` creates a second GL context, builds a soldier, renders and does a synchronous `toDataURL`; context disposed after 4 s idle so the next tile pays again. **Ship-only** (matching tab, resume card) — not a raid hitch | `src/player/FaceSnapshot.ts:101-176` | ship only |
+| B1 | Draw calls: bug = 17–18 meshes; soldier body ≈ 130 calls; no batching / instancing / LOD (`BugModel.ts:387-471`, `player/SoldierModel.ts:450-470`, `AllyAvatars.ts:191`, `RemoteAvatar.ts:285`) | 1 142 calls → 4.2 ms/frame; 1 932 → 7.6 ms; **≈ 4 µs/call**; every dropped frame render-dominated | **confirmed — #1** |
+| **NEW** | **Forced synchronous layout once per frame**: `ctx.uiRoot.clientWidth` in `ui/hud/WorldMarkers.ts:88` is the first layout read after the HUD's style writes | 1.14 ms/frame at 160 bodies, worst **7.3 ms**; 0.044 ms when idle | **confirmed — #2** |
+| B2 | Android combat AI per ally per frame (`allies/parts/Combat.ts:58-69, 106-116, 155-161, 190-197`) | 0.055 ms/frame for 3 androids; **one 10.0 ms first-contact call** | **struck** except the one-off → Phase 3 |
+| B3 | `LightBudget.update` walks the whole visible scene every frame (`core/LightBudget.ts:7, 55, 75`) | 0.10 ms idle → 0.30 ms at 160 bodies (worst 1.7) | **small, real** → Phase 4 |
+| B4 | Enemy AI has no distance LOD or time slicing (`EnemySystem.ts:451-528`, `ai/EnemyAI.ts:614-662`, `parts/Alerts.ts:80-159`) | 0.19 ms at 44 bodies → 0.41 at 99 → **1.29 at 160**; worst call 4.9 ms | **confirmed, #3 sustained** — scales super-linearly, second-biggest system cost |
+| B5 | Bug footsteps scan all active enemies before the range gate (`enemies/model.ts:311-341`) | inside `u:enemies` and `x:audioPlay` 0.27 ms/frame | **small** → Phase 4 |
+| B6 | Recurring garbage (`HostSync.ts:140-197`, `net/parts/Messages.ts:401`, `ui/hud/Nameplates.ts:117-152`) | 18–55 MB/s, 2.4 GC drops/s, **no spike attributable** | **low** |
+
+**C. Multiplayer / squadmate-specific** — C1 (`SoldierPool.acquire`) and C3 (`ally state` encoding) were not reached
+without S5; C2 (a `SoldierModel` per corpse) never fired in these windows; C4 (`snapshotFace`) is ship-only and out of
+scope. **All four stay open, and S5 is what would close them.**
 
 ---
 
-## Phases (re-rank after Phase 0)
+## Phases (re-ranked by the measurement)
 
-Each phase names its owning folder(s), the approach, the rules that constrain it, and how it is verified. Expected gain is
-the analysis' guess — replace with the measured delta.
+### Phase 1 — cut draw calls and the render block (B1) · `enemies/models`, `player`, `core`
+The only finding that is both sustained and present in every dropped frame. ~4 µs per draw call means each 250 calls
+removed gives back ~1 ms of a 16.7 ms budget. Needs the user's answers (see Decisions). In order of expected gain:
+1. Bug legs: `InstancedMesh` per type for femur + tibia (12 of the 17 meshes), instance matrices written by `animateBug`.
+2. Bug: one shared `chitin` material per type instead of a clone per rig (status flash / emissive then needs a
+   per-instance path — a vertex-colour attribute or an `InstancedMesh` colour — because `statusEmissive` writes the
+   material today).
+3. Soldier: `castShadow` only on torso / head / legs (not 43 parts); silhouette clones only for the parts that matter,
+   or one merged silhouette geometry per body.
+4. Distance LOD for animation (B4 too): beyond a csv distance skip `animateRig` every other frame; beyond another,
+   freeze.
+- Rules: `core/LightBudget` untouched; `Layers.ENEMY` on every new mesh (raycast); `Xray` overlays are children of the
+  pooled rigs (`fx/Xray.ts`) — check they survive instancing; hit capsules do not depend on meshes.
+- Verify: `smoke-enemy-alert`, `smoke-blast-occlusion`, `smoke-ally-avatars`, `shots-factions.mjs` for the look, and
+  `perf-measure --only s1,s2,s4` for the draw-call and `x:rendererRender` delta.
 
-### Phase 1 — pre-warm pools and geometry (A1, A2, C1) · `enemies`, `player`
-- At `world:ready` (authority and replica alike), after `initialPopulate`: bake `getAssets` for every type the planet's
-  ecosystem / threat can produce (`threatEcosystem`, site faction tables, `RAIDER_DROP_*`, named types) and park N bodies
-  per type in `sys.pools` (N from a new `data/constants.csv` row, e.g. `ENEMY_POOL_PREWARM_<class>`; **no numbers in code**).
-  Parked rigs stay `visible=false` in the scene, so the existing `holdForScene` compile covers them (A7).
-- `SoldierPool`: park `NET_MAX_PLAYERS − 1` bodies (or the lobby's member count) during the raid load hold; corpses (C2) take
-  a body from the same pool and return it when the corpse is removed.
-- Risk: memory + scene node count rises even when unused; the load hold gets a little longer (measure with
-  `LoadGate` progress). Rig construction must stay off the `world:ready` frame if it is not under the hold (training / tutorial
-  never wait — check `LoadGate` rules).
-- Verify: `smoke-burrow`, `smoke-enemy-delta`, `smoke-ally-avatars`, `smoke-lights` (light count unchanged), S3 delta.
+### Phase 2 — stop the per-frame forced layout (NEW) · `ui`
+`WorldMarkers.lateUpdate` reads `ctx.uiRoot.clientWidth` / `clientHeight` every frame, and it is the first layout read
+after the HUD has written styles all over the DOM, so it pays for the whole UI's layout: 1.14 ms/frame with 160 bodies
+and 7.3 ms at worst. Cache the viewport size and refresh it on `resize` only (every projecting widget wants the same
+two numbers — one owner, read once per resize, handed to the widgets). Then re-measure: any remaining cost belongs to
+whichever widget reads layout next.
+- Verify: `smoke-ui-p6`, `smoke-tactical`, `smoke-extraction` (the pad diamonds), `perf-measure --only s2`
+  (`x:layoutFlush` should fall to ~0).
 
-### Phase 2 — cut draw calls (B1) · `enemies/models`, `player`
-Needs the user's answers (see Decisions). Options in order of gain:
-1. Bug: one shared `chitin` material per type instead of a clone per rig (status flash / emissive then needs a per-instance
-   path — vertex colour attribute or an `InstancedMesh` colour — because `statusEmissive` writes the material today).
-2. Bug legs: `InstancedMesh` per type for femur + tibia (12 of the 17 meshes), instance matrices written by `animateBug`.
-3. Soldier: `castShadow` only on torso / head / legs (not 43 parts); silhouette clones only for the parts that matter, or one
-   merged silhouette geometry per body.
-4. Distance LOD for animation (B4 too): beyond a csv distance skip `animateRig` every other frame; beyond another, freeze.
-- Rules: `core/LightBudget` untouched; `Layers.ENEMY` on every new mesh (raycast); `Xray` overlays are children of the pooled
-  rigs (`fx/Xray.ts`) — check they survive instancing; hit capsules do not depend on meshes.
-- Verify: `smoke-enemy-alert`, `smoke-blast-occlusion`, `smoke-ally-avatars`, `shots-factions.mjs` for the look, S2/S4 draw calls.
+### Phase 3 — the one-off ≥ 10 ms calls · `enemies`, `audio`, `allies`
+Three calls, each losing 1–3 frames, each firing once or twice per raid. Find the cause before writing a fix — the
+harness's `--spike` autopsy names the mark, not the line, so this phase starts with a DevTools trace of that one frame.
+- `EnemySystem.update` 16.9 ms, once per raid, not on a spawn job frame (suspect A2: a type's geometry baked on its
+  first appearance, or a nest refill).
+- `AudioSystem.play` 16.3 ms once (suspect: the first build of a procedural buffer — pre-build on `world:ready`, which
+  is behind the load hold).
+- `AllySystem.update` 10.0 ms on first contact (suspect B2's `pickCoverSpot` / `getObstaclesNear` on the transition).
+- Verify: `smoke-burrow`, `smoke-allies-core`, `smoke-enemy-allies`, `perf-measure --only s3a,s4` (no spike frame left).
 
-### Phase 3 — throttle android AI (B2, C3) · `allies`
-- `Combat.findTarget`: keep the target by id (`ctx.enemies` lookup) instead of `queryNear` per frame; `sense()` at most every
-  `ALLY_SENSE_INTERVAL_S` (new csv row) with a reused buffer (`queryNear` gets an optional `out` array — add-only change in
-  `src/shared/types.ts`).
-- `pickCoverSpot` at most every `ALLY_COVER_REFRESH_S` (csv) or when the target / threat moved more than a threshold;
-  `Nav.ts` already does 0.35 s for obstacles (`OBS_REFRESH_S :25`) — same pattern.
-- `Sync.ts`: reuse the wire objects across ticks.
-- Verify: `smoke-allies-core`, `smoke-allies-orders`, `smoke-enemy-allies` (uses `pickCoverSpot`), S4 script time.
+### Phase 4 — the small per-frame scans (B3, B5) · `core`, `enemies`, `audio`
+Only worth doing once Phase 1 has freed the budget; together they are ~0.4 ms/frame at 160 bodies.
+- `LightBudget`: recount on a flag from the light-pool owners (`hub/interiors/LightPool`, `world/structures`,
+  `extraction`) or at a csv interval instead of every frame. The invariant "the shader always sees
+  `SCENE_POINT_LIGHT_BUDGET`" must hold on the frame a light appears — read `core/LightBudget.ts`'s header first.
+- Footsteps: move the range gate before `getWorldPosition` and `bugStepCrowd`; cache the camera position once per frame
+  in `EnemySystem.update`.
+- Verify: `smoke-lights` (**must stay green — it enforces the light count**), `smoke-enemy-alert`, `perf-measure --only s2`.
 
-### Phase 4 — spawn tick cost (A3, A4, A5, A6) · `enemies`, `audio`
-- `isVisibleToAnyPlayer`: test the nearest player first and stop at the first hit (it already returns early on a hit; the cost
-  is the misses) — cheaper: a cone test before the ray already exists, add a distance cap from csv; consider sharing one
-  candidate list across the group instead of per member.
-- `ensureCapacity`: collect dead bodies once, sort by `deathTimer`, despawn the oldest k; `active` swap-remove by index
-  (already) but find via `byId` position map instead of `indexOf`.
-- Spread a group's spawns over consecutive frames (one body per frame, `BURROW_EMERGE_S` hides it) — **only if** S3 shows the
-  spike is rig/audio bound rather than search bound.
-- Audio: pool `GainNode`/`PannerNode` pairs or reduce `burrow_emerge` source count when `emergeBatchN > 1` (the 1/√k gain
-  already exists in `parts/Burrow.emergeSound`).
-- Verify: `smoke-burrow`, `smoke-faction-sites`, `smoke-named`, S3 spawn-frame time.
+### Phase 5 — S5 and the multiplayer findings (A6, C1, C3) · `net`, `player`, `allies`
+Everything the user reported about *other players* is still unmeasured. Extend the harness to two clients through the
+relay (the `scripts/e2e-multiplayer.mjs` launch pattern) and measure a replica as well as the host, then decide on
+`SoldierPool` pre-fill (C1), the `ally state` encoding (C3) and the `ee spawn` burst (A6).
 
-### Phase 5 — per-frame scans (B3, B5, B4 partial) · `core`, `enemies`, `audio`
-- `LightBudget`: count on add/remove (`scene.add` hooks are not available — instead cache the count and recount only when
-  a `light:changed`-style flag is set by the light pool owners `hub/interiors/LightPool`, `world/structures`, `extraction`) or
-  recount at a csv interval instead of every frame. The invariant "the shader always sees `SCENE_POINT_LIGHT_BUDGET`" must
-  hold on the frame a light appears — read `core/LightBudget.ts` header before changing.
-- Footsteps: move the range gate before `getWorldPosition` and `bugStepCrowd`; cache the camera position once per frame in
-  `EnemySystem.update`.
-- `pickTarget` / alert scans through `host.grid.query` with the sight radius instead of `sys.active`.
-- Verify: `smoke-lights` (**must stay green — it enforces the light count**), `smoke-enemy-alert`, S2 script time.
-
-### Phase 6 — garbage (B6) · `enemies/net`, `net`
-Only if the trace shows GC pauses in the stutter frames. Reuse delta objects in `HostSync`, iterate the handler set
-directly in `Messages.ts:401`, key nameplates by rounded integers instead of `toFixed` strings.
+### Struck by the measurement
+The old Phase 1 (pre-warm pools and geometry, A1 · A2 · C1), the old Phase 3 (throttle android AI per frame, B2), the
+old Phase 4's search and capacity work (A3 · A4) and the old Phase 6 (garbage, B6). Do not implement them: their cause
+was measured and is not in the stutter.
 
 ---
 
-## Decisions needed (ask the user at the start of Phase 2)
+## Decisions needed (ask the user at the start of Phase 1)
 
-1. **Soldier shadows:** shadow from every armour plate (today) vs. from body, head and limbs only. Visible difference: small
-   plates lose their own shadow.
-2. **Silhouette (occlusion outline) for allies / remotes:** keep on every part, or only the torso / head; or off beyond a
-   distance.
-3. **Enemy animation LOD distances:** at what distance may legs stop animating (they are ~10 cm at 60 m)? Proposal: half rate
-   beyond 40 m, frozen beyond 80 m, both csv.
-4. **Burrow sound density:** keep one voice per bug (cap 4), or one rich voice + cheaper layers for the rest of the group.
-5. **Spread group spawns over frames** (1 body/frame) — changes nothing visible during `BURROW_EMERGE_S` but the `ee spawn`
-   burst becomes a trickle; acceptable for the replica's view?
+1. **Soldier shadows:** shadow from every armour plate (today) vs. from body, head and limbs only. Visible difference:
+   small plates lose their own shadow.
+2. **Silhouette (occlusion outline) for allies / remotes:** keep on every part, or only the torso / head; or off beyond
+   a distance.
+3. **Enemy animation LOD distances:** at what distance may legs stop animating (they are ~10 cm at 60 m)? Proposal:
+   half rate beyond 40 m, frozen beyond 80 m, both csv.
+4. **Bloom:** the composer's passes are part of the render block. Is bloom-off an acceptable option to offer, or must
+   it stay on?
+
+Struck from this list by the measurement: burrow sound density (one voice per bug costs 0.27 ms/frame) and spreading a
+group's spawns over frames (a whole group is 4.9 ms).
 
 Record the answers in `docs/DECISIONS.md` under a 2026-09-xx heading, in Korean titles as the file does.
 
@@ -202,3 +209,5 @@ Record the answers in `docs/DECISIONS.md` under a 2026-09-xx heading, in Korean 
 - The ship (hub) frame rate and `snapshotFace` (C4) — separate scene, separate light pool; only if the user reports it.
 - `verify:all` run time (`docs/TODO.md` E-12) — related (page frame cost) but a different goal.
 - WebGPU / worker offloading — out of scope until the cheap fixes above are measured.
+- Slower machines: every number here is from an RTX 4080 SUPER. The ranking would only get *more* render-bound on
+  weaker hardware, but a re-measure there is the honest way to know.
