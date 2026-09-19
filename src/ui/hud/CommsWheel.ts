@@ -69,7 +69,9 @@ function sectorPath(a0: number, a1: number): string {
  *
  * **It holds no blocker.** It does not release the pointer lock either and never goes on the ESC stack — the same as its two
  * siblings. So it is not put on the bottom-right key guide either (the guide appends `Tab · Esc 닫기` itself, while this
- * wheel closes by **releasing** a key, not with Tab). Its notice is one line in the wheel's centre, like its siblings' (`마우스로 선택 · H 놓기`).
+ * wheel closes by **releasing** a key, not with Tab). Its notice is one line in the wheel's centre, like its
+ * siblings' (`마우스로 선택 · {COMMS} 놓기` — the key glyph is `keyLabel(Keys.COMMS)`, read when the line is drawn, so a
+ * rebind moves it).
  */
 export class CommsWheel {
   readonly root: HTMLElement;

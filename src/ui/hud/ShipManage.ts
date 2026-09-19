@@ -150,7 +150,7 @@ const CRAFT_MODAL_CHIP = 44;
  *           says why: `배치 가능` / `자리 없음` / `<용도> 전용`. The fit result is part of the store list's memo key
  *           and is recomputed on every room change — `housing:changed`, `furniturePlaced` / `Moved` / `Recovered`,
  *           `facilityUpgraded`, `roomPurposeChanged` and the manage-room switch all refresh it.
- *         A 빈 방으로 button in the header clears the room — through a confirm popup and
+ *         A 시설 제거 button in the header clears the room — through a confirm popup and
  *         `HousingRef.removeRoomFacility`, so every material the facility cost comes back (2026-09-08).
  *
  * Driven by `housing:shipManageChanged` (open / close / room change) and `housing:changed` (storage, purposes,
@@ -1123,7 +1123,7 @@ export class ShipManage {
 
   /**
    * 2026-09-12: the unmet facility level requirement of a 시설 증축 — with no contract query, that purpose's generator gate.
-   * 2026-09-13 (power allocation dropped): the gate differs per purpose (`purposeGeneratorLevel` — Lv.2 온실 · 주방 … Lv.5 채굴 시설).
+   * 2026-09-13 (power allocation dropped): the gate differs per purpose — the level each one needs is `purposeGeneratorLevel`.
    */
   private purposeRequirements(purpose: RoomPurpose): readonly FacilityRequirement[] {
     const housing = this.ctx.housing;
@@ -1239,12 +1239,8 @@ export class ShipManage {
     return info.ok ? null : '재료 부족';
   }
 
-  private missingText(missing: readonly CraftIngredient[]): string {
-    return missing.map((m) => `${this.itemDef(m.defId)?.name ?? m.defId} ${m.qty}`).join(' · ');
-  }
-
   /**
-   * Header 빈 방으로: give the room back. Placed pieces go to the 가구 창고 and **every material the facility ever
+   * Header 시설 제거: give the room back. Placed pieces go to the 가구 창고 and **every material the facility ever
    * cost comes back into the 함선 창고**.
    *
    * 2026-09-08: this used to call `setRoomPurpose(room, 'empty')` straight, which is the *free* path housing takes

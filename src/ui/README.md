@@ -361,12 +361,15 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 - **Intended widths**: the corp desk hides its right-hand grid below 1240 px, and the ship Tab screen wants 1600 px or more.
 - **No voice chat** (2026-09-14 user decision, old A-6). The squadmate volume slider and mute in the friends column
   (`menus/social/SocialColumn.ts`) are UI only (`SQUAD_VOICE_DEFAULT`) and nobody reads them.
+- **Intended**: opening the messenger never focuses its text field (`ChatTab.onShow`). The panel is toggled with a
+  `Keys.INVITE` tap over the ship HUD, so the field takes focus only from a click or right after a send — an automatic
+  focus would swallow the next key press. — `menus/messenger/ChatTab.ts`
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
+- 2026-09-19 — Audit B-27 ~ B-30 + B-46: stale comments corrected (the skip prose's track count, the `.tm-ask` count, the danger-target list, `시설 제거`, the hazard banner text, the gone `hud/MealBadge`, the gone `.oarrow.drop` / `.call.airstrike`, the all-dead rule, where `Vitals` sits, `quit`'s copied body, `ChatTab.onShow`'s focus, the `net:peerJoined` direction, the ping callout examples, the comms wheel's hard-coded `H`); dead code dropped (`ShipManage.missingText`, `void main`, `void yaw`); the group-room 「초대 중 n」 rows are appended now, so the heading no longer stands over an empty drawer (`ChatTab.renderRoom`); the two raw NUL bytes in `map/QuestPanels.ts` became `' '` (git · `rg` read that file as binary and every tree-wide grep skipped it); four csv / constant values left their comments.
 - 2026-09-19 — A crate ping carries its **loot-container id** (`snap` · aim assist → `ping:placedV3.containerId` · `PingMessage.containerId`). `label` stays the display string `보급 상자 (n등급)`, which `allies/` had been using as an id, so a pinged crate was never actually looted (TODO B-61) — `hud/Pings.ts`.
 - 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-18 — Nest eggs are not threats: the detection HUD (arrows · chevrons · radar) and every enemy ping skip `EnemyRef.isEgg`, so a nest's dozens of `bug_egg` bodies never become a marker and an 「적」 ping never lands on one (`hud/Detection.ts`, `hud/Pings.ts`; `hud/Compass.ts` is covered by the `queryNear` default).
 - 2026-09-18 — `drawRover` / `drawTram` rotate by `+yaw`, not `-yaw`: the map never flips world Z, so the rover icon now points where it drives (`map/mapIcons.ts`; legend samples pass 0 and are unaffected).
-- 2026-09-18 — Map left column: the running tutorial track's objectives sit above the quest list (`QuestPanels.MapTutorialPanel`, `.mq-tut*`) — track name, the visible objective rows with their checkbox / strike state and `(n/m)` counts (through the shared `tutorialCountLabel`, so the row reads identically on both screens), and the 「출격 안내」 raid step's credit gauge (`1,400 C / 1,000 C`); source is `ctx.tutorial.panelInfo()` alone, nothing is recomputed, and no tutorial → nothing drawn.

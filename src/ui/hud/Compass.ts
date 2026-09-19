@@ -299,7 +299,6 @@ export class Compass {
     if (this.updateReveal(ctx, dt)) return;
     const player = ctx.player;
     if (!player) return;
-    const yaw = player.yaw;
     // Heading: yaw 0 = looking toward -Z (north). Strip scrolls opposite to heading.
     const heading = this.headingFromYaw(ctx);
     if (heading !== this.lastYaw) {
@@ -339,7 +338,6 @@ export class Compass {
     }
     this.updateEnemies(ctx, player.position, heading, STRIP_WIDTH / 2 - 6);
     this.updateAllies(ctx, player.position, heading, STRIP_WIDTH / 2 - 6);
-    void yaw;
   }
 
   /**

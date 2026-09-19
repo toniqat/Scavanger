@@ -297,7 +297,7 @@ export class SettingsMenu {
       text: '서버는 SCAVANGER 프로젝트 폴더의 start-server.bat 로 켭니다 — 켠 사람의 창에 적히는 주소를 그대로 적으세요.' });
     this.ask = new AskPopup(this.root);
     // 2026-09-10: there are now **two** `.tm-ask` in the document — the title's (a direct child of `ctx.uiRoot`) and
-    // this one (inside the settings). A mark is given so it is never unclear which of the three was picked. Code that
+    // this one (inside the settings). A mark is given so it is never unclear which of the two was picked. Code that
     // finds the title popup with a global `.tm-ask` selector has to filter with `:not(.set-ask)` — this popup comes
     // first in document order.
     this.ask.root.classList.add('set-ask');

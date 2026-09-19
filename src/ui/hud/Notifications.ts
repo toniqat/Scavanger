@@ -332,7 +332,7 @@ export class Notifications {
        * never toasted here: its own chat line turns `전송 실패` (B-4).
        */
       b.on('social:inviteResult', ({ name, outcome, reason }) => {
-        // `accepted`: the moment the invitee comes in, the `<이름> 합류` of `net:peerJoined` just below already appears — the second line is dropped.
+        // `accepted`: the moment the invitee comes in, the `<이름> 합류` of `net:peerJoined` above already appears — the second line is dropped.
         // ⚠ So that join line is the **only** notification of an accepted invite — removing it means reviving this one first
         //   (2026-09-11 B-12 removed the other side, the `<이름> 함선 합류` in `hub/HubSystem`).
         if (outcome === 'superseded' || outcome === 'accepted') return;

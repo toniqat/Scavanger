@@ -373,7 +373,8 @@ export class PauseMenu extends MenuBase {
    * 2026-09-14 (user's decision): `튜토리얼 건너뛰기` — it ends **only the track running right now**. It cannot be
    * undone, so it passes the same warning popup + 1 s hold as `함선으로 귀환`. The prose says **what happens if that
    * track is skipped** — the raid track is extracted on the spot and goes to the ship (that flow belongs to tutorial ·
-   * extraction), and for the other two only the remaining guide disappears. The other tracks stay and start in turn.
+   * extraction), and for a ship-side track (`ship` · `build` · `raid2`) only that track's remaining
+   * guide disappears. The tracks that were not skipped stay and start in turn.
    */
   private skipAsk(track: TutorialTrack): Ask {
     const body = track === 'raid'

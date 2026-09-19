@@ -85,7 +85,7 @@ const DROP_COLOR = '#ff4d4d';
  * arc (`hud/DamageOverlay`'s `.dmg-arc`): one wedge of the thick ring around the crosshair, its angle a
  * **screen-relative bearing** (0° = ahead, clockwise) saying only that it comes from over there.
  *
- * Three targets (confirmed by the user):
+ * The targets (confirmed by the user):
  *   - **Enemy artillery shells** — `enemy:shellFired {sid, from, target, flightTime}` is integrated into **the same
  *     parabola as the real shell** with `shellLaunchVelocity` / `shellPositionAt` from `@/shared/ballistics` (the formula
  *     is never copied — `enemies/fx/ShellProjectile` calls the same functions and the gravity `SHELL_ARC_GRAVITY` is csv).
@@ -106,7 +106,6 @@ const DROP_COLOR = '#ff4d4d';
  *     **stays**, so when slots run short it always falls behind the ones flying in (`FIRE_RANK_BIAS`).
  *   Slot elements tag the category on `data-cat` (smokes pick with `.dgr-head[data-cat="fire"]`).
  *
-
  * **Perception radius gate (decision, 2026-09-10).** The `derived.enemyDetectRadius` gate on shells stays, but an impact
  * point inside `DANGER_NEAR_RADIUS` is shown **unconditionally** — the indicator exists to announce "the thing you do
  * not even know is coming", and if a shell dropping on one's head is hidden by too little perception that purpose

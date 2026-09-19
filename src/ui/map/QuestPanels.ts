@@ -86,6 +86,7 @@ class MapTutorialPanel {
   private readonly countEl: HTMLElement;
   private readonly body: HTMLElement;
   private ctx: GameContext | null = null;
+  /** Rebuild sentinel — a single space is a signature neither builder can make (both start empty and only append). It was a raw NUL until 2026-09-19, which made git · `rg` read this file as binary. */
   private sig = ' ';
   private suppressed = false;
 
@@ -176,7 +177,8 @@ export class MapQuestPanels {
   private readonly tip: HTMLElement;
   private ctx: GameContext | null = null;
   private tracks: readonly NpcQuestInfo[] = [];
-  private sig = ' ';
+  /** Rebuild sentinel — a single space is a signature neither builder can make (both start empty and only append). It was a raw NUL until 2026-09-19, which made git · `rg` read this file as binary. */
+  private sig = ' ';
   private hoverId: string | null = null;
   private suppressed = false;
   private nextPoll = 0;
@@ -259,7 +261,7 @@ export class MapQuestPanels {
     this.tutorial.hide();
     this.hoverId = null;
     this.tip.hidden = true;
-    this.sig = ' ';
+    this.sig = ' ';
   }
 
   dispose(): void {

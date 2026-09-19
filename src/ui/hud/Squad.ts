@@ -47,10 +47,10 @@ const NO_GHOST: Ghost = { bleed: -1, dead: false };
  * Lobby members by slot (`ctx.net.getRemotePlayer`), then androids.
  *
  * **2026-09-16 (user's decision) — the local row is not drawn.** In the shared ship and in a raid alike: my hp · shield ·
- * buffs are already said by `Vitals` under the crosshair, so one more row would say the same thing twice. So this list
- * holds **others only** (squadmates + androids), and `.srow.me` · the `(나)` tag · the rule 「내 행에는 버프 썸네일을 안 붙인다」
- * are all gone. The list still appears with squadmates alone, and **with not one row it hides entirely** (`finish`) —
- * it leaves no empty box with only a heading.
+ * buffs are already said by `Vitals` directly below this column (`.hud-bl` sits on top of the vitals block), so
+ * one more row would say the same thing twice. So this list holds **others only** (squadmates + androids), and
+ * `.srow.me` · the `(나)` tag · the rule 「내 행에는 버프 썸네일을 안 붙인다」 are all gone. The list still appears with
+ * squadmates alone, and **with not one row it hides entirely** (`finish`) — it leaves no empty box with only a heading.
  *
  * Visible while `ctx.isMultiplayer` (mission) or in the shared ship (hub phase with a lobby); refreshed at ≤ 10 Hz
  * and only writes the DOM when a row changed. Hub states: `함선 내` / `탑승 준비` (`LobbyPlayer.ready`);

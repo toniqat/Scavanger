@@ -217,11 +217,11 @@ export class TitleMenu extends MenuBase {
   }
 
   /**
-   * 게임 종료. **The same five lines as `menus/PauseMenu.quit()` are duplicated on purpose** — importing the pause
+   * 게임 종료. **The same body as `menus/PauseMenu.quit()`, duplicated on purpose** — importing the pause
    * menu into the title would tie the two screens together, and this is not enough code to be worth sharing.
    * `window.close()` ends the Electron shell (`electron/main.ts` owns the only BrowserWindow), and a browser will not
    * close a tab it did not open itself, so if it is still alive a tick later the player is told so. This is already
-   * the title, so there is no screen to go back to.
+   * the title, so there is no screen to go back to (that is the one line the pause menu's copy adds).
    */
   private quit(): void {
     const ctx = this.ctx;

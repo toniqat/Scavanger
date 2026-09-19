@@ -71,9 +71,11 @@ export class SpectateOverlay {
   }
 
   /**
-   * 2026-09-15 (android squadmates, user's decision 「사람이 전원 사망하면 레이드 실패」): 「남은 분대원」 counts **humans only**
-   * — the raid ends even with androids still alive. Living androids are written separately after it
-   * (only a human can pick someone up, but how many units are holding the enemies off must still be known).
+   * 2026-09-15 (android squadmates): 「남은 분대원」 counts **humans only** — it answers 「who could still come and
+   * pick me up」. It is **not** the failure condition: since 2026-09-16 (user's decision
+   * 「사람과 안드로이드가 모두 쓰러지거나 죽어야 레이드 실패」 — CLAUDE.md §3.2, `game/parts/Death.checkAllDead`) a standing
+   * android keeps the raid alive and comes to revive. That is why living androids are written separately after
+   * the count: how many units are still holding the enemies off has to be readable with no human left.
    */
   private refreshCount(ctx: GameContext): void {
     let n = 0;

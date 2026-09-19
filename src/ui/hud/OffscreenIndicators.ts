@@ -21,7 +21,7 @@ interface Target {
   label: string;
   /** 0..1 */
   alpha: number;
-  /** Extra class on the arrow (`.ping.attack`, `.call.airstrike`). */
+  /** Extra class on the arrow — the ping kind alone (`.ping.attack`). */
   sub: string;
 }
 
@@ -39,7 +39,7 @@ const PING_ICON: Record<PingKind, string> = {
 function cssColor(n: number): string { return `#${n.toString(16).padStart(6, '0')}`; }
 
 /**
- * Off-screen indicators (`.offscr`, gameplay layer): pooled edge arrows (`.oarrow.ping/.drop`, max 12) for
+ * Off-screen indicators (`.offscr`, gameplay layer): pooled edge arrows (`.oarrow.ping`, `MAX_ARROWS`) for
  * things the player should know about but cannot see:
  *   (a) **2026-09-10 — not here any more.** Grenades · ship-call drops moved to the danger indicators
  *       (`hud/DangerIndicators`): an incoming threat is drawn in **one language** — a head indicator while it is on

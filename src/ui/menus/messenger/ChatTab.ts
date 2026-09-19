@@ -248,7 +248,7 @@ export class ChatTab {
     if (repaint) this.refreshList(true);
   }
 
-  /** The tab became visible — repaints the list · the conversation (marking read included) and focuses the text field. */
+  /** The tab became visible — repaints the list · the conversation (marking read included). It never takes the text field's focus. */
   onShow(): void {
     this.refreshList(true);
     this.renderThread(true);
@@ -812,10 +812,9 @@ export class ChatTab {
     }
     const me = social?.me?.code ?? null;
     const isOwner = !!me && info.owner === me;
-    const main = this.threadHead('#', ROOM_COLOR, info.name, `단체방 · 멤버 ${info.members.length}/${ROOM_MEMBER_MAX}${isOwner ? ' · 내가 방장' : ''}`);
+    this.threadHead('#', ROOM_COLOR, info.name, `단체방 · 멤버 ${info.members.length}/${ROOM_MEMBER_MAX}${isOwner ? ' · 내가 방장' : ''}`);
     const acts = el('div', { cls: 'ms-thead-acts' });
     this.head.appendChild(acts);
-    void main;
     const act = (label: string, id: string, run: () => void, kind = ''): HTMLButtonElement => {
       const b = el('button', { cls: `ms-btn small${kind ? ` ${kind}` : ''}`, text: label, parent: acts });
       b.type = 'button';
@@ -897,6 +896,7 @@ export class ChatTab {
           const row = el('div', { cls: 'ms-member is-pending' });
           row.dataset.code = p.code;
           el('span', { cls: 'ms-member-name', text: p.name || formatPlayerCode(p.code), parent: row });
+          list.push(row);
         }
       }
       this.members.replaceChildren(...list);

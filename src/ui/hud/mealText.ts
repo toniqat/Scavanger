@@ -5,10 +5,11 @@ import { COOK_GAME_LABEL_KO, cookStepsOf, mealQualityBonus, mealQualityStars, no
 
 /**
  * A cooking buff as one human-readable piece (A-3c, 2026-09-11). A folder-wide presentation helper of the same kind as
- * `hud/stratagemGlyphs` — pulled out because the meal badge (`hud/MealBadge`) and the item tooltip (`hud/ItemTip`) must
- * print the same sentence (CLAUDE.md's 「what two places use is pulled into one」 applied inside the folder). On
- * 2026-09-12 the meal badge became the buff thumbnail strip (`hud/BuffStrip`), so the consumers today are the tooltip ·
- * the buff thumbnail title, but the source of the meal value format is still here.
+ * `hud/stratagemGlyphs` — pulled out because the meal badge and the item tooltip (`hud/ItemTip`) had to print
+ * the same sentence (CLAUDE.md's 「what two places use is pulled into one」 applied inside the folder). On
+ * 2026-09-12 that badge became the buff thumbnail strip (`hud/BuffStrip`) and the `hud/MealBadge` file went
+ * away with it, so the consumers today are the tooltip · the buff thumbnail title, but the source of the meal
+ * value format is still here.
  *
  * The table that decides the unit is **`MEAL_BUFF_UNIT` in `shared/labels`, that one alone**: only a `'%'` row scales
  * `amount` by 100 (a multiplier addend, so 0.15 = +15 %), `'kg'` · `'m'` keep the unit as it is, `''` prints the number
@@ -31,7 +32,7 @@ export function mealBuffAmountText(buff: MealBuff, amount: number): string {
   return `${n < 0 ? '−' : '+'}${num}${unit ? ` ${unit}` : ''}`;
 }
 
-/** `운반 무게 +6 kg` — one row with the label attached (the badge uses it; the tooltip makes the label its row name, so it uses only the function above). */
+/** `운반 무게 +6 kg` — one row with the label attached (the buff thumbnail title uses it; the tooltip makes the label its row name, so it uses only the function above). */
 export function mealBuffText(buff: MealBuff, amount: number): string {
   return `${MEAL_BUFF_LABEL_KO[buff] ?? buff} ${mealBuffAmountText(buff, amount)}`;
 }
@@ -70,7 +71,7 @@ export function mealQualityText(quality: unknown): string {
   return `${mealQualityStars(q)} +${pct} %`;
 }
 
-/** Step number glyph (circled digits up to 5 even past `COOK_STEPS_MAX` 3, plain numbers beyond). */
+/** Step number glyph — circled digits for more steps than `COOK_STEPS_MAX` allows today, plain numbers past the table. */
 const STEP_MARK = ['①', '②', '③', '④', '⑤'];
 
 /**

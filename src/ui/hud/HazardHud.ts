@@ -29,7 +29,7 @@ function approachText(kind: HazardKind, seconds: number): string {
  *
  * Three parts:
  *   - **Warning banner** (`.hz-banner`, gameplay layer, top centre of the screen below the compass · extraction
- *     countdown). On `hazard:announced {kind, secondsLeft}` it appears as `<hazard name> 접근 — n초` and counts the
+ *     countdown). On `hazard:announced {kind, secondsLeft}` it appears as `approachText` writes it (`<hazard name>이/가 다가온다 — n초`) and counts the
  *     seconds locally (`update` — the warning is one event, not one per second). On `hazard:started` it reads
  *     `<hazard name> 시작`, stays 3 s and disappears, after which the safe-zone gauge takes that spot over. A
  *     `ui:notify` toast + `wave_alarm` also go out once each on the warning · the start.

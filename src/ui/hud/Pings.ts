@@ -142,7 +142,8 @@ interface AimCandidate {
  * expire within 1.5 s.
  *
  * **Chat.** Every local ping posts a `kind:'ping'` line with the distance: `핑 (32m)`, `적 발견 (32m)`,
- * `보급 상자 (n등급) 여기 (32m)`, `탈출 지점 (32m)`, `<아이템 이름> 여기 있음 (32m)`, `돌격!`, `주의!`. Remote pings post
+ * `보급 상자 (n등급) 여기 (32m)`, `탈출 지점 (32m)`, `<아이템 이름> 여기 있음 (32m)`, and each hold kind as its own
+ * `PING_LABEL` — `저쪽으로 가자 (32m)` · `여기 조심해 (32m)` · `살려줘 (32m)` · `나를 버려 (32m)`. Remote pings post
  * nothing locally — the sender's own line arrives through the chat relay.
  *
  * Each ping = projected DOM marker (`.pmarker.<kind>`, `.remote` in the sender's slot colour) + scene beacon (additive

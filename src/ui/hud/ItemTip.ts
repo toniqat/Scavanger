@@ -44,7 +44,7 @@ const MEAL_QUALITY_STAR_COLOR = '#ffd24a';
 
 /* 2026-09-13 (library series · video games): series names · effect rows · the planets it appears on · equipment · corporations · cook step names */
 import type { LibraryEffect } from '@/shared';
-import { COOK_GAME_LABEL_KO, CORP_DEFS, FURNITURE_DEFS, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_MAP, PLANET_DEFS } from '@/shared';
+import { COOK_GAME_LABEL_KO, CORP_DEFS, FURNITURE_DEFS, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_MAP, PLANET_DEFS, gameMinigameLabel } from '@/shared';
 
 /** 2026-09-13: the text colour of `보관 — 아직 꽂지 않음` = the tile band's blue (`--c-favorite`, the same blue when it is missing). */
 const FAVORITE_BAND_COLOR = 'var(--c-favorite, #4a90ff)';
@@ -539,7 +539,9 @@ export class ItemTip {
     if (game) {
       rows.push(['게임기', this.consoleName(game.console)]);
       rows.push(['능력치', this.statName(game.stat)]);
-      rows.push(['방식', GYM_MINIGAME_LABEL_KO[game.minigame] ?? game.minigame]);
+      // 2026-09-19 (B-32): a **game disc** is named by `gameMinigameLabel` (`호흡형`), never by the gym equipment
+      // list above it (`호흡 달리기`) — this row printed the gym name and so was the only screen spelling it differently.
+      rows.push(['방식', gameMinigameLabel(game.minigame)]);
       rows.push(['사용', '게임 디스크 전시대에 꽂고 TV 로 플레이']);
     }
     if (def.gameConsole) rows.push(['사용', 'TV 에 장착']);
@@ -627,7 +629,7 @@ export class ItemTip {
       else for (const seg of v) this.appendSeg(vEl, seg);
     }
     this.statsEl.hidden = rows.length === 0;
-    // 2026-09-15: ammo whose per-round weight is under 0.1 kg (표창 0.02 · 탄띠 0.0075 …) used to print as `0.0 kg` — under 1 kg goes to the significant digits
+    // 2026-09-15: ammo whose per-round weight is a fraction of a kilogram (표창 · 탄띠 … — `data/items.csv` `weight`) used to print as `0.0 kg` — under 1 kg goes to the significant digits
     setText(this.weightAmount, def.weight !== undefined ? `${def.weight >= 1 ? def.weight.toFixed(1) : String(Number(def.weight.toFixed(4)))} kg` : '—');
     setText(this.valueAmount, formatCredits(itemCreditValue(def)));
     this.root.hidden = false;

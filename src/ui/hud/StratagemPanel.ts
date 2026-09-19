@@ -17,8 +17,7 @@ import '../styles/shipCall.css';
  * runs the thumbnail is dimmed, `--fill` rises from the bottom brightening it, and the seconds left show in the middle
  * (one decimal under 10 s — `secs`). Ship calls **share one cooldown across all four kinds**
  * (`StratagemSystem._cooldown`), so the single thumbnail is the whole state. The cooldown length is `cooldown` in
- * `data/stratagems.csv`, and the value of the call used last locks all four (2026-09-10: rescue ship 30 ·
- * supplies / tripod 90 · orbital barrage 120).
+ * `data/stratagems.csv` (2026-09-10: it differs per call), and the value of the call used last locks all four.
  *
  * **Which glyph it draws.** The armed call while one is armed, otherwise **the call armed last** — because a `G` tap
  * arms exactly that one again (`stratagems/parts/Targeting`: `sys.arm(sys.lastArmed)`). The initial value is
