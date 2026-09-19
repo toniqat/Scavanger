@@ -1,21 +1,22 @@
 /* ════════════════════════════════════════════════════════════════════════════
- * 아이템 설명의 **인라인 마크업** (2026-09-15, 가젯 개편 · 사용자 결정)
+ * **Inline markup** in an item description (2026-09-15, gadget rework · user's decision)
  *
- * `data/items.csv` 의 `description` 은 지금까지 통짜 문자열이었고 두 툴팁이 `textContent` 로 그대로 찍었다.
- * 사용자가 아드레날린 주사의 설명에 「강조색상 · 회색색상 · 줄바꿈」을 지정하면서 **글자 단위 색**이 필요해졌다.
+ * `data/items.csv`'s `description` was one flat string until now and both tooltips printed it with `textContent`.
+ * The user asked for 「강조색상 · 회색색상 · 줄바꿈」 in the adrenaline shot's description, so colour
+ * **per character** was needed.
  *
- * 새 개념을 만들지 않았다 — `shared/keycap.renderKeyText` 가 이미 쓰는 **중괄호 토큰** 규약 그대로다:
+ * No new concept was invented — it is the **brace token** convention `shared/keycap.renderKeyText` already uses:
  *
- *   `{em}…{/em}`   강조색 (툴팁마다 자기 강조색을 쓴다: 카드 `--c-accent` · 인벤토리 `--inv-accent`)
- *   `{dim}…{/dim}` 흐린 회색 (`--c-text-dim` · `--inv-muted`)
- *   `{br}`         줄바꿈
+ *   `{em}…{/em}`   the accent colour (each tooltip uses its own: card `--c-accent` · inventory `--inv-accent`)
+ *   `{dim}…{/dim}` dim grey (`--c-text-dim` · `--inv-muted`)
+ *   `{br}`         a line break
  *
- * 파서는 **순수**하다 (`src/items` 는 DOM 을 만들지 않는다) — 줄 단위 조각 목록을 돌려주고, 그림은
- * `ui/hud/ItemTip` 과 `inventory/ui/Tooltip` 이 각자 자기 색으로 그린다 (같은 함수를 부르므로 문장은 하나다).
- * 모르는 토큰(`{foo}`)은 **글자 그대로** 남는다 — 오래된 csv 가 조용히 잘려 나가지 않는다.
+ * The parser is **pure** (`src/items` builds no DOM) — it returns a list of segments per line, and the drawing is
+ * `ui/hud/ItemTip` and `inventory/ui/Tooltip`, each in its own colours (one function, so the wording is one).
+ * An unknown token (`{foo}`) stays **literal** — an old csv is never silently cut short.
  * ════════════════════════════════════════════════════════════════════════════ */
 
-/** 조각의 글자색. `plain` = 그 툴팁의 본문 색. */
+/** Text colour of a segment. `plain` = that tooltip's body colour. */
 export type ItemTextStyle = 'plain' | 'em' | 'dim';
 
 export interface ItemTextSpan {
@@ -23,14 +24,14 @@ export interface ItemTextSpan {
   readonly style: ItemTextStyle;
 }
 
-/** 한 줄 = 조각 목록. `parseItemText` 는 언제나 최소 한 줄을 돌려준다. */
+/** One line = a list of segments. `parseItemText` always returns at least one line. */
 export type ItemTextLine = readonly ItemTextSpan[];
 
 const TOKEN = /\{(\/?)(em|dim|br)\}/g;
 
 /**
- * 설명 문자열 → 줄마다의 조각 목록. 마크업이 하나도 없으면 `[[{ text, style: 'plain' }]]` 이다
- * (그래서 부르는 쪽에 「마크업이 있는가」 분기가 필요 없다).
+ * A description string → the segments of each line. With no markup at all it is `[[{ text, style: 'plain' }]]`
+ * (so the caller needs no "does it have markup" branch).
  */
 export function parseItemText(text: string): ItemTextLine[] {
   const lines: ItemTextSpan[][] = [[]];
@@ -44,7 +45,7 @@ export function parseItemText(text: string): ItemTextLine[] {
     const closing = m[1] === '/';
     const name = m[2];
     if (name === 'br') {
-      if (closing) push(m[0]);            // `{/br}` 같은 건 토큰이 아니다 — 글자로 둔다
+      if (closing) push(m[0]);            // `{/br}` and the like are not tokens — left as text
       else lines.push([]);
     } else if (closing) {
       style = 'plain';
@@ -56,7 +57,7 @@ export function parseItemText(text: string): ItemTextLine[] {
   return lines.map((l) => l.filter((s) => s.text.length > 0));
 }
 
-/** 마크업을 걷어낸 맨 글자 (툴팁 밖에서 설명이 필요한 곳 · 검색 · 스모크용). */
+/** The bare text with the markup stripped (anywhere outside a tooltip · search · smokes). */
 export function plainItemText(text: string): string {
   return parseItemText(text).map((l) => l.map((s) => s.text).join('')).join(' ');
 }

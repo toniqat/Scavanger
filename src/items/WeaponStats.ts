@@ -4,7 +4,7 @@ import {
   WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY, keyTable,
 } from '@/shared';
 
-/** `data/tuning.csv` — items/ 안에서만 쓰는 스칼라 (반동 · 조준 계수). */
+/** `data/tuning.csv` — the scalars used only inside items/ (recoil · aim coefficients). */
 const T = keyTable('tuning.csv');
 import { ITEM_DEF_MAP } from './ItemDefs';
 import { damageFalloff, gradeOf, isUniqueWeapon, weaponClassOf, weaponFamilyTuning, weaponHandlingMul } from './WeaponDefs';
@@ -28,9 +28,9 @@ export function gradeRoman(grade: number): string {
 /**
  * Bare (unsocketed) stats for a def. Damage / magSize / spreads / recoil / fire rate / durability are already graded in the
  * def (`WeaponDefs.buildGrade` — spreads and recoil carry the grade handling multiplier).
- * 2026-09-14 (총기 밸런스): ADS time comes from the family row and, like `swayMul`, takes the same grade handling multiplier
- * (`weaponHandlingMul`); bloom from the family row; `sockets` = the class list (uniques: none); falloff always filled
- * (`falloffStart === falloffEnd` with min 1 = none); `projectileSpeed` / `bulletGravity` from the def.
+ * 2026-09-14 (gun balance): ADS time comes from the family row and, like `swayMul`, takes the same grade handling
+ * multiplier (`weaponHandlingMul`); bloom from the family row; `sockets` = the class list (uniques: none); falloff
+ * always filled (`falloffStart === falloffEnd` with min 1 = none); `projectileSpeed` / `bulletGravity` from the def.
  */
 export function baseWeaponStats(def: WeaponDef): EffectiveWeaponStats {
   const secondary = def.slot === 'secondary';
@@ -82,7 +82,7 @@ export function applyAttachmentEffects(stats: EffectiveWeaponStats, fx: Attachme
   if (fx.adsZoom !== undefined) stats.adsZoom = fx.adsZoom;
   if (fx.scope !== undefined) stats.scope = fx.scope;
   if (fx.laser !== undefined) stats.laser = fx.laser;
-  // 2026-09-14 (총기 밸런스): 개머리판 · 손잡이 흔들림, 확장 총열의 거리 감소 · 낙차
+  // 2026-09-14 (gun balance): stock · grip sway, the falloff · bullet drop of the extended barrel (확장 총열)
   if (fx.sway !== undefined) stats.swayMul *= fx.sway;
   if (fx.falloffRange !== undefined) { stats.falloffStart *= fx.falloffRange; stats.falloffEnd *= fx.falloffRange; }
   if (fx.falloffLoss !== undefined) stats.falloffMin = 1 - (1 - stats.falloffMin) * fx.falloffLoss;
@@ -135,9 +135,9 @@ export function fittingAttachments(def: WeaponDef, inst: ItemInstance | undefine
 }
 
 /**
- * 2026-09-14 (총기 밸런스): damage multiplier at `distance` m from **effective stats** — the def's falloff after sockets
- * (확장 총열). ×1 up to `falloffStart`, linear down to `falloffMin` at `falloffEnd`. `damageFalloff(def, d)` stays for
- * callers that only have a def (it ignores sockets).
+ * 2026-09-14 (gun balance): damage multiplier at `distance` m from **effective stats** — the def's falloff after
+ * sockets (확장 총열). ×1 up to `falloffStart`, linear down to `falloffMin` at `falloffEnd`. `damageFalloff(def, d)`
+ * stays for callers that only have a def (it ignores sockets).
  */
 export function damageFalloffStats(stats: Pick<EffectiveWeaponStats, 'falloffStart' | 'falloffEnd' | 'falloffMin'>, distance: number): number {
   const { falloffStart: start, falloffEnd: end, falloffMin: min } = stats;
@@ -147,10 +147,11 @@ export function damageFalloffStats(stats: Pick<EffectiveWeaponStats, 'falloffSta
 }
 
 /*
- * 2026-09-10 — `repairCost(def, inst)` 는 **여기서 사라졌다.** 수리비는 이제 빠진 내구도가 아니라
- * **제작 재료 × 남은 내구도 구간의 배수**이고, 무기뿐 아니라 방탄복도 같은 규칙을 탄다.
- * 구현은 `items/Salvage.ts` 의 `repairCostFor(inst)` 하나이고 `ctx.loot.getRepairCost` 가 그것을 부른다.
- * `REPAIR_SCRAP_PER` · `REPAIR_ALLOY_PER` 상수는 계약이라 `shared/constants` 에 남아 있을 뿐이다.
+ * 2026-09-10 — `repairCost(def, inst)` **is gone from here.** The repair bill is no longer the missing durability
+ * but **the craft inputs × the multiplier of the remaining durability bucket**, and armor rides the same rule as
+ * weapons do. The one implementation is `repairCostFor(inst)` in `items/Salvage.ts`, which `ctx.loot.getRepairCost`
+ * calls. The `REPAIR_SCRAP_PER` · `REPAIR_ALLOY_PER` constants only stay in `shared/constants` because they are
+ * contract.
  */
 
 /**

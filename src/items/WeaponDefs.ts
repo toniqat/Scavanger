@@ -3,16 +3,17 @@ import {
   AMMO_FOR_CLASS, MELEE_STOCK_MUL_DEFAULT, WEAPON_GRADE_DAMAGE_STEP, WEAPON_GRADE_DURABILITY_STEP, WEAPON_GRADE_ROMAN,
   UNIQUE_WEAPON_IDS, UNIQUE_WEAPON_LABEL_KO, csvRows,
 } from '@/shared';
-import { SOCKET_SLOTS, numberList } from '@/shared';   // 2026-09-14 (총기 밸런스): 계열별 소켓 · 등급 조작감 표
+import { SOCKET_SLOTS, numberList } from '@/shared';   // 2026-09-14 (gun balance): family sockets · grade handling
 
 /*
- * 무기 수치의 원본은 `data/weapons.csv` (6계열 등급 I) 과 `data/weapons_unique.csv` (전설 유니크 6종) 이다.
- * 이 파일에는 표가 없고, 그 두 csv 를 WeaponDef 로 옮기는 코드와 등급 계단 계산만 있다.
+ * The weapon numbers come from `data/weapons.csv` (the six families at grade I) and `data/weapons_unique.csv`
+ * (the six legendary uniques). This file holds no table — only the code that moves those two csv files into
+ * `WeaponDef`, and the grade-step arithmetic.
  */
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
-/** 빈 칸에서 온 `undefined` 키를 지운다 — 선택 필드가 없는 def 와 똑같은 모양이 되도록. */
+/** Drops the `undefined` keys an empty cell leaves, so the def is shaped exactly like one without them. */
 function compact<T extends object>(o: T): T {
   for (const k of Object.keys(o) as (keyof T)[]) if (o[k] === undefined) delete o[k];
   return o;
@@ -28,10 +29,10 @@ export const WEAPON_CLASS_SHORT: Readonly<Record<WeaponClass, string>> = {
   SMG: 'SMG', AR: 'AR', SG: 'SG', SR: 'SR', DMR: 'DMR', PISTOL: 'HG',
 };
 
-/** Every archetype, in `WEAPON_CLASS_LABEL_KO` order — the values `data/weapons.csv` 의 `class` 칸이 받는다. */
+/** Every archetype, in `WEAPON_CLASS_LABEL_KO` order — the values `data/weapons.csv`'s `class` column takes. */
 export const WEAPON_CLASSES: readonly WeaponClass[] = ['AR', 'SMG', 'SR', 'DMR', 'SG', 'PISTOL'];
 
-/** `data/weapons.csv` 의 계열 줄 (등급 I). */
+/** The family rows of `data/weapons.csv` (grade I). */
 const WEAPON_ROWS = csvRows('weapons.csv');
 
 /** Base max durability (shots) per class at grade I; +WEAPON_GRADE_DURABILITY_STEP per grade above. */
@@ -66,7 +67,7 @@ export function weaponIdForGrade(family: string, grade: WeaponGrade): string {
 type FamilyDef = Omit<WeaponDef, 'ammoType' | 'grade' | 'maxDurability' | 'family' | 'weaponClass'> & { weaponClass: WeaponClass };
 
 /**
- * Stock melee multiplier (개머리판). Every weapon deals the same base `MELEE_DAMAGE`; only primaries
+ * Stock melee multiplier (the buttstock). Every weapon deals the same base `MELEE_DAMAGE`; only primaries
  * with a real stock swing harder. Pistols have none → `MELEE_STOCK_MUL_DEFAULT`.
  */
 export function meleeMulOf(def: WeaponDef): number {
@@ -105,7 +106,7 @@ const FAMILY_DEFS: readonly FamilyDef[] = WEAPON_ROWS.map((r) => {
     adsZoom: r.optNum('adsZoom', { min: 1 }),
     scope: r.has('scope') ? r.bool('scope') : undefined,
     meleeMul: r.optNum('meleeMul', { min: 0 }),
-    // 2026-09-14 (총기 밸런스): 받는 소켓 (빈 칸 = 전부) · 총구 속도 · 탄 낙차 — weapons/ 의 발사체가 읽는다
+    // 2026-09-14 (gun balance): accepted sockets (empty = all) · muzzle velocity · bullet drop — weapons/ reads them
     sockets: r.has('sockets') ? r.enumList('sockets', SOCKET_SLOTS) : undefined,
     projectileSpeed: r.optNum('projectileSpeed', { min: 0 }),
     bulletGravity: r.optNum('bulletGravity', { min: 0 }),
@@ -117,7 +118,7 @@ export const WEAPON_FAMILIES: readonly string[] = FAMILY_DEFS.map((f) => f.id);
 
 export const WEAPON_GRADES: readonly WeaponGrade[] = [1, 2, 3, 4, 5];
 
-/* ── 2026-09-14 총기 밸런스: 계열별 조작 수치 · 등급 조작감 배수 ─────────────── */
+/* ── 2026-09-14 gun balance: per-family handling numbers · grade handling multipliers ─── */
 /** Per-family numbers that are not `WeaponDef` fields (`data/weapons.csv`) — `WeaponStats.baseWeaponStats` reads them. */
 export interface WeaponFamilyTuning {
   /** ADS time (s) at handling ×1 (grade V); the grade multiplier is applied on top. */
@@ -185,24 +186,26 @@ function buildGrade(base: FamilyDef, grade: WeaponGrade): WeaponDef {
 /* ── unique weapons (Phase 6, 2026-09-06) — data/weapons_unique.csv ───────── */
 export type UniqueWeaponId = (typeof UNIQUE_WEAPON_IDS)[number];
 
-/** `data/weapons_unique.csv` 의 줄들. */
+/** The rows of `data/weapons_unique.csv`. */
 const UNIQUE_ROWS = csvRows('weapons_unique.csv');
 
 /**
- * 2026-09-15 (사용자 결정): 전설 유니크의 이름은 **별명 하나**다 (`인페르노` — 옛 `「인페르노」 화염방사기`).
- * 종류 라벨(`UNIQUE_WEAPON_LABEL_KO`)은 이름에서 빠지고 UI 가 따로 보여 준다.
+ * 2026-09-15 (user's decision): a legendary unique's name is **the nickname alone** (`인페르노` — it was
+ * `「인페르노」 화염방사기`). The kind label (`UNIQUE_WEAPON_LABEL_KO`) is out of the name and the UI shows it
+ * separately.
  */
 const uniqueName = (nick: string): string => nick;
 
-/** `UNIQUE_WEAPON_LABEL_KO` 의 키 = 유니크 동작 종류. csv 의 `kind` 칸이 받는다. */
+/** The keys of `UNIQUE_WEAPON_LABEL_KO` = the unique behaviour kinds. The csv's `kind` column takes them. */
 const UNIQUE_KINDS = Object.keys(UNIQUE_WEAPON_LABEL_KO) as UniqueWeaponKind[];
 
 /**
  * The six legendary uniques. `grade: 5` (legendary rarity / repair cost), no `family` (they are their own
  * family, `buildGrades` never touches them), a dedicated `ammoType` (never `AMMO_FOR_CLASS`), `altFire`
- * (RMB = alternative fire, no ADS) on every one (2026-09-14: the bow too — RMB cancels its draw). csv 의 `=FLAME_DPS` 같은 칸은
- * `data/constants.csv` 의 상수를 그대로 가리킨다 — 동작 코드(`src/weapons/unique/*`)도 같은 상수를 보므로
- * 수치가 두 군데로 갈라지지 않는다. `weaponClass` is csv bookkeeping only — 2026-09-15 (사용자 결정): uniques get no
+ * (RMB = alternative fire, no ADS) on every one (2026-09-14: the bow too — RMB cancels its draw). A csv cell
+ * like `=FLAME_DPS` points straight at the constant in `data/constants.csv` — the behaviour code
+ * (`src/weapons/unique/*`) reads the same constant, so the number never splits in two.
+ * `weaponClass` is csv bookkeeping only — 2026-09-15 (user's decision): uniques get no
  * shooting-skill bonus / XP (weapons/ · progression/ check `def.unique`) and their kills are not class kills.
  *
  * Continuous weapons (flame / shock arc): `damage` is damage **per second**, `fireRate` is a tick hint
@@ -253,7 +256,7 @@ export const UNIQUE_WEAPON_DURABILITY: Readonly<Record<string, number>> =
 export const UNIQUE_WEAPON_MAG: Readonly<Record<string, number>> =
   Object.fromEntries(UNIQUE_WEAPON_DEFS.map((d) => [d.id, d.magSize]));
 
-/* csv 의 유니크 목록이 `UNIQUE_WEAPON_IDS` 계약과 어긋나면 그 자리에서 잡는다. */
+/* When the csv's unique list does not match the `UNIQUE_WEAPON_IDS` contract, it is caught right here. */
 for (const id of UNIQUE_WEAPON_IDS) {
   if (!UNIQUE_WEAPON_DEFS.some((d) => d.id === id)) {
     UNIQUE_ROWS[0]?.report('id', `data/weapons_unique.csv 에 '${id}' 줄이 없다`);
@@ -261,8 +264,8 @@ for (const id of UNIQUE_WEAPON_IDS) {
 }
 
 /**
- * 아이템 쪽 표현 (격자 크기 · 아이콘 · 가격 · 무게 · 설명). 무기 수치와 같은 줄에 있으므로
- * `items/ItemDefs.ts` 가 이 표를 읽어 `ItemDef` 를 만든다.
+ * The item-side presentation (grid size · icon · price · weight · description). It sits on the same csv row as
+ * the weapon numbers, so `items/ItemDefs.ts` reads this table to build the `ItemDef`.
  */
 export interface WeaponItemMeta {
   width: number; height: number; icon: string; value: number; weight: number; description: string;
@@ -274,9 +277,9 @@ const metaOf = (rows: readonly ReturnType<typeof csvRows>[number][]): Map<string
     weight: r.num('weight', { min: 0 }), description: r.str('description'),
   }]));
 
-/** 계열 id (`ar`) → 아이템 표현. `value` 는 등급 I 가격이다. */
+/** Family id (`ar`) → the item presentation. `value` is the grade-I price. */
 export const WEAPON_FAMILY_ITEM_META: ReadonlyMap<string, WeaponItemMeta> = metaOf(WEAPON_ROWS);
-/** 유니크 id (`u_flame`) → 아이템 표현. */
+/** Unique id (`u_flame`) → the item presentation. */
 export const UNIQUE_WEAPON_ITEM_META: ReadonlyMap<string, WeaponItemMeta> = metaOf(UNIQUE_ROWS);
 
 export const UNIQUE_WEAPON_DEF_MAP: ReadonlyMap<string, WeaponDef> = new Map(UNIQUE_WEAPON_DEFS.map((w) => [w.id, w]));

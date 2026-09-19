@@ -1,11 +1,12 @@
 import type { CraftIngredient, CraftRecipe } from '@/shared';
 import { CRAFT_DEFAULT_TIME, WORKBENCH_KINDS, csvRows } from '@/shared';
-/* appended (2026-09-13, 서재 시리즈): 레시피 책이 여는 조리 레시피 → `CraftRecipe.unlockSeries` */
+/* appended (2026-09-13, library series): the cook recipes a recipe book opens → `CraftRecipe.unlockSeries` */
 import { LIBRARY_SERIES_DEFS } from '@/shared';
 
 /**
- * 레시피 id → 그 레시피를 여는 **레시피 책 시리즈** id. 원본은 `data/library_series.csv` 의 `recipe:<레시피 id>` 효과 하나다
- * (csv 열을 따로 두지 않는다). 여러 시리즈가 같은 레시피를 가리키면 첫 시리즈 — data:check 가 대상이 조리대 레시피인지 본다.
+ * Recipe id → the id of the **recipe book series** that opens it. The source is one `recipe:<recipe id>` effect
+ * in `data/library_series.csv` (no separate csv column). When several series point at the same recipe the first
+ * one wins — data:check checks that the target is a cook-bench recipe.
  */
 const RECIPE_UNLOCK_SERIES: ReadonlyMap<string, string> = (() => {
   const out = new Map<string, string>();
@@ -16,16 +17,16 @@ const RECIPE_UNLOCK_SERIES: ReadonlyMap<string, string> = (() => {
 })();
 
 /**
- * **제작** 레시피 (`data/recipes.csv`). 분해는 여기 없다 — `Salvage.ts` 가 `data/salvage.csv` 와
- * 이 표의 **제작 재료**에서 만든다 (2026-09-10 제작 대개편).
+ * **Craft** recipes (`data/recipes.csv`). Salvage is not here — `Salvage.ts` builds it from `data/salvage.csv`
+ * and the **craft inputs** of this table (2026-09-10, the big craft rework).
  *
- * 흐름:
- *  1. **탄약 제작** — 화약 + 폐금속/합금 → 원하는 탄종 (분해로 얻은 화약이 재료다).
- *  2. **야전 병기 · 의약** — 연막 / 소이 수류탄, 붕대 · 약초 붕대 (`station: 'field'`).
- *  3. **정제 작업대** (`bench: 'refine'`, 2026-09-10) — 하위 재료 → **상위 재료** 7종.
- *     상위 재료는 여기서만 나오고, 등급 IV~V 장비는 전부 상위 재료를 요구한다.
- *  4. **총기 / 장비 / 가젯 / 의학 작업대** — 무기 25종 · 부착물 14종 · 방탄복 5벌 · 가방 8종 ·
- *     가젯 12종 · 실드 충전기 3종. `benchLevel` 이 등급 문턱이다 (Lv.1 하급 · Lv.2 중급 · Lv.3 상급).
+ * The flow:
+ *  1. **Ammo crafting** — 화약 + 폐금속/합금 → the ammo type wanted (the input is the 화약 salvage yields).
+ *  2. **Field ordnance · medicine** — smoke / incendiary grenades, 붕대 · 약초 붕대 (`station: 'field'`).
+ *  3. **정제 작업대** (`bench: 'refine'`, 2026-09-10) — lower materials → the 7 **upper-tier materials**.
+ *     Upper-tier materials come from here only, and every grade IV~V piece of gear requires them.
+ *  4. **총기 / 장비 / 가젯 / 의학 작업대** — 25 weapons · 14 attachments · 5 armors · 8 bags ·
+ *     12 gadgets · 3 shield chargers. `benchLevel` is the grade threshold (Lv.1 low · Lv.2 mid · Lv.3 high).
  *
  * `station: 'field'` recipes also work on the ship; `'ship'` recipes without `bench` work at any ship workbench.
  */
@@ -42,26 +43,28 @@ const recipeOf = (r: (typeof RECIPE_ROWS)[number]): CraftRecipe => ({
   skill: r.enum('skill', ['crafting', 'medicine', 'gardening'] as const),
   skillRequired: r.int('skillRequired', { min: 0 }),
   description: r.str('description'),
-  /* 2026-09-10: 'refine' (정제 작업대) 추가 — `WorkbenchKind` 는 이미 그 값을 받는다.
-     2026-09-11: 'extract' (추출기) · 'mixer' (조합대) — 연구실 작업대 둘.
-     2026-09-11 (A-3c · A-15): 'cook' (조리대) · 'print' (3D 프린터). 이 자리가 `WorkbenchKind` 를 **베껴 적고**
-     있어서 작업대를 더할 때마다 여기도 고쳐야 했다 — 이제 `WORKBENCH_KINDS` 를 그대로 쓴다 (계약이 원본이다). */
+  /* 2026-09-10: 'refine' (정제 작업대) added — `WorkbenchKind` already accepts that value.
+     2026-09-11: 'extract' (추출기) · 'mixer' (조합대) — the two lab benches.
+     2026-09-11 (A-3c · A-15): 'cook' (조리대) · 'print' (3D 프린터). This spot was **copying `WorkbenchKind`
+     out**, so every added workbench had to be fixed here too — now it uses `WORKBENCH_KINDS` as it is
+     (the contract is the source). */
   ...(r.has('bench') ? { bench: r.enum('bench', WORKBENCH_KINDS) } : {}),
   ...(r.has('benchLevel') ? { benchLevel: r.int('benchLevel', { min: 1 }) } : {}),
   ...(r.has('extraOutputs') ? { extraOutputs: r.costList('extraOutputs') } : {}),
-  /* 2026-09-13: 레시피 책이 꽂혀 있는 동안만 열리는 레시피 (housing 의 `isRecipeUnlocked` 가 본다) */
+  /* 2026-09-13: a recipe open only while its recipe book is shelved (housing's `isRecipeUnlocked` reads it) */
   ...(RECIPE_UNLOCK_SERIES.has(r.raw('id')) ? { unlockSeries: RECIPE_UNLOCK_SERIES.get(r.raw('id'))! } : {}),
 });
 
-/** 제작 목록에 뜨는 레시피 전부 (`data/recipes.csv` 의 순서 그대로). */
+/** Every recipe that shows in the craft list (in `data/recipes.csv` order). */
 export const CRAFT_RECIPES: readonly CraftRecipe[] = RECIPE_ROWS.map(recipeOf);
 
 /**
- * **아이템 하나를 새로 만들 때 드는 재료.** 수리비 · 분해 산출이 전부 이 표에서 나오므로
- * (`Salvage.ts`), 한 아이템의 "값어치" 를 정하는 자리는 `data/recipes.csv` 한 곳뿐이다.
+ * **The materials one new item costs to make.** Repair bills and salvage yields all come out of this table
+ * (`Salvage.ts`), so the one place that decides an item's "worth" is `data/recipes.csv`.
  *
- * `outputQty > 1` 인 레시피(탄약 · 배치 제작)는 **넣지 않는다** — 한 개를 만드는 데 드는 재료가
- * 정수로 떨어지지 않아 기준이 되지 못한다. 같은 아이템을 만드는 레시피가 여럿이면 **첫 줄**이 기준이다.
+ * Recipes with `outputQty > 1` (ammo · batch crafts) are **left out** — the materials for a single unit do not
+ * come out whole, so they cannot be a baseline. With several recipes making the same item, the **first row** is
+ * the baseline.
  */
 export const CRAFT_COST_BY_OUTPUT: ReadonlyMap<string, readonly CraftIngredient[]> = (() => {
   const out = new Map<string, readonly CraftIngredient[]>();
@@ -72,7 +75,7 @@ export const CRAFT_COST_BY_OUTPUT: ReadonlyMap<string, readonly CraftIngredient[
   return out;
 })();
 
-/** 이 아이템의 제작 재료 (없으면 빈 배열). 반환 배열은 공유되므로 고치지 않는다. */
+/** This item's craft inputs (empty array when there are none). The returned array is shared — do not modify it. */
 export function craftCostOf(defId: string): readonly CraftIngredient[] {
   return CRAFT_COST_BY_OUTPUT.get(defId) ?? [];
 }

@@ -1,43 +1,43 @@
 import type { EnemyType, ItemCategory, ItemDef, Rarity, WeaponGrade } from '@/shared';
-/* appended (2026-09-13): 인간형 팩션 전리품 — 스폰 거점 보너스 · 행성 씨앗 표 */
+/* appended (2026-09-13): humanoid faction loot — spawn site bonuses · planet seed pools */
 import type { EnemySpawnSite, PlanetId } from '@/shared';
 import { UNIQUE_WEAPON_IDS, csvGroups, csvRows } from '@/shared';
 
 /*
- * 루팅 수치의 원본은 `data/loot_*.csv` 다 — 티어 굴림 규칙(`loot_tiers.csv`), 카테고리 가중치,
- * 확정 픽, 아이템별 배수, 그리고 시체 드랍(`loot_corpses.csv` · `loot_corpse_rolls.csv`).
- * 이 파일에는 표가 없고 그 줄들을 타입 있는 표로 옮기는 코드만 있다.
+ * The source of every loot number is `data/loot_*.csv` — the tier roll rules (`loot_tiers.csv`), category
+ * weights, guaranteed picks, per-item multipliers and corpse drops (`loot_corpses.csv` · `loot_corpse_rolls.csv`).
+ * This file holds no table of its own, only the code that moves those rows into typed tables.
  */
 import { WEAPON_FAMILIES, WEAPON_GRADES } from './WeaponDefs';
 import { ITEM_DEF_MAP, UNIQUE_AMMO_TYPES, ammoItemIdFor, itemIdForWeapon } from './ItemDefs';
-/* appended (2026-09-13): 서재 매체 · 비디오게임 — 행성 고정 드롭 */
+/* appended (2026-09-13): library media · video games — planet-bound drops */
 import { LIBRARY_SERIES_MAP, numberMap } from '@/shared';
 import { GAME_ITEM_PLANETS, ITEM_CATEGORIES, ITEM_DEFS, libraryShelfOf } from './ItemDefs';
 import { IMPLANT_BROKEN_DEFS, IMPLANT_WORKING_DEFS } from './ImplantDefs';
-/* appended (2026-09-11): 네임드 확정 드롭의 방탄복 등급 → armor_n */
+/* appended (2026-09-11): the armor grade of a named guaranteed drop → armor_n */
 import { ARMOR_DEFS } from './ArmorDefs';
-/* appended (2026-09-17): 시체 표본 개당 등급 굴림 (`loot_corpse_samples.csv`) */
+/* appended (2026-09-17): per-unit tier roll for corpse samples (`loot_corpse_samples.csv`) */
 import type { SampleFamily } from '@/shared';
 import { RARITY_ORDER, SAMPLE_FAMILIES } from '@/shared';
 import { SAMPLE_ITEM_DEFS } from './ItemDefs';
 
-/* ── 묶음 토큰 ─────────────────────────────────────────────────────────────
- * `loot_item_weights.csv` 의 `target` 은 아이템 id 하나이거나 `@` 로 시작하는 묶음이다.
- * 묶음은 "이 티어에서는 유니크 전부 0" 같은 규칙을 한 줄로 적기 위한 것이다. */
+/* ── group tokens ────────────────────────────────────────────────────────────
+ * `target` in `loot_item_weights.csv` is either one item id or a group starting with `@`.
+ * A group is there to write a rule like "every unique is 0 at this tier" as a single row. */
 const record = (ids: readonly string[], mul: number): Record<string, number> => Object.fromEntries(ids.map((id) => [id, mul]));
 
-/** `@토큰` → 그 토큰이 가리키는 아이템 id 목록. */
+/** `@token` → the list of item ids that token points at. */
 const WEIGHT_GROUPS: Readonly<Record<string, () => readonly string[]>> = {
-  /** `wpn_u_*` (유니크는 자기 자신이 계열이다). */
+  /** `wpn_u_*` (a unique is its own family). */
   '@unique_weapons': () => UNIQUE_WEAPON_IDS.map(itemIdForWeapon),
   /** `ammo_fuel` … `ammo_belt`. */
   '@unique_ammo': () => UNIQUE_AMMO_TYPES.map(ammoItemIdFor),
-  /** 등급 무기 6계열 (`ar` … `hg`, 모든 등급). */
+  /** The six graded weapon families (`ar` … `hg`, every grade). */
   '@graded_families': () => WEAPON_FAMILIES,
-  /** 정상 임플란트 전부 — 상자에서는 절대 안 나오므로 대개 0 이다. */
+  /** Every working implant — never found in a crate, so this is usually 0. */
   '@working_implants': () => IMPLANT_WORKING_DEFS.map((d) => d.id),
 };
-/** `@broken_implants.<rarity>` — 그 등급의 망가진 임플란트. */
+/** `@broken_implants.<rarity>` — the broken implants of that rarity. */
 const BROKEN_IMPLANT_PREFIX = '@broken_implants.';
 
 function expandWeightTarget(target: string): readonly string[] {
@@ -51,58 +51,70 @@ function expandWeightTarget(target: string): readonly string[] {
   return [];
 }
 
-/* ── 은퇴한 아이템 (2026-09-13, 요리 재료 티어) ─────────────────────────────
- * `ItemDef.retired` — 옛 표본 11종 · 옛 세포주 5 · 배양 산물 5 · 특선 요리 4. 정의는 남지만 **상자 · 보급 추첨에 절대 안
- * 들어간다**: csv(`loot_item_weights.csv`)에 줄을 남기든 지우든, 누가 그 카테고리를 다른 티어에 더하든 상관없이 여기서 막는다.
- * 두 겹이다 — 티어 표의 `itemWeightMul` 을 0 으로 덮고(표를 읽는 도구도 같은 답을 본다), `Loot.pickDef` 가 후보에서 뺀다
- * (가중치가 전부 0 일 때 확정 픽이 균등 추첨으로 떨어지는 `relaxRarity` 경로까지). 표끼리의 참조(레시피 · 시체 표 · 행성 ·
- * 분석 결과)는 `npm run data:check` 가 잡는다. */
+/* ── retired items (2026-09-13, the cooking material tiers) ──────────────────
+ * `ItemDef.retired` — 11 old samples · 5 old strains · 5 culture products · 4 special dishes. The defs stay, but
+ * they **never enter a crate or supply draw**: whether the csv (`loot_item_weights.csv`) keeps their rows or
+ * drops them, and whoever adds their category to another tier, this is where it is stopped.
+ * Two layers — the tier table's `itemWeightMul` is overwritten with 0 (so a tool reading the table sees the same
+ * answer), and `Loot.pickDef` drops them from the candidates (including the `relaxRarity` path a guaranteed pick
+ * falls into, a uniform draw, when every weight is 0). References between tables (recipes · corpse tables ·
+ * planets · analysis results) are caught by `npm run data:check`. */
 export const RETIRED_ITEM_IDS: ReadonlySet<string> = new Set([...ITEM_DEF_MAP.values()].filter((d) => d.retired).map((d) => d.id));
 
-/** 상자 · 보급 추첨의 후보가 될 수 있는 아이템인가 (은퇴한 것은 아니다). */
+/** Can this item be a candidate in a crate or supply draw (i.e. it is not retired). */
 export function isLootableDef(d: ItemDef): boolean {
   return !d.retired;
 }
 
-/* ── 행성 고정 드롭 (2026-09-13, 서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ─────────────
- * 책 · 비디오 · 레코드는 **시리즈의 행성**(`data/library_series.csv`), 게임기 · 게임 디스크는 `game_*.csv` 의 행성에서만 나온다.
- * 상자 굴림(`Loot.pickDef`)은 후보를 그 레이드 행성으로 거르고, 그 행성에 후보가 하나도 없는 카테고리는 카테고리 추첨에서 뺀다
- * (`planetCategoryAvailable` — 아켈론 II 의 레코드 · 게임 디스크 · 게임기). 고른 아이템의 가중치에는 권 가중치
- * (`tables.csv` 의 `LIBRARY_VOLUME_DROP_WEIGHT`)가 곱해진다. 로그 시체의 서적 굴림은 `libraryBookPool(행성)` 에서 권 가중치로 뽑는다.
- * **행성이 null**(훈련장 · 행성 없는 옛 경로 · `rollCrate`)이면 행성이 하나라도 있는 아이템 전부가 후보다. */
+/* ── planet-bound drops (2026-09-13, library series · video games) ───────────
+ * docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」
+ * Books · discs · records come only from **the series' planets** (`data/library_series.csv`); consoles and game
+ * discs only from the planets in `game_*.csv`.
+ * The crate roll (`Loot.pickDef`) filters candidates by the raid planet, and a category with no candidate at all
+ * on that planet is dropped from the category draw (`planetCategoryAvailable` — records · game discs · consoles
+ * on 아켈론 II). The chosen item's weight is multiplied by the volume weight (`LIBRARY_VOLUME_DROP_WEIGHT` in
+ * `tables.csv`). A rogue corpse's book roll draws from `libraryBookPool(planet)` by volume weight.
+ * **With planet null** (the training range · the old planet-less path · `rollCrate`) every item that has at
+ * least one planet is a candidate. */
 
 const LIBRARY_VOLUME_DROP_WEIGHT = numberMap<string>('tables.csv', 'LIBRARY_VOLUME_DROP_WEIGHT');
 
-/* ── 루팅 카테고리 축 (2026-09-15, 가젯 개편 후속) ──────────────────────────────────────────────────
- * 같은 날 `ItemCategory` 의 `'grenade'` 가 폐지되면서(수류탄도 `category: 'gadget'`) `loot_category_weights.csv`
- * 의 `grenade` 줄이 **아무 아이템에도 안 맞는 유령 줄**이 됐다. 카테고리 추첨은 그 줄을 예전 가중치(티어 1 16 ·
- * 2 12 · 3 8 · 4 8 · **5 25**)로 계속 뽑았고, `pickDef` 가 후보 0 으로 null 을 돌려주면
- * `rollCrateOn` 이 **상자 채우기를 통째로 중단**했다 (`else break`). 그래서 보급 상자의 ~13 %,
- * **보급 투하 상자의 ~23 %** 가 아이템 한두 개로 잘려 나왔다 (`smoke-search` 가 시드 21 에서 잡았다).
+/* ── the loot category axis (2026-09-15, follow-up to the gadget rework) ─────
+ * When `'grenade'` was dropped from `ItemCategory` the same day (a grenade is `category: 'gadget'` too), the
+ * `grenade` row of `loot_category_weights.csv` became a **phantom row that matches no item**. The category draw
+ * kept picking that row at its old weights (tier 1 16 · 2 12 · 3 8 · 4 8 · **5 25**), and once `pickDef`
+ * returned null for zero candidates, `rollCrateOn` **stopped filling the crate altogether** (`else break`).
+ * So ~13 % of supply crates and **~23 % of supply drop crates** came out cut down to one or two items
+ * (`smoke-search` caught it on seed 21).
  *
- * 고치는 방법으로 「가중치를 gadget 에 합친다」는 **쓰지 않았다** — 수류탄 2종과 가젯 12종이 한 주머니에 들어가면
- * 상대 빈도가 통째로 바뀌고(티어 1 에서 수류탄 −39 % · 가젯 ×2.05), 되돌리려면 티어마다 마법 같은 배수 줄이
- * 20 개 넘게 필요하다. 대신 **루팅 추첨의 카테고리 축을 `ItemCategory` 와 분리**했다: 표가 말하는 `grenade` 는
- * 「`ItemDef.grenade` 가 있는 아이템」이고 `gadget` 은 그 밖의 가젯이다. 그래서 **같은 시드의 상자 결과가
- * 2026-09-14 기준선과 같다** (아이템 풀 · 가중치 · rng 소비가 하나도 안 바뀐다).
+ * 「merge the weight into `gadget`」 was **not** used as the fix — putting the 2 grenades and the 12 gadgets
+ * into one pool changes their relative frequency wholesale (at tier 1: grenades −39 % · gadgets ×2.05), and
+ * undoing that would take more than 20 rows of magic multipliers, one set per tier. Instead **the category axis
+ * of the loot draw was split from `ItemCategory`**: the `grenade` the tables speak of is 「an item that has
+ * `ItemDef.grenade`」 and `gadget` is every other gadget. So **a crate on the same seed gives the same result
+ * as the 2026-09-14 baseline** (item pool · weights · rng consumption all unchanged).
  *
- * 카테고리 이름은 이제 로더가 **검증**한다 (`LOOT_CATEGORIES`) — 이 버그가 조용했던 이유가 검증 없는
- * `as ItemCategory` 캐스트였다. 그리고 `rollCrateOn` 은 후보가 없는 카테고리를 만나면 중단하지 않고 건너뛴다.
+ * Category names are now **validated** by the loader (`LOOT_CATEGORIES`) — what kept this bug quiet was the
+ * unvalidated `as ItemCategory` cast. And `rollCrateOn` now skips a category with no candidate instead of
+ * stopping.
  */
 export type LootCategory = ItemCategory | 'grenade';
 
-/** `loot_category_weights.csv` · `loot_guaranteed.csv` 가 쓸 수 있는 이름 전부 (로더가 검사한다). */
+/** Every name `loot_category_weights.csv` · `loot_guaranteed.csv` may use (the loader checks them). */
 export const LOOT_CATEGORIES: readonly LootCategory[] = [...ITEM_CATEGORIES, 'grenade'];
 
-/** 이 아이템이 루팅 표에서 어느 카테고리로 세어지나 — 수류탄만 자기 축을 가진다. */
+/** Which category this item counts as in the loot tables — only a grenade has an axis of its own. */
 export function lootCategoryOf(d: ItemDef): LootCategory {
   return d.grenade ? 'grenade' : d.category;
 }
 
-/** 행성으로 거르는 카테고리 — 이 밖의 카테고리는 행성과 무관하다. */
+/** The categories filtered by planet — every other category is planet-independent. */
 export const PLANET_BOUND_CATEGORIES: readonly ItemCategory[] = ['book', 'disc', 'record', 'game_disc', 'console'];
 
-/** 이 아이템이 나오는 행성. 행성에 묶이지 않는 아이템이면 null, 묶였는데 목록이 비었으면 `[]` (어디서도 안 나온다). */
+/**
+ * The planets this item drops on. null when the item is not planet-bound; `[]` when it is bound but the list is
+ * empty (it drops nowhere).
+ */
 export function lootPlanetsOf(d: ItemDef): readonly PlanetId[] | null {
   const shelf = libraryShelfOf(d);
   if (shelf) return (shelf.series ? LIBRARY_SERIES_MAP.get(shelf.series)?.planets : undefined) ?? [];
@@ -110,7 +122,7 @@ export function lootPlanetsOf(d: ItemDef): readonly PlanetId[] | null {
   return null;
 }
 
-/** 이 레이드 행성의 상자 · 시체에서 이 아이템이 후보인가. `planet` 이 null 이면 행성이 하나라도 있으면 된다. */
+/** Is this item a candidate in this raid planet's crates and corpses? With `planet` null, any planet will do. */
 export function isLootableOnPlanet(d: ItemDef, planet: PlanetId | null | undefined): boolean {
   const planets = lootPlanetsOf(d);
   if (planets === null) return true;
@@ -118,7 +130,10 @@ export function isLootableOnPlanet(d: ItemDef, planet: PlanetId | null | undefin
   return planet == null || planets.includes(planet);
 }
 
-/** 서재 매체의 권 가중치 (`LIBRARY_VOLUME_DROP_WEIGHT[권]`, 표에 없는 권은 0). 서재 매체가 아니면 1. */
+/**
+ * The volume weight of a library media item (`LIBRARY_VOLUME_DROP_WEIGHT[volume]`; a volume the table does not
+ * hold is 0). 1 for anything that is not library media.
+ */
 export function libraryVolumeWeight(d: ItemDef): number {
   const volume = libraryShelfOf(d)?.volume;
   if (!volume) return 1;
@@ -127,7 +142,10 @@ export function libraryVolumeWeight(d: ItemDef): number {
 
 const CATEGORY_ON_PLANET = new Map<string, boolean>();
 
-/** 그 행성에서 이 카테고리의 후보가 하나라도 있나 (행성 고정 카테고리가 아니면 늘 true). 결과는 (카테고리, 행성)마다 캐시한다. */
+/**
+ * Does this category have any candidate at all on that planet (always true when it is not a planet-bound
+ * category)? The answer is cached per (category, planet).
+ */
 export function planetCategoryAvailable(category: LootCategory, planet: PlanetId | null | undefined): boolean {
   if (category === 'grenade' || !PLANET_BOUND_CATEGORIES.includes(category)) return true;
   const key = `${category}@${planet ?? '*'}`;
@@ -141,7 +159,10 @@ export function planetCategoryAvailable(category: LootCategory, planet: PlanetId
 
 const BOOK_POOLS = new Map<string, readonly ItemDef[]>();
 
-/** 로그 시체 서적 굴림의 후보 — 그 행성의 책 시리즈 아이템 (은퇴 · 권 가중치 0 제외). 뽑을 때는 `libraryVolumeWeight` 로 가중. */
+/**
+ * Candidates for a rogue corpse's book roll — the book series items of that planet (retired ones and volume
+ * weight 0 excluded). The draw itself weights them by `libraryVolumeWeight`.
+ */
 export function libraryBookPool(planet: PlanetId | null | undefined): readonly ItemDef[] {
   const key = planet ?? '*';
   let pool = BOOK_POOLS.get(key);
@@ -159,7 +180,7 @@ export function libraryBookPool(planet: PlanetId | null | undefined): readonly I
  * Weapon grades map 1:1 to rarity, so `rarityWeights` also shape the grade distribution.
  */
 export interface GuaranteedRoll {
-  /** Categories allowed for this guaranteed pick (2026-09-15: 루팅 카테고리 축 — `grenade` 를 포함한다). */
+  /** Categories allowed for this guaranteed pick (2026-09-15: the loot category axis — `grenade` included). */
   categories: readonly LootCategory[];
   /** Minimum rarity (inclusive). */
   minRarity: Rarity;
@@ -188,14 +209,15 @@ export interface TierTable {
 }
 
 /**
- * 드롭이 굴리는 등급은 **5단계다** — 2026-09-16 에 `Rarity` 가 6단계(신화)로 늘어난 뒤에도 그러하다.
- * 신화는 유니크 무기 6종 · 특성 방탄복 3벌 · 신화 표본/광물 처럼 자기 경로로만 나오고, 상자·시체 굴림은
- * 신화를 뽑지 않는다. loot csv 에 mythic 칸을 적어도 이 줄이 자르므로 무시된다 — 드롭을 열려면 여기부터 고친다.
+ * Loot rolls run on a **five-step** rarity ladder — still so after `Rarity` grew to six steps (mythic) on
+ * 2026-09-16. Mythic comes only from its own paths (the 6 unique weapons · the 3 perk armors · mythic samples
+ * and minerals); crate and corpse rolls never draw it. A `mythic` column written into a loot csv is cut by this
+ * line and ignored — opening mythic to drops starts here.
  */
 export const RARITY_ORDER_LOOT: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
 const RARITY_ORDER_5 = RARITY_ORDER_LOOT;
 
-/** 티어별 카테고리 가중치 / 확정 픽 / 아이템 배수를 티어 번호로 모아 둔다. */
+/** Per-tier category weights / guaranteed picks / item multipliers, gathered by tier number. */
 const CATEGORY_WEIGHTS_BY_TIER = csvGroups('loot_category_weights.csv', 'tier');
 const GUARANTEED_BY_TIER = csvGroups('loot_guaranteed.csv', 'tier');
 const ITEM_WEIGHTS_BY_TIER = csvGroups('loot_item_weights.csv', 'tier');
@@ -206,7 +228,8 @@ export const LOOT_TABLES: readonly TierTable[] = csvRows('loot_tiers.csv').map((
 
   const categoryWeights: Partial<Record<LootCategory, number>> = {};
   for (const c of CATEGORY_WEIGHTS_BY_TIER.get(key) ?? []) {
-    /* 2026-09-15: 모르는 이름을 `as` 로 삼키지 않는다 — 유령 카테고리 한 줄이 상자를 잘라 먹었다 (위 *루팅 카테고리 축*). */
+    /* 2026-09-15: an unknown name is never swallowed by an `as` cast — one phantom category row cut crates
+       short (*the loot category axis* above). */
     categoryWeights[c.enum('category', LOOT_CATEGORIES)] = c.num('weight', { min: 0 });
   }
 
@@ -218,7 +241,7 @@ export const LOOT_TABLES: readonly TierTable[] = csvRows('loot_tiers.csv').map((
     if (!ids.length) w.report('target', `'${target}' 이 가리키는 아이템이 없다`);
     Object.assign(itemWeightMul, record(ids, mul));
   }
-  /* 2026-09-13 안전핀: 은퇴한 아이템은 csv 에 어떤 줄이 있든 **모든 티어에서 배수 0** 이다. */
+  /* 2026-09-13 pin: a retired item has **multiplier 0 at every tier**, whatever rows the csv holds. */
   for (const id of RETIRED_ITEM_IDS) itemWeightMul[id] = 0;
 
   return {
@@ -250,54 +273,56 @@ export function getTierLabel(tier: number): string {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 2026-09-09: 행성 진행도별 **무기 등급** 곡선 (`data/planet_loot.csv`)
+ * 2026-09-09: the **weapon grade** curve per planet progression (`data/planet_loot.csv`)
  *
- * 상자 티어의 `rarityWeights` 는 계속 다른 카테고리(부착물 · 방어구 · 임플란트 …)의 희귀도를 정하고,
- * **무기 등급만** 이 표가 다시 정한다 — 앞쪽 행성에서 III 이상이 거의 안 나오게 하려면 티어 표를
- * 건드릴 수밖에 없는데 그러면 총이 아닌 물건까지 같이 짜지기 때문이다.
+ * A crate tier's `rarityWeights` still decides the rarity of every other category (attachments · armor ·
+ * implants …); **only weapon grades** are re-decided by this table — keeping III and above nearly absent on the
+ * early planets would otherwise mean touching the tier table, and that squeezes everything that is not a gun.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 행성 하나의 무기 등급 곡선. `rank` 는 `planetTier()` 가 주는 난이도 순번 1..5 다. */
+/** One planet's weapon grade curve. `rank` is the difficulty index 1..5 that `planetTier()` gives. */
 export interface PlanetGradeCurve {
   rank: number;
-  /** 사람이 읽으라고 둔 이름 (csv 의 `name` 칸). 코드는 비교에 쓰지 않는다. */
+  /** A name kept for people to read (the csv `name` column). Code never compares against it. */
   name: string;
-  /** 가중치가 양수인 등급만 — 이 배열이 곧 그 행성에서 나올 수 있는 등급 전부다. */
+  /** Only grades with a positive weight — this array is every grade that planet can yield. */
   grades: readonly WeaponGrade[];
-  /** 등급 → 가중치 (0 인 등급은 `grades` 에 없다). */
+  /** Grade → weight (a grade at 0 is not in `grades`). */
   weightOf: Readonly<Partial<Record<WeaponGrade, number>>>;
-  /** 그 행성의 **최대 등급** = `grades` 의 마지막. 시체 무기는 이 값으로 상한만 받는다. */
+  /** The planet's **maximum grade** = the last of `grades`. A corpse weapon only takes this as a cap. */
   maxGrade: WeaponGrade;
   /**
-   * 전설 **유니크 무기** 등장 확률에 곱하는 배수 (0 = 그 행성에서 유니크 없음).
-   * 유니크는 등급이 없어 `grades` 곡선을 안 타므로 따로 막는다 — 등급 V 가 봉인된 행성에서
-   * 그보다 윗급이 나오면 앞뒤가 안 맞기 때문이다. 상자 픽 가중치와 보스 시체 유니크 굴림 양쪽에 걸린다.
+   * The multiplier on the appearance chance of a legendary **unique weapon** (0 = no uniques on that planet).
+   * A unique has no grade, so it never rides the `grades` curve and has to be gated on its own — a planet that
+   * seals grade V cannot coherently hand out something above it. It applies both to the crate pick weight and
+   * to the boss corpse's unique roll.
    */
   uniqueMul: number;
   /**
-   * 2026-09-10: **총기가 아닌 것들**(방탄복 · 가방 · 부착물 · 임플란트 · 소모품 · 재료 · 귀중품 …)의
-   * 희귀도 가중치에 곱하는 배수 — `data/planet_loot.csv` 의 `rareMul` · `epicMul` · `legMul`.
-   * common · uncommon 은 언제나 1 이다: 그 둘은 **깎인 몫을 되받는 쪽**이라 곱하는 대상이 아니다
-   * (`planetRarityWeights` 참고).
+   * 2026-09-10: the multiplier on the rarity weights of **everything that is not a gun** (armor · bags ·
+   * attachments · implants · consumables · materials · valuables …) — `rareMul` · `epicMul` · `legMul` in
+   * `data/planet_loot.csv`. common · uncommon are always 1: those two are **the side that takes the shaved
+   * share back**, so they are never multiplied (see `planetRarityWeights`).
    *
-   * 총기 등급은 이 배수를 안 탄다 — `grades` 곡선이 뽑은 등급이 그 위를 덮어쓰기 때문이다
-   * (`Loot.regrade`). 두 축은 일부러 갈라 놨다.
+   * Weapon grades do not ride this multiplier — the grade the `grades` curve drew overwrites it
+   * (`Loot.regrade`). The two axes are split on purpose.
    */
   rarityMul: Readonly<Record<Rarity, number>>;
-  /** 세 배수가 전부 1 인가 = 이 행성은 희귀도를 손대지 않는다. `planetRarityWeights` 의 우회 조건. */
+  /** Are all three multipliers 1 = this planet leaves rarity alone. The bypass condition in `planetRarityWeights`. */
   rarityMulIdentity: boolean;
   /**
-   * 2026-09-16: **서사 이상 드롭률 게이트** — `data/planet_loot.csv` 의 `epicPlusMul` (0..1, 빈 칸 = 1).
-   * `rarityMul` 이 *가중치*를 깎는 것과 달리 이것은 **결과**에 건다: 서사 · 전설이 뽑히면 이 확률로 남기고 아니면
-   * 서사 미만 최고 희귀도로 내린다 (`Loot.pickDef` · `regrade` · 시체 굴림). 확정 픽 · 폴백 픽에서도 상쇄되지 않는다.
-   * 1 이면 rng 를 한 번도 더 쓰지 않는다. 연구실 잠긴 방 컨테이너(`CrateLootOpts.lockedRoom`)는 이 값을 무시한다.
+   * 2026-09-16: the **epic+ gate** — `epicPlusMul` in `data/planet_loot.csv` (0..1, a blank cell = 1).
+   * Unlike `rarityMul`, which shaves *weights*, this one applies to the **result**: an epic or legendary that is
+   * drawn is kept with this probability, otherwise it drops to the highest rarity below epic (`Loot.pickDef` ·
+   * `regrade` · the corpse rolls). It does not cancel out in a guaranteed or fallback pick either. At 1 it never
+   * spends a single extra rng draw. The lab's locked-room containers (`CrateLootOpts.lockedRoom`) ignore it.
    */
   epicPlusMul: number;
 }
 
 /**
- * 배수가 곱해지는 등급과 그 값이 든 csv 열 이름. 이 셋 말고는 곱하지 않는다.
- * 열을 늘리려면 여기와 `planet_loot.csv` 의 헤더를 같이 늘린다.
+ * The rarities a multiplier applies to and the csv column each value sits in. Nothing outside these three is
+ * multiplied. Adding a column means extending this list and `planet_loot.csv`'s header together.
  */
 const RARITY_MUL_COLUMNS: readonly (readonly [Rarity, string])[] = [
   ['rare', 'rareMul'],
@@ -306,8 +331,9 @@ const RARITY_MUL_COLUMNS: readonly (readonly [Rarity, string])[] = [
 ];
 
 /**
- * 깎인 총량을 **원래 비율 그대로** 되돌려 받는 등급. 이 둘이 있어서 배수를 걸어도 가중치 합이 안 변한다 —
- * 희귀 이상이 줄어든 만큼 정확히 그만큼 일반 · 고급이 늘고, "상자에서 물건이 덜 나온다" 가 되지 않는다.
+ * The rarities that take the shaved total back **in their original ratio**. These two are why applying the
+ * multipliers never changes the weight sum — common · uncommon grow by exactly what rare+ lost, so it never
+ * turns into "crates give out fewer things".
  */
 const RARITY_REFUND: readonly Rarity[] = ['common', 'uncommon'];
 
@@ -319,7 +345,8 @@ export const PLANET_GRADE_CURVES: readonly PlanetGradeCurve[] = csvRows('planet_
   }
   const grades = WEAPON_GRADES.filter((g) => (weightOf[g] ?? 0) > 0);
   if (grades.length === 0) r.report('g1', '등급 가중치가 전부 0 이다 — 이 행성에서는 무기가 아예 안 나온다');
-  /* 빈 칸 · 없는 열은 1 (= 손대지 않음) — 열을 못 찾아 행성 전체가 조용히 짜지는 것보다 낫다. */
+  /* A blank cell or a missing column is 1 (= left alone) — better than a column that cannot be found
+     quietly squeezing a whole planet. */
   const rarityMul = Object.fromEntries(RARITY_ORDER_5.map((q) => [q, 1])) as Record<Rarity, number>;
   for (const [rarity, column] of RARITY_MUL_COLUMNS) rarityMul[rarity] = r.num(column, { min: 0, fallback: 1 });
   return {
@@ -331,7 +358,7 @@ export const PLANET_GRADE_CURVES: readonly PlanetGradeCurve[] = csvRows('planet_
     uniqueMul: r.num('uniqueMul', { min: 0 }),
     rarityMul,
     rarityMulIdentity: RARITY_MUL_COLUMNS.every(([rarity]) => rarityMul[rarity] === 1),
-    /* 2026-09-16: 빈 칸 · 없는 열은 1 (= 게이트 없음) — 위 rarityMul 과 같은 이유. */
+    /* 2026-09-16: a blank cell or a missing column is 1 (= no gate) — the same reason as rarityMul above. */
     epicPlusMul: r.num('epicPlusMul', { min: 0, max: 1, fallback: 1 }),
   };
 });
@@ -339,32 +366,35 @@ export const PLANET_GRADE_CURVES: readonly PlanetGradeCurve[] = csvRows('planet_
 const PLANET_GRADE_CURVE_MAP: ReadonlyMap<number, PlanetGradeCurve> = new Map(PLANET_GRADE_CURVES.map((c) => [c.rank, c]));
 
 /**
- * 난이도 순번(`planetTier()`, 1..5)의 곡선. 표에 없는 순번이면 `null` — 그때는 예전처럼
- * 상자 티어의 희귀도 가중치가 무기 등급을 정한다 (행성을 안 고른 훈련장 · 구형 세이브).
+ * The curve for a difficulty index (`planetTier()`, 1..5). `null` for an index the table does not hold — then,
+ * as before, the crate tier's rarity weights decide the weapon grade (the training range with no planet chosen ·
+ * an old save).
  */
 export function getPlanetGradeCurve(rank: number): PlanetGradeCurve | null {
   return PLANET_GRADE_CURVE_MAP.get(Math.round(rank)) ?? null;
 }
 
-/** `base` 객체 하나당 rank → 조정된 가중치. 굴림마다 새 객체를 만들지 않으려고 들고 있는다. */
+/** Per `base` object: rank → the adjusted weights. Held so that no new object is made for every roll. */
 const RARITY_WEIGHT_CACHE = new WeakMap<object, Map<number, Readonly<Partial<Record<Rarity, number>>>>>();
 
 /**
- * 2026-09-10: 희귀도 가중치 한 벌에 그 행성의 `rareMul` · `epicMul` · `legMul` 을 걸어 돌려준다.
+ * 2026-09-10: applies the planet's `rareMul` · `epicMul` · `legMul` to one set of rarity weights and returns it.
  *
- * 1. rare · epic · legendary 에 각각 배수를 곱한다.
- * 2. 그렇게 **깎인 총량**(`shaved`)을 common · uncommon 이 **원래 가지고 있던 비율 그대로** 나눠 받는다.
+ * 1. rare · epic · legendary are each multiplied.
+ * 2. The **shaved total** (`shaved`) is then shared out to common · uncommon **in the ratio they already had**.
  *
- * 그래서 가중치 **합은 그대로**다 — 희귀 이상이 준 만큼 정확히 일반 · 고급이 는다. 상자에서 나오는
- * 물건의 개수(`count`)는 어차피 이 표와 무관하지만, 합이 흔들리면 `itemWeightMul` 같은 다른 배수의
- * 세기가 행성마다 달라져 표를 읽을 수 없게 된다.
+ * So the weight **sum stays the same** — common · uncommon grow by exactly what rare+ gave up. The number of
+ * things a crate yields (`count`) has nothing to do with this table anyway, but a wobbling sum would make other
+ * multipliers such as `itemWeightMul` bite differently per planet, and the tables would stop being readable.
  *
- * **배수가 셋 다 1 이면 `base` 를 그대로(같은 객체로) 돌려준다** — 부동소수 곱셈조차 하지 않으므로
- * rank 2~5 의 결과는 이 기능이 없던 때와 비트 단위로 같다. `curve` 가 null 인 경로(훈련장 · 구형 세이브)도 같다.
+ * **With all three multipliers at 1, `base` is returned as it is (the same object)** — not even a float
+ * multiplication happens, so rank 2~5 results are bit-identical to the time before this feature. The path where
+ * `curve` is null (the training range · an old save) is the same.
  *
- * ⚠ 표에 **되돌려 받을 자리(common · uncommon)가 하나도 없으면** 재분배를 건너뛴다 — 합은 줄지만
- *   세 배수가 같은 값이면 서로 상쇄돼 비율이 그대로다 (확정 픽처럼 후보가 이미 희귀 이상뿐인 굴림에서
- *   배수가 상쇄되는 것과 같은 이야기다). 깎을 자리가 없는 표는 `shaved` 가 0 이라 그냥 지나간다.
+ * ⚠ When the table has **no place to give it back to (no common · uncommon at all)** the redistribution is
+ *   skipped — the sum shrinks, but with all three multipliers equal they cancel out and the ratio is unchanged
+ *   (the same story as a roll whose candidates are already rare+ only, such as a guaranteed pick). A table with
+ *   nothing to shave passes straight through, since `shaved` is 0.
  */
 export function planetRarityWeights<T extends Readonly<Partial<Record<Rarity, number>>>>(
   base: T, curve: PlanetGradeCurve | null,
@@ -424,7 +454,7 @@ export interface CorpseUnique {
 }
 
 /**
- * Phase 9: chance of one 서적 on a rogue corpse — the reading kind of raider.
+ * Phase 9: chance of one book on a rogue corpse — the reading kind of raider.
  * 2026-09-13: picked from **the raid planet's book series** (`libraryBookPool`) weighted by `libraryVolumeWeight` (one draw, as before).
  */
 export interface CorpseBook {
@@ -432,8 +462,9 @@ export interface CorpseBook {
 }
 
 /**
- * Phase 12: chance of one **망가진 임플란트** (`IMPLANT_BROKEN_DEFS`, picked by `weights[rarity]`; 0 / missing = never) on a
- * rogue corpse — raiders wear implants and a kill shot fries them. Rolled last in `rollCorpse` so earlier draws never move.
+ * Phase 12: chance of one **broken implant** (`IMPLANT_BROKEN_DEFS`, picked by `weights[rarity]`; 0 / missing =
+ * never) on a rogue corpse — raiders wear implants and a kill shot fries them. Rolled last in `rollCorpse` so
+ * earlier draws never move.
  */
 export interface CorpseImplant {
   chance: number;
@@ -445,11 +476,11 @@ const CORPSE_ROLLS = new Map(csvRows('loot_corpse_rolls.csv').map((r) => [r.str(
 export interface CorpseTable {
   type: EnemyType;
   drops: readonly CorpseDrop[];
-  /** 2026-09-17: 미확인 표본 개당 등급 굴림 (`loot_corpse_samples.csv`) — 시체 rng 의 갈래로 굴린다. */
+  /** 2026-09-17: per-unit tier roll for unidentified samples (`loot_corpse_samples.csv`), on a corpse rng fork. */
   samples?: readonly CorpseSampleDrop[];
-  /** Phase 9: 서적 roll (rogues only; bugs never carry books). */
+  /** Phase 9: book roll (rogues only; bugs never carry books). */
   book?: CorpseBook;
-  /** Phase 12: 망가진 임플란트 roll (rogues only; legendaries from the boss). */
+  /** Phase 12: broken implant roll (rogues only; legendaries from the boss). */
   implant?: CorpseImplant;
   /** Rounds of the weapon's calibre as a fraction of `AMMO_STACK_ROUNDS`, one stack (rogues only). */
   ammoFraction?: readonly [number, number];
@@ -458,21 +489,23 @@ export interface CorpseTable {
 }
 
 /**
- * 시체 드랍 — `data/loot_corpses.csv` (아이템) + `data/loot_corpse_rolls.csv` (총 · 서적 · 임플란트 · 유니크).
- * Phase 8: bugs graze on the local flora, so an undigested 씨앗 turns up in a bug corpse now and then.
- * Phase 9: 서적 go the other way — rogues only (`CorpseTable.book`), never on a bug.
+ * Corpse drops — `data/loot_corpses.csv` (items) + `data/loot_corpse_rolls.csv` (gun · book · implant · unique).
+ * Phase 8: bugs graze on the local flora, so an undigested seed turns up in a bug corpse now and then.
+ * Phase 9: books go the other way — rogues only (`CorpseTable.book`), never on a bug.
  */
 const CORPSE_DROPS_BY_TYPE = csvGroups('loot_corpses.csv', 'type');
 
 /**
- * 2026-09-17 (사용자 결정): 시체의 미확인 표본 — `data/loot_corpse_samples.csv`. 한 줄 = chance → 개수 → **개당** 등급 가중 추첨.
- * `tiers` 는 등급(1..6 = 희귀도 순번) → 그 계열 × 등급의 표본 아이템으로 풀어 둔다 (`defIds[i]` 의 가중치 = `weights[i]`, 등급 오름차순).
+ * 2026-09-17 (user's decision): the unidentified samples on a corpse — `data/loot_corpse_samples.csv`. One row =
+ * chance → count → a weighted tier draw **per unit**.
+ * `tiers` is expanded from a tier (1..6 = the rarity index) to the sample item of that family × tier (the weight
+ * of `defIds[i]` is `weights[i]`, in ascending tier order).
  */
 export interface CorpseSampleDrop {
   family: SampleFamily;
   qty: readonly [number, number];
   chance: number;
-  /** 등급 오름차순 표본 아이템 id — 가중치가 양수이고 samples.csv 에 있는 등급만. */
+  /** Sample item ids in ascending tier order — only tiers with a positive weight that exist in samples.csv. */
   defIds: readonly string[];
   weights: readonly number[];
 }
@@ -506,8 +539,8 @@ const CORPSE_SAMPLES_BY_TYPE: ReadonlyMap<string, readonly CorpseSampleDrop[]> =
   return map;
 })();
 
-/* 2026-09-13: 표의 종류 = 아이템 드롭 줄 ∪ 따로 굴리는 줄 — 들고 있던 총만 있는 적도 시체 표를 갖는다.
-   먼저 나온 순서 그대로라 기존 적의 표 · 굴림은 한 톨도 안 바뀐다. */
+/* 2026-09-13: the table's types = item drop rows ∪ separately rolled rows — an enemy that only carries a gun
+   gets a corpse table too. First-seen order is kept, so no existing enemy's table or roll moves by a grain. */
 export const CORPSE_TABLES: readonly CorpseTable[] = [...new Set([...CORPSE_DROPS_BY_TYPE.keys(), ...CORPSE_ROLLS.keys(), ...CORPSE_SAMPLES_BY_TYPE.keys()])]
   .filter((type) => !!type)
   .map((type) => {
@@ -554,11 +587,12 @@ export const CORPSE_TABLE_MAP: ReadonlyMap<EnemyType, CorpseTable> = new Map(COR
 export const DEFAULT_ROGUE_WEAPON_ID = 'ar';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 2026-09-11: 네임드 로그의 **확정 드롭** (`data/loot_named.csv`)
+ * 2026-09-11: the **guaranteed drop** of a named rogue (`data/loot_named.csv`)
  *
- * 로든 = 저격소총 III~V · 타길라 = 방탄복 III~V · 헤비 = 유니크 미니건. 셋 다 내구도 1–5 %
- * (`NAMED_LOOT_DURABILITY_MIN/MAX`, constants). 일반 시체 표와 별개로 `rollCorpse` 의 **맨 마지막**에 굴리므로
- * 네임드가 아닌 적의 rng 벡터는 한 톨도 안 움직인다. 행성 곡선은 걸지 않는다 (사용자 명세 "최소 희귀부터").
+ * 로든 = a sniper rifle III~V · 타길라 = armor III~V · 헤비 = the unique minigun. All three at 1–5 % durability
+ * (`NAMED_LOOT_DURABILITY_MIN/MAX`, constants). It is rolled **last of all** in `rollCorpse`, apart from the
+ * normal corpse table, so the rng vector of a non-named enemy does not move by a grain. No planet curve is
+ * applied (the user's spec "최소 희귀부터").
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export type NamedDropKind = 'weapon' | 'armor' | 'item';
@@ -566,15 +600,15 @@ export type NamedDropKind = 'weapon' | 'armor' | 'item';
 export interface NamedDrop {
   type: EnemyType;
   kind: NamedDropKind;
-  /** weapon = 등급 무기 계열 id (`sr`) · item = 아이템 id (`wpn_u_minigun`) · armor = '' */
+  /** weapon = a graded weapon family id (`sr`) · item = an item id (`wpn_u_minigun`) · armor = '' */
   target: string;
   chance: number;
-  /** 가중치가 양수인 등급 (weapon · armor). item 이면 빈 배열. */
+  /** Grades with a positive weight (weapon · armor). An empty array for item. */
   grades: readonly WeaponGrade[];
   weightOf: Readonly<Partial<Record<WeaponGrade, number>>>;
-  /** 장전 탄약 = 탄창 × [min, max]. 없으면 0..탄창 균등. */
+  /** Loaded ammo = magazine × [min, max]. Without it, uniform over 0..magazine. */
   magFraction?: readonly [number, number];
-  /** 그 무기 탄종 한 스택 × [min, max]. 없으면 탄약 없음. */
+  /** One stack of that weapon's ammo type × [min, max]. Without it, no ammo. */
   ammoFraction?: readonly [number, number];
 }
 
@@ -613,23 +647,25 @@ export const NAMED_DROPS: readonly NamedDrop[] = csvRows('loot_named.csv').map((
 
 export const NAMED_DROP_MAP: ReadonlyMap<EnemyType, NamedDrop> = new Map(NAMED_DROPS.map((d) => [d.type, d]));
 
-/** 등급 n 의 번호 방탄복 아이템 id (`armor_n`, 유니크 tier 0 은 제외). 없으면 null. */
+/** The numbered armor item id for tier n (`armor_n`; unique tier 0 excluded). null when there is none. */
 export function numberedArmorIdForTier(tier: number): string | null {
   return tier > 0 ? (ARMOR_DEFS.find((a) => a.tier === tier)?.id ?? null) : null;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 2026-09-13: 인간형 팩션(안드로이드 · 로그 · 레이더)의 시체 — docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」
- *   `data/loot_factions.csv`       총 등급 분포 · 방탄복 · 가방 · 회복 (희귀도 굴림)
- *   `data/loot_faction_sites.csv`  스폰 거점 보너스 (연구소 = 씨앗 · 미확인 표본, 전진기지 = 총 등급 분포 교체)
+ * 2026-09-13: humanoid faction (android · rogue · raider) corpses — docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」
+ *   `data/loot_factions.csv`       gun grade distribution · armor · bag · heal (rarity rolls)
+ *   `data/loot_faction_sites.csv`  spawn site bonuses (lab = seeds · unidentified samples, outpost = the gun
+ *                                  grade distribution is replaced)
  *
- * 두 표에 줄이 없는 적(벌레 · rogue_boss · 네임드)은 `Loot.rollCorpseWithMax` 의 새 분기에 들어오지 않으므로 rng 벡터가
- * 한 톨도 안 움직인다. 남은 수류탄은 표가 아니라 `CorpseLootOpts.grenades` 그대로 들어간다 (굴림 없음).
+ * An enemy with no row in either table (bugs · rogue_boss · named) never enters the new branch of
+ * `Loot.rollCorpseWithMax`, so its rng vector does not move by a grain. Leftover grenades come straight from
+ * `CorpseLootOpts.grenades`, not from a table (no roll).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 type LootRow = ReturnType<typeof csvRows>[number];
 
-/** 등급 가중치 한 벌 ("등급:가중치" | …). 가중치가 양수인 등급만 `grades` 에 있다. */
+/** One set of grade weights ("grade:weight" | …). Only grades with a positive weight are in `grades`. */
 export interface GradeWeights {
   grades: readonly WeaponGrade[];
   weightOf: Readonly<Partial<Record<WeaponGrade, number>>>;
@@ -649,17 +685,21 @@ function parseGradeWeights(r: LootRow, column: string): GradeWeights {
 }
 
 /**
- * 시체의 희귀도 굴림 하나 (방탄복 · 가방 · 회복): `chance` → 희귀도(`weights` — 행성의 희귀도 배수는 굴릴 때
- * `planetRarityWeights` 로 건다) → 그 희귀도인 후보(`byRarity`) 중 **균등**.
+ * One rarity roll on a corpse (armor · bag · heal): `chance` → a rarity (`weights` — the planet's rarity
+ * multipliers are applied at roll time through `planetRarityWeights`) → **uniform** among the candidates of
+ * that rarity (`byRarity`).
  */
 export interface CorpseRarityPick {
   chance: number;
   weights: Readonly<Partial<Record<Rarity, number>>>;
-  /** 가중치가 있고 후보도 있는 희귀도 (common → legendary 순 — 이 순서가 `rng.weighted` 의 순서다). */
+  /** Rarities with both a weight and a candidate (common → legendary — the order `rng.weighted` uses). */
   rarities: readonly Rarity[];
-  /** 희귀도 → 후보 아이템 id (csv 순서). 은퇴한 아이템은 빠져 있다. */
+  /** Rarity → candidate item ids (csv order). Retired items are already out. */
   byRarity: ReadonlyMap<Rarity, readonly string[]>;
-  /** csv 에 적힌 후보 id 그대로 — `data:check` 의 은퇴 아이템 참조 검사용. 굴림은 `byRarity` 만 본다. */
+  /**
+   * The candidate ids exactly as the csv writes them — for `data:check`'s retired-item reference check.
+   * The roll itself looks only at `byRarity`.
+   */
   poolIds: readonly string[];
 }
 
@@ -679,7 +719,7 @@ function parseRarityPick(
     const d = ITEM_DEF_MAP.get(id);
     if (!d) { r.report(cPool, `'${id}' 아이템이 없다`); continue; }
     if (!accepts(d)) { r.report(cPool, `'${id}' 는 ${notLabel} 아니다`); continue; }
-    if (d.retired) continue;   // 안전핀 — 보고는 data:check 의 참조 검사(poolIds)가 한다
+    if (d.retired) continue;   // pin — the reporting is done by data:check's reference check (poolIds)
     const list = byRarity.get(d.rarity);
     if (list) list.push(id); else byRarity.set(d.rarity, [id]);
   }
@@ -697,15 +737,15 @@ function parseRarityPick(
   return { chance, weights, rarities, byRarity, poolIds };
 }
 
-/** 한 팩션 적 종류의 팩션 굴림 (`data/loot_factions.csv` 한 줄). */
+/** The faction rolls of one faction enemy type (one row of `data/loot_factions.csv`). */
 export interface FactionLoot {
   type: EnemyType;
-  /** 들고 있던 총의 등급 분포. 없으면 `loot_corpse_rolls.csv` 의 규칙 그대로. */
+  /** Grade distribution of the gun it carried. Without it, `loot_corpse_rolls.csv`'s rule stands. */
   weaponGrades?: GradeWeights;
   armor?: CorpseRarityPick;
   bag?: CorpseRarityPick;
   heal?: CorpseRarityPick;
-  /** 방탄복 · 가방 내구도 = 최대치 × [min, max] (총처럼 낡았다). 둘 다 없으면 [0, 0]. */
+  /** Armor · bag durability = the maximum × [min, max] (worn like the gun). [0, 0] when neither is present. */
   gearDurability: readonly [number, number];
 }
 
@@ -741,26 +781,26 @@ if (FACTION_LOOT_MAP.size !== FACTION_LOOT.length) {
   }
 }
 
-/** 거점 보너스 줄이 알아듣는 거점 — `EnemySpawnSite` 전부. */
+/** The sites a site-bonus row understands — every `EnemySpawnSite`. */
 const SPAWN_SITES: readonly EnemySpawnSite[] = ['lab', 'outpost', 'wreck', 'platform', 'ruin', 'drop'];
 
-/** 거점 보너스의 아이템 한 줄. */
+/** One item row of a site bonus. */
 export interface FactionSiteItem {
-  /** item = `defId` 하나 · seed = 그 레이드 행성의 야생 씨앗 표(`planetSeedPool`)에서 하나. */
+  /** item = one `defId` · seed = one draw from the raid planet's wild seed pool (`planetSeedPool`). */
   kind: 'item' | 'seed';
-  /** item 의 아이템 id (seed 면 ''). */
+  /** The item id for an item row ('' for seed). */
   defId: string;
   qty: readonly [number, number];
   chance: number;
 }
 
-/** 한 적 종류 × 스폰 거점의 보너스 (`data/loot_faction_sites.csv` 의 같은 type · site 줄 전부). */
+/** The bonus for one enemy type × spawn site (every row of `data/loot_faction_sites.csv` with that type · site). */
 export interface FactionSiteBonus {
   type: EnemyType;
   site: EnemySpawnSite;
-  /** 있으면 그 거점에서 스폰한 적의 총 등급 분포를 **통째로** 바꾼다. */
+  /** When present, it replaces the gun grade distribution of enemies spawned at that site **wholesale**. */
   weaponGrades?: GradeWeights;
-  /** csv 순서 = 굴림 순서. */
+  /** csv order = roll order. */
   items: readonly FactionSiteItem[];
 }
 
@@ -799,20 +839,21 @@ const FACTION_SITE_MAP: ReadonlyMap<string, FactionSiteBonus> = (() => {
 
 export const FACTION_SITE_BONUSES: readonly FactionSiteBonus[] = [...FACTION_SITE_MAP.values()];
 
-/** 그 적 종류가 그 거점에서 스폰했을 때의 보너스. 거점이 없거나 줄이 없으면 undefined. */
+/** The bonus for that enemy type spawned at that site. undefined with no site or no row. */
 export function getFactionSiteBonus(type: EnemyType, site: EnemySpawnSite | null | undefined): FactionSiteBonus | undefined {
   return site ? FACTION_SITE_MAP.get(siteKey(type, site)) : undefined;
 }
 
-/** 가중치가 붙은 아이템 id. */
+/** An item id with a weight on it. */
 export interface WeightedItemId {
   defId: string;
   weight: number;
 }
 
 /*
- * 행성 id → 그 행성의 **야생 씨앗 군락 표** (`data/planets.csv` 의 `seeds` 열, 가중치 그대로). 모르는 id · 씨앗이 아닌 것 ·
- * 은퇴한 것은 뺀다. 칸의 문법 검사는 그 열의 주인(world)이 하므로 여기서는 조용히 읽는다 — 같은 오류를 두 번 보고하지 않게.
+ * Planet id → that planet's **wild seed pool** (the `seeds` column of `data/planets.csv`, weights as written).
+ * Unknown ids, things that are not seeds and retired items are dropped. The cell's syntax check belongs to that
+ * column's owner (world), so this reads it quietly — the same error must not be reported twice.
  */
 const PLANET_SEED_POOLS: ReadonlyMap<string, readonly WeightedItemId[]> = new Map(csvRows('planets.csv').map((row) => {
   const pool: WeightedItemId[] = [];
@@ -826,14 +867,17 @@ const PLANET_SEED_POOLS: ReadonlyMap<string, readonly WeightedItemId[]> = new Ma
   return [row.raw('id'), pool] as const;
 }));
 
-/** 다섯 행성의 씨앗 표를 합친 것 (같은 씨앗은 가중치를 더한다, 처음 나온 순서). */
+/** The five planets' seed pools merged (weights of the same seed add up, in first-seen order). */
 const ALL_PLANET_SEED_POOL: readonly WeightedItemId[] = (() => {
   const sum = new Map<string, number>();
   for (const pool of PLANET_SEED_POOLS.values()) for (const s of pool) sum.set(s.defId, (sum.get(s.defId) ?? 0) + s.weight);
   return [...sum].map(([defId, weight]) => ({ defId, weight }));
 })();
 
-/** 거점 보너스의 `seed` 줄이 고르는 씨앗 표 — 그 행성의 것, 행성이 없거나 표가 비었으면 다섯 행성을 합친 것. */
+/**
+ * The seed pool a site bonus's `seed` row draws from — that planet's own, or the five planets merged when there
+ * is no planet or that pool is empty.
+ */
 export function planetSeedPool(planet: PlanetId | null | undefined): readonly WeightedItemId[] {
   const own = planet == null ? undefined : PLANET_SEED_POOLS.get(planet);
   return own && own.length > 0 ? own : ALL_PLANET_SEED_POOL;

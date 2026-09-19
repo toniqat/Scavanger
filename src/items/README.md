@@ -219,8 +219,8 @@ whose `durabilityMax` is a liquid gauge and is excluded by name in the same pred
 ## Recent changes
 
 Last 5 only — older: `git log -- src/items`.
+- 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, csv names and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-17 — `data/loot_corpse_samples.csv` (`CorpseTable.samples`, `Loot.rollCorpseSamples`): 8 bug types drop only 미확인 세포 with a tier rolled **per unit** on a forked corpse rng; stacks split at `SAMPLE_STACK_MAX`; exempt from the epic+ gate (cell IV at csv rates).
 - 2026-09-17 — `ItemSpec`: explosive damage rows read as a range `min-max` (frag `30-60`, incendiary blast `15-30`, mine `40-80`, remote mine `50-100`).
 - 2026-09-17 — `spec_gene_6` (미확인 유전자 VI) and the mythic sockets `sock_soil_prime` · `sock_medium_prime` deleted from csv (no aliases): mythic is reserved for the gun line, so the 유전자 family tops out at legendary.
 - 2026-09-16 — The 6 unique weapons are **mythic** (`weaponItemDef`); `isSalvageable` now bans their salvage by name (they gained craft recipes), and sample tiles read rarity as the background with the family as the glyph.
-- 2026-09-16 — `Salvage.wearsDurability` keys on `durabilityMax` instead of the category (the processor is a durable `material`); healing sprays are the one exception.

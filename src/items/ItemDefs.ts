@@ -1,27 +1,28 @@
 import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, BoostKind, ItemCategory, ItemDef, MealDef, MediumDef, PouchDef, PrepDef, Rarity, SampleDef, SeedDef, SkillId, SoilDef, SoilTag, StrainDef, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
-/* appended (2026-09-13, 요리 재료 티어): 표본 계열 · 소켓 · 요리 능력치 줄 */
+/* appended (2026-09-13, cooking material tiers): sample families · sockets · meal stat rows */
 import type { GrowSocketDef, MealBuff, MealEffect } from '@/shared';
-/* appended (2026-09-15, 가젯 개편): 수류탄 종류 */
+/* appended (2026-09-15, gadget rework): grenade kinds */
 import type { GrenadeKind } from '@/shared';
 import {
   AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_KINDS, MEAL_BUFFS,
   QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, RARITY_ORDER, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade } from '@/shared';
 import { GROW_SOCKET_EFFECTS, GROW_SOCKET_TARGETS, SAMPLE_FAMILIES } from '@/shared';
-/* appended (2026-09-16, 표본 18종): 계열 글리프 — 표본 타일의 글자는 계열, 색은 등급이다 */
+/* appended (2026-09-16, 18 samples): family glyphs — a sample tile's glyph is the family, its colour the rarity */
 import type { SampleFamily } from '@/shared';
 import { SAMPLE_FAMILY_ICON } from '@/shared';
-/* appended (2026-09-13, 서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+/* appended (2026-09-13, library series · video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
 import type { BookDef, GameStat, GymGameTuning, GymMinigame, LibraryMedium, PlanetId } from '@/shared';
 import { GAME_STATS, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_DEFS, PLANET_IDS, resolveItemAlias, stringMap } from '@/shared';
 
 /*
- * 아이템 수치의 원본은 `data/` 의 csv 다 — `items.csv`(수류탄 · 회복 · 귀중품 · 재료 · 약초 · 가젯),
- * `ammo.csv` · `attachments.csv` · `bags.csv` · `seeds.csv` · `samples.csv` · `sockets.csv` · `meals.csv`,
- * 서재 매체는 `library_series.csv`(2026-09-13 — 옛 books · discs · records.csv 대신), 비디오게임은 `game_consoles.csv` · `game_discs.csv`,
- * 무기는 `weapons.csv` / `weapons_unique.csv`, 방탄복은 `armor.csv`.
- * 이 파일에는 표가 없고 그 줄들을 `ItemDef` 로 옮기는 코드만 있다.
+ * The item numbers come from the csv files in `data/` — `items.csv` (grenades · healing · valuables · materials ·
+ * herbs · gadgets), `ammo.csv` · `attachments.csv` · `bags.csv` · `seeds.csv` · `samples.csv` · `sockets.csv` ·
+ * `meals.csv`, library media from `library_series.csv` (2026-09-13 — in place of the old books · discs ·
+ * records.csv), video games from `game_consoles.csv` · `game_discs.csv`, weapons from `weapons.csv` /
+ * `weapons_unique.csv`, armor from `armor.csv`.
+ * This file holds no table — only the code that moves those rows into `ItemDef`.
  *
- * `T` 는 `data/tuning.csv` (기능 폴더 안에서만 쓰는 스칼라) 조회기다.
+ * `T` is the lookup for `data/tuning.csv` (scalars used only inside one feature folder).
  */
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
 import type { WeaponItemMeta } from './WeaponDefs';
@@ -38,9 +39,10 @@ export {
 } from '@/shared';
 
 /**
- * 모든 `ItemCategory` (계약에 적힌 순서). 손으로 적은 목록이 아니라 `CATEGORY_LABEL_KO` 의 키다 —
- * 그 표는 `Record<ItemCategory, string>` 이라 카테고리가 늘면 컴파일러가 표를 먼저 막고, 이 배열은 저절로 따라온다.
- * 쓰는 곳은 csv 의 카테고리 목록 칸 검증(`pouchAccepts` 의 `enumList`)이다.
+ * Every `ItemCategory` (in the order the contract lists them). Not a hand-written list but the keys of
+ * `CATEGORY_LABEL_KO` — that table is a `Record<ItemCategory, string>`, so a new category stops at the compiler
+ * on the table first and this array follows by itself.
+ * It is used to validate a csv category-list cell (`enumList` on `pouchAccepts`).
  */
 export const ITEM_CATEGORIES = Object.keys(CATEGORY_LABEL_KO) as readonly ItemCategory[];
 
@@ -67,9 +69,10 @@ export function ammoItemIdFor(ammoType: AmmoType): string {
 export const DEFAULT_ITEM_WEIGHT = T.num('DEFAULT_ITEM_WEIGHT');
 
 /**
- * 가방 한 칸이 늘려 주는 소지 한계 (kg). 2026-09-12: `inventory/InventorySystem.getWeight` 안에 `* 0.5` 로
- * 박혀 있던 값 — 가방 툴팁의 「소지 한계 +N kg」 줄과 실제 한계가 **같은 수치를 읽어야** 하므로 표로 뺐다.
- * 식은 `inventory/Gear.bagCapacityBonus` 하나가 갖는다.
+ * The carry limit (kg) one bag cell adds. 2026-09-12: the value was baked into
+ * `inventory/InventorySystem.getWeight` as `* 0.5` — the bag tooltip's 「소지 한계 +N kg」 row and the real limit
+ * **must read the same number**, so it was pulled out into the table.
+ * The formula is owned by `inventory/Gear.bagCapacityBonus` alone.
  */
 export const BAG_CAPACITY_PER_CELL = T.num('BAG_CAPACITY_PER_CELL');
 
@@ -83,8 +86,8 @@ type DefInput = Omit<ItemDef, 'color' | 'stackMax'> & { stackMax?: number };
 const def = (d: DefInput): ItemDef => ({ ...d, stackMax: d.stackMax ?? 1, color: RARITY_COLORS[d.rarity] });
 
 /* ── weapons (one ItemDef per WeaponDef grade) ─────────────────────────────── */
-/* 무기의 격자 크기 · 아이콘 · 가격 · 무게 · 설명은 무기 수치와 같은 줄에 있다 —
- * `data/weapons.csv` / `data/weapons_unique.csv`. items/ 는 그 표를 ItemDef 로 옮기기만 한다. */
+/* A weapon's grid size · icon · price · weight · description sit on the same row as its numbers —
+ * `data/weapons.csv` / `data/weapons_unique.csv`. items/ only moves that table into `ItemDef`. */
 const FALLBACK_META: WeaponItemMeta = { width: 3, height: 2, icon: '⌐', value: 300, weight: 3.5, description: '무기.' };
 
 /** Value multiplier per grade above I. */
@@ -95,10 +98,12 @@ function weaponItemDef(w: WeaponDef): ItemDef {
   if (isUniqueWeapon(w)) {
     const meta = UNIQUE_WEAPON_ITEM_META.get(w.id) ?? FALLBACK_META;
     return def({
-      /* 2026-09-16 (사용자 결정): 유니크 6종은 **신화**다. 등급이 없는 무기라 `rarityForGrade` 를 안 타고 여기서 직접 적는다
-         (`WeaponGrade` 는 여전히 I..V — `shared/labels.rarityForGrade` 주석 참고). 툴팁 · 정렬 · 타일 테두리 · 등급 글자는
-         전부 `RARITY_*` 표를 읽으므로 이 한 줄만 바꾸면 따라온다. ⚠ 상자 굴림은 다섯 등급뿐이라(`RARITY_ORDER_LOOT`)
-         신화가 된 순간 **상자 무기 픽의 후보에서 빠진다** — 유니크는 이제 제작(신화 광물) · 보스 시체 · 네임드 드롭으로 나온다. */
+      /* 2026-09-16 (user's decision): the six uniques are **mythic**. They have no grade, so they skip
+         `rarityForGrade` and the rarity is written here directly (`WeaponGrade` is still I..V — see the comment
+         on `shared/labels.rarityForGrade`). Tooltips · sorting · the tile border · the grade letter all read the
+         `RARITY_*` tables, so changing this one line carries them along. ⚠ A crate roll knows five rarities only
+         (`RARITY_ORDER_LOOT`), so the moment they became mythic they **left the candidates of the crate weapon
+         pick** — uniques now come from crafting (a mythic mineral) · a boss corpse · a named drop. */
       id: itemIdForWeapon(w.id), name: w.name, category: w.slot, rarity: 'mythic',
       width: meta.width, height: meta.height, value: meta.value,
       icon: meta.icon, weaponId: w.id, description: meta.description, weight: meta.weight,
@@ -116,7 +121,7 @@ function weaponItemDef(w: WeaponDef): ItemDef {
 export const WEAPON_ITEM_DEFS: readonly ItemDef[] = WEAPON_DEFS.map(weaponItemDef);
 
 /* ── ammo v2 (qty = rounds) ───────────────────────────────────────────────── */
-/** `data/ammo.csv` 의 줄 (탄종 하나 = 한 줄). */
+/** A row of `data/ammo.csv` (one calibre = one row). */
 const AMMO_ROWS = csvRows('ammo.csv');
 
 /** kg per round (tactical kit weight budget). */
@@ -134,8 +139,8 @@ export const AMMO_ITEM_DEFS: readonly ItemDef[] = AMMO_ROWS.map((r) => {
 });
 
 /* ── attachments — data/attachments.csv ───────────────────────────────────── */
-/* 2026-09-15: 무게는 `attachments.csv` 의 `weight` 열이다 — 예전에는 여기 `ATTACHMENT_WEIGHT = 0.3` 상수가 정하고 있어
- * 그 열이 헤더에만 있고 아무도 안 읽었다 (「수치는 코드에 적지 않는다」 규약 위반). */
+/* 2026-09-15: the weight is the `weight` column of `attachments.csv` — a constant `ATTACHMENT_WEIGHT = 0.3`
+ * used to decide it here, so the column lived in the header and nobody read it (a breach of "no numbers in code"). */
 
 export const ATTACHMENT_ITEM_DEFS: readonly ItemDef[] = csvRows('attachments.csv').map((r) => {
   const effects: AttachmentEffects = {};
@@ -144,7 +149,7 @@ export const ATTACHMENT_ITEM_DEFS: readonly ItemDef[] = csvRows('attachments.csv
     if (v !== undefined) effects[key] = v;
   };
   mul('recoilV'); mul('recoilH'); mul('spread'); mul('hipSpread'); mul('adsTime'); mul('magSize'); mul('adsZoom');
-  // 2026-09-14 (총기 밸런스): 조준 흔들림 · 거리 감소 거리 / 손실 · 탄 낙차 배수
+  // 2026-09-14 (gun balance): aim sway · falloff range / loss · bullet drop multipliers
   mul('sway'); mul('falloffRange'); mul('falloffLoss'); mul('bulletDrop');
   if (r.has('scope')) effects.scope = r.bool('scope');
   if (r.has('laser')) effects.laser = r.bool('laser');
@@ -182,14 +187,16 @@ export const BAG_ITEM_DEFS: readonly ItemDef[] = csvRows('bags.csv').map((r) => 
   });
 });
 
-/* ── 씨앗 (Phase 8) — data/seeds.csv ──────────────────────────────────────────
- * Planted in a 온실 재배 스테이션; `SeedDef.growHours` is **real** wall-clock time and keeps running while
- * the game is closed (housing/ owns the plots). Loot (tier 1–3 containers, 벌레 시체) + 기업 상점 only — never craftable.
+/* ── seeds (Phase 8) — data/seeds.csv ──────────────────────────────────────────
+ * Planted in a greenhouse grow station; `SeedDef.growHours` is **real** wall-clock time and keeps running while
+ * the game is closed (housing/ owns the plots). Loot (tier 1–3 containers, bug corpses) + the corporation shop
+ * only — never craftable.
  *
- * 2026-09-11 (온실 개편): 한 줄마다 **`soilTag`** 가 붙었다 — 그 칸에 부어 둔 토양의 태그와 같으면
- * `SOIL_MATCH_SPEEDUP` 만큼 빨리, 다르면 `SOIL_MISMATCH_PENALTY` 만큼 늦게 자란다 (판정은 `housing/`).
- * 필수 열이라 `r.enum` 의 fallback 을 주지 않는다 — 빠뜨린 줄은 `npm run data:check` 가 잡는다. */
-/** Seeds share the category glyph and a leaf-green tint so a 씨앗 reads as one at a glance in the grid. */
+ * 2026-09-11 (greenhouse rework): every row carries a **`soilTag`** — a crop grows `SOIL_MATCH_SPEEDUP` faster
+ * when it matches the tag of the soil poured into that slot and `SOIL_MISMATCH_PENALTY` slower when it does not
+ * (`housing/` judges it). It is a required column, so `r.enum` gets no fallback — a row that omits it is caught
+ * by `npm run data:check`. */
+/** Seeds share the category glyph and a leaf-green tint so a seed reads as one at a glance in the grid. */
 const SEED_ICON = CATEGORY_ICON.seed;
 const SEED_COLOR = CATEGORY_COLOR.seed;
 
@@ -205,33 +212,39 @@ export const SEED_ITEM_DEFS: readonly ItemDef[] = csvRows('seeds.csv').map((r) =
       id: r.str('id'), name: r.str('name'), category: 'seed', rarity: r.str('rarity') as Rarity,
       width: 1, height: 1, stackMax: T.num('SEED_STACK_MAX'),
       value: r.int('value', { min: 0 }), icon: SEED_ICON, description: r.str('description'),
-      /* 2026-09-15: 무게는 `seeds.csv` 의 새 `weight` 열이다 (옛 `tuning.csv` 의 `SEED_WEIGHT` 는 은퇴). */
+      /* 2026-09-15: the weight is the new `weight` column of `seeds.csv` (`SEED_WEIGHT` in the old
+         `tuning.csv` is retired). */
       seed, weight: r.num('weight', { min: 0 }),
     }),
     color: SEED_COLOR,
   };
 });
 
-/* ── 미확인 표본 (A-12, 2026-09-11 · 요리 재료 티어 2026-09-13) — data/samples.csv ──────────
- * 연구실 **분석기**가 해석하는 재료. `SampleDef.analyzeHours` 는 분석 레벨 1 에서의 **실제 시간**이고
- * (씨앗의 `growHours` 와 같은 wall-clock 규약), 레벨 배수로 깎는 계산은 `housing/Rules` 가 한다.
- * 제작도 상점도 없다 — 벌레 시체 · 표본 채집지 · 티어 3+ 컨테이너 · 고철 더미 부가 광물뿐이다 (로그는 표본에 관심이 없다).
+/* ── unidentified samples (A-12, 2026-09-11 · cooking material tiers 2026-09-13) — data/samples.csv ───
+ * The material the lab's **analyzer** analyses. `SampleDef.analyzeHours` is the **real time** at analysis level 1
+ * (the same wall-clock convention as a seed's `growHours`); cutting it by the level multiplier is `housing/Rules`.
+ * Neither crafted nor sold — bug corpses · sample gather nodes · tier 3+ containers · the bonus mineral of a scrap
+ * pile, and nothing else (rogues have no interest in samples).
  *
- * 2026-09-13 (사용자 결정: 표본 3종 통합): `family`(cell | mineral | dna)가 필수다 — 분석기는 표본이 아니라 **계열**의
- * 결과표(`shared/housing` 의 `ANALYSIS_RESULTS`)를 굴린다. `rewardDefId` · `rewardQty` 는 그 표가 비었을 때의 대체 산출물이다.
- * 옛 11종은 `retired` 로 정의만 남는다 (분석기에 넣으면 자기 계열로 해석된다). **첫 해석 보너스(`first*`)는 없어졌다** —
- * 로더가 더 붙이지 않고, 칸이 채워져 있으면 조용히 무시하지 않고 신고한다. */
+ * 2026-09-13 (user's decision: the three sample kinds merged): `family` (cell | mineral | dna) is required — the
+ * analyzer rolls the result table of the **family** (`ANALYSIS_RESULTS` in `shared/housing`), not of the sample.
+ * `rewardDefId` · `rewardQty` are the fallback output for when that table is empty.
+ * The old 11 keep their defs as `retired` (put into the analyzer they resolve through their own family).
+ * **The first-analysis bonus (`first*`) is gone** — the loader no longer attaches it, and a filled cell is
+ * reported rather than silently ignored. */
 /*
- * 2026-09-16 (사용자 결정, 표본 = 계열 × 등급): **타일 바탕색은 등급색, 글리프는 계열**이다.
- * 그 전에는 표본이 전부 카테고리 색(`CATEGORY_COLOR.sample`) 하나에 카테고리 글리프 하나라, 격자에서
- * 「미확인 유전자 I」과 「미확인 광물 VI」가 똑같이 보였다 — 표본의 등급은 곧 **해석 산출물의 최소 등급**이라
- * 한눈에 읽혀야 하는 값이다 (`data/samples.csv` 머리말).
+ * 2026-09-16 (user's decision, a sample = family × rarity): **the tile background is the rarity colour and the
+ * glyph is the family**. Before this every sample wore the one category colour (`CATEGORY_COLOR.sample`) and the
+ * one category glyph, so 「미확인 유전자 I」 and 「미확인 광물 VI」 looked identical in the grid — and a sample's
+ * rarity **is the floor of what analysing it yields**, a value that has to be readable at a glance
+ * (`data/samples.csv`'s header).
  *
- * `ItemDef` 에는 색이 `color` 하나뿐이고 그것이 타일의 `--rc`(테두리 · 바탕 그라디언트 · 글리프)를 통째로 정한다
- * (`inventory/ui/GridView.buildTileContent`). 그래서 **바탕 = 등급색**을 택하고 (= `def()` 기본값 그대로 두면 된다),
- * 계열의 정체성은 **글리프 모양**(`SAMPLE_FAMILY_ICON`)이 진다. 계열 색(`SAMPLE_FAMILY_COLOR`)은 분석 화면 ·
- * 도감 · 툴팁이 계속 쓴다 — 타일 하나에 두 색을 칠하려면 `ItemDef` 에 글리프 전용 색을 더하고 `inventory` 가
- * 그것을 읽어야 하므로, 그때 그 두 폴더를 같이 고친다.
+ * `ItemDef` has one colour, `color`, and it decides the tile's `--rc` outright (border · background gradient ·
+ * glyph — `inventory/ui/GridView.buildTileContent`). So **background = the rarity colour** was chosen (= leaving
+ * `def()`'s default alone) and the family's identity is carried by the **glyph shape** (`SAMPLE_FAMILY_ICON`).
+ * The family colour (`SAMPLE_FAMILY_COLOR`) is still used by the analysis screens · the catalogue · tooltips —
+ * painting two colours on one tile would need a glyph-only colour on `ItemDef` and `inventory` reading it, so
+ * those two folders get fixed together when that happens.
  */
 const SAMPLE_ICON: Readonly<Record<SampleFamily, string>> = SAMPLE_FAMILY_ICON;
 
@@ -244,7 +257,7 @@ export const SAMPLE_ITEM_DEFS: readonly ItemDef[] = csvRows('samples.csv').map((
     family: r.enum('family', SAMPLE_FAMILIES),
   };
   const retired = r.has('retired') && r.bool('retired');
-  /* 색을 덮어쓰지 않는다 — `def()` 가 `RARITY_COLORS[rarity]` 를 넣어 준다 (위 주석). */
+  /* The colour is not overwritten — `def()` puts `RARITY_COLORS[rarity]` in (see the comment above). */
   return def({
     id: r.str('id'), name: r.str('name'), category: 'sample', rarity: r.enum('rarity', RARITY_ORDER),
     width: 1, height: 1, stackMax: T.num('SAMPLE_STACK_MAX'),
@@ -254,14 +267,16 @@ export const SAMPLE_ITEM_DEFS: readonly ItemDef[] = csvRows('samples.csv').map((
   });
 });
 
-/* ── 소켓 (요리 재료 티어, 2026-09-13) — data/sockets.csv ─────────────────────────
- * 재배 칸에 부어 둔 흙(`target: 'soil'`) · 배양 칸에 부어 둔 배지(`'medium'`)에 끼우는 **영구 강화**. 분석기가 미확인 DNA 를
- * 해석해서만 나온다 (`data/analysis_results.csv`) — 제작 · 상점 · 루팅 어디에도 줄이 없다. 끼우기 · 효과 계산은 `housing/`
- * (`parts/Sockets`) 몫이고 items 는 표만 옮긴다.
+/* ── sockets (cooking material tiers, 2026-09-13) — data/sockets.csv ───────────
+ * A **permanent upgrade** fitted into the soil poured into a grow slot (`target: 'soil'`) or the medium poured
+ * into a culture slot (`'medium'`). It comes only from the analyzer analysing unidentified DNA
+ * (`data/analysis_results.csv`) — there is no craft, shop or loot row for one. Fitting and the effect maths are
+ * `housing/` (`parts/Sockets`); items only moves the table.
  *
- * 1×1 · 스택 `SOCKET_STACK_MAX` · 무게 `SOCKET_WEIGHT` (tuning). 아이콘은 카테고리 글리프지만 **색은 등급색**이다 —
- * 같은 인자의 I · II · III 가 격자에서 색으로 갈려야 한다 (요리와 같은 이유). `amount` 는 speed · wear 면 비율, yield 면
- * +1 개 확률이라 셋 다 0 … 1 이다. */
+ * 1×1 · stack `SOCKET_STACK_MAX` · weight `SOCKET_WEIGHT` (tuning). The icon is the category glyph but **the
+ * colour is the rarity colour** — I · II · III of the same factor must read apart by colour in the grid (the same
+ * reason as the meals). `amount` is a ratio for speed · wear and the chance of +1 for yield, so all three
+ * run 0 … 1. */
 const SOCKET_ICON = CATEGORY_ICON.socket;
 
 export const SOCKET_ITEM_DEFS: readonly ItemDef[] = csvRows('sockets.csv').map((r) => {
@@ -279,25 +294,34 @@ export const SOCKET_ITEM_DEFS: readonly ItemDef[] = csvRows('sockets.csv').map((
   });
 });
 
-/* ── 요리 — 2026-09-16 (접시 모델, 사용자 결정): **아이템이 아니다.** ─────────────────────────
- * 조리대에서 만든 요리는 식탁의 접시가 된다 (`ShipState.plate`). `data/meals.csv` 를 읽는 곳은 `shared/meals.ts`
- * (`MEAL_DEFS` · `getMealDef`) 하나이고, `ITEM_DEFS` 에는 요리가 없다 — `ctx.loot.getItemDef('meal_*')` 는 undefined 다.
- * 옛 세이브의 요리 아이템은 모르는 def 로 떨어진다 (게임 개발 중 — 이전 · 환불 없음, 사용자 결정). */
+/* ── meals — 2026-09-16 (the plate model, user's decision): **not items.** ─────
+ * A meal cooked at the cook bench becomes the dining table's plate (`ShipState.plate`). The one place that reads
+ * `data/meals.csv` is `shared/meals.ts` (`MEAL_DEFS` · `getMealDef`), and `ITEM_DEFS` holds no meal —
+ * `ctx.loot.getItemDef('meal_*')` is undefined. A meal item in an old save resolves to an unknown def (the game
+ * is in development — no migration, no refund, user's decision). */
 
-/* ── 서재 매체: 책 · 비디오 · 레코드 (2026-09-13 서재 시리즈 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ─────────────
- * 아이템은 **시리즈**(`data/library_series.csv`, 효과 · 행성 로더는 `shared/library` 의 `LIBRARY_SERIES_DEFS`)에서 만든다 —
- * 시리즈 한 줄 = 권 수만큼의 아이템. 옛 숙련별 한 권(`book_<skill>` · `disc_<skill>` · `record_<skill>`)은 없어졌고
- * 세이브 · 와이어의 그 id 는 `data/item_aliases.csv` 가 새 시리즈 1권으로 옮긴다 (`resolveItemAlias`).
+/* ── library media: books · videos · records (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ───
+ * The items are built from a **series** (`data/library_series.csv`; the effect · planet loader is
+ * `LIBRARY_SERIES_DEFS` in `shared/library`) — one series row = as many items as it has volumes. The old
+ * one-book-per-skill ids (`book_<skill>` · `disc_<skill>` · `record_<skill>`) are gone, and `data/item_aliases.csv`
+ * moves those ids in saves and on the wire to volume 1 of the new series (`resolveItemAlias`).
  *
- *  - id   = `book_<시리즈>_<권>` · `disc_<시리즈>_<권>` · `record_<시리즈>` (housing 세이브의 id 모양 `^(book|disc|record|game)_…`).
- *  - 이름 = 시리즈 이름 + 권 번호 로마 숫자 (단편은 번호 없음).
- *  - `ItemDef.book` / `disc` / `record` = `{ skill, series, volume }` — `skill` 은 **대표 숙련**(정렬 · 도감 묶음)일 뿐이고
- *    효과는 시리즈의 효과 줄만 정한다. csv 의 `skill` 칸이 비면 첫 skillGain 줄의 숙련이다.
- *  - 등급: 책은 등급이 없어 전부 `tables.csv` 의 `LIBRARY_ITEM_RARITY.book`, 비디오 · 레코드는 시리즈의 `rarity` 칸.
- *  - 가치: 책 `BOOK_VALUE_BY_VOLUME[권]` · 비디오 `DISC_VALUE_BY_RARITY × (1 + DISC_VALUE_VOLUME_STEP × (권 − 1))` · 레코드 `RECORD_VALUE_BY_RARITY`.
- *  - 칸 · 무게는 옛 매체 그대로 (책 1×2 · 비디오 2×2 · 레코드 3×3, `BOOK_WEIGHT` · `DISC_WEIGHT` · `RECORD_WEIGHT`), 스택 없음.
- * 드롭은 그 시리즈의 행성에서만 권 가중치로 (`LootTables.isLootableOnPlanet` · `libraryVolumeWeight`). 제작 · 상점 · 퀵슬롯 없음.
- * 시리즈 ↔ 아이템 1:1 · 숙련마다 책 시리즈 · 레시피 대상 · 행성 threat 같은 표끼리 검사는 `scripts/data-check.mjs` 가 한다. */
+ *  - id     = `book_<series>_<volume>` · `disc_<series>_<volume>` · `record_<series>` (the id shape a housing save
+ *             expects, `^(book|disc|record|game)_…`).
+ *  - name   = the series name + the volume's roman numeral (a one-shot gets no numeral).
+ *  - `ItemDef.book` / `disc` / `record` = `{ skill, series, volume }` — `skill` is only the **lead skill** (sorting ·
+ *    the catalogue grouping); the effects are decided by the series' effect rows alone. When the csv's `skill` cell
+ *    is empty it is the skill of the first skillGain row.
+ *  - rarity: a book has no rarity, so every one is `LIBRARY_ITEM_RARITY.book` from `tables.csv`; a video · record
+ *    takes the series' `rarity` cell.
+ *  - value:  book `BOOK_VALUE_BY_VOLUME[volume]` · video `DISC_VALUE_BY_RARITY × (1 + DISC_VALUE_VOLUME_STEP ×
+ *            (volume − 1))` · record `RECORD_VALUE_BY_RARITY`.
+ *  - cells · weight are those of the old media (book 1×2 · video 2×2 · record 3×3, `BOOK_WEIGHT` · `DISC_WEIGHT` ·
+ *    `RECORD_WEIGHT`), and none of them stack.
+ * They drop only on the series' own planet, by volume weight (`LootTables.isLootableOnPlanet` ·
+ * `libraryVolumeWeight`). No craft, no shop, no quick slot.
+ * Table-to-table checks — series ↔ item 1:1 · a book series per skill · recipe targets · planet threat — are
+ * `scripts/data-check.mjs`. */
 type LibraryItemRow = ReturnType<typeof csvRows>[number];
 const LIBRARY_ITEM_ROWS: ReadonlyMap<string, LibraryItemRow> = new Map(csvRows('library_series.csv').map((r) => [r.raw('id'), r] as const));
 const BOOK_VALUE_BY_VOLUME = numberMap<string>('tables.csv', 'BOOK_VALUE_BY_VOLUME');
@@ -306,7 +330,8 @@ const RECORD_VALUE_BY_RARITY = numberMap<Rarity>('tables.csv', 'RECORD_VALUE_BY_
 const DISC_VALUE_VOLUME_STEP = T.num('DISC_VALUE_VOLUME_STEP');
 const LIBRARY_ITEM_RARITY = stringMap<'book'>('tables.csv', 'LIBRARY_ITEM_RARITY');
 
-/** 책의 등급 — 책은 등급이 없어 전부 이 값이다 (`tables.csv` 의 `LIBRARY_ITEM_RARITY.book`, 틀리면 data:check 가 잡고 여기서는 uncommon). */
+/** A book's rarity — books have none, so every one is this value (`LIBRARY_ITEM_RARITY.book` in `tables.csv`;
+ * a wrong value is caught by data:check and falls back to uncommon here). */
 export const LIBRARY_BOOK_RARITY: Rarity = (RARITY_ORDER as readonly string[]).includes(LIBRARY_ITEM_RARITY.book)
   ? LIBRARY_ITEM_RARITY.book as Rarity : 'uncommon';
 
@@ -328,12 +353,12 @@ const LIBRARY_MEDIUM_SPEC: Readonly<Record<LibraryMedium, LibraryMediumSpec>> = 
 
 const VOLUME_ROMAN: readonly string[] = ['', 'I', 'II', 'III', 'IV', 'V'];
 
-/** 시리즈 한 권의 아이템 id (`book_carry_manual_2` · `disc_rifle_range_1` · `record_porters_song`). */
+/** The item id of one volume of a series (`book_carry_manual_2` · `disc_rifle_range_1` · `record_porters_song`). */
 export function libraryItemIdFor(medium: LibraryMedium, seriesId: string, volume: number): string {
   return medium === 'record' ? `record_${seriesId}` : `${medium}_${seriesId}_${volume}`;
 }
 
-/** 시리즈 한 권의 아이템 이름 — 시리즈 이름 + 로마 숫자 (단편은 이름만). */
+/** The item name of one volume — the series name + a roman numeral (a one-shot keeps the name alone). */
 export function libraryItemName(seriesName: string, volumes: number, volume: number): string {
   return volumes > 1 ? `${seriesName} ${VOLUME_ROMAN[volume] ?? String(volume)}` : seriesName;
 }
@@ -369,21 +394,21 @@ function libraryItemDefs(medium: LibraryMedium): ItemDef[] {
   return out;
 }
 
-/** 책 전부 — 시리즈 순서 × 권 순서. */
+/** Every book — series order × volume order. */
 export const BOOK_ITEM_DEFS: readonly ItemDef[] = libraryItemDefs('book');
-/** 비디오(디스크) 전부 — 시리즈 순서 × 권 순서. */
+/** Every video (disc) — series order × volume order. */
 export const DISC_ITEM_DEFS: readonly ItemDef[] = libraryItemDefs('disc');
-/** 레코드 전부 (시리즈 = 한 장). */
+/** Every record (one series = one disc). */
 export const RECORD_ITEM_DEFS: readonly ItemDef[] = libraryItemDefs('record');
-/** 서재 효과 매체 아이템 전부 (책 · 비디오 · 레코드). */
+/** Every library-effect media item (books · videos · records). */
 export const LIBRARY_ITEM_DEFS: readonly ItemDef[] = [...BOOK_ITEM_DEFS, ...DISC_ITEM_DEFS, ...RECORD_ITEM_DEFS];
 
-/** 서재 매체 아이템의 `{ skill, series, volume }` (책 · 비디오 · 레코드가 아니면 undefined). */
+/** The `{ skill, series, volume }` of a library media item (undefined when it is not a book · video · record). */
 export function libraryShelfOf(d: ItemDef | undefined): BookDef | undefined {
   return d ? (d.book ?? d.disc ?? d.record) : undefined;
 }
 
-/** 시리즈 id → 권 순서의 아이템 (인덱스 = 권 − 1). */
+/** Series id → its items in volume order (index = volume − 1). */
 export const LIBRARY_ITEMS_BY_SERIES: ReadonlyMap<string, readonly ItemDef[]> = (() => {
   const out = new Map<string, ItemDef[]>();
   for (const d of LIBRARY_ITEM_DEFS) {
@@ -395,18 +420,20 @@ export const LIBRARY_ITEMS_BY_SERIES: ReadonlyMap<string, readonly ItemDef[]> = 
   return out;
 })();
 
-/** 시리즈의 `volume` 권 아이템 (없으면 undefined). */
+/** The series' item for `volume` (undefined when there is none). */
 export function libraryItemDefOf(seriesId: string, volume: number): ItemDef | undefined {
   return LIBRARY_ITEMS_BY_SERIES.get(seriesId)?.find((d) => libraryShelfOf(d)?.volume === volume);
 }
 
-/* ── 비디오게임: 게임기 · 게임 디스크 (2026-09-13) — data/game_consoles.csv · data/game_discs.csv ───────────────────
- * 게임기(`category: 'console'`, `ItemDef.gameConsole {console}`)는 서재 TV 에 장착하고, 게임 디스크(`category: 'game_disc'`,
- * `ItemDef.gameDisc {console, stat, minigame, tuning, color}`)는 게임 디스크 전시대에 꽂아 두면 그 TV 로 플레이한다 (housing/).
- * 게임기는 3D 프린터 제작(recipes.csv) + 드문 드롭, 게임 디스크는 드롭 전용. 둘 다 threat 2 이상 행성에서만 나온다 —
- * 행성 목록은 `ItemDef` 에 칸이 없어 `GAME_ITEM_PLANETS` 로 내주고(드롭 필터 `LootTables.lootPlanetsOf`), threat 검사는 data:check 가 한다.
- * 색은 카테고리 색이다 (서재 매체와 같다 — 등급 테두리가 등급을 가른다). `gameDisc.color` 는 게임 화면 테마 색. */
-/** 박자형 미니게임의 패턴 토큰 (`GymGameTuning.pattern`) — press 는 패턴이 없다. */
+/* ── video games: consoles · game discs (2026-09-13) — data/game_consoles.csv · data/game_discs.csv ───
+ * A console (`category: 'console'`, `ItemDef.gameConsole {console}`) is mounted on the library TV, and a game disc
+ * (`category: 'game_disc'`, `ItemDef.gameDisc {console, stat, minigame, tuning, color}`) is slotted into the game
+ * disc stand to be played on that TV (housing/). Consoles come from the `3D 프린터` (recipes.csv) plus a rare drop;
+ * game discs drop only. Both appear on threat 2+ planets only — `ItemDef` has no cell for a planet list, so it is
+ * handed out through `GAME_ITEM_PLANETS` (the drop filter is `LootTables.lootPlanetsOf`) and data:check does the
+ * threat check. The colour is the category colour (as for library media — the rarity border tells rarities apart).
+ * `gameDisc.color` is the game screen's theme colour. */
+/** The pattern tokens of a beat minigame (`GymGameTuning.pattern`) — press has no pattern. */
 export const GAME_PATTERN_TOKENS: Readonly<Record<GymMinigame, readonly string[]>> = { press: [], breath: ['t', 'h', 'r'], cycle: ['L', 'R', 'r'] };
 const GAME_MINIGAMES = Object.keys(GYM_MINIGAME_LABEL_KO) as GymMinigame[];
 const GAME_PLANETS = new Map<string, readonly PlanetId[]>();
@@ -477,7 +504,7 @@ export const GAME_DISC_ITEM_DEFS: readonly ItemDef[] = csvRows('game_discs.csv')
   };
 });
 
-/** 게임기 · 게임 디스크 id → 상자에서 나오는 행성 (`game_*.csv` 의 planets). */
+/** Console · game disc id → the planets whose crates drop it (the `planets` column of `game_*.csv`). */
 export const GAME_ITEM_PLANETS: ReadonlyMap<string, readonly PlanetId[]> = GAME_PLANETS;
 
 /* ── armor generated from the ArmorDef table (tactical kit) ───────────────── */
@@ -486,16 +513,17 @@ const armorItem = (a: ArmorDef): ItemDef => {
   return def({
     id: a.id, name: a.name, description: a.description, category: 'armor', rarity: a.rarity,
     width, height,
-    /* 2026-09-10: 가격은 뎀감률이 아니라 실드에서 나온다 (`ARMOR_VALUE_SHIELD_MUL` 12.6 = 옛 4200 × 0.3 ÷ 100 이라 값은 그대로). */
+    /* 2026-09-10: the price comes from the shield, not from damage reduction (`ARMOR_VALUE_SHIELD_MUL` 12.6 =
+       the old 4200 × 0.3 ÷ 100, so the value is unchanged). */
     value: Math.round(T.num('ARMOR_VALUE_BASE') + a.shield * T.num('ARMOR_VALUE_SHIELD_MUL') + a.durabilityMax * T.num('ARMOR_VALUE_DUR_MUL')),
     icon: ARMOR_ICON[a.id] ?? '⛊', armorId: a.id, weight: a.weight, durabilityMax: a.durabilityMax,
   });
 };
 
-/* ── 일반 아이템 (수류탄 · 회복 · 귀중품 · 재료 · 약초 · 가젯) — data/items.csv ── */
+/* ── generic items (grenades · healing · valuables · materials · herbs · gadgets) — data/items.csv ─── */
 /**
- * `items.csv` 한 줄 → `ItemDef`. 카테고리별로 나눠 담아 두므로 `ITEM_DEFS` 는
- * 예전과 똑같은 순서로 조립된다 (UI 목록 순서가 이 순서다).
+ * One `items.csv` row → one `ItemDef`. They are kept split by category, so `ITEM_DEFS` is assembled in exactly
+ * the order it always was (that order is the UI list order).
  */
 const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
   const heal = r.has('healUseTime') ? {
@@ -511,35 +539,43 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
       },
     } : {}),
   } : undefined;
-  /* 2026-09-11 (온실 개편): `category: 'soil'` 줄만 `soilTag` · `soilUses` 를 채운다 — `heal*` · `gadgetId` 와 같은
-   * 선택 열 규약이다 (칸이 비어 있으면 필드 자체가 안 붙는다). `uses` 는 한 번 부은 토양이 견디는 수확 횟수이고
-   * 그 등급 곡선은 `SOIL_USES_BY_RARITY`(data/tables.csv) 다 — csv 의 값이 실제로 쓰이는 숫자다. */
-  /* 2026-09-13 (요리 재료 티어): 토양은 **최대 내구도**(`soilDurability`)가 필수다 — 부어 둔 흙은 수확마다 닳고 0 이어도 쓰지만
-   * 보너스가 내구도 비율로 준다 (`housing/`). `uses` 는 옛 세이브의 남은 횟수를 내구도로 옮기는 데만 남았다. */
+  /* 2026-09-11 (greenhouse rework): only a `category: 'soil'` row fills `soilTag` · `soilUses` — the same
+   * optional column convention as `heal*` · `gadgetId` (an empty cell means the field is never attached). `uses`
+   * is how many harvests one pour of soil survives, and its rarity curve is `SOIL_USES_BY_RARITY`
+   * (data/tables.csv) — the csv value is the number actually used. */
+  /* 2026-09-13 (cooking material tiers): soil requires a **max durability** (`soilDurability`) — poured soil wears
+   * down with every harvest and still works at 0, but the bonus shrinks with the durability ratio (`housing/`).
+   * `uses` is left only to move an old save's remaining count over to durability. */
   const soil: SoilDef | undefined = r.has('soilTag')
     ? { tag: r.enum('soilTag', SOIL_TAGS) as SoilTag, uses: r.int('soilUses', { min: 1 }), durability: r.int('soilDurability', { min: 1 }) }
     : undefined;
   if (!soil && r.has('soilDurability')) r.report('soilDurability', '토양(soilTag)이 아닌 줄에 토양 내구도가 있다');
-  /* 2026-09-11 (A-13): `category: 'prep'` 줄만 `prepEnv` · `prepShort` 를 채운다 — `soil` 과 같은 선택 열 규약이다.
-   * `env` 는 이 준비물이 **완전히** 막아 주는 행성 환경이고, `short` 는 HUD 배지에 찍는 짧은 이름(「방독」 · 「내열」)이다.
-   * 쓰는 곳은 `progression`(다음 레이드 1회분) · `player`(피해 면제) · `ui`(배지 · 툴팁) 이고 items 는 표만 옮긴다. */
+  /* 2026-09-11 (A-13): only a `category: 'prep'` row fills `prepEnv` · `prepShort` — the same optional column
+   * convention as `soil`. `env` is the planet environment this preparation blocks **completely**, and `short` is
+   * the short name printed on the HUD badge (「방독」 · 「내열」).
+   * It is read by `progression` (one raid's worth), `player` (the damage exemption) and `ui` (badge · tooltip);
+   * items only moves the table. */
   const prepEnv = r.optEnum('prepEnv', ENV_KINDS);
   const prep: PrepDef | undefined = prepEnv ? { env: prepEnv, short: r.str('prepShort') } : undefined;
-  /* 2026-09-11 (A-15 프린터): `category: 'pouch'` 줄만 `pouchCols` · `pouchRows` · `pouchAccepts` 를 채운다.
-   * `accepts` 는 `|` 로 이은 `ItemCategory` 목록이라 `enumList` 가 **모르는 이름을 스스로 신고한다**
-   * (`npm run data:check` 가 그 신고를 집는다) — 카테고리 이름을 items/ 에 또 적지 않으려고
-   * 허용 목록은 `CATEGORY_LABEL_KO` 의 키에서 뽑는다 (`ItemCategory` 를 키로 하는 Record 라 늘 빠짐없다). */
+  /* 2026-09-11 (A-15, the printer): only a `category: 'pouch'` row fills `pouchCols` · `pouchRows` ·
+   * `pouchAccepts`. `accepts` is an `ItemCategory` list joined by `|`, so `enumList` **reports an unknown name by
+   * itself** (`npm run data:check` picks that report up) — and to avoid writing the category names into items/ a
+   * second time, the allowed list is taken from the keys of `CATEGORY_LABEL_KO` (a Record keyed by
+   * `ItemCategory`, so it is never short of one). */
   const pouch: PouchDef | undefined = r.has('pouchCols')
     ? { cols: r.int('pouchCols', { min: 1 }), rows: r.int('pouchRows', { min: 1 }), accepts: r.enumList('pouchAccepts', ITEM_CATEGORIES) }
     : undefined;
-  /* 받는 카테고리가 하나도 없는 주머니는 아무것도 못 넣는 빈 격자다 — 오타를 조용히 넘기지 않는다. */
+  /* A pouch that accepts no category is an empty grid nothing fits into — a typo is not let through silently. */
   if (pouch && pouch.accepts.length === 0) r.report('pouchAccepts', '주머니가 받아 주는 카테고리가 하나도 없다');
-  /* 2026-09-11 (A-14 배양조): 세포주(`strainOut`·`strainQty`·`strainHours`) · 영양 배지(`mediumUses`·`mediumSpeed`).
-   * 둘 다 `category: 'material'` 줄에 붙는 선택 열이고, 그 산출물 · 시간을 쓰는 곳은 `housing/` 의 배양조다.
-   * `outputDefId` 가 가리키는 아이템이 있는지는 여기서 보지 않는다 — `SampleDef.rewardDefId` 와 같은 규약이다
-   * (`ITEM_DEF_MAP` 이 아직 없다; 이름 검사는 `npm run data:check` 의 몫). */
-  /* 2026-09-13 (요리 재료 티어 T3): 배양 칸에 **배양 스캐폴드**가 있으면 세포주는 `strainScaffold*` 3칸의 산출(종별 고기)을 만든다.
-   * 셋은 함께 채우거나 함께 비운다 — 반만 채운 줄은 조용히 버리지 않고 신고한다. 산출 id 가 실제 아이템인지는 `data:check` 몫이다. */
+  /* 2026-09-11 (A-14, the culture tank): strains (`strainOut`·`strainQty`·`strainHours`) · nutrient media
+   * (`mediumUses`·`mediumSpeed`). Both are optional columns on a `category: 'material'` row, and what reads their
+   * output · time is the culture tank in `housing/`.
+   * Whether the item `outputDefId` names exists is not checked here — the same convention as
+   * `SampleDef.rewardDefId` (`ITEM_DEF_MAP` does not exist yet; the name check belongs to `npm run data:check`). */
+  /* 2026-09-13 (cooking material tiers, T3): with a **culture scaffold** in the culture slot a strain produces the
+   * output of the three `strainScaffold*` cells instead (species meat). The three are filled together or left
+   * empty together — a half-filled row is reported, not silently dropped. Whether the output id is a real item
+   * belongs to `data:check`. */
   const strainOut = r.optStr('strainOut');
   const SCAFFOLD_COLS = ['strainScaffoldOut', 'strainScaffoldQty', 'strainScaffoldHours'] as const;
   const scaffoldCols = SCAFFOLD_COLS.filter((c) => r.has(c)).length;
@@ -557,24 +593,29 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
       } : {}),
     }
     : undefined;
-  /* 2026-09-13: 배지도 토양과 같은 내구도 규칙이다 (사용자 결정) — `mediumDurability` 가 필수, `uses` 는 옛 세이브 이관용. */
+  /* 2026-09-13: a medium follows the same durability rule as soil (user's decision) — `mediumDurability` is
+   * required and `uses` is left only for migrating an old save. */
   const medium: MediumDef | undefined = r.has('mediumUses')
     ? { uses: r.int('mediumUses', { min: 1 }), speedMul: r.num('mediumSpeed', { min: 0 }), durability: r.int('mediumDurability', { min: 1 }) }
     : undefined;
   if (!medium && r.has('mediumDurability')) r.report('mediumDurability', '영양 배지(mediumUses)가 아닌 줄에 배지 내구도가 있다');
-  /* 2026-09-13: 배양 스캐폴드 · 은퇴. 은퇴한 세포주는 strain 칸을 비워야 배양조가 받지 않는다 — 남아 있으면 신고한다. */
+  /* 2026-09-13: the culture scaffold · retirement. A retired strain must empty its strain cells so the culture
+   * tank will not take it — a leftover is reported. */
   const scaffold = r.has('scaffold') && r.bool('scaffold');
   const retired = r.has('retired') && r.bool('retired');
   if (retired && strain) r.report('strainOut', '은퇴한 세포주는 strain* 칸을 비운다 (배양조가 받지 않게)');
-  /* 2026-09-15 (B-16 · 사용자 버그 「소이 수류탄에 불 지대가 안 만들어진다」): `grenadeFire` = 이 수류탄은 고폭 대신 작은 폭발 +
-   * 터진 자리에 화염 지대 (weapons `Grenade` → `ctx.gadgets.igniteGrenadeFire`). 수류탄이 아닌 줄에 있으면 아무도 안 읽으므로 신고한다. */
-  /* 2026-09-15 (가젯 개편, 사용자 결정): `ItemCategory` 의 `'grenade'` 가 폐지돼 수류탄도 `category: 'gadget'` 이다 —
-   * 수류탄인지를 가르는 값은 `grenade` 열 하나(`ItemDef.grenade`)이고 `grenadeFire` 는 `grenade === 'fire'` 와 같은 뜻으로 남는다. */
+  /* 2026-09-15 (B-16 · user's bug report 「소이 수류탄에 불 지대가 안 만들어진다」): `grenadeFire` = this grenade
+   * makes a small blast plus a fire zone where it landed instead of a high-explosive burst (weapons `Grenade` →
+   * `ctx.gadgets.igniteGrenadeFire`). On a row that is not a grenade nobody reads it, so it is reported. */
+  /* 2026-09-15 (gadget rework, user's decision): `'grenade'` was dropped from `ItemCategory`, so a grenade is
+   * `category: 'gadget'` too — the one value that tells a grenade apart is the `grenade` column
+   * (`ItemDef.grenade`), and `grenadeFire` survives meaning exactly `grenade === 'fire'`. */
   const grenadeKind = r.has('grenade') ? (r.str('grenade') as GrenadeKind) : undefined;
   if (grenadeKind && grenadeKind !== 'frag' && grenadeKind !== 'fire') r.report('grenade', "수류탄 종류는 frag · fire 둘뿐이다");
   const grenadeFire = grenadeKind ? grenadeKind === 'fire' : (r.has('grenadeFire') && r.bool('grenadeFire'));
   if (grenadeFire && !grenadeKind) r.report('grenadeFire', '수류탄(grenade 열)이 아닌 줄에 grenadeFire 가 있다');
-  /* 가젯을 쓰거나 설치하기까지의 홀드 시간 — `weapons/model.useTimeOf` 가 회복약과 같은 틀로 읽는다. */
+  /* The hold time before a gadget is used or placed — `weapons/model.useTimeOf` reads it in the same frame as
+   * a healing item. */
   const gadgetUseTime = r.has('gadgetUseTime') ? r.num('gadgetUseTime', { min: 0 }) : undefined;
   if (gadgetUseTime !== undefined && !r.has('gadgetId') && !grenadeKind) r.report('gadgetUseTime', '가젯 · 수류탄이 아닌 줄에 gadgetUseTime 이 있다');
   return def({
@@ -602,38 +643,39 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
   });
 });
 
-/** `items.csv` 안에서 한 카테고리만 뽑는다 (파일에 적힌 순서 그대로). */
+/** Picks one category out of `items.csv` (in the order the file lists them). */
 const itemGroup = (category: ItemCategory): ItemDef[] => GENERIC_ITEM_DEFS.filter((d) => d.category === category);
 
-/* 2026-09-11 (A-14 · A-15): 배양조 · 프린터 재료(배지 · 세포주 · 배양 산물 · 필라멘트)는 `items.csv` 에서
- * 준비물(`prep`) **뒤에** 적혀 있고, 목록에서도 거기 붙어야 한다 (「밭 → 연구실 → 프린터」 한 덩어리).
- * 그래서 재료 그룹을 **그 경계에서** 가른다 — 파일 순서가 곧 표시 순서라는 `items.csv` 머리 주석 그대로이고,
- * 아이템 id 를 코드에 적지 않으므로 csv 에 줄을 더하기만 하면 제자리에 붙는다. */
+/* 2026-09-11 (A-14 · A-15): the culture tank · printer materials (media · strains · culture products · filament)
+ * are written **after** the preparations (`prep`) in `items.csv` and have to sit there in the list too — one block
+ * reading "field → lab → printer". So the material group is split **at that boundary**, exactly as `items.csv`'s
+ * own header comment says the file order is the display order; and since no item id is written into code, adding
+ * a csv row is enough to put it in place. */
 const PREP_ROW_AT = GENERIC_ITEM_DEFS.map((d) => d.category).lastIndexOf('prep');
-/** `prep` 줄보다 앞에 있는 그 카테고리의 줄 (준비물이 한 줄도 없으면 전부). */
+/** The rows of that category before the `prep` rows (all of them when there is no preparation row at all). */
 const itemGroupBeforePrep = (category: ItemCategory): ItemDef[] =>
   GENERIC_ITEM_DEFS.filter((d, i) => d.category === category && (PREP_ROW_AT < 0 || i < PREP_ROW_AT));
-/** `prep` 줄보다 뒤에 있는 그 카테고리의 줄. */
+/** The rows of that category after the `prep` rows. */
 const itemGroupAfterPrep = (category: ItemCategory): ItemDef[] =>
   GENERIC_ITEM_DEFS.filter((d, i) => d.category === category && PREP_ROW_AT >= 0 && i > PREP_ROW_AT);
 
-/* ── 실드 충전기 (2026-09-10) ─────────────────────────────────────────────────
- * 방탄복이 주는 **실드**(추가 체력)를 채우는 소모품 3종. 회복 소모품과 나란히 `category: 'stim'` 이라
- * 퀵슬롯 · 루팅 카테고리 · 손에 든 모습이 전부 공짜로 따라온다. 다른 점은 좌클릭 홀드가 끝났을 때
- * `PlayerRef.applyHeal` 이 아니라 **`PlayerRef.chargeShield`** 로 간다는 것뿐이다.
+/* ── shield chargers (2026-09-10) ──────────────────────────────────────────────
+ * The three consumables that refill the **shield** (extra health) the armor gives. They are `category: 'stim'`
+ * alongside the healing items, so quick slots · the loot category · the hand pose all follow for free. The only
+ * difference is where the left-click hold ends up — **`PlayerRef.chargeShield`**, not `PlayerRef.applyHeal`.
  *
- * `ItemDef` 에 칸을 새로 열지 않은 이유: `src/shared` 는 조율 없이 고치지 않는 계약이다. 대신
- * 여기 표 하나를 두고 `weapons/` 와 `inventory/` 가 `shieldChargeOf(defId)` 로 묻는다
- * (두 폴더 모두 이미 `@/items` 를 import 한다 — `WeaponDefaults.ts` · `inventory/Gear.ts` 참고).
+ * Why no new cell was opened on `ItemDef`: `src/shared` is a contract, not changed without coordination. Instead
+ * one table lives here and `weapons/` and `inventory/` ask it through `shieldChargeOf(defId)` (both folders
+ * already import `@/items` — see `WeaponDefaults.ts` · `inventory/Gear.ts`).
  */
 export interface ShieldChargeDef {
-  /** 좌클릭을 눌러야 하는 시간(초) — 회복 소모품의 `heal.useTime` 과 같은 뜻. */
+  /** How long left-click must be held (s) — the same meaning as a healing item's `heal.useTime`. */
   useTime: number;
-  /** 채워 줄 실드량. `Infinity` = 완전 회복 (csv 의 `shieldHp` 가 음수일 때). */
+  /** How much shield it refills. `Infinity` = a full refill (when the csv's `shieldHp` is negative). */
   amount: number;
 }
 
-/** `items.csv` 의 `shieldUseTime` / `shieldHp` 칸이 채워진 줄 = 실드 충전기. */
+/** A row of `items.csv` with `shieldUseTime` / `shieldHp` filled = a shield charger. */
 export const SHIELD_CHARGE_MAP: ReadonlyMap<string, ShieldChargeDef> = new Map(
   csvRows('items.csv')
     .filter((r) => r.has('shieldUseTime'))
@@ -643,27 +685,28 @@ export const SHIELD_CHARGE_MAP: ReadonlyMap<string, ShieldChargeDef> = new Map(
     }),
 );
 
-/** 이 아이템이 실드 충전기면 그 수치, 아니면 undefined. */
+/** The numbers when this item is a shield charger, undefined otherwise. */
 export function shieldChargeOf(defId: string | undefined): ShieldChargeDef | undefined {
   return defId ? SHIELD_CHARGE_MAP.get(defId) : undefined;
 }
 
-/* ── 전투 소모품 3종 (2026-09-12 — 아드레날린 주사 · 각성제 · 안정제) ───────────────
- * 실드 충전기와 같은 옆 표 규약이다: `category: 'stim'` 이라 퀵슬롯 · 루팅 카테고리 · 손에 든 모습 · 좌클릭 홀드가 공짜로
- * 따라오고, 다른 점은 홀드가 끝났을 때 **어디로 가는가**뿐이다 — `adrenaline` · `stimulant` 는 `PlayerRef.applyBoost`,
- * `implant_refill` 은 `ImplantsRef.refillAll`. 체력이 가득해도 쓸 수 있다 (회복약의 "가득이면 거절" 을 타지 않는다).
- * 효과 수치는 `data/constants.csv` 의 `BOOST_*` 이고 여기에는 **효과 종류와 홀드 시간**만 있다.
+/* ── the three combat consumables (2026-09-12 — 아드레날린 주사 · 각성제 · 안정제) ──────────
+ * The same side-table convention as the shield chargers: `category: 'stim'` brings quick slots · the loot
+ * category · the hand pose · the left-click hold for free, and the only difference is **where the hold ends up** —
+ * `adrenaline` · `stimulant` go to `PlayerRef.applyBoost`, `implant_refill` to `ImplantsRef.refillAll`. They can
+ * be used at full health (they do not take the healing item's "refuse when full" path).
+ * The effect numbers are `BOOST_*` in `data/constants.csv`; only **the effect kind and the hold time** live here.
  */
 export type BoostEffect = BoostKind | 'implant_refill';
 export const BOOST_EFFECTS: readonly BoostEffect[] = ['adrenaline', 'stimulant', 'implant_refill'];
 
 export interface BoostItemDef {
   effect: BoostEffect;
-  /** 좌클릭을 눌러야 하는 시간(초) — 회복 소모품의 `heal.useTime` 과 같은 뜻. */
+  /** How long left-click must be held (s) — the same meaning as a healing item's `heal.useTime`. */
   useTime: number;
 }
 
-/** `items.csv` 의 `boostEffect` / `boostUseTime` 칸이 채워진 줄 = 전투 소모품. */
+/** A row of `items.csv` with `boostEffect` / `boostUseTime` filled = a combat consumable. */
 export const BOOST_ITEM_MAP: ReadonlyMap<string, BoostItemDef> = new Map(
   csvRows('items.csv')
     .filter((r) => r.has('boostEffect'))
@@ -673,7 +716,7 @@ export const BOOST_ITEM_MAP: ReadonlyMap<string, BoostItemDef> = new Map(
     }] as const),
 );
 
-/** 이 아이템이 전투 소모품이면 그 효과 · 홀드 시간, 아니면 undefined. */
+/** The effect · hold time when this item is a combat consumable, undefined otherwise. */
 export function boostItemOf(defId: string | undefined): BoostItemDef | undefined {
   return defId ? BOOST_ITEM_MAP.get(defId) : undefined;
 }
@@ -682,7 +725,8 @@ export function boostItemOf(defId: string | undefined): BoostItemDef | undefined
 export const ITEM_DEFS: readonly ItemDef[] = [
   /* weapons — primary / secondary (do not occupy grid cells while equipped) */
   ...WEAPON_ITEM_DEFS,
-  /* 회복 소모품 (2026-09-15: 수류탄 2종은 `category: 'gadget'` 이 되어 아래 가젯 묶음 맨 앞으로 옮겨 갔다 — csv 순서 그대로다) */
+  /* healing items (2026-09-15: the two grenades became `category: 'gadget'` and moved to the front of the
+     gadget group below — the csv order itself is unchanged) */
   ...itemGroup('stim'),
   /* ammo v2 · attachments · bags */
   ...AMMO_ITEM_DEFS,
@@ -690,37 +734,45 @@ export const ITEM_DEFS: readonly ItemDef[] = [
   ...BAG_ITEM_DEFS,
   /* valuables — value and weight are deliberately uncorrelated */
   ...itemGroup('valuable'),
-  /* materials · herbs (gathered from world plants) — 배양조 · 프린터 재료는 아래 연구실 묶음에 있다 */
+  /* materials · herbs (gathered from world plants) — the culture tank · printer materials are in the lab
+     group below */
   ...itemGroupBeforePrep('material'),
   ...itemGroup('herb'),
-  /* 2026-09-11 온실 개편: 작물(재배층 수확물 — 판매 · 세레스 납품) · 토양(채집 노드 전용, 재배층에 붓는다).
-     약초 바로 뒤에 두어 "밭에서 나온 것" 이 목록에서 한 덩어리로 읽힌다. */
+  /* 2026-09-11 greenhouse rework: crops (the `재배층` harvest — sold · delivered to `세레스`) · soil (gather
+     nodes only, poured into the `재배층`). Placed right after the herbs so "what came out of the field" reads as
+     one block in the list. */
   ...itemGroup('crop'),
   ...itemGroup('soil'),
-  /* 2026-09-16 (접시 모델, 사용자 결정): 요리는 더 이상 아이템이 아니다 — 식탁의 접시다. 표는 `shared/meals.ts` (`getMealDef`). */
-  /* 2026-09-11 연구실(A-12 · A-13): 표본(분석기가 해석한다 — `samples.csv`) · 준비물(함선에서 써서 다음 레이드
-     1회분으로 싣는다). 밭에서 나온 것 바로 뒤가 연구실에서 쓰는 것이다. */
+  /* 2026-09-16 (the plate model, user's decision): a meal is no longer an item — it is the dining table's
+     plate. The table is `shared/meals.ts` (`getMealDef`). */
+  /* 2026-09-11 the lab (A-12 · A-13): samples (the analyzer analyses them — `samples.csv`) · preparations
+     (used in the ship and carried as one raid's worth). What the lab uses sits right after what came out of the
+     field. */
   ...SAMPLE_ITEM_DEFS,
-  /* 2026-09-13 요리 재료 티어: 소켓(분석기가 미확인 DNA 에서 뽑는다 — 흙 · 배지에 끼운다)은 표본 바로 뒤. */
+  /* 2026-09-13 cooking material tiers: sockets (the analyzer pulls them out of unidentified DNA — they fit
+     into soil · a medium) sit right after the samples. */
   ...SOCKET_ITEM_DEFS,
   ...itemGroup('prep'),
-  /* 2026-09-11 배양조 · 프린터(A-14 · A-15): 영양 배지 · 세포주 · 배양 산물 · 필라멘트(전부 `material`) →
-     그 필라멘트로 찍는 주머니 → 주머니가 나르는 열쇠. 사슬 순서 그대로 읽힌다. */
+  /* 2026-09-11 the culture tank · printer (A-14 · A-15): nutrient media · strains · culture products ·
+     filament (all `material`) → the pouches that filament prints → the keys a pouch carries. The chain reads in
+     order. */
   ...itemGroupAfterPrep('material'),
   ...itemGroup('pouch'),
   ...itemGroup('key'),
-  /* seeds (Phase 8: 온실 재배층에 심는다) · books (Phase 9: 서재 책장에 꽂는다) */
+  /* seeds (Phase 8: planted in the greenhouse `재배층`) · books (Phase 9: shelved on the library bookshelf) */
   ...SEED_ITEM_DEFS,
   ...BOOK_ITEM_DEFS,
-  /* 2026-09-12 (A-3e): 서재 매체 — 책과 같은 역할이라 책 바로 뒤 (디스크 전시대 · 레코드랙) */
+  /* 2026-09-12 (A-3e): library media — the same role as a book, so right after them (disc stand · record rack) */
   ...DISC_ITEM_DEFS,
   ...RECORD_ITEM_DEFS,
-  /* 2026-09-13 (비디오게임): 게임기(TV 에 장착) · 게임 디스크(게임 디스크 전시대) — 서재 매체 바로 뒤 */
+  /* 2026-09-13 (video games): consoles (mounted on the TV) · game discs (the game disc stand) — right after
+     the library media */
   ...GAME_CONSOLE_ITEM_DEFS,
   ...GAME_DISC_ITEM_DEFS,
-  /* 임플란트 (Phase 12: 캐릭터 탭에 장착; 망가진 것만 루팅, 세레스 바이오가 수리 · 판매 — `ImplantDefs.ts`) */
+  /* implants (Phase 12: equipped on the `캐릭터` tab; only broken ones are loot, `세레스 바이오` repairs and
+     sells them — `ImplantDefs.ts`) */
   ...IMPLANT_ITEM_DEFS,
-  /* gadgets — 수류탄 2종이 맨 앞이다 (behaviour lives in src/gadgets; here they are just consumables) */
+  /* gadgets — the two grenades come first (behaviour lives in src/gadgets; here they are just consumables) */
   ...itemGroup('gadget'),
   /* armor generated from the ArmorDef table */
   ...ARMOR_DEFS.map(armorItem),
@@ -728,7 +780,8 @@ export const ITEM_DEFS: readonly ItemDef[] = [
 
 export const ITEM_DEF_MAP: ReadonlyMap<string, ItemDef> = new Map(ITEM_DEFS.map((d) => [d.id, d]));
 
-/** 2026-09-13: 옛 id(`data/item_aliases.csv`)는 새 id 로 풀어서 찾는다 — 세이브를 옮기는 폴더가 놓친 id 의 안전망. `ITEM_DEF_MAP` 은 정확한 id 만 안다. */
+/** 2026-09-13: an old id (`data/item_aliases.csv`) is resolved to the new id before the lookup — the safety net
+ * for an id the save-migrating folders missed. `ITEM_DEF_MAP` knows exact ids only. */
 export function getItemDef(defId: string): ItemDef | undefined {
   return ITEM_DEF_MAP.get(defId) ?? ITEM_DEF_MAP.get(resolveItemAlias(defId));
 }
@@ -753,12 +806,13 @@ export function isQuickUsable(def: ItemDef): boolean {
 }
 
 /**
- * Minimum kit (2026-09-07). No longer handed out at every `world:ready` — the player equips out of the 함선 창고
- * (`STARTER_STASH`, granted once on a fresh profile). `inventory` only falls back to this when the loadout **and**
- * the stash are empty, so a player who lost everything is never stuck with no way to raid.
+ * Minimum kit (2026-09-07). No longer handed out at every `world:ready` — the player equips out of the ship
+ * stash (`STARTER_STASH`, granted once on a fresh profile). `inventory` only falls back to this when the loadout
+ * **and** the stash are empty, so a player who lost everything is never stuck with no way to raid.
  */
 export const STARTER_LOADOUT = {
-  // 2026-09-10: 보조무기가 사라져 최소 지급품도 주무기 한 정이다 (예전에는 `secondary: 'wpn_hg'` 권총이었다).
+  // 2026-09-10: the secondary is gone, so the minimum kit is one primary too (it used to be a
+  // `secondary: 'wpn_hg'` pistol).
   primary: 'wpn_smg',
   primary2: null,
   secondary: null,
@@ -773,32 +827,34 @@ export const STARTER_LOADOUT = {
 } as const;
 
 /**
- * 기본 지급품 (2026-09-07): written into the 함선 창고 **once**, on a profile that has never had a stash.
+ * The starter grant (2026-09-07): written into the ship stash **once**, on a profile that has never had a stash.
  * `qty` is units **per stack** (ammo: rounds, clamped to the def's `stackMax`) and `stacks` how many of them —
- * one 세트 per stack, so `{ ammo_light, qty: 80, stacks: 10 }` is the 경탄 10세트 of the 기본 지급품 list.
+ * one set per stack, so `{ ammo_light, qty: 80, stacks: 10 }` is the ten sets of light ammo of the starter grant.
  */
 export const STARTER_STASH: readonly { id: string; qty: number; stacks?: number }[] = [
-  /* 탄약 10세트씩 (한 세트 = 한 칸 가득) */
+  /* ten sets of each calibre (one set = one full cell) */
   { id: 'ammo_light', qty: AMMO_STACK_ROUNDS.light, stacks: 10 },
   { id: 'ammo_medium', qty: AMMO_STACK_ROUNDS.medium, stacks: 10 },
   { id: 'ammo_heavy', qty: AMMO_STACK_ROUNDS.heavy, stacks: 10 },
   { id: 'ammo_shell', qty: AMMO_STACK_ROUNDS.shell, stacks: 10 },
-  /* 일반 등급 총기 한 자루씩 (권총은 기본 장착분과 별개로 지급하지 않는다) */
+  /* one common-grade gun of each kind (the pistol is not granted on top of the equipped starter one) */
   { id: 'wpn_smg', qty: 1 },
   { id: 'wpn_sg', qty: 1 },
   { id: 'wpn_ar', qty: 1 },
   { id: 'wpn_dmr', qty: 1 },
   { id: 'wpn_sr', qty: 1 },
-  /* 여분 가방 · 방탄복 (장착분은 STARTER_LOADOUT) */
+  /* spare bags · armor (what is equipped is STARTER_LOADOUT) */
   { id: 'bag_common', qty: 1, stacks: 3 },
   { id: 'armor_1', qty: 1, stacks: 3 },
-  /* 첫 시설 체인 전부: 작업실 증축 (`ROOM_PURPOSE_BUILD_COST.workshop` 폐금속 8 · 케이블 2) + 총기 작업대 제작
-     (`furn_bench_gun.craft` 폐금속 8 · 합금 2 · 케이블 1) = 폐금속 16 · 케이블 3 · 합금 2. 2026-09-08: 발전기 Lv.1 (폐금속 4)까지
-     쓰면 폐금속이 모자라 24 · 4 · 3 으로 올렸다. 2026-09-13: 발전기가 처음부터 Lv.1 이라 폐금속 8 이 남는다 (그대로 둔다). */
+  /* The whole first facility chain: building the workshop (`ROOM_PURPOSE_BUILD_COST.workshop` — `폐금속` 8 ·
+     `케이블` 2) + crafting the `총기 작업대` (`furn_bench_gun.craft` — `폐금속` 8 · `합금` 2 · `케이블` 1) =
+     `폐금속` 16 · `케이블` 3 · `합금` 2. 2026-09-08: spending up to generator Lv.1 (`폐금속` 4) left too little
+     `폐금속`, so it was raised to 24 · 4 · 3. 2026-09-13: the generator starts at Lv.1, so 8 `폐금속` is left
+     over (kept as is). */
   { id: 'mat_scrap', qty: 8, stacks: 3 },
   { id: 'mat_cable', qty: 4 },
   { id: 'mat_alloy', qty: 3 },
-  /* 소모품 */
+  /* consumables */
   { id: 'gad_defib', qty: 2, stacks: 2 },
   { id: 'grenade_frag', qty: 3, stacks: 3 },
 ];

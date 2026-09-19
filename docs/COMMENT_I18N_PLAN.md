@@ -6,12 +6,18 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **10, `src/items`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
+> **Next session starts here:** queue item **11, `src/gadgets`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
 > before picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this
 > file originally described**; the old one let a deleted `*/` through, and **§3 step 4b**, which `src/tutorial` added
-> after catching a re-typed Korean label. `src/items` is item **data**, not a system: 612 lines over 12 files, so it is
-> a two- or three-agent folder at most, and `src/inventory` (queue item 6) already fixed every noun it uses — read that
-> folder's comments and §7's `inventory` rows before coining anything.
+> after catching a re-typed Korean label. `src/gadgets` is 573 lines over 22 files; `src/weapons` (queue item 16) and
+> `src/items` (item 10) already fixed the nouns it shares with them, and CLAUDE.md §4.6's gadget bullets are what
+> settle placement · preview · drone wording.
+
+> **§3 step 4b earns its place again.** In `src/items` an agent re-typed the csv item name `강화합금 잉곳` as
+> `강화합금 잉고` in **two** `Salvage.ts` comments, and its own report said the audit was clean — it had run the
+> audit before its last write. The lead's run over the whole tree, after every agent reported, printed
+> `runs not found in HEAD: 2`. Nothing else sees this class: `tsc` passes, every smoke passes, and step 4 strips
+> comments before comparing. **Run 4b yourself, last.**
 
 > **Run §3 step 4 yourself — an agent reporting `code changes: 0` is not evidence.** In `src/player` the controller
 > bundle's applier deleted two whole declarations, `const LADDER_BOTTOM_GRAB_CLEAR = 0.5;` and
@@ -35,8 +41,8 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`) | 19,777 | 483 |
-| **Remaining** ([§2](#2-queue)) | **6,839** | **264** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`) | 20,389 | 495 |
+| **Remaining** ([§2](#2-queue)) | **6,227** | **252** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
@@ -75,6 +81,7 @@ so its rows are grouped into one line instead of listed file by file:
 | `tutorial/TutorialSystem.ts:1430` · `:1772` · `:1814` | an objective row (`제작창 닫기`), a toast (`레벨이 올랐습니다`) and the stance labels (`앉기` ↔ `일어서기`) |
 | `player/PlayerSystem.ts:413` | the verbatim user decision the scene lock's `allowDamage` option was built from (`처치하지 않은 안드로이드의 사격을 맞은 채 출발한다 · 죽지 않는다`) |
 | `player/RemoteAvatar.ts:611` | a verbatim user decision (`마지막 함선을 탔을 때 PC 가 함선 내부에 실루엣으로 보이지 않도록`) |
+| `items/Loot.ts:552` | a verbatim user decision (`잠긴 방은 지금 그대로, 나머지는 서사 이상 절반`) |
 
 ---
 
@@ -93,7 +100,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~7~~ | ~~`src/hub`~~ | 1,569 | 40 | **Done 2026-09-19** (lead + 6 agents, one commit). 8 quoted-only lines stay (§1). Its ship · dock · staging · station vocabulary is now the reference for every hub- and furniture-shaped folder after it. |
 | ~~8~~ | ~~`src/tutorial`~~ | 1,278 | 11 | **Done 2026-09-19** (lead + 4 agents, one commit). 6 quoted-only lines stay (§1). Cut **by file**, not by track — see the banner above. Its track · step · stretch · objective-row · control-guide · spotlight vocabulary is now the reference for every guidance-shaped folder after it. |
 | ~~9~~ | ~~`src/player`~~ | 949 | 30 | **Done 2026-09-19** (lead + 6 agents, one commit). 2 quoted-only lines stay (§1). Cut **by subject** and it held: controller · vitals / damage · wake + spawn + camera · body modes · soldier model · remote avatars, lead on `PlayerSystem` · `model` · `index`. Its body-mode · stance / pose · scene-lock · intro-wake · shouldering · rig vocabulary is now the reference for every controller- and avatar-shaped folder after it. |
-| 10 | `src/items` | 612 | 12 | |
+| ~~10~~ | ~~`src/items`~~ | 612 | 12 | **Done 2026-09-19** (lead + 3 agents, one commit). 1 quoted-only line stays (§1). Cut **by subject** and it held: the roll engine (`Loot`) · the csv→table loaders (`LootTables` · `Recipes`) · the craft economy and spec rows (`Salvage` · `ItemSpec` · `WeaponStats`), lead on the item defs (`ItemDefs` · `WeaponDefs` · `ArmorDefs` · `ImplantDefs` · `ItemText` · `index`). Its roll · draw · pick · candidate pool · epic+ gate · bucket · craft-inputs vocabulary is now the reference for every data- and economy-shaped folder after it. |
 | 11 | `src/gadgets` | 573 | 22 | |
 | 12 | `src/allies` | 561 | 22 | |
 | 13 | `src/game` | 537 | 14 | |
@@ -479,7 +486,9 @@ few hundred, because a Korean **label** inside English prose is correct and stay
   `B-40` · `B-41` · `B-42` · `B-43` (`src/hub`, 20 + 5 + 5 + 4),
   `B-44` · `B-45` · `B-46` (`src/tutorial`, 14 + 2 + 1 — the last one a label **this project itself** mistyped in
   `src/shared`, which is why §3 now has step 4b),
-  `B-47` · `B-48` · `B-49` · `B-50` (`src/player`, 9 + 7 + 5 + 6).
+  `B-47` · `B-48` · `B-49` · `B-50` (`src/player`, 9 + 7 + 5 + 6),
+  `B-51` · `B-52` · `B-53` · `B-54` (`src/items`, 6 + 9 + 3 + 1 — `B-52` caught **three** counts of the same
+  thing disagreeing, one of them in this folder's own `README.md`).
   Reading a folder this closely is the most productive defect hunt in the project — expect five to ten per folder (`src/ui`
   gave 23 and `src/housing` 35, each with a live bug in it: a member row that is built and never appended, and a stir-fry
   score whose denominator is the number of clicks that were judged), and keep filing rather than fixing.
@@ -762,3 +771,19 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 초상 (얼굴 vs 전신) | the **face portrait** (`snapshotFace`) vs a **portrait** in `Portraits.ts` (full body) — the same split §7's `hub` row draws | `player/FaceSnapshot.ts`, `Portraits.ts` |
 | 리그 · 흔들림 · 슬래브 · 위상 | the **rig** (camera rig) · **shake** (camera) · **slab** (a low / roof slab, the `hub` row's word) · **phase** (§7's `hub` row; 걸음 위상 = the **stride phase**, `stridePhase`) | `player` (folder-wide) |
 | **armor vs armour** | **armor** in this folder's prose — its own English runs 130 : 2, and §7 binds 방탄복 → armor. `player/README.md` writes *armour* in four rows and `SoldierModel` · `RemoteAvatar` each keep one pre-existing *armoured trooper*; align those the next time they are touched, not in a translation commit | `player` (folder-wide) |
+| 굴림 · 추첨 · 확정 픽 · 폴백 픽 | a **roll** · a **draw** · a **guaranteed pick** · a **fallback pick** — four words the `items` README already uses; a *pick* is one result, a *draw* is one consumption of the rng | `items` (folder-wide) |
+| 서사 이상 게이트 | the **epic+ gate** — one name (`epicPlusMul`, `keep` in `Loot.ts`), never *epic+ drop-rate gate* even though the Korean says 드롭률 | `items/Loot.ts`, `LootTables.ts` |
+| 갈래 (rng) · 본 rng | a **fork** (`rng.fork`) · the **main stream** | `items/Loot.ts` |
+| 유령 줄 · 유령 카테고리 | a **phantom row** / **phantom category** (a csv row matching no item) — deliberately **not** *ghost*, which §7 binds to `world`'s ghost band and `ui/map`'s `.ghost` | `items/LootTables.ts`, `Loot.ts` |
+| 안전망 vs 안전핀 | a **safety net** (a fallback that rescues a missed case, e.g. alias resolution) vs a **pin** (a guard outside `data:check`) — two different Korean words, kept apart | `items/Loot.ts`, `ItemDefs.ts`, `LootTables.ts` |
+| 게임기 | **console** in prose (§7's `hub` row, `GAME_CONSOLE_ITEM_DEFS`) — never *game console*, even in a list beside *game discs* | `items` (folder-wide) |
+| 미확인 표본 · 계열 · 해석 · 첫 해석 보너스 | an **unidentified sample** · **family** · **analysis** / analysing · the **first-analysis bonus**. The analyser is the **analyzer** (US spelling — the folder's own English runs 6 : 0) | `items/ItemDefs.ts`, `LootTables.ts` |
+| 대표 숙련 · 대표 산출물 | the **lead skill** · the **headline output** — both take §7's `housing` *lead volume* shape | `items/ItemDefs.ts`, `Salvage.ts` |
+| 배양 산물 · 특선 요리 · 야생 씨앗 군락 표 · 야전 병기 · 등급 문턱 | **culture product** · **special dish** · the **wild seed pool** (a kind of §7's *seed pool*) · **field ordnance** · the **grade threshold** (`benchLevel`) | `items/LootTables.ts`, `Recipes.ts` |
+| 고쳐서 뜯기 · 저울이 기운다 · 대체 기준 · 검산 | **repair-then-salvage** · **tips the balance** · the **fallback baseline** (`fallbackCraftCost`) · the **economy check** (`checkSalvageEconomy`) | `items/Salvage.ts` |
+| 대상 판정 · 안전장치 · 조준 계수 · 채널형 스프레이 | the **eligibility test** · a **guard** (kept apart from 안전핀 = *a pin*) · **aim coefficients** · the **channelled spray** | `items/Salvage.ts`, `WeaponStats.ts`, `ItemSpec.ts` |
+| 제작 대개편 · 채광 개편 · 총기 밸런스 · 가젯 개편 · 온실 개편 | the **big craft rework** · the **mining rework** · **gun balance** · the **gadget rework** · the **greenhouse rework** — a rework's name is a concept, so it becomes English. `src/items/README.md` still writes `채광 개편` and `「신화 광물 1 → 제작 → 분해」` in Korean; align those the next time that file is touched, not in a translation commit | `items` (folder-wide) |
+| 조각 (`SpecSeg`) | a **segment** — a fifth thing beside `enemies`' 마디, mining's 구간, the minigame's 구간 and durability's 구간; here it is literally the type's own name | `items/ItemSpec.ts` |
+| 칩 · 재화 카드 vs 격자 카드 | the **chip · currency card** (`ui/hud/ItemTip`) vs the **grid card** (`inventory/ui/Tooltip`) — both tooltips' own pre-existing English | `items/ItemSpec.ts` |
+| 전진기지 (레이더) · 수류탄 창고 | the **outpost raider** (site `outpost` in `loot_faction_sites.csv`) · a **grenade stash** | `items/Loot.ts` |
+| 등급 (표본 줄) | **tier** when it is the csv `tiers` column (1..6, the rarity index) and **grade** / **rarity** everywhere else — one Korean word, decided from the code as always | `items/LootTables.ts`, `Loot.ts` |

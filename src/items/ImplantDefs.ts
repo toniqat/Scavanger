@@ -1,16 +1,17 @@
 import type { ItemDef, PerkId, Rarity, StatId } from '@/shared';
 import { CATEGORY_COLOR, CATEGORY_ICON, PERK_DEFS, RARITY_COLORS, STAT_IDS, brokenImplantIdOf, csvRows, keyTable, numberMap } from '@/shared';
 
-/* 수치의 원본: 등급별 장착칸 = `data/tables.csv` 의 IMPLANT_SLOTS_BY_GRADE,
- * 등급별 가격 · 수리 재료 = `data/implants_repair.csv`, 퍽 임플란트 = `data/implants_perks.csv`,
- * 무게 · 망가진 것의 가격 배수 = `data/tuning.csv`. 이름과 설명문은 여기서 만들어진다. */
+/* Where the numbers come from: the slot cost per grade = `IMPLANT_SLOTS_BY_GRADE` in `data/tables.csv`,
+ * price · repair materials per rarity = `data/implants_repair.csv`, perk implants = `data/implants_perks.csv`,
+ * weight · the broken-implant price divisor = `data/tuning.csv`. The names and descriptions are built here. */
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 임플란트 아이템 (Phase 12, 2026-09-08 — `docs/DECISIONS.md` Phase 12).
+ * Implant items (Phase 12, 2026-09-08 — `docs/DECISIONS.md` Phase 12).
  *
- * Distinct from the six 전술 임플란트 (Q key, `ImplantId`): these are **items** of category `'implant'` that the
- * character slots on the 캐릭터 tab (progression/ owns the rules — `IMPLANT_SLOTS_BASE` 4 + 1 per 5 levels, max 10).
+ * Distinct from the six tactical implants (Q key, `ImplantId`): these are **items** of category `'implant'` that
+ * the character slots on the `캐릭터` tab (progression/ owns the rules — `IMPLANT_SLOTS_BASE` 4 + 1 per 5 levels,
+ * max 10).
  * Each takes `implant.slots` of those slots and adds `implant.stats` to the five base stats while equipped.
  *
  *   ┌ stat implants: 5 stats × grades I–IV ─────────────────────────────────────────────────┐
@@ -26,7 +27,7 @@ const T = /* data/tuning.csv */ keyTable('tuning.csv');
  *     imp_perk_kill_stamina  아드레날린 펌프  slots 3, +1 근력
  *
  * Every one of the 23 has a **broken** twin `imp_broken_<same suffix>` (`망가진 <name>`, same rarity, `broken: true`,
- * no stats, same slot cost): that is what raids drop (tier 2–4 containers, 로그 / 보스 시체 — `LootTables.ts`).
+ * no stats, same slot cost): that is what raids drop (tier 2–4 containers, rogue / boss corpses — `LootTables.ts`).
  * A broken implant cannot be equipped; 세레스 바이오 (meta/) repairs it into `repairsTo` for `repairCost`. Working
  * implants are never loot and never craftable — 세레스 바이오 sells them, the repair desk makes them.
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -40,7 +41,7 @@ const GRADE_RARITY: Readonly<Record<ImplantGrade, Rarity>> = { 1: 'common', 2: '
 export const IMPLANT_SLOTS_BY_GRADE: Readonly<Record<ImplantGrade, number>> =
   numberMap<`${ImplantGrade}`>('tables.csv', 'IMPLANT_SLOTS_BY_GRADE') as unknown as Readonly<Record<ImplantGrade, number>>;
 
-/** 한국어 stat names (progression/defs.ts owns the full StatDef table; items only needs the label for the item name). */
+/** Korean stat names (progression/defs.ts owns the full StatDef table; items only needs the label for the name). */
 export const IMPLANT_STAT_NAME_KO: Readonly<Record<StatId, string>> = {
   strength: '근력', endurance: '지구력', perception: '인지력', intelligence: '지능', dexterity: '재주',
 };
@@ -52,7 +53,7 @@ const STAT_FLAVOR_KO: Readonly<Record<StatId, string>> = {
   dexterity: '소근육 반응 지연을 줄이는 운동 피질 보조기',
 };
 
-/** `data/implants_repair.csv` — 등급별 가격과 수리 재료. */
+/** `data/implants_repair.csv` — price and repair materials per rarity. */
 const IMPLANT_REPAIR_ROWS = csvRows('implants_repair.csv');
 
 /** Sale value by rarity (세레스 바이오 prices off `value`); a broken one is worth `1 / BROKEN_IMPLANT_VALUE_DIV`. */

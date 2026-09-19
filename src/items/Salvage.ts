@@ -5,12 +5,13 @@ import { WEAPON_DEFS, WEAPON_DEF_MAP, gradeOf, isUniqueWeapon, weaponClassOf } f
 import { CRAFT_RECIPES, craftCostOf } from './Recipes';
 
 /* ════════════════════════════════════════════════════════════════════════════
- * 분해 · 수리 (2026-09-10 제작 대개편)
+ * Salvage · repair (2026-09-10, the big craft rework)
  *
- * 기준은 **그 아이템을 새로 제작할 때 드는 재료**다 (`Recipes.craftCostOf`). 남은 내구도를 20 % 단위
- * 다섯 구간으로 나누고 구간마다 정해진 배수를 곱한다 — 수리는 **올림**, 분해는 **내림**.
+ * The baseline is **the materials it takes to craft that item anew** (`Recipes.craftCostOf`). The remaining
+ * durability is cut into five buckets of 20 % and each bucket has its own fixed multiplier — repair rounds
+ * **up**, salvage rounds **down**.
  *
- * | 남은 내구도 | 수리 | 분해 |
+ * | remaining durability | repair | salvage |
  * |---|---|---|
  * | 81~100 % | ×0.10 | ×0.40 |
  * | 61~80 %  | ×0.20 | ×0.32 |
@@ -18,113 +19,132 @@ import { CRAFT_RECIPES, craftCostOf } from './Recipes';
  * | 21~40 %  | ×0.40 | ×0.16 |
  * |  0~20 %  | ×0.50 | ×0.08 |
  *
- * 값은 `data/tables.csv` 의 `REPAIR_COST_BY_DURABILITY` · `SALVAGE_YIELD_BY_DURABILITY` 다.
+ * The values are `REPAIR_COST_BY_DURABILITY` · `SALVAGE_YIELD_BY_DURABILITY` in `data/tables.csv`.
  *
- * **반올림 규칙** — 수리는 올림(플레이어에게 불리한 쪽), 분해는 내림. 분해에는 **재료 종류마다 최소 1 을
- * 보장하지 않는다**: 보장하면 등급 IV 총의 「강화합금 잉곳 2」가 통째로 돌아와 「제작 → 분해 → 제작」이
- * 이득이 된다. 예외는 **제일 많이 든 재료 한 종류**뿐이고 (`SALVAGE_MAIN_MIN_YIELD`), 그 자리는 언제나
- * 폐금속 · 천조각 같은 하위 재료가 8 이상 들어가 있어 수리비(올림)와 더해도 제작 재료를 넘지 않는다.
- * `checkSalvageEconomy()` 가 모든 아이템 · 모든 구간을 실제 숫자로 검사하고 `npm run data:check` 가 돌린다.
+ * **Rounding rule** — repair rounds up (the side against the player), salvage rounds down. Salvage does **not
+ * guarantee a minimum of 1 per material type**: guaranteeing it would hand a grade IV gun's 「강화합금 잉곳 2」
+ * back whole and make 「craft → salvage → craft」 profitable. The one exception is **the single largest input**
+ * (`SALVAGE_MAIN_MIN_YIELD`), and that place always holds 8 or more of a lower material such as 폐금속 · 천조각,
+ * so even added to the repair bill (rounded up) it does not exceed the craft inputs.
+ * `checkSalvageEconomy()` checks every item · every bucket with the real numbers; `npm run data:check` runs it.
  * ════════════════════════════════════════════════════════════════════════════ */
 
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
 
-/** 구간별 수리 재료 배수 (index 0 = 0~20 % … 4 = 81~100 %). */
+/** The repair material multiplier per bucket (index 0 = 0~20 % … 4 = 81~100 %). */
 export const REPAIR_COST_BY_DURABILITY: readonly number[] = numberList('tables.csv', 'REPAIR_COST_BY_DURABILITY');
-/** 구간별 분해 산출 배수 (같은 순서). */
+/** The salvage yield multiplier per bucket (same order). */
 export const SALVAGE_YIELD_BY_DURABILITY: readonly number[] = numberList('tables.csv', 'SALVAGE_YIELD_BY_DURABILITY');
 
-/** 구간 수 (5). */
+/** The bucket count (5). */
 export const DURABILITY_BUCKETS = REPAIR_COST_BY_DURABILITY.length;
-/** 마지막 구간(81~100 %)의 분해 배수 — 목록에 실리는 기준값이다. */
+/** The salvage multiplier of the last bucket (81~100 %) — the reference value the listing carries. */
 const TOP_SALVAGE_MUL = SALVAGE_YIELD_BY_DURABILITY[DURABILITY_BUCKETS - 1] ?? 0;
-/** 구간 표기 — `0~20 %` … `81~100 %`. */
+/** The bucket labels — `0~20 %` … `81~100 %`. */
 export const DURABILITY_BUCKET_LABELS: readonly string[] =
   REPAIR_COST_BY_DURABILITY.map((_, i) => (i === 0 ? '0~20 %' : `${i * 20 + 1}~${(i + 1) * 20} %`));
 
 /**
- * 수리가 되는 카테고리. 회복 스프레이는 예전대로 `inventory` 의 `sprayRepairCost` 가 맡는다.
- * 2026-09-11 (C-36): `bag` 이 들어왔다 — 가방에 `durabilityMax` 가 생겼는데 여기 없으면 수리비가 `[]` 라
- * **재료 없이 만피 수리**가 되고, 분해 구간은 0–4 로 갈라져 "고쳐서 뜯기" 가 이득이 된다. 그래서 csv 열 ·
- * 이 목록 · `checkSalvageEconomy` 의 "제작 레시피가 있는데 수리비가 비었다" 검사가 한 묶음이다.
+ * The categories that can be repaired. A healing spray is still handled by `inventory`'s `sprayRepairCost`.
+ * 2026-09-11 (C-36): `bag` joined — bags gained a `durabilityMax`, and without them here the repair cost is
+ * `[]`, which means a **full repair for no materials**, while the salvage buckets still split 0–4 so
+ * "repair-then-salvage" tips the balance. So the csv column · this list · the
+ * "제작 레시피가 있는데 수리비가 비었다" check in `checkSalvageEconomy` are one bundle.
  */
 const REPAIRABLE: readonly ItemCategory[] = ['primary', 'secondary', 'armor', 'bag'];
-/** 제작 레시피에서 분해 레시피를 자동 생성하는 카테고리. */
+/** The categories whose salvage recipe is generated from the craft recipe. */
 const SALVAGEABLE: readonly ItemCategory[] = ['primary', 'secondary', 'armor', 'bag'];
 
 /**
- * 2026-09-15 (가젯 개편, 사용자 결정): **내구도를 들고 다니는 가젯**(돔 실드 · 바리케이드)도 수리 · 분해 대상이다.
- * 배치물이 받은 피해가 아이템 내구도로 남으므로(`GadgetDef.wearsItemDurability`) 작업대에서 고치고 뜯을 수 있어야 한다.
- * 카테고리 목록에 `'gadget'` 을 통째로 넣지 않는 이유: 그러면 연막탄 · 수류탄 · 드론처럼 **내구도가 없는** 가젯까지
- * 분해 레시피가 자동 생성되고, 내구도 구간이 없는 아이템에 구간 검사가 걸린다. 그래서 「내구도가 있는가」로 가른다 —
- * 새 가젯에 `durabilityMax` 를 넣는 순간 수리 · 분해 · 경제 검산이 저절로 따라온다.
+ * 2026-09-15 (the gadget rework, user's decision): **a gadget that carries durability** (dome shield ·
+ * barricade) is repairable and salvageable too. The damage a deployable takes stays as the item's durability
+ * (`GadgetDef.wearsItemDurability`), so it has to be fixable and strippable at the workbench.
+ * Why `'gadget'` is not put into the category list wholesale: that would generate a salvage recipe for gadgets
+ * with **no durability** — smoke grenades · grenades · drones — and put a bucket check on items that have no
+ * durability bucket. So the split is 「does it have durability」 — the moment a new gadget gets a
+ * `durabilityMax`, repair · salvage · the economy check follow on their own.
  *
- * **2026-09-16 (채광 개편, 사용자 결정) — 판정에서 카테고리를 뺐다.** 프로세서(`mat_processor`)가 `material` 인데
- * `durabilityMax` 500 을 들고 연산 클러스터에 꽂혀 주기마다 닳는다 (함선 작업대에서 수리한다). 카테고리로 가르던
- * 옛 식은 이 줄을 놓쳐 수리비가 `[]` 가 됐고 — 그것은 무료 수리라는 뜻이라 — `checkSalvageEconomy` 가 다섯 구간
- * 전부에서 「제작 레시피가 있는데 수리비가 비어 있다」로 잡았다. 위 문단에 이미 적혀 있던 의도(「내구도가 있는가」로
- * 가른다)를 가젯 밖으로 넓힌 것뿐이다 — 어떤 카테고리든 `durabilityMax` 를 적는 순간 수리 · 분해 · 검산이 따라온다.
+ * **2026-09-16 (the mining rework, user's decision) — the category was taken out of the predicate.** The
+ * processor (`mat_processor`) is a `material` yet carries `durabilityMax` 500, plugs into the compute cluster
+ * and wears down each cycle (the ship workbench repairs it). The old formula, which split on the category,
+ * missed this row and the repair cost became `[]` — which means a free repair — so `checkSalvageEconomy`
+ * caught it in all five buckets as 「제작 레시피가 있는데 수리비가 비어 있다」. This only widens beyond gadgets
+ * the intent already written in the paragraph above (split on 「does it have durability」) — whatever the
+ * category, writing a `durabilityMax` brings repair · salvage · the economy check with it.
  *
- * 예외는 **회복 스프레이** 하나다: 그 `durabilityMax` 는 내구도가 아니라 약액 게이지라, 충전은 `inventory` 의
- * `sprayRepairCost` 가 따로 받는다 (`needsRepairCost` 도 같은 줄로 걸러 낸다).
+ * The one exception is the **healing spray**: its `durabilityMax` is not durability but a liquid gauge, so its
+ * refill is taken separately by `inventory`'s `sprayRepairCost` (`needsRepairCost` filters it out on the same
+ * line).
  */
 const wearsDurability = (def: ItemDef): boolean => !def.heal?.spray && (def.durabilityMax ?? 0) > 0;
 
 /**
- * 2026-09-16 (사용자 결정) — **유니크 무기는 분해된다. 다만 신화 광물은 나오지 않는다.**
- * 같은 날 유니크 6종에 제작 레시피(`make_wpn_u_*`, 전용 신화 광물 1개씩)가 생기면서 `SALVAGE_SOURCES` 가 그
- * 레시피에서 분해를 자동 생성하게 됐다. 그대로 두면 「신화 광물 1 → 제작 → 분해」로 광물이 되돌아오는 길이
- * 열린다 — 그 길만 막고 분해 자체는 허용하라는 것이 사용자 결정이다.
- * 구현은 아래 `salvageYieldOf` 하나다: **신화 등급 재료는 분해 산출에서 통째로 빠진다.** 산출이 줄기만 하므로
- * 「수리 + 분해 ≤ 제작」 불변식(`checkSalvageEconomy`)은 더 여유로워질 뿐 깨지지 않는다.
- * 수리는 그대로 된다 — 이제는 빌려 온 등급 V 재료가 아니라 **자기 제작 재료**로 (그래서 신화 광물이 든다).
+ * 2026-09-16 (user's decision) — **unique weapons are salvageable. Mythic minerals just do not come out.**
+ * The same day the 6 uniques gained craft recipes (`make_wpn_u_*`, one dedicated mythic mineral each), which
+ * made `SALVAGE_SOURCES` generate a salvage recipe from them. Left alone, that opens the road
+ * 「a mythic mineral → craft → salvage」 on which the mineral comes back — the user's decision is to close that
+ * road only and allow the salvage itself.
+ * The implementation is `salvageYieldOf` below, alone: **mythic-rarity materials drop out of the salvage yield
+ * entirely.** The yield only shrinks, so the 「repair + salvage ≤ craft」 invariant (`checkSalvageEconomy`) only
+ * gets more room; it does not break.
+ * Repair still works — now from **its own craft inputs** rather than borrowed grade V materials (which is why
+ * it costs a mythic mineral).
  */
 /**
- * 분해 산출의 100 % 기준선 — 제작 재료에서 **신화 등급을 뺀** 나머지. 위 규칙을 단 한 곳에서 진다.
- * 유니크인지를 따로 묻지 않는 이유: 막아야 하는 것은 「유니크」가 아니라 「신화 재료가 분해로 돌아오는 것」이고,
- * 등급으로 가르면 앞으로 어떤 아이템이 신화 재료를 먹더라도 규칙이 저절로 따라온다. 지금 신화 재료는
- * 유니크 무기의 전용 광물 6종뿐이라, 실제로 이 줄이 걸러 내는 것도 그들뿐이다.
+ * The 100 % baseline of the salvage yield — the craft inputs **minus mythic rarity**. It carries the rule
+ * above in one single place. Why it does not ask whether the item is unique: what has to be stopped is not
+ * 「a unique」 but 「a mythic material coming back out of salvage」, and cutting on rarity makes the rule follow
+ * on its own for any future item that eats a mythic material. Today the only mythic materials are the 6
+ * minerals dedicated to the unique weapons, so those are in fact the only thing this line filters out.
  */
 const salvageYieldOf = (inputs: readonly CraftIngredient[]): readonly CraftIngredient[] =>
   inputs.filter((i) => ITEM_DEF_MAP.get(i.defId)?.rarity !== 'mythic');
 
-/** 이 아이템이 작업대 수리 대상인가. */
+/** Is this item repairable at the workbench? */
 const isRepairable = (def: ItemDef): boolean => REPAIRABLE.includes(def.category) || wearsDurability(def);
-/** 제작 재료에서 분해 레시피를 자동 생성하는 아이템인가. */
+/** Is this an item whose salvage recipe is generated from its craft inputs? */
 const isSalvageable = (def: ItemDef): boolean => SALVAGEABLE.includes(def.category) || wearsDurability(def);
 
-/* ══ 2026-09-16 (사용자 결정) — 제작 재료 환급의 **대상 판정** ═══════════════════════════════════════════════
- * 제작 숙련은 이제 재료를 일부 돌려준다 (`shared/craftRefund.ts`). 그런데 **내구도 장비(무기 · 방탄복 · 가방 ·
- * 내구 가젯)만은 빼야 한다** — 이 파일의 머리에 적힌 대로 그 장비들의 수리비 · 분해 산출이 바로 「제작 재료」에서
- * 나오기 때문이다. 제작만 싸지면 「제작 → 분해」 · 「분해 → 재제작」 쪽으로 저울이 기울고, 아래 `checkSalvageEconomy`
- * 의 네 가지 검사 중 세 가지가 전부 「제작 재료」를 기준선으로 쓰므로 그 기준선이 통째로 흔들린다.
- * 재료 · 소모품 · 탄약 · 부착물 · 요리는 분해로 되돌릴 수 없으므로(또는 손으로 적은 고정 분해뿐이라 검산이 잡는다)
- * 그대로 환급을 받는다. → docs/DECISIONS.md 「2026-09-16 — 제작과 숙련」
+/* ══ 2026-09-16 (user's decision) — the **eligibility test** of the craft material refund ════════════════════
+ * The craft skill now gives part of the materials back (`shared/craftRefund.ts`). But **durable gear (weapons ·
+ * armor · bags · durable gadgets) has to be left out** — as the head of this file says, the repair cost and
+ * the salvage yield of that gear come straight out of 「the craft inputs」. If only crafting got cheaper the
+ * balance would tip towards 「craft → salvage」 · 「salvage → re-craft」, and three of the four checks in
+ * `checkSalvageEconomy` below use 「the craft inputs」 as their baseline, so that whole baseline would shake.
+ * Materials · consumables · ammo · attachments · cooking cannot be turned back by salvage (or have only a
+ * fixed salvage written by hand, which the economy check catches), so they take the refund as they are.
+ * → docs/DECISIONS.md 「2026-09-16 — 제작과 숙련」
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/** 이 레시피의 재료가 **제작 숙련 환급** 대상인가. 분해(`break_*`)와 내구도 장비는 아니다. */
+/** Are this recipe's inputs eligible for the **craft skill refund**? Salvage (`break_*`) and durable gear are not. */
 export function isCraftRefundable(recipe: CraftRecipe): boolean {
-  if (recipe.id.startsWith('break_')) return false;              // 분해는 제작이 아니다
+  if (recipe.id.startsWith('break_')) return false;              // salvage is not crafting
   const def = ITEM_DEF_MAP.get(recipe.outputDefId);
-  if (!def) return true;                                          // 요리(접시)처럼 아이템이 아닌 산출물 — 분해 대상이 될 수 없다
+  if (!def) return true;                                          // not an item, like a cooked plate — never salvaged
   return !isSalvageable(def) && !isRepairable(def);
 }
 
-/** 최대 숙련에서 이 레시피가 **실제로 먹는** 재료 배수 (환급 대상이 아니면 1). 검산과 설명이 같은 값을 읽는다. */
+/**
+ * The material multiplier this recipe **actually eats** at max skill (1 when it is not refundable). The economy
+ * check and the explanation read the same value.
+ */
 export function maxSkillCraftFactor(recipe: CraftRecipe): number {
   return isCraftRefundable(recipe) ? craftCostFactor(SKILL_LEVEL_MAX) : 1;
 }
 
-/** 분해 홀드 시간(초) — 카테고리별 (`data/tuning.csv`). */
+/** The salvage hold time in seconds — per category (`data/tuning.csv`). */
 function salvageDuration(category: ItemCategory): number {
   if (category === 'armor') return T.num('ARMOR_SALVAGE_DURATION');
   if (category === 'bag') return T.num('BAG_SALVAGE_DURATION');
   return T.num('WEAPON_SALVAGE_DURATION');
 }
 
-/* ── 내구도 구간 ──────────────────────────────────────────────────────────── */
+/* ── durability buckets ───────────────────────────────────────────────────── */
 
-/** 이 아이템의 최대 내구도 (없으면 0). 무기는 def 의 값, 나머지는 `ItemDef.durabilityMax`. */
+/**
+ * This item's max durability (0 when there is none). Weapons take it from the weapon def, everything else from
+ * `ItemDef.durabilityMax`.
+ */
 export function maxDurabilityOf(def: ItemDef | undefined): number {
   if (!def) return 0;
   if (def.weaponId) {
@@ -134,14 +154,14 @@ export function maxDurabilityOf(def: ItemDef | undefined): number {
   return def.durabilityMax ?? 0;
 }
 
-/** 남은 비율 0..1 → 구간 0..4. 정확히 20 % 는 아래 구간(0~20 %)에 붙는다. */
+/** Remaining ratio 0..1 → bucket 0..4. Exactly 20 % belongs to the lower bucket (0~20 %). */
 export function bucketOfRatio(ratio: number): number {
   const clamped = Math.max(0, Math.min(1, ratio));
   const b = Math.ceil(clamped * DURABILITY_BUCKETS - 1e-9) - 1;
   return Math.max(0, Math.min(DURABILITY_BUCKETS - 1, b));
 }
 
-/** 남은 내구도 비율. 내구도를 안 쓰는 아이템은 언제나 1 (= 구간 4). */
+/** The remaining durability ratio. An item that uses no durability is always 1 (= bucket 4). */
 function ratioOf(inst: ItemInstance): number {
   const max = maxDurabilityOf(ITEM_DEF_MAP.get(inst.defId));
   if (max <= 0) return 1;
@@ -166,23 +186,25 @@ export function durabilityBucketInfo(inst: ItemInstance): DurabilityBucketInfo {
   };
 }
 
-/* ── 제작 레시피가 없는 장비의 대체 기준 ────────────────────────────────────────
- * 제작 레시피가 없어도 수리는 되어야 하므로 기준을 하나 빌려 온다 — **같은 총기 종류의 등급 V**
- * (특성 방탄복은 방탄복 V) 의 제작 재료에 `UNIQUE_REPAIR_MUL` 을 곱한다. 옛 공식(빠진 내구도 ÷
- * REPAIR_SCRAP_PER)을 남기지 않은 이유: 유니크 내구도는 320~3000 이라 같은 등급끼리도 수리비가 10배
- * 갈렸고, 등급 무기와 완전히 다른 축으로 움직여 "이게 얼마나 비싼 수리인가" 를 읽을 수가 없었다.
+/* ── the fallback baseline of gear with no craft recipe ──────────────────────────
+ * Repair has to work even without a craft recipe, so one baseline is borrowed — the craft inputs of
+ * **grade V of the same gun class** (perk armor borrows armor V) × `UNIQUE_REPAIR_MUL`. Why the old formula
+ * (missing durability ÷ REPAIR_SCRAP_PER) was not kept: unique durability runs 320~3000, so the repair bill
+ * split tenfold even within one grade, and it moved on a completely different axis from graded weapons —
+ * "how expensive a repair is this" could not be read off it.
  *
- * **2026-09-16**: 유니크 무기 6종은 이제 자기 제작 레시피(`make_wpn_u_*`)가 있어서 이 길로 오지 않는다 —
- * `repairCostFor` 가 `craftCostOf(def.id)` 를 먼저 보기 때문이다 (그래서 유니크 수리에는 신화 광물이 든다).
- * 남은 손님은 **특성 방탄복 3벌**(재생 · 초경량 · 광학미채, `data/recipes.csv` 에 줄이 없다)뿐이다.
- * 유니크는 분해되지만 신화 광물은 산출에서 빠진다 (위 `salvageYieldOf`). */
+ * **2026-09-16**: the 6 unique weapons now have their own craft recipe (`make_wpn_u_*`) and no longer come
+ * down this road — `repairCostFor` looks at `craftCostOf(def.id)` first (which is why a unique repair costs a
+ * mythic mineral). The only guests left are the **3 perk armors** (`regen` · `ultralight` · `optical`, they
+ * have no row in `data/recipes.csv`).
+ * A unique is salvageable, but its mythic mineral drops out of the yield (`salvageYieldOf` above). */
 const UNIQUE_REPAIR_MUL = T.num('UNIQUE_REPAIR_MUL');
 
 const GRADE_V_ITEM_BY_CLASS: ReadonlyMap<WeaponClass, string> = new Map(
   WEAPON_DEFS.filter((w) => !isUniqueWeapon(w) && gradeOf(w) === 5).map((w) => [weaponClassOf(w), itemIdForWeapon(w.id)]),
 );
 
-/** 제작 레시피가 없는 장비의 기준 재료 (없으면 빈 배열). */
+/** The baseline materials of gear with no craft recipe (empty array when there is none). */
 function fallbackCraftCost(def: ItemDef): readonly CraftIngredient[] {
   if (def.weaponId) {
     const w = WEAPON_DEF_MAP.get(def.weaponId);
@@ -194,11 +216,11 @@ function fallbackCraftCost(def: ItemDef): readonly CraftIngredient[] {
   return [];
 }
 
-/* ── 수리 ─────────────────────────────────────────────────────────────────── */
+/* ── repair ───────────────────────────────────────────────────────────────── */
 
 /**
- * `LootRef.getRepairCost` 의 구현. 완전 수리에 드는 재료 = **제작 재료 × 구간 배수(올림)**.
- * 내구도가 가득이거나 수리 대상이 아니면 `[]`.
+ * The implementation of `LootRef.getRepairCost`. The materials a full repair takes = **the craft inputs × the
+ * bucket multiplier, rounded up**. `[]` when durability is full or the item is not repairable.
  */
 export function repairCostFor(inst: ItemInstance): { defId: string; qty: number }[] {
   const def = ITEM_DEF_MAP.get(inst.defId);
@@ -215,20 +237,20 @@ export function repairCostFor(inst: ItemInstance): { defId: string; qty: number 
 }
 
 /**
- * 2026-09-11 (C-36) — 이 아이템이 닳았을 때 **재료를 받아야** 하는가: 내구도가 있고 제작 레시피가 있으며
- * 회복 스프레이(게이지 충전은 따로)가 아니다. `repairCostFor` 가 이런 아이템에 `[]` 를 돌려주면 그것은
- * 무료 수리가 아니라 **표의 구멍**이므로 수리 쪽이 거절해야 한다.
+ * 2026-09-11 (C-36) — must this item **charge materials** once it is worn: it has durability, it has a craft
+ * recipe, and it is not a healing spray (whose gauge refill is separate). When `repairCostFor` returns `[]`
+ * for such an item, that is not a free repair but **a hole in the table**, so the repair side has to refuse.
  */
 export function needsRepairCost(def: ItemDef | undefined): boolean {
   if (!def || def.heal?.spray) return false;
   return maxDurabilityOf(def) > 0 && craftCostOf(def.id).length > 0;
 }
 
-/* ── 분해 ─────────────────────────────────────────────────────────────────── */
+/* ── salvage ──────────────────────────────────────────────────────────────── */
 
 const MAIN_MIN_YIELD = T.num('SALVAGE_MAIN_MIN_YIELD');
 
-/** 재료 중 **제일 많이 든** 한 줄의 인덱스 (동률이면 먼저 적힌 쪽). */
+/** The index of the **largest** input row (on a tie, the one written first). */
 function mainInputIndex(inputs: readonly CraftIngredient[]): number {
   let best = 0;
   for (let i = 1; i < inputs.length; i++) if (inputs[i].qty > inputs[best].qty) best = i;
@@ -236,8 +258,9 @@ function mainInputIndex(inputs: readonly CraftIngredient[]): number {
 }
 
 /**
- * 기준 재료 × 배수(내림). 0 이 된 줄은 빠지고 **주재료 한 줄만** `SALVAGE_MAIN_MIN_YIELD` 아래로
- * 떨어지지 않는다. 주재료가 맨 앞으로 오므로 대표 산출물 = 제일 많이 나오는 것이 된다.
+ * The baseline materials × the multiplier, rounded down. Rows that hit 0 drop out and **only the main input
+ * row** never falls below `SALVAGE_MAIN_MIN_YIELD`. The main input comes first, so the headline output = the
+ * one that comes out most.
  */
 export function scaleSalvage(base: readonly CraftIngredient[], mul: number): CraftIngredient[] {
   if (!base.length) return [];
@@ -249,7 +272,7 @@ export function scaleSalvage(base: readonly CraftIngredient[], mul: number): Cra
   return [scaled[main], ...scaled.filter((_, idx) => idx !== main)].filter((c) => c.qty > 0);
 }
 
-/** 산출물 목록을 `outputDefId` + `extraOutputs` 로 접어 넣는다. 산출이 없으면 null. */
+/** Folds an output list into `outputDefId` + `extraOutputs`. null when there is no output. */
 function withOutputs(base: CraftRecipe, outputs: CraftIngredient[]): CraftRecipe | null {
   if (!outputs.length) return null;
   const [head, ...rest] = outputs;
@@ -259,12 +282,12 @@ function withOutputs(base: CraftRecipe, outputs: CraftIngredient[]): CraftRecipe
   return out;
 }
 
-/* ── data/salvage.csv — 손으로 적은 분해 ─────────────────────────────────────── */
+/* ── data/salvage.csv — salvage written by hand ────────────────────────────── */
 
 interface HandSalvage {
-  /** 목록에 실리는 레시피 (`scaleByDurability` 면 구간 4 기준으로 이미 줄여 둔 것). */
+  /** The recipe that goes in the listing (with `scaleByDurability`, already scaled to bucket 4). */
   listed: CraftRecipe;
-  /** 100 % 기준 산출물. `scaled` 가 false 면 그대로 나온다. */
+  /** The outputs at the 100 % baseline. With `scaled` false they come out unchanged. */
   base: CraftIngredient[];
   scaled: boolean;
 }
@@ -290,20 +313,22 @@ const HAND_SALVAGE: readonly HandSalvage[] = csvRows('salvage.csv').map((r) => {
 
 const HAND_BY_INPUT: ReadonlyMap<string, HandSalvage> = new Map(HAND_SALVAGE.map((h) => [h.listed.inputs[0].defId, h]));
 
-/* ── 제작 레시피에서 생성한 분해 ───────────────────────────────────────────────
- * 무기 25종 · 방탄복 5벌 · 가방 8종. 산출이 **그 아이템의 제작 재료 구성을 그대로 따라가므로**
- * 총을 뜯으면 폐금속만이 아니라 그 등급이 요구한 합금 판 · 기계 부품 · 강화합금 잉곳도 나온다.
- * 2026-09-16: 유니크 무기도 레시피가 생겨 이 목록에 들어왔지만, 산출은 `salvageYieldOf` 가 신화 광물을 빼고 준다
- * (위 주석). 특성 방탄복은 여전히 레시피가 없어 저절로 빠진다. 프로세서(`material` + 내구도)는 새로 들어온다. */
+/* ── salvage generated from craft recipes ──────────────────────────────────────
+ * 25 weapons · 5 armors · 8 bags. The yield **follows that item's craft input list exactly**, so stripping a
+ * gun gives back not only 폐금속 but the 합금 판 · 기계 부품 · 강화합금 잉곳 its grade demanded.
+ * 2026-09-16: the unique weapons gained recipes and joined this list too, but `salvageYieldOf` hands out the
+ * yield with the mythic mineral removed (comment above). Perk armor still has no recipe and drops out on its
+ * own. The processor (`material` + durability) newly joins. */
 
 interface SalvageSource {
-  /** 100 % 기준 = 제작 재료. */
+  /** The 100 % baseline = the craft inputs. */
   craft: readonly CraftIngredient[];
-  /** 구간 4 기준으로 조립해 둔 레시피 (`getAllRecipes()` 에 실리는 것). */
+  /** The recipe assembled at bucket 4 (the one that goes into `getAllRecipes()`). */
   listed: CraftRecipe;
   /**
-   * 2026-09-16: 최대 숙련에서 **실제로 먹는** 재료 배수 (`maxSkillCraftFactor`). 내구도 장비는 환급 대상이 아니라
-   * 언제나 1 이지만, 그 규칙이 깨지는 순간 아래 검산이 바로 잡도록 값으로 들고 있는다.
+   * 2026-09-16: the material multiplier this recipe **actually eats** at max skill (`maxSkillCraftFactor`).
+   * Durable gear is not refundable so it is always 1, but the value is carried so that the economy check below
+   * catches it the moment that rule breaks.
    */
   factor: number;
 }
@@ -322,7 +347,8 @@ const SALVAGE_SOURCES: ReadonlyMap<string, SalvageSource> = (() => {
       description: `${def.name} 을(를) 뜯어 제작 재료 일부를 되찾는다. 남은 내구도가 높을수록 많이 나온다.`
         + (gun ? ' 부착물은 먼저 가방으로 돌아온다.' : ''),
     };
-    // 분해 산출은 제작 재료에서 신화 등급을 뺀 것이다 (위 `salvageYieldOf` 주석 — 유니크의 신화 광물은 돌아오지 않는다).
+    // The salvage yield is the craft inputs minus mythic rarity (the `salvageYieldOf` comment above — a
+    // unique's mythic mineral does not come back).
     const yield_ = salvageYieldOf(r.inputs);
     const listed = withOutputs(shell, scaleSalvage(yield_, TOP_SALVAGE_MUL));
     if (listed) out.set(def.id, { craft: yield_, listed, factor: maxSkillCraftFactor(r) });
@@ -331,15 +357,15 @@ const SALVAGE_SOURCES: ReadonlyMap<string, SalvageSource> = (() => {
 })();
 
 /**
- * 분해 레시피 전부 (`break_*`). ⚠ **생성 분해가 여기 실릴 때의 수량은 구간 4(81~100 %) 기준**이므로
- * 실제 소비 · 산출에는 `salvageFor(inst)` 가 돌려준 레시피를 쓴다.
+ * Every salvage recipe (`break_*`). ⚠ **the quantities a generated salvage carries here are at bucket 4
+ * (81~100 %)**, so the actual consumption · yield uses the recipe `salvageFor(inst)` returns.
  */
 export const SALVAGE_RECIPES: readonly CraftRecipe[] = [
   ...HAND_SALVAGE.map((h) => h.listed),
   ...[...SALVAGE_SOURCES.values()].map((s) => s.listed),
 ];
 
-/** 제작 + 분해. `ctx.loot.getAllRecipes()` 가 내주는 목록. */
+/** Craft + salvage. The list `ctx.loot.getAllRecipes()` hands out. */
 export const ALL_CRAFT_RECIPES: readonly CraftRecipe[] = [...CRAFT_RECIPES, ...SALVAGE_RECIPES];
 
 export const CRAFT_RECIPE_MAP: ReadonlyMap<string, CraftRecipe> = new Map(ALL_CRAFT_RECIPES.map((r) => [r.id, r]));
@@ -349,8 +375,9 @@ export function getRecipe(id: string): CraftRecipe | undefined {
 }
 
 /**
- * `LootRef.getSalvageFor` 의 구현 — 이 인스턴스를 **지금** 분해하면 나오는 것.
- * 손으로 적은 고정 분해(탄약 · 기계 부품 · 충전기)는 내구도와 무관하게 표에 적힌 그대로다.
+ * The implementation of `LootRef.getSalvageFor` — what comes out if this instance is salvaged **now**.
+ * A hand-written fixed salvage (ammo · 기계 부품 · chargers) is exactly what the table says, whatever the
+ * durability.
  */
 export function salvageFor(inst: ItemInstance): CraftRecipe | null {
   const src = SALVAGE_SOURCES.get(inst.defId);
@@ -361,24 +388,27 @@ export function salvageFor(inst: ItemInstance): CraftRecipe | null {
   return withOutputs(hand.listed, scaleSalvage(hand.base, SALVAGE_YIELD_BY_DURABILITY[durabilityBucketOf(inst)] ?? 0));
 }
 
-/* ── 검산 ─────────────────────────────────────────────────────────────────────
- * 「제작 → (수리) → 분해 → 제작」 이 이득이 되지 않는다는 것을 **실제 숫자로** 확인한다.
- * `npm run data:check` 가 돌린다 (scripts/data-check.mjs). 네 가지를 본다:
+/* ── the economy check ────────────────────────────────────────────────────────
+ * Confirms **with the real numbers** that 「craft → (repair) → salvage → craft」 is never profitable.
+ * `npm run data:check` runs it (scripts/data-check.mjs). It looks at four things:
  *
- *  (1) 분해 산출 ≤ 제작 재료 (한 종류라도 넘으면 재료가 스스로 늘어난다)
- *  (2) 수리 재료 + 분해 산출 ≤ 제작 재료, 그리고 적어도 한 종류는 **엄격히 작다**
- *  (3) 분해(구간 4) − 수리(구간 b) ≤ 분해(구간 b) — "고쳐서 뜯는" 편이 "지금 뜯는" 것보다 이득이면 안 된다
- *  (4) 제작에 안 쓰는 재료가 분해에서 나오지 않는다
+ *  (1) salvage yield ≤ craft inputs (one type over it and the material grows by itself)
+ *  (2) repair materials + salvage yield ≤ craft inputs, and at least one type is **strictly less**
+ *  (3) salvage(bucket 4) − repair(bucket b) ≤ salvage(bucket b) — "repair-then-salvage" must not beat
+ *      "salvage now"
+ *  (4) no material that crafting does not use comes out of salvage
  *
- * **2026-09-16 (제작 재료 환급) — 기준선은 「최대 숙련 플레이어가 실제로 낸 재료」다.** 불변식은 제일 잘하는
- * 플레이어에게도 성립해야 하므로, 위 네 검사의 「제작 재료」는 전부 `제작 재료 × maxSkillCraftFactor(recipe)` 로
- * 읽는다 (`shared/craftRefund.craftCostFactor`, 기댓값 — 무한 이득은 한 번의 운이 아니라 반복의 기댓값이다).
- * 내구도 장비는 환급 대상이 아니므로 배수가 1 이라 이 절의 숫자가 예전 그대로이고, 손으로 적은 분해(탄약 · 기계
- * 부품 · 실드 충전기)만 깎인 기준선과 겨룬다. 배수를 값으로 들고 있으므로 환급 규칙이 바뀌면 여기서 바로 터진다.
+ * **2026-09-16 (the craft material refund) — the baseline is 「the materials a max-skill player actually
+ * paid」.** The invariant has to hold for the best player too, so 「the craft inputs」 in the four checks above
+ * are all read as `craft inputs × maxSkillCraftFactor(recipe)` (`shared/craftRefund.craftCostFactor`, the
+ * expected value — infinite profit is the expectation of repetition, not one lucky roll).
+ * Durable gear is not refundable, so its multiplier is 1 and the numbers of this section are what they were;
+ * only hand-written salvage (ammo · 기계 부품 · 실드 충전기) competes with a cut baseline. The multiplier is
+ * carried as a value, so a change to the refund rule blows up right here.
  */
 export interface EconomyViolation {
   defId: string;
-  /** 내구도 구간 0..4, 고정 분해는 −1. */
+  /** The durability bucket 0..4; a fixed salvage is −1. */
   bucket: number;
   message: string;
 }
@@ -389,14 +419,14 @@ const asMap = (list: readonly CraftIngredient[], factor = 1): Map<string, number
   return m;
 };
 
-/** 검산 메시지의 수량 — 환급 배수가 걸려 소수가 될 수 있다 (`5.2` · `8`). */
+/** A quantity in an economy-check message — the refund multiplier can make it fractional (`5.2` · `8`). */
 const q = (n: number): string => (Number.isInteger(n) ? `${n}` : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, ''));
 
-/** 무한 이득 루프가 없는지 실제 숫자로 검사한다. 비어 있으면 통과. */
+/** Checks with the real numbers that no infinite-profit loop exists. Empty = pass. */
 export function checkSalvageEconomy(): EconomyViolation[] {
   const bad: EconomyViolation[] = [];
 
-  /* 무기 계열이 늘었는데 레시피를 안 적으면 여기서 잡힌다 (제작이 없으면 분해 · 수리 기준도 사라진다). */
+  /* A new weapon family with no recipe written is caught here (no craft means no salvage · repair baseline). */
   for (const w of WEAPON_DEFS) {
     if (isUniqueWeapon(w)) continue;
     const itemId = itemIdForWeapon(w.id);
@@ -406,13 +436,14 @@ export function checkSalvageEconomy(): EconomyViolation[] {
   }
 
   for (const [defId, src] of SALVAGE_SOURCES) {
-    // 2026-09-16: 기준선은 **최대 숙련이 실제로 낸 재료** (내구도 장비는 환급 대상이 아니라 배수 1 → 예전과 같은 숫자)
+    // 2026-09-16: the baseline is **the materials max skill actually paid** (durable gear is not refundable, so
+    // the multiplier is 1 → the same numbers as before)
     const craft = asMap(src.craft, src.factor);
     const def = ITEM_DEF_MAP.get(defId);
     const repairable = !!def && isRepairable(def) && maxDurabilityOf(def) > 0;
     const top = asMap(scaleSalvage(src.craft, TOP_SALVAGE_MUL));
-    /* 내구도가 없는 장비는 **언제나 구간 4** 다 — 있지도 않은 구간을 검사하면 거짓 위반이 나온다.
-       (2026-09-11: 가방도 이제 내구도가 있어 구간 0–4 를 전부 본다.) */
+    /* Gear without durability is **always bucket 4** — checking a bucket that does not exist yields a false
+       violation. (2026-09-11: bags now have durability too, so all of buckets 0–4 are looked at.) */
     const first = repairable ? 0 : DURABILITY_BUCKETS - 1;
     for (let b = first; b < DURABILITY_BUCKETS; b++) {
       const salvage = asMap(scaleSalvage(src.craft, SALVAGE_YIELD_BY_DURABILITY[b] ?? 0));
@@ -433,9 +464,10 @@ export function checkSalvageEconomy(): EconomyViolation[] {
     }
   }
 
-  /* 2026-09-11 (C-36) 안전장치: 내구도가 있고 제작 레시피가 있는 아이템은 **닳았을 때 수리비가 비면 안 된다.**
-     비면 `inventory` 의 수리가 재료 없이 만피로 돌린다 (방탄복이 2026-09-10 까지 그랬고, 가방이 C-36 에서 그럴 뻔했다).
-     회복 스프레이는 게이지 충전(`sprayRepairCost`)이 따로 받는다. 런타임에도 같은 규칙으로 거절한다
+  /* 2026-09-11 (C-36) guard: an item with durability and a craft recipe **must not have an empty repair cost
+     once it is worn.** If it is empty, `inventory`'s repair restores it to full for no materials (armor did
+     exactly that until 2026-09-10, and bags nearly did in C-36). A healing spray's gauge refill
+     (`sprayRepairCost`) is taken separately. The runtime refuses on the same rule
      (`needsRepairCost` → `inventory/parts/Durability.repair`). */
   for (const def of ITEM_DEF_MAP.values()) {
     if (!needsRepairCost(def)) continue;
@@ -449,14 +481,15 @@ export function checkSalvageEconomy(): EconomyViolation[] {
     }
   }
 
-  /* 손으로 적은 분해: 그 아이템에 제작 레시피가 있으면 산출이 재료를 넘지 않아야 한다. */
+  /* Hand-written salvage: when that item has a craft recipe, the yield must not exceed the inputs. */
   for (const h of HAND_SALVAGE) {
     const input = h.listed.inputs[0];
     const recipe = CRAFT_RECIPES.find((c) => c.outputDefId === input.defId);
     if (!recipe) continue;
-    /* 탄약처럼 한 번에 여러 개를 만드는 레시피는 "분해에 들어가는 개수" 에 맞춰 환산한다.
-       2026-09-16: 그리고 **최대 숙련의 재료 환급**을 먹인다 — 탄약 · 기계 부품 · 실드 충전기는 내구도 장비가
-       아니라 환급 대상이므로, 여기가 환급이 실제로 겨루는 유일한 자리다 (기준선이 0.65 배로 내려온다). */
+    /* A recipe that makes several at once, like ammo, is converted to "the number that goes into the salvage".
+       2026-09-16: and the **max-skill material refund** is applied — ammo · 기계 부품 · 실드 충전기 are not
+       durable gear and so are refundable, which makes this the only place the refund actually competes (the
+       baseline comes down to ×0.65). */
     const factor = maxSkillCraftFactor(recipe);
     const runs = input.qty / recipe.outputQty;
     const craft = asMap(recipe.inputs.map((i) => ({ defId: i.defId, qty: i.qty * runs })), factor);
