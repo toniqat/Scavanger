@@ -23,7 +23,7 @@ import {
   type DroneBody, type DroneInput,
 } from './model';
 
-/* ── Visuals · geometry (not gameplay numbers) ── */
+/* ── Body shape · camera limits (measured from the model, not balance numbers from csv) ── */
 const WHEEL_R = 0.11;
 /** The largest drop it sticks to the terrain over (m/frame) — the same role as `PlayerController.SNAP_DOWN`. */
 const SNAP_DOWN = 0.35;
@@ -32,9 +32,14 @@ const MOUNT_Z = -0.12;
 const LENS_Y = 0.345;
 /** The lens has to stay inside the body radius, or the camera sees through a wall it is pressed against. */
 const LENS_Z = 0.2;
+/** Lens camera pitch limits (rad) — how far the operator may look down · up, not a body dimension. */
 const PITCH_MIN = -1.15;
 const PITCH_MAX = 1.2;
-/** Ray-test sphere (body centre height · radius). */
+/**
+ * The sphere `raycast` answers with (centre height · radius): **how easy this drone is to shoot**, so it is
+ * deliberately a little wider than the collision radius — a bullet that grazes a wheel or the antenna counts.
+ * Shrinking it to the body radius would make the drone hard to hit on purpose, which is a balance change.
+ */
 const HIT_Y = 0.22;
 const HIT_R = 0.4;
 /**
@@ -75,6 +80,8 @@ export class GroundDrone implements DroneBody {
   private remoteFlags = 0;
   /** Owner side: was there input this frame (the LED colour). */
   private live = false;
+  /** Geometry · materials are released — `raycast` answers −1 from here on (the same field as `AirDrone`). */
+  private disposed = false;
 
   constructor() {
     this.root.name = 'GroundDrone';
@@ -272,7 +279,13 @@ export class GroundDrone implements DroneBody {
     return out.set(this.position.x + s * MOUNT_Z, this.position.y + DECK_TOP, this.position.z + c * MOUNT_Z);
   }
 
+  /**
+   * 2026-09-19: the same contract as `AirDrone.raycast` — a disposed body answers −1. `removeDrone` takes the drone
+   * out of `sys.drones` before `dispose()`, so the guard is unreachable today; the two bodies keeping one contract is
+   * the point (a query that outlives the removal must not report a hit on a freed body).
+   */
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): number {
+    if (this.disposed || !(maxDist > 0)) return -1;
     const ox = origin.x - this.position.x;
     const oy = origin.y - (this.position.y + HIT_Y);
     const oz = origin.z - this.position.z;
@@ -292,6 +305,8 @@ export class GroundDrone implements DroneBody {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.root.removeFromParent();
     const geos = new Set<THREE.BufferGeometry>();
     const mats = new Set<THREE.Material>();

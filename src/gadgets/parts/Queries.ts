@@ -7,26 +7,29 @@
  */
 import * as THREE from 'three';
 import {
-  GADGET_DEFUSE_TIME, GADGET_INCENDIARY_DPS, GADGET_JUMPPAD_FORWARD, GADGET_JUMPPAD_IMPULSE,
-  GADGET_CLOAK_SHARE_RADIUS, GADGET_LURE_RADIUS, GADGET_MINE_ARM_TIME, GADGET_MINE_DAMAGE, GADGET_TURRET_DPS, JUMP_PAD_RETRIGGER_S, Keys, PLAYER_RADIUS,
-  type BuffMessage, type DeployableKind, type DeployableRef, type EnemyRef, type FlowMessage, type GadgetDef,
-  type GadgetId, type GadgetMessage, type GadgetRequest, type GameContext, type GameSystem, type GadgetsRef,
-  type Interactable, type ItemInstance, type DeployableWire, type PeerId, type PlayerWeaponHost, type Vec3Tuple,
+  GADGET_INCENDIARY_DPS, PLAYER_RADIUS,
+  type DeployableKind, type DeployableRef, type EnemyRef,
 } from '@/shared';
-import { GADGET_DEFS, gadgetDef, gadgetForKind, isRecoverable } from '../GadgetDefs';
-import { Deployable, BARRICADE_HALF, DOME_UNFOLD_TIME, JUMPPAD_TRIGGER_RADIUS, MINE_TRIGGER_RADIUS } from '../Deployable';
-import { GadgetVisualPool } from '../GadgetVisuals';
-import { ThrownGadgetManager } from '../ThrownGadget';
-import { EMPTY_ENEMIES, MAX_DEPLOYABLES, PLACE_CLEARANCE, PLACE_DISTANCE, PLAYER_HALF_H, RECOVER_RADIUS, TURRET_AIM_CONE, TURRET_RETARGET, TURRET_ROF, TURRET_TURN_RATE, USE_COOLDOWN, type Victim, ZONE_TICK, _a, _b, _c, _d, _e, _fwd, _g0, _g1, _g2, _r0, _r1, _r2, _r3, _r4, angleDelta, toTuple } from '../model';
+import { ENEMY_TARGET_KINDS, SOLID_KINDS } from '../GadgetDefs';
+import { Deployable, BARRICADE_HALF, JUMPPAD_TRIGGER_RADIUS } from '../Deployable';
+import { EMPTY_ENEMIES, PLAYER_HALF_H, type Victim, _g0, _g1, _g2, _r0, _r1, _r2, _r3, _r4 } from '../model';
 import type { GadgetSystem } from '../GadgetSystem';
 /* 2026-09-15 (B-16): the fire zone query · the height a thrown deployable stands at */
 import { PROP_STEP_UP_MAX, type FireZoneInfo } from '@/shared';
+
+/**
+ * 2026-09-19: the two kind lists `GadgetDefs` publishes, as sets so the per-deployable test stays O(1) on these hot
+ * loops. **They are the lists** — they used to be spelled out again by hand here, so adding a kind to the constant
+ * (which `index.ts` re-exports and the README states as a rule) changed nothing.
+ */
+const ENEMY_TARGETS = new Set<DeployableKind>(ENEMY_TARGET_KINDS);
+const SOLIDS = new Set<DeployableKind>(SOLID_KINDS);
 
 export function findEnemyTarget(sys: GadgetSystem, pos: THREE.Vector3, radius: number): DeployableRef | null {
   let best: Deployable | null = null, bestD = radius * radius;
   for (const d of sys.deployables) {
     if (d.removing || !d.destructible || d.hp <= 0) continue;
-    if (d.kind !== 'barricade' && d.kind !== 'turret' && d.kind !== 'lure' && d.kind !== 'domeShield') continue;
+    if (!ENEMY_TARGETS.has(d.kind)) continue;
     const dist = d.position.distanceToSquared(pos);
     // lures are the loudest thing on the field: enemies prefer them
     const score = d.kind === 'lure' ? dist * 0.35 : dist;
@@ -50,7 +53,9 @@ export function blocksProjectile(sys: GadgetSystem, from: THREE.Vector3, to: THR
   let bestT = Infinity;
   let hit: THREE.Vector3 | null = null;
   for (const d of sys.deployables) {
-    if (d.removing || !d.armed) continue;
+    if (d.removing || !d.armed || !SOLIDS.has(d.kind)) continue;
+    // `SOLID_KINDS` decides what is even considered; each kind still needs its own silhouette here (a dome stops
+    // hostile shots only), so a kind added to that list without a branch below blocks nothing.
     let t = -1;
     if (d.kind === 'barricade') t = sys.segmentVsBarricade(d, from, to);
     else if (d.kind === 'domeShield' && fromEnemy) t = sys.segmentVsDome(d, from, to);

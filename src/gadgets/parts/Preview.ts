@@ -34,8 +34,9 @@ const R_OVERLAP = '다른 설치물과 겹친다';
 const R_DRONE_LARGE = '드론 위에는 올릴 수 없다';
 const R_DRONE_TAKEN = '이미 드론에 설치물이 있다';
 /**
- * 2026-09-15 (the thumper): ground `WorldRef.burrowGroundOk` said no to — a building floor · a roof · rock · water ·
- * a hazard · on top of a nest.
+ * 2026-09-15 (the thumper): ground `WorldRef.burrowGroundOk` said no to. Its rules are listed in
+ * `world/BurrowGround.ts` — off the map · too steep or too uneven · a corridor (pad · rail · rover road) · a
+ * structure · any collider (rock · tree · crate · the tram …) · too near a nest hole · a gather node · a hazard.
  */
 export const R_BURROW = '땅굴벌레가 파고들 수 없는 땅이다';
 
@@ -49,7 +50,11 @@ const WALL_NORMAL_Y = 0.3;
 const WALL_BACKOFF = 0.35;
 /** The longest ray (m) cast when looking up — when the ray does not end inside the circle around the feet. */
 const RAY_CAP = 40;
-/** The margin (m) above foot height the surface search looks at — it still lifts onto a chest-high box's top face. */
+/**
+ * How far above foot height the surface search is allowed to start (`getSurfaceY`'s ceiling). Knee- to waist-high
+ * cover still counts as a top face to stand the gadget on; anything taller is not, so aiming at a tall crate's side
+ * drops the gadget to the floor beside it instead of teleporting it onto the lid.
+ */
 const DROP_FEET_MARGIN = 0.5;
 /**
  * A surface floating this far (m) above the terrain is an obstacle's top face (a building floor · a crate), so its
@@ -401,7 +406,8 @@ export function resetPreview(sys: GadgetSystem): void {
 
 /**
  * The host: re-checks a client's `gadq place` lightly. Fixes `pos` in place.
- * Returns the drone id to mount on, null = the floor, false = refused (off the map).
+ * Returns the drone id to mount on, null = the floor, **false = refused** — off the map, or (2026-09-15, the
+ * thumper) ground the sandworm cannot dig into (`burrowGroundOk`, the test three lines below).
  */
 export function resolveRemotePlace(sys: GadgetSystem, def: GadgetDef, pos: THREE.Vector3, mount: string | null): string | null | false {
   const world = sys.ctx.world;

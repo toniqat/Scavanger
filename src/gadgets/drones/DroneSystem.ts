@@ -88,7 +88,6 @@ export class DroneSystem implements GameSystem, DronesRef {
   update(dt: number, ctx: GameContext): void {
     this.ensureNetHooks();
     Control.updateControl(this, dt);
-    const authority = ctx.isAuthority;
     for (let i = this.drones.length - 1; i >= 0; i--) {
       const d = this.drones[i];
       if (d.removing) continue;
@@ -97,7 +96,7 @@ export class DroneSystem implements GameSystem, DronesRef {
       Control.updateLink(this, d);
       d.body.animate(dt, ctx.time);
       Life.updateSounds(this, d, dt);
-      if (authority) Life.emitNoise(this, d);
+      Life.emitNoise(this, d);   // the authority test is inside (`Lifecycle.emitNoise`)
       if (d.isLocal) Wire.maybeSendState(this, d);
     }
     Control.updateControlled(this, dt);

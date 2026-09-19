@@ -15,22 +15,18 @@
  *    arrive before `drone sync`, so reading a drone it does not know yet as "gone" would drop a perfectly good
  *    mounted deployable to the ground.
  *
- * The enemy-only trigger of a mine riding a drone belongs to the mine simulation (`Simulate`) — this file only keeps
+ * The enemy-only trigger of a mine riding a drone is the **`mine` branch** of the mine simulation
+ * (`Simulate.updateMine` — a `remoteMine` never goes off by proximity at all, mounted or not). This file only keeps
  * `mount` accurate.
+ *
+ * **`DroneRef.mountedDeployableId` is nothing this file writes.** It is a getter on `Drone` (`drones/model.ts`) that
+ * walks `GadgetsRef.getDeployables()` looking for `mount === drone.id`, so setting `d.mount` here *is* the write and
+ * the drone side follows by itself. (Until 2026-09-19 this file also assigned the field through a cast; every
+ * assignment threw against that getter and a `catch` swallowed it.)
  */
-import type { DeployableWire, DroneRef, GameContext } from '@/shared';
+import type { DeployableWire, GameContext } from '@/shared';
 import type { Deployable } from '../Deployable';
 import type { GadgetSystem } from '../GadgetSystem';
-
-/**
- * `DroneRef.mountedDeployableId` is readonly in the contract and documented as "gadgets sets it". When the drone
- * implementation keeps it as a writable field this fills it in; when it is a getter only (computing itself) the
- * assignment fails silently.
- */
-function setDroneMountId(drone: DroneRef | null | undefined, id: string | null): void {
-  if (!drone) return;
-  try { (drone as { mountedDeployableId: string | null }).mountedDeployableId = id; } catch { /* getter-only */ }
-}
 
 /**
  * Right after the spawn: mounts it on the drone. While the drone is still unknown it holds the id alone and waits
@@ -41,25 +37,18 @@ export function attach(sys: GadgetSystem, d: Deployable, droneId: string): void 
   const drone = sys.ctx.drones?.getDrone(droneId) ?? null;
   if (!drone) return;
   drone.getMountPoint(d.position);
-  setDroneMountId(drone, d.id);
 }
 
-/**
- * Before a removal · a detach: clears the mark on the drone side (only while that drone still points at this
- * deployable).
- */
-export function unmount(sys: GadgetSystem, d: Deployable): void {
-  const id = d.mount;
-  if (!id) return;
+/** Before a removal · a detach: `mount` is the whole mark, so clearing it is the whole job (header comment). */
+export function unmount(d: Deployable): void {
+  if (!d.mount) return;
   d.mount = null;
-  const drone = sys.ctx.drones?.getDrone(id) ?? null;
-  if (drone && drone.mountedDeployableId === d.id) setDroneMountId(drone, null);
 }
 
 /** Drops off the drone and stands on the surface below. The host re-broadcasts `gad spawn` under the same id. */
 export function detach(sys: GadgetSystem, d: Deployable): void {
   if (!d.mount) return;
-  unmount(sys, d);
+  unmount(d);
   const world = sys.ctx.world;
   if (world && world.ready) d.position.y = world.getSurfaceY(d.position.x, d.position.z, d.position.y);
   d.visual.root.position.copy(d.position);
@@ -76,7 +65,6 @@ export function updateMounts(sys: GadgetSystem, ctx: GameContext): void {
     if (drone) {
       drone.getMountPoint(d.position);
       d.yaw = drone.yaw;
-      if (drone.mountedDeployableId !== d.id) setDroneMountId(drone, d.id);
       continue;
     }
     // Only the authority believes "the drone is gone" (the header comment above)
@@ -99,7 +87,7 @@ export function onDroneRemoved(sys: GadgetSystem, droneId: string): void {
  */
 export function applyWire(sys: GadgetSystem, d: Deployable, w: DeployableWire): void {
   const next = w.mount ?? null;
-  if (d.mount && d.mount !== next) unmount(sys, d);
+  if (d.mount && d.mount !== next) unmount(d);
   d.position.set(w.p[0], w.p[1], w.p[2]);
   d.yaw = w.yaw;
   d.hp = w.hp;

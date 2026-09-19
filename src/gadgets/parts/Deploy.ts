@@ -6,20 +6,16 @@
  */
 import * as THREE from 'three';
 import {
-  GADGET_DEFUSE_TIME, GADGET_INCENDIARY_DPS, GADGET_JUMPPAD_FORWARD, GADGET_JUMPPAD_IMPULSE,
-  GADGET_CLOAK_SHARE_RADIUS, GADGET_LURE_RADIUS, GADGET_MINE_ARM_TIME, GADGET_MINE_DAMAGE, GADGET_TURRET_DPS, JUMP_PAD_RETRIGGER_S, Keys, PLAYER_RADIUS,
-  type BuffMessage, type DeployableKind, type DeployableRef, type EnemyRef, type FlowMessage, type GadgetDef,
-  type GadgetId, type GadgetMessage, type GadgetRequest, type GameContext, type GameSystem, type GadgetsRef,
-  type Interactable, type ItemInstance, type DeployableWire, type PeerId, type PlayerWeaponHost, type Vec3Tuple,
+  GADGET_DEFUSE_TIME, GADGET_CLOAK_SHARE_RADIUS, Keys,
+  type BuffMessage, type GadgetDef, type GadgetId, type GameContext,
+  type Interactable, type ItemInstance, type DeployableWire, type PeerId, type PlayerWeaponHost,
 } from '@/shared';
-import { GADGET_DEFS, gadgetDef, gadgetForKind, isRecoverable } from '../GadgetDefs';
+import { gadgetDef, gadgetForKind, isRecoverable } from '../GadgetDefs';
 /* 2026-09-15: the internal gadget (the fire zone `incendiary` — no item) · deployable ids · the fire sound */
 import { deployableIdFor, isInternalGadget } from '../GadgetDefs';
 import { FIRE_ZONE_CRACKLE_S, THUMPER_INTERVAL_S } from '@/shared';
-import { Deployable, BARRICADE_HALF, DOME_UNFOLD_TIME, JUMPPAD_TRIGGER_RADIUS, MINE_TRIGGER_RADIUS } from '../Deployable';
-import { GadgetVisualPool } from '../GadgetVisuals';
-import { ThrownGadgetManager } from '../ThrownGadget';
-import { EMPTY_ENEMIES, MAX_DEPLOYABLES, PLACE_CLEARANCE, PLACE_DISTANCE, PLAYER_HALF_H, RECOVER_RADIUS, TURRET_AIM_CONE, TURRET_RETARGET, TURRET_ROF, TURRET_TURN_RATE, USE_COOLDOWN, type Victim, ZONE_TICK, _a, _b, _c, _d, _e, _fwd, _g0, _g1, _g2, _r0, _r1, _r2, _r3, _r4, angleDelta, toTuple } from '../model';
+import { Deployable } from '../Deployable';
+import { MAX_DEPLOYABLES, RECOVER_RADIUS, USE_COOLDOWN, _a, _b, _c, toTuple } from '../model';
 import type { GadgetSystem } from '../GadgetSystem';
 import { droneKindOfGadget } from '@/shared';
 import * as Preview from './Preview';
@@ -249,8 +245,9 @@ export function requestPlace(sys: GadgetSystem, def: GadgetDef, position: THREE.
 
 /* ═══════════════════════════ spawn / remove ═══════════════════════════ */
 /**
- * 2026-09-15 (B-16): when `gadget` is the G-10 fire zone the id carries a `-gf` mark
- * (`GadgetDefs.deployableIdFor` — the key a replica finds the def again by).
+ * The deployable id. `gadget` no longer shapes it: the 2026-09-15 fire merge left one definition producing `fire`,
+ * so the old `-gf` mark is retired and a replica finds the definition by `kind` alone
+ * (`GadgetDefs.deployableIdFor` · `defForWire`). The argument is kept so the call sites stay as they are.
  */
 export function nextId(sys: GadgetSystem, gadget?: GadgetId): string {
   return deployableIdFor(sys.ctx.net?.localId ?? 'sp', ++sys.seq, gadget);
@@ -326,7 +323,7 @@ export function remove(sys: GadgetSystem, d: Deployable, reason: 'destroyed' | '
 export function removeLocal(sys: GadgetSystem, d: Deployable, reason: 'destroyed' | 'recovered' | 'expired'): void {
   if (d.removing) return;
   d.removing = true;
-  if (d.mount) Mount.unmount(sys, d);   // 2026-09-11: clears the mount mark on the drone side
+  if (d.mount) Mount.unmount(d);   // 2026-09-11: clears the mount mark
   const i = sys.deployables.indexOf(d);
   if (i >= 0) sys.deployables.splice(i, 1);
   sys.byId.delete(d.id);
@@ -375,8 +372,8 @@ export function grantRecovered(sys: GadgetSystem, d: Deployable): ItemInstance |
 
 /**
  * Spot for a 'place' gadget. false when it is blocked / off the map.
- * 2026-09-11: the fixed spot 2.8 m straight ahead was taken out — this is a thin wrapper around the aim-point test
- * (`Preview.computePlacement`).
+ * 2026-09-11: the fixed spot straight ahead of the player was taken out — this is a thin wrapper around the
+ * aim-point test (`Preview.computePlacement`). 2026-09-19: its constant (`model.PLACE_DISTANCE`) is gone too.
  */
 export function placementSpot(sys: GadgetSystem, def: GadgetDef, out: THREE.Vector3): boolean {
   const spot = Preview.computePlacement(sys, def, sys.placeUse);

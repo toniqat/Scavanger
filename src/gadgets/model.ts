@@ -6,21 +6,9 @@
  * `GadgetSystem.ts` re-exports it with `export *`, so every existing import path still works.
  */
 import * as THREE from 'three';
-import {
-  GADGET_DEFUSE_TIME, GADGET_INCENDIARY_DPS, GADGET_JUMPPAD_FORWARD, GADGET_JUMPPAD_IMPULSE,
-  GADGET_CLOAK_SHARE_RADIUS, GADGET_LURE_RADIUS, GADGET_MINE_ARM_TIME, GADGET_MINE_DAMAGE, GADGET_TURRET_DPS, JUMP_PAD_RETRIGGER_S, Keys, PLAYER_RADIUS,
-  type BuffMessage, type DeployableKind, type DeployableRef, type EnemyRef, type FlowMessage, type GadgetDef,
-  type GadgetId, type GadgetMessage, type GadgetRequest, type GameContext, type GameSystem, type GadgetsRef,
-  type Interactable, type ItemInstance, type DeployableWire, type PeerId, type PlayerWeaponHost, type Vec3Tuple,
-} from '@/shared';
-import { GADGET_DEFS, gadgetDef, gadgetForKind, isRecoverable } from './GadgetDefs';
-import { Deployable, BARRICADE_HALF, DOME_UNFOLD_TIME, JUMPPAD_TRIGGER_RADIUS, MINE_TRIGGER_RADIUS } from './Deployable';
-import { GadgetVisualPool } from './GadgetVisuals';
-import { ThrownGadgetManager } from './ThrownGadget';
+import type { EnemyRef, PeerId, Vec3Tuple } from '@/shared';
 
 /* ── tuning that stays inside this folder ─────────────────────────────────── */
-/** Distance in front of the player where 'place' gadgets land. */
-export const PLACE_DISTANCE = 2.8;
 /** Minimum distance between two deployables of the same kind. */
 export const PLACE_CLEARANCE = 1.4;
 /** Interaction radius of the recover / defuse prompt. */
@@ -78,18 +66,6 @@ export interface FireZoneView {
   hostile: boolean;
 }
 
-/**
- * Special gadgets. Publishes `ctx.gadgets` and owns `GADGET_DEFS`.
- *
- * - `use(id, underhand)` consumes the matching `ItemDef` (`gadgetId`) and either applies an instant effect
- *   (cloak veil / defib), throws a canister (dome shield / lure / smoke / fire) or places a deployable in
- *   front of the player (barricade / mine / turret / jump pad).
- * - World deployables are **host-authoritative**: only `ctx.isAuthority` simulates them. Clients send
- *   `gadq place/damage/recover/sync` and mirror the host's `gad spawn/update/remove/fire/sync`.
- * - Mines, fire zones and turrets have **no friend-or-foe check** — they hurt players and bugs alike.
- * - Query API for other folders: `findEnemyTarget`, `findDistraction`, `blocksProjectile`, `visionFactor`,
- *   `fireDamageAt`, `jumpPadAt`.
- */
-
+/** The shared empty answer the enemy queries return when there is no enemy manager (no allocation per call). */
 export const EMPTY_ENEMIES: readonly EnemyRef[] = [];
 

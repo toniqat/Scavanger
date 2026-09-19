@@ -7,17 +7,13 @@
  */
 import * as THREE from 'three';
 import {
-  GADGET_DEFUSE_TIME, GADGET_INCENDIARY_DPS, GADGET_JUMPPAD_FORWARD, GADGET_JUMPPAD_IMPULSE,
-  GADGET_CLOAK_SHARE_RADIUS, GADGET_LURE_RADIUS, GADGET_MINE_ARM_TIME, GADGET_MINE_DAMAGE, GADGET_TURRET_DPS, JUMP_PAD_RETRIGGER_S, Keys, PLAYER_RADIUS,
-  type BuffMessage, type DeployableKind, type DeployableRef, type EnemyRef, type FlowMessage, type GadgetDef,
-  type GadgetId, type GadgetMessage, type GadgetRequest, type GameContext, type GameSystem, type GadgetsRef,
-  type Interactable, type ItemInstance, type DeployableWire, type PeerId, type PlayerWeaponHost, type Vec3Tuple,
+  GADGET_INCENDIARY_DPS, GADGET_JUMPPAD_FORWARD, GADGET_JUMPPAD_IMPULSE,
+  GADGET_LURE_RADIUS, GADGET_MINE_ARM_TIME, GADGET_MINE_DAMAGE, GADGET_TURRET_DPS, JUMP_PAD_RETRIGGER_S, PLAYER_RADIUS,
+  type DeployableRef, type EnemyRef, type GameContext, type PeerId,
 } from '@/shared';
-import { GADGET_DEFS, gadgetDef, gadgetForKind, isRecoverable } from '../GadgetDefs';
-import { Deployable, BARRICADE_HALF, DOME_UNFOLD_TIME, JUMPPAD_TRIGGER_RADIUS, MINE_TRIGGER_RADIUS } from '../Deployable';
-import { GadgetVisualPool } from '../GadgetVisuals';
-import { ThrownGadgetManager } from '../ThrownGadget';
-import { EMPTY_ENEMIES, MAX_DEPLOYABLES, PLACE_CLEARANCE, PLACE_DISTANCE, PLAYER_HALF_H, RECOVER_RADIUS, TURRET_AIM_CONE, TURRET_RETARGET, TURRET_ROF, TURRET_TURN_RATE, USE_COOLDOWN, type Victim, ZONE_TICK, _a, _b, _c, _d, _e, _fwd, _g0, _g1, _g2, _r0, _r1, _r2, _r3, _r4, angleDelta, toTuple } from '../model';
+import { gadgetDef, gadgetForKind } from '../GadgetDefs';
+import { Deployable, DOME_UNFOLD_TIME, MINE_TRIGGER_RADIUS } from '../Deployable';
+import { TURRET_AIM_CONE, TURRET_RETARGET, TURRET_ROF, TURRET_TURN_RATE, type Victim, ZONE_TICK, _a, _b, _c, _d, _e, angleDelta, toTuple } from '../model';
 import type { GadgetSystem } from '../GadgetSystem';
 /* 2026-09-11: the remote mine · a mine mounted on a drone */
 import { GADGET_MOUNTED_MINE_TRIGGER_RADIUS, GADGET_REMOTE_MINE_ARM_TIME } from '@/shared';
@@ -227,8 +223,9 @@ export function animate(sys: GadgetSystem, d: Deployable, t: number, dt: number)
   v.root.position.copy(d.position);
   v.root.rotation.y = d.yaw;
   if (v.head) v.head.rotation.y = d.headYaw - d.yaw;
-  // 2026-09-15: the deployable's own gadget first — `fire` is produced by two defs (`화염수류탄` 10 s ·
-  // the G-10 fire zone 6 s)
+  // The deployable's own gadget first, the kind lookup only as a fallback (a replica off an old wire, or a kind
+  // whose `gadgetId` was never carried). The 2026-09-15 fire merge left exactly one definition producing `fire`,
+  // so for a fire zone both paths answer the same (`GadgetDefs`, the fire merge note).
   const def = gadgetDef(d.gadgetId) ?? gadgetForKind(d.kind);
   const life = d.expires > 0 && def && def.duration > 0 ? THREE.MathUtils.clamp((d.expires - t) / def.duration, 0, 1) : 1;
   // 2026-09-15 (the thumper, parts/Thumper): every client counts the strikes from `age` — the hammer phase

@@ -154,10 +154,13 @@ export function updateSounds(sys: DroneSystem, d: Drone, dt: number): void {
  * **The authority client only**: `world:noise` at up to `DRONE_NOISE_EMIT_HZ` for every noisy ground drone (mine =
  * sprinted recently, a replica = `DroneFlags.NOISY`). The position is copied into a vector the drone owns before
  * it is passed on (so a receiver that keeps it does not follow the drone).
+ *
+ * 2026-09-19: the authority test is **in here**, not at the call site. Enemy aggro is host-owned, so a second
+ * caller that forgot the guard would have every client shouting `world:noise` for the same drone.
  */
 export function emitNoise(sys: DroneSystem, d: Drone): void {
   const ctx = sys.ctx;
-  if (d.kind !== 'ground' || !ctx.isGameplayPhase()) return;
+  if (!ctx.isAuthority || d.kind !== 'ground' || !ctx.isGameplayPhase()) return;
   const noisy = d.isLocal ? ctx.time < d.noiseUntil : (d.flags & DroneFlags.NOISY) !== 0;
   if (!noisy || ctx.time < d.noiseNextAt) return;
   d.noiseNextAt = ctx.time + 1 / Math.max(0.1, DRONE_NOISE_EMIT_HZ);

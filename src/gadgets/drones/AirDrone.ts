@@ -480,6 +480,10 @@ export class AirDrone implements DroneBody {
     this.hasCache = false;
     this.cacheAge = 0;
     this.sfxTimer = 0;
+    // The status LED's last-painted mode. `Lifecycle.createBody` builds a new body for every deploy, so `reset`
+    // is never a reuse path today — it still puts every field back, or the one field left out becomes the bug the
+    // day a body *is* pooled.
+    this.statusMode = -1;
     const world = ctx.world;
     if (world && world.ready) this.clampAltitude(world, 0);   // so it is never deployed inside the ground
     this.syncRoot();
@@ -710,6 +714,12 @@ export class AirDrone implements DroneBody {
     this.root.rotation.y = this.visualYaw;
   }
 
+  /**
+   * The cache is judged on **horizontal** movement and age only, on purpose: `WorldRef.getObstaclesNear(x, z, r)`
+   * is an XZ query with no height term, so climbing or diving cannot make the list wrong — the same obstacles are
+   * near the same `(x, z)` at any altitude, and which of them actually overlap the body is decided per frame by
+   * the height-span test in `resolveObstacles`. `REQUERY_S` is what covers obstacles that move (the tram).
+   */
   private refreshObstacles(world: WorldRef, dt: number): void {
     const p = this.position;
     this.cacheAge += dt;

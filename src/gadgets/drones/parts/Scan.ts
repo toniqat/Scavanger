@@ -39,8 +39,11 @@ import type { DroneSystem } from '../DroneSystem';
 
 /* ── Target silhouettes (geometry — not gameplay numbers) ── */
 /**
- * Aim sphere centre = the target's `Interactable.position` (the floor) + this height. Crate 0.85 m · cabinet
- * 0.85–1.75 m · a corpse lying down · supply crate 1.2 m.
+ * Aim sphere centre = the target's `Interactable.position` (which stands on the floor) + this height, i.e. roughly
+ * the middle of the drawn silhouette: half a crate · half a supply crate · a corpse lying flat.
+ * `container` is **one value for all three cabinet styles** (`world/structures/parts/Containers` `STYLE_H`), which
+ * works only because `DRONE_SCAN_AIM_RADIUS` is wider than the gap between the tallest and the shortest of them —
+ * making the cabinets differ in height by more than that radius would need a per-style centre instead.
  */
 const CENTER_Y: Readonly<Record<DroneScanTargetKind, number>> = { crate: 0.45, container: 0.8, corpse: 0.3, playerCorpse: 0.25, supply: 0.6 };
 /**
@@ -209,8 +212,12 @@ export function previewItems(sys: DroneSystem, id: string): readonly ItemInstanc
       const pw = world as unknown as WorldContainerPreview;
       if (typeof pw.previewContainerItems !== 'function') return null;
       let rolled: readonly ItemInstance[] | null = null;
-      // This runs inside the game loop — another folder's preview throwing ends as a refused scan
-      try { rolled = pw.previewContainerItems(specId) ?? pw.previewContainerItems(id); } catch (e) { console.warn('[drones] previewContainerItems failed', e); return null; }
+      // 2026-09-19: asked with the **spec id only**. World keys its container sets by that id and seeds the roll
+      // with it (`crateLootRandom(seed, specId)`), which is the very seed the opening path uses — passing the
+      // prefixed interactable id instead would seed a different roll, so a preview that answered on it would show
+      // contents the container never opens with (「previewing = opening」, CLAUDE.md §4.7).
+      // This runs inside the game loop — another folder's preview throwing ends as a refused scan.
+      try { rolled = pw.previewContainerItems(specId); } catch (e) { console.warn('[drones] previewContainerItems failed', e); return null; }
       if (!rolled) return null;
       return typeof inv.peekSuppliedItems === 'function' ? inv.peekSuppliedItems(specId, rolled) : rolled;
     }

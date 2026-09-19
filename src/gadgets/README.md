@@ -29,7 +29,7 @@ meta, `DroneSystem` right after `GadgetSystem` (`src/main.ts`). No lights anywhe
 | `drones/AirDrone.ts` | Hover body: own obstacle push-out, altitude band |
 | `drones/parts/Control.ts` | R hold to take control, `DroneInput`, camera override, link range release |
 | `drones/parts/Lifecycle.ts` | Deploy, simulation, noise, damage / destroy, explosions, recover, `raycast` |
-| `drones/parts/Scan.ts` | Ground-drone scan: highest rarity inside a crate / container / corpse, `drone scan` broadcast |
+| `drones/parts/Scan.ts` | Ground-drone scan: highest rarity inside one of the five `DroneScanTargetKind` targets — map crate (`crate`) · structure container (`container`) · enemy corpse (`corpse`) · squadmate corpse (`playerCorpse`) · supply crate (`supply`) — plus the `drone scan` broadcast |
 | `drones/parts/Wire.ts` | `drone` / `droneq` messages, replica interpolation, per-owner sync |
 | `index.ts` | Barrel |
 
@@ -91,6 +91,14 @@ instead of `buff revive`). The crosshair gate lives in `weapons/parts/Defib.hasA
 - Scan preview rolls exactly what opening rolls (`shared/lootRolls`). — `drones/parts/Scan.ts`
 - **Intended** (2026-09-15): the thumper's knocking attracts nobody — it emits no `world:noise`, and enemies never
   target the device (outside `ENEMY_TARGET_KINDS`). Changing either needs a decision first. — `parts/Thumper.ts`
+- `ENEMY_TARGET_KINDS` · `SOLID_KINDS` (`GadgetDefs.ts`) are **the** lists: `parts/Queries.findEnemyTarget` ·
+  `blocksProjectile` test against them (as sets), so adding a kind changes behaviour. A kind added to `SOLID_KINDS`
+  still needs its own silhouette branch in `blocksProjectile`, or it blocks nothing. — `parts/Queries.ts`
+- `DroneRef.mountedDeployableId` is **derived, never written**: `Drone` (`drones/model.ts`) computes it by scanning
+  `GadgetsRef.getDeployables()` for `mount === drone.id`, so setting `Deployable.mount` is the whole write.
+  — `parts/Mount.ts`
+- Drone noise is host-owned and `Lifecycle.emitNoise` **guards itself** (`ctx.isAuthority` inside), so a new caller
+  cannot make every client emit `world:noise`. — `drones/parts/Lifecycle.ts`
 - The placement preview's `burrowGroundOk` radius is ours; the worm director uses `BURROW_GROUND_CHECK_R` (6 m). A summon
   skips the ground test, so a mismatch never gives "it placed but nothing came" — only a preview stricter or looser than
   the eruption check. — `parts/Preview.ts`
@@ -100,8 +108,8 @@ instead of `buff revive`). The crosshair gate lives in `weapons/parts/Defib.hasA
 ## Recent changes
 
 Last 5 only — older: `git log -- src/gadgets`.
+- 2026-09-19 — Audit B-55 · B-56 · B-57: comments matched to the code (fire merge · `-gf` · `burrowGroundOk` · `CENTER_Y` · mount ownership), `model.PLACE_DISTANCE` and the copied import blocks removed, the dead `setDroneMountId` setter deleted, `Queries` now reads `ENEMY_TARGET_KINDS` / `SOLID_KINDS`, `emitNoise` guards itself, the container scan preview rolls once with the spec id, `GroundDrone.raycast` got `AirDrone`'s `disposed` contract.
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-18 — `enemiesNear` / `enemyById` leave nest eggs out by default (`includeProps` opts back in): a turret no longer burns its ammo on a `bug_egg` and a mine laid at a nest is not tripped by one (`parts/Queries.ts`).
 - 2026-09-18 — Mine / remote mine / drone blast damage skips bodies behind walls, roofs and floors (`shared/explosion.blastReachesBody`); deployables are exempt (their body is the collider).
 - 2026-09-15 — Thumper (`thumper` / `gad_thumper`, `parts/Thumper.ts`): burrow-ground placement, 1 s strikes, 5th strike → `sandworm:summon`, destroyed by `sandworm:erupted`, wire `age`.
-- 2026-09-15 — Defib works on downed androids (`DefibTarget.ally` → `AlliesRef.requestRevive({defib:true})`).
