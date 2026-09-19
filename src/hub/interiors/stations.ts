@@ -8,8 +8,8 @@ import type { BoxInteriorCollider } from './InteriorCollider';
  * **zero extra draw calls** (it merges into the existing per-material meshes).
  *
  * Phase 8 (2026-09-06): the hydroponics rack and `hub/GardenStation` are gone — growing lives in the greenhouse room
- * (`furn_grow_rack` furniture → `ctx.housing.openGrowMenu`). The personal ship also lost its built-in repair
- * bench (`furn_repair_bench` furniture in the workshop); only the shared ship still models one.
+ * as placed furniture. The personal ship also lost its built-in repair bench (it became `furn_repair_bench` furniture in
+ * the workshop); the shared ship kept modelling one until 2026-09-14, and since then no ship does.
  *
  * 2026-09-12 (user's decision — the repair bench removed): what `repairBench()` builds was by then **a prop only**. The
  * `furn_repair_bench` furniture was retired and the shared ship's `hub_workbench` interaction was pulled too — weapons are
@@ -26,8 +26,13 @@ export interface StationDef {
   yaw: number;
 }
 
-/** Every station an interior offers. `bench` is never set since 2026-09-14 (the repair bench lost even its prop). */
+/** Every station an interior offers. */
 export interface ShipStations {
+  /**
+   * The repair bench's anchor. **Nothing sets it since 2026-09-14** — the only builder that ever returned one is
+   * `repairBench()` below, which no interior calls any more. Both are kept so the bench's coordinates survive; the
+   * field stays because `ShipStations` is read with optional chaining everywhere and removing it buys nothing.
+   */
   bench?: StationDef;
   /**
    * 2026-09-12 (user's decision): **optional** — the personal ship's implant bay is no longer built into the cockpit but a
@@ -65,7 +70,10 @@ function footprint(ry: number, w: number, d: number): [number, number] {
 /* ── The repair bench ─────────────────────────────────────────────────────── */
 /**
  * Workbench with a vise and a wall tool board. `withTable` false reuses an existing bench
- * (the shared ship already models one) and only adds the board + anchor.
+ * (the shared ship used to model one) and only adds the board + anchor.
+ *
+ * **Nothing calls this since 2026-09-14** (the header note). Kept **for its coordinates** — the same reason as
+ * `Parts.workbench`: deleting it loses where the bench stood, and a decision to bring a repair bench back comes first.
  */
 export function repairBench(b: GeoBatch, col: BoxInteriorCollider, x: number, z: number, ry: number, withTable = true): StationDef {
   const fx = -Math.sin(ry), fz = -Math.cos(ry);
@@ -207,9 +215,12 @@ const DESK_H = 0.76;
 const MON_TILT = 0.14;
 
 /**
- * Where the **left monitor's** `TextPlane` goes for a desk centred at (x, z) with yaw `ry` — the same numbers
- * `shipComputerBody` returns, without drawing anything (2026-09-12: the furniture layer needs the pose after the
- * model is built, and a throw-away `GeoBatch` would leak its source geometries).
+ * Where the **left monitor's** `TextPlane` goes for a desk centred at (x, z) with yaw `ry`, without drawing anything
+ * (2026-09-12: the furniture layer needs the pose after the model is built, and a throw-away `GeoBatch` would leak its
+ * source geometries).
+ *
+ * This is the **single source** of that pose: `shipComputerBody` draws the monitor and then calls this for the pose it
+ * returns, so the two can never drift (they used to hold two copies of the same arithmetic — B-42).
  */
 export function computerScreenPose(x: number, z: number, ry: number): { screenPos: THREE.Vector3; screenRot: THREE.Euler } {
   const fx = -Math.sin(ry), fz = -Math.cos(ry);
@@ -283,10 +294,10 @@ export function shipComputerBody(b: GeoBatch, x: number, z: number, ry: number):
     b.box(0.3, 0.018, 0.012, px + nx * 0.03 + ux * 0.04 - sxv * 0.08, my + ny * 0.03 + uy * 0.04, pz + nz * 0.03 + uz * 0.04 - szv * 0.08, M.stripCyan, ry, MON_TILT);
     b.box(0.22, 0.018, 0.012, px + nx * 0.03 - ux * 0.02 - sxv * 0.12, my + ny * 0.03 - uy * 0.02, pz + nz * 0.03 - uz * 0.02 - szv * 0.12, M.stripCyan, ry, MON_TILT);
   }
-  // left monitor: the caller's TextPlane (PlaneGeometry faces +Z → yaw by ry + π to face the user, −tilt = top away)
-  const [sx, sz] = L(-0.38, mz);
-  const screenPos = new THREE.Vector3(sx + nx * 0.02, my + ny * 0.02, sz + nz * 0.02);
-  const screenRot = new THREE.Euler(-MON_TILT, ry + Math.PI, 0, 'YXZ');
+  // left monitor: the caller's TextPlane (PlaneGeometry faces +Z → yaw by ry + π to face the user, −tilt = top away).
+  // The pose itself comes from `computerScreenPose` — the one place that arithmetic lives, so the plane and this body
+  // cannot drift apart when either is retuned.
+  const { screenPos, screenRot } = computerScreenPose(x, z, ry);
 
   // chair tucked under the front edge (backrest toward the user)
   const cz = -(D / 2 + 0.2);

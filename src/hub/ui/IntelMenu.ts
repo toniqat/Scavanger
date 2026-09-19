@@ -221,7 +221,7 @@ export class IntelMenu {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
-  /** The terminal's `지역 재배치` — opens the screen and raises the warning popup at once (E-5: a 1 s hold confirms · no refund). */
+  /** The terminal's `지역 재배치` — opens the screen and raises the warning popup at once (a 1 s hold confirms · no refund). */
   openRelocate(): void {
     this.open();
     this.askRelocate();

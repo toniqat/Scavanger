@@ -31,7 +31,7 @@ export class LaunchWarnPanel {
   private readonly list: HTMLElement;
   private readonly subtitle: HTMLElement;
   private _open = false;
-  /** Called by 그래도 출격 (cleared on every close, so a cancelled panel can never launch later). */
+  /** Called by `그래도 준비` (cleared on every close, so a cancelled panel can never launch later). */
   private onConfirm: (() => void) | null = null;
 
   constructor(private readonly ctx: GameContext, private readonly host: LaunchWarnHost) {

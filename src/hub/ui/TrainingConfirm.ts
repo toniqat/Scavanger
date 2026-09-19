@@ -10,8 +10,9 @@ import { el } from './dom';
  *
  * Screen contract: its own blocker / escape token `hub:trainConfirm` (**a different token** from the terminal's `hub` —
  * closing it never costs the terminal behind it its cursor), key guide owner `hub.trainConfirm` (the guide appends the
- * close entry itself). CSS prefix `.htc-` (`hub/intel.css`). Owner: hub/ui. Opened from — `.hub-train` in `HubMenu`'s
- * footer.
+ * close entry itself). CSS prefix `.htc-` (`hub/intel.css`). Owner: hub/ui. Opened from — `.hub-train`, which since
+ * 2026-09-15 sits on its own right-aligned row **above** the footer separator (`.hub-train-row`, planet tab only), not
+ * in `HubMenu`'s footer.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const TOKEN = 'hub:trainConfirm';

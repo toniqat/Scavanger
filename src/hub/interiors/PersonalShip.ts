@@ -43,9 +43,9 @@ function fadeMat(src: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
  * places went from one per segment to two, and a room's from one to two** — only the places grew; the real point
  * lights are still `HUB_POINT_LIGHTS` of them (「Never change the point-light count at runtime」, `LightPool`).
  * Static geometry is merged per material (`GeoBatch`); the point-light count is constant: **`HUB_POINT_LIGHTS`**
- * pool lights (2026-09-10, was 13 lights of its own) serve the light fixtures nearest the player — cockpit 4,
- * corridor 10, airlock 1 and the two fixtures of each of the nearest `ROOM_LIGHT_POOL` lit rooms (`LightPool`:
- * re-anchored and ramped, never toggled). Furniture is rendered by `Furniture.ts` into `RoomDef.furnitureGroup`.
+ * pool lights (2026-09-10, was 13 lights of its own) serve the light fixtures nearest the player — the cockpit's four,
+ * two per corridor segment (so the corridor's count follows `ROOMS_PER_SIDE`), the airlock's one and the two fixtures
+ * of each of the nearest `ROOM_LIGHT_POOL` lit rooms (`LightPool`: re-anchored and ramped, never toggled). Furniture is rendered by `Furniture.ts` into `RoomDef.furnitureGroup`.
  *
  * Phase 8 (2026-09-06): the built-in workbench and the hydroponics rack are gone (정비 벤치 / 재배층 are placeable
  * furniture now) and each room owns its emissive strip materials so an empty room reads dark (`ROOM_STRIP_DIM`) and an
@@ -116,7 +116,7 @@ export class PersonalShip implements ShipInterior {
    * the player first, so the scene-wide count stays inside `SCENE_POINT_LIGHT_BUDGET` (see `LightPool`).
    */
   private lightPool!: LightPool;
-  /** The fixed fixtures (cockpit 4, corridor 2 × `ROOMS_PER_SIDE`, airlock 1 — 15 since 2026-09-12, was 10). */
+  /** The fixed fixtures (cockpit 4, corridor 2 × `ROOMS_PER_SIDE`, airlock 1 — the corridor's share follows `SHIP_ROOM_COUNT`, so no total is written here). */
   private readonly staticFixtures: LightFixture[] = [];
   /**
    * Ceiling fixtures per room (2026-09-12: **two**, one per half of the 8 × 8 m room); only lit rooms are
@@ -324,8 +324,8 @@ export class PersonalShip implements ShipInterior {
     this.beacon.position.set(0, 3.0, A.maxZ - 0.25);
     r.add(this.beacon);
 
-    // Light places (2026-09-10): the ten places this ship used to hang its own PointLights (cockpit 4, corridor 5, airlock 1)
-    // plus one per room. `HUB_POINT_LIGHTS` real lights serve the nearest of them — see `LightPool` / `updateNear`.
+    // Light places (2026-09-10): where this ship used to hang its own PointLights (cockpit · corridor · airlock), plus
+    // the per-room ones below — two each since 2026-09-12. `HUB_POINT_LIGHTS` real lights serve the nearest of them — see `LightPool` / `updateNear`.
     const fx = (x: number, y: number, z: number, color: number, intensity: number, distance: number): LightFixture => ({ x, y, z, color, intensity, distance });
     this.staticFixtures.push(
       fx(-2.4, CEIL - 0.25, -3.2, 0xeef2ff, 18, 9),

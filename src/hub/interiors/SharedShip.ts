@@ -33,8 +33,9 @@ const HANGAR_DOOR_HEIGHT = 3.2;
  * **Hangar (2026-09-08)**: the middle of the +Z (aft) wall is a 4 m open doorway (a sliding door until 2026-09-16)
  * onto the `Hangar` deck — 44 × 30 m, four marked bays with the squad's personal ships parked in them. The hangar is
  * part of *this* interior (same `GeoBatch`, same collider, one walkable union), so the doorway is an open shared edge
- * and remote avatars simply walk through it. The armoury moved aside for the doorway: racks and the 정비 벤치 keep the port
- * half, lockers and crates the starboard half.
+ * and remote avatars simply walk through it. The armoury moved aside for the doorway: the weapon racks keep the port
+ * half, lockers and crates the starboard half (the 정비 벤치 that stood to port was pulled out on 2026-09-14 — see the
+ * armoury section in `buildDeck`).
  */
 export class SharedShip implements ShipInterior {
   readonly kind: HubShipKind = 'shared';
@@ -168,8 +169,9 @@ export class SharedShip implements ShipInterior {
 
     /*
      * ── armoury (+Z wall) ──
-     * 2026-09-08: the middle of this wall is the hangar doorway now (x −2 … 2), so the row moved outward — racks and
-     * the 정비 벤치 to port, lockers and crates to starboard. Nothing stands within a metre of the opening.
+     * 2026-09-08: the middle of this wall is the hangar doorway now (x −2 … 2), so the row moved outward — the weapon
+     * racks to port, lockers and crates to starboard. Nothing stands within a metre of the opening. (The 정비 벤치 was
+     * to port too until 2026-09-14 — the note below it.)
      */
     // weapon racks
     for (const x of [-9.5, -6.5]) {
@@ -192,7 +194,8 @@ export class SharedShip implements ShipInterior {
     P.crates(ROOM.maxX - 0.6, -4.5, 3, Math.PI / 2);
 
     // ── ship facilities (tactical kit) — merged into the same GeoBatch, no extra draw calls ──
-    // implant bay: +X wall, +Z half. (Phase 8: the hydroponics rack is gone — growing lives in the personal ship's greenhouse.
+    // implant bay: +X wall, +Z half. (Phase 8: the hydroponics rack is gone; since the 2026-09-12 greenhouse rework growing
+    //  is a placed 재배 스테이션 in a personal ship's greenhouse room — no ship has a built-in one.
     //  2026-09-14: there is no `bench` either — the 정비 벤치 was pulled out down to its props, see the armoury section above.)
     this.stations = {
       implantBay: implantBay(b, col, ROOM.maxX - 1.0, 3.6, yawFromForward(-1, 0)),

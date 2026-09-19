@@ -6,11 +6,13 @@ import type { Builder } from './Furniture';
 /* ────────────────────────────────────────────────────────────────────────────
  * Mining facility furniture (2026-09-13, crypto mining — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, agent ④).
  *
- *   • `compute_cluster` — the compute cluster: a slim server rack 2 cells wide × 1 deep × 1.9 m. **Both wide faces (local
- *     ±Z) are access faces** (`access = sides`), so the same 3 × 3 of core slots sits on the front and the back. As many
- *     slots light up as there are mounted cores (`BuildExtra.cores`, top row from the left); while mining
- *     (`BuildExtra.clusterMining`) each slot's status light is green, amber when stopped. Sides: cooling fins · cables; top: two fans.
- *   • `mining_computer` — the main computer: three monitors on a 3 × 2 cell desk (centre = a candle chart, left = a line chart,
+ *   • `compute_cluster` — the compute cluster: a slim server rack, its footprint and height from `data/furniture.csv`
+ *     (`furn_compute_cluster`, passed in as `w, d, h`). **Both wide faces (local ±Z) are access faces** (`access = sides`),
+ *     so the same grid of core slots sits on the front and the back — three columns and as many rows as `MAX_CORES`
+ *     (= `COMPUTE_CLUSTER_MAX_CORES`) needs. As many slots light up as there are mounted cores (`BuildExtra.cores`, top row
+ *     from the left); while mining (`BuildExtra.clusterMining`) each slot's status light is green, amber when stopped.
+ *     Sides: cooling fins · cables; top: two fans.
+ *   • `mining_computer` — the main computer: three monitors on the desk `furn_mining_computer` sizes (centre = a candle chart, left = a line chart,
  *     right = the quote list — all of them emissive bars), keyboard · mouse · the tower under the desk (a lit strip).
  *
  * Spread straight into `Furniture.ts`'s `BUILDERS` (the `Builder` shape of `FurnitureKitchen` · centred · floor y 0 · front −Z · `GeoBatch`).
@@ -55,7 +57,7 @@ function rotXZ(cx: number, cz: number, ry: number, lx: number, lz: number): [num
 
 /* ── compute cluster ────────────────────────────────────────────────────── */
 
-/** One wide face (`s` = −1 front · +1 back): the 3 × 3 of core slots · the top band · the vent grille. */
+/** One wide face (`s` = −1 front · +1 back): the core-slot grid (`cols` wide, as many rows as `MAX_CORES` needs) · the top band · the vent grille. */
 function clusterFace(b: GeoBatch, w: number, d: number, s: -1 | 1, accent: THREE.Material, cores: number, mining: boolean): void {
   const zFace = s * (d / 2);
   const cols = 3, rows = Math.ceil(MAX_CORES / cols);

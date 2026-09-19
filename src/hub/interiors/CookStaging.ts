@@ -34,6 +34,8 @@ const frac = (x: number): number => x - Math.floor(x);
 const TOOL_RATE = 9;
 const TOOL_ARC = 0.08;
 const TOOL_SETTLED = 0.004;
+/** How close to the work spot a tool counts as 「out」 for the `stage` debug hook (m). Loose enough to catch a tool that has settled, tight enough to exclude a rest spot. */
+const WORK_SPOT_EPS = 0.02;
 /** How long one input takes to turn one cycle (s) — a knife stroke · mincing (shorter) · a wok toss. */
 const STROKE_S: Readonly<Partial<Record<CookBeatAction, number>>> = { cut: 0.24, mince_h: 0.15, mince_v: 0.15, toss: 0.34 };
 /** How long it takes to carry a half-turned hand to the end of its cycle (knife up) when a beat game starts (s). */
@@ -196,7 +198,18 @@ export class CookStaging {
     if (!this.uid) return null;
     const rig = this.find(this.uid)?.model.cook;
     let atWork: CookTool | null = null;
-    if (rig) for (const t of COOK_TOOLS) { const p = this.pos[t]; if (Math.hypot(p.x - rig.work.x, p.z - rig.work.z) < 0.02) atWork = t; }
+    if (rig) {
+      // The **nearest** tool inside the threshold, not the last one `COOK_TOOLS`'s order happens to visit: on a step
+      // change two tools overlap the work spot for a moment (one sliding in, one sliding back out), and the old
+      // last-wins scan reported whichever of them `COOK_TOOLS` lists later — so `atWork` answered about the list
+      // order rather than about the tool in use.
+      let best = WORK_SPOT_EPS;
+      for (const t of COOK_TOOLS) {
+        const p = this.pos[t];
+        const dist = Math.hypot(p.x - rig.work.x, p.z - rig.work.z);
+        if (dist < best) { best = dist; atWork = t; }
+      }
+    }
     return { uid: this.uid, game: this.game, phase: this.cycle, atWork };
   }
 

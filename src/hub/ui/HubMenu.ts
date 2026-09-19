@@ -13,7 +13,7 @@ import { TrainingConfirm } from './TrainingConfirm';
 
 /** What the menu needs from HubSystem. */
 export interface HubMenuHost {
-  /** Called after the menu closed itself (E / 닫기) so the hub re-locks the pointer. */
+  /** Called after the menu closed itself (E / the footer's `닫기 (E)`) so the hub re-locks the pointer. */
   onClosed(): void;
   /** `시뮬레이션 훈련장` (Phase 7, shared ship): start a training or join the one already running. */
   startTraining(): void;
@@ -546,8 +546,14 @@ export class HubMenu {
     this.btnIntelBuy.hidden = !!spec;
     this.btnIntelView.hidden = !spec;
     this.btnIntelMove.hidden = !spec;
+    /*
+     * The note below is the intel **section**'s, not one button's. With intel already held `정보 구매` is hidden
+     * (`btnIntelBuy.hidden = !!spec` above) and the only control the same reason greys out is `지역 재배치` — so
+     * `분대장만 정보를 살 수 있습니다` there would be explaining a button that is not on screen (B-42). The leader-only reason
+     * therefore names whichever action is actually offered.
+     */
     const blocked = !available ? '정보상을 사용할 수 없습니다'
-      : readOnly ? '분대장만 정보를 살 수 있습니다'
+      : readOnly ? (spec ? '분대장만 지역을 재배치할 수 있습니다' : '분대장만 정보를 살 수 있습니다')
         : !here ? '목표 행성을 먼저 지정하세요'
           : null;
     /*
@@ -576,8 +582,10 @@ export class HubMenu {
     this.btnIntelBuy.disabled = !!buyBlocked;
     this.btnIntelMove.disabled = !!blocked;       // relocation is the held intel's business — the paged planet is irrelevant
     this.btnIntelView.disabled = !available;      // a non-host can view too (read-only)
-    this.intelNote.hidden = !buyBlocked;
-    if (buyBlocked) setText(this.intelNote, buyBlocked);
+    // it explains the control that is on screen: `정보 구매` while it is up (`offTarget` only ever fires then), otherwise the `지역 재배치` `blocked` greys out
+    const note = this.btnIntelBuy.hidden ? blocked : buyBlocked;
+    this.intelNote.hidden = !note;
+    if (note) setText(this.intelNote, note);
   }
 
   /** The shared entry for `정보 구매` · `정보 확인` · `지역 재배치` (`relocate` goes straight to the warning popup). */

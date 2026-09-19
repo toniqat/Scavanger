@@ -180,8 +180,9 @@ export class Parts {
    * bench should have, and the transform for a wall sign above the tool board (`TextPlane` added by the caller).
    *
    * 2026-09-12: nothing uses the returned `position` / `yaw` any more (the repair bench was dropped — the
-   * `hub_workbench` interaction went and the bench became a prop). The maths is one line, so it stays; only the sign
-   * transform is still used, by `SharedShip`.
+   * `hub_workbench` interaction went and the bench became a prop). **2026-09-14: nothing calls this at all** — the prop
+   * went too, so `SharedShip` no longer asks for the sign transform either. It is kept **for its coordinates**: deleting
+   * it would lose the only record of where the armoury bench stood, and putting one back is then a rebuild from nothing.
    */
   workbench(x: number, z: number, ry: number): { position: THREE.Vector3; yaw: number; signPos: THREE.Vector3; signRot: THREE.Euler } {
     const fx = -Math.sin(ry), fz = -Math.cos(ry);   // front (toward the room)

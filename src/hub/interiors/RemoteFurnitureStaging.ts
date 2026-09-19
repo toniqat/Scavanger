@@ -17,6 +17,8 @@ import { RUN_STRIDE_LENGTH, UNRACK_S, poseBelt, poseBenchBar, poseCrank, poseRoc
  *   sit            the rocking chair rocks (the phase is always 0 — the rock is driven by time)
  *   cook           (2026-09-13) nothing to drive — the cook bench model carries `cook`, not `rig`, and which tool is out (the
  *                  step game) is not on the wire. The `rig` check below makes no entry and passes silently (player's `RemoteAvatar` draws the body's knife work).
+ *                  `drive()` still names the kind, and its `default` branch is an exhaustive `never` check: give a cook bench a `rig` one day and
+ *                  the silence is a decision taken here, not an entry that is created and then never driven.
  *
  * When the pose ends (the ref's `furniturePose` null · gone from the list · disconnected · stale · another ship) the piece goes
  * back to rest (`restRig` — plates hidden · bar on the rack · chair stopped). A piece **the local staging drives** (`GymStaging.uid` ·
@@ -170,6 +172,17 @@ function drive(rig: FurnitureRig, e: Entry, phase: number, dt: number, time: num
     case 'sit':
       poseRock(rig, time);
       break;
+    case 'cook':
+      // (2026-09-13) nothing to drive: the cook bench carries `model.cook`, not `model.rig`, so `update`'s `rig` lookup
+      // never reaches here. The branch exists so the `never` below stays reachable-free.
+      break;
+    default: {
+      // Exhaustive over `FurniturePoseKind`: a new pose kind must decide here what a remote body does to the piece.
+      // Without this a new kind silently got an entry that was never driven and never put to rest.
+      const unhandled: never = e.kind;
+      void unhandled;
+      break;
+    }
   }
   e.phase = phase;
 }

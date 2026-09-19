@@ -66,7 +66,7 @@ export function tryResume(sys: HubSystem): void {
   if (!net || typeof net.ensureConnected !== 'function') return;
   // 2026-09-11 (B-1): after a refusal (kicked · server full · another tab connected) merely entering the ship never
   // reconnects — `ensureConnected` is an explicit connect and would clear `refused`. The only ways back are the
-  // terminal's `신호 찾기` and the title's `다시 시도`.
+  // terminal's `다시 연결` (the 매칭 tab, `ui/MatchTab`) and the title's `다시 시도`.
   if (net.link?.state === 'refused') return;
   net.ensureConnected().then((ok) => {
     // 2026-09-15: an undocked squad on welcome stays right here (its members live in their own personal ships)

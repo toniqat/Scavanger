@@ -67,7 +67,7 @@ function counter(b: GeoBatch, w: number, d: number, T: number, a: THREE.Material
 
 export const KITCHEN_APPLIANCE_BUILDERS: Readonly<Record<KitchenApplianceKind, Builder>> = {
   /**
-   * The food processor (`2 × 2 · 1.2`, chopping · mincing): a motor base on the cabinet (speed readout · dial · status light) → the locking ring →
+   * The food processor (`data/furniture.csv` `furn_food_processor` — chopping · mincing): a motor base on the cabinet (speed readout · dial · status light) → the locking ring →
    * a **clear glass bowl** (two S-blades · shaft · cyan hub · minced bits inside) → lid · feed chute · pusher; a handle beside the bowl, a spare blade-disc rack on the right.
    */
   food_processor: (b, w, d, _h, a, lv) => {
@@ -104,7 +104,7 @@ export const KITCHEN_APPLIANCE_BUILDERS: Readonly<Record<KitchenApplianceKind, B
   },
 
   /**
-   * The auto grill (`3 × 2 · 1.0`, grilling · stir-frying): a firebox on the cabinet. On the left the **grill zone**, glowing heating elements (emissive)
+   * The auto grill (`data/furniture.csv` `furn_auto_grill` — grilling · stir-frying): a firebox on the cabinet. On the left the **grill zone**, glowing heating elements (emissive)
    * showing between bars that run front to back, with two patties on them. On the right a **griddle** with griddle marks (vegetable pieces). Over the
    * grill zone a **hood** (a lid) opened from hinges at the back, a readout · two dials on the firebox front, and a spatula · tongs rail at the right end.
    */
@@ -152,7 +152,7 @@ export const KITCHEN_APPLIANCE_BUILDERS: Readonly<Record<KitchenApplianceKind, B
   },
 
   /**
-   * The auto stirrer (`2 × 2 · 1.3`, stirring): a big pot (broth · two handles) on an induction plate (a glowing ring) on the cabinet. The motor head (cyan
+   * The auto stirrer (`data/furniture.csv` `furn_auto_stirrer` — stirring): a big pot (broth · two handles) on an induction plate (a glowing ring) on the cabinet. The motor head (cyan
    * band) at the end of the **arm** from the **stand** column at the back right lowers a shaft into the pot, a cross **paddle** on its end. An ingredient jar at the front right.
    */
   auto_stirrer: (b, w, d, _h, a, lv) => {
@@ -185,7 +185,7 @@ export const KITCHEN_APPLIANCE_BUILDERS: Readonly<Record<KitchenApplianceKind, B
   },
 
   /**
-   * The pour dispenser (`2 × 2 · 1.6`, pouring): **four liquid tanks** (in `COOK_LIQUIDS` order — water · oil · milk · egg, colour = `COOK_LIQUID_COLOR`)
+   * The pour dispenser (`data/furniture.csv` `furn_pour_dispenser` — pouring): **four liquid tanks** (in `COOK_LIQUIDS` order — water · oil · milk · egg, colour = `COOK_LIQUID_COLOR`)
    * hang on the wall panel standing behind the cabinet — liquid in a clear glass tube · caps top and bottom · bracket · colour band. The valves under the
    * tanks gather into a manifold and come down to the centre **nozzle**, a **graduated beaker** on the tray below it; control screen and four liquid buttons left on the panel.
    */
@@ -235,7 +235,7 @@ export const KITCHEN_APPLIANCE_BUILDERS: Readonly<Record<KitchenApplianceKind, B
  * the anchors」; the same contract as the gym `FURN_*`, so the values are copied across — no other feature folder is imported). When player changes, so does this.
  *   `COOK_EDGE_GAP` = −edgeZ (anchor → the front edge of the bench top) · `COOK_WORK_IN` = edgeZ − workZ (front edge → the right hand's work point) ·
  *   `COOK_KNIFE_X` = knifeX (body centre → the right hand, to the body's right) · `COOK_CHOP_LIFT` = chopLift · `COOK_STIR_R` = stirR.
- * The bench top height topY 1.08 is the same as `bench_cook`'s `h − 0.02` (csv height 1.1).
+ * The bench top player poses against is the `bench_cook` builder's `h − 0.02`, `h` being `data/furniture.csv` `furn_bench_cook`'s height — no copy of that number lives here.
  */
 export const COOK_EDGE_GAP = 0.3;
 export const COOK_WORK_IN = 0.22;

@@ -48,7 +48,7 @@ function spine(css: string): THREE.MeshStandardMaterial {
   }
   return m;
 }
-/** 책장 shelves (BOOKS_PER_SHELF slots spread over them, top shelf first). 2026-09-13: 4 × 2 (was 3 × 2). */
+/** 책장 shelves (`BOOKS_PER_SHELF` slots spread over them, top shelf first — the slots per shelf follow from the two). 2026-09-13: one shelf more than Phase 9 had. */
 const BOOK_SHELF_ROWS = 4;
 const LAMP_GLOW = new THREE.MeshStandardMaterial({ color: 0xffe3a0, roughness: 0.3, metalness: 0, emissive: 0xffc060, emissiveIntensity: 2.4 });
 const LEAF = new THREE.MeshStandardMaterial({ color: 0x4f9a4a, roughness: 0.85, metalness: 0 });
@@ -284,7 +284,7 @@ const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
     b.boxB(0.26, 0.1, 0.2, w * 0.3, top, 0.08, M.hullLight);
   }),
   /**
-   * 정제 작업대 (2026-09-10): the bench for the higher-tier materials. Where the other four are "a desk that assembles
+   * `가공 작업대` (2026-09-10, `data/furniture.csv` `furn_bench_refine`): the bench for the higher-tier materials. Where the other four are "a desk that assembles
    * things", this one is a **smelter** — a crucible glowing amber on the left, a mould tray in the middle (three cooling
    * ingots), a winding drum on the right (cable · woven cloth). The crucible is raised large above the top so the silhouette alone tells it apart.
    */
@@ -652,7 +652,7 @@ const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
     b.box(w, 0.05, d, 0, h - 0.025, 0, M.hullLight);                                        // top
     b.box(w - 0.1, 0.05, d - 0.02, 0, 0.06, 0, M.gunmetal);                                 // plinth
     b.box(w - 0.14, 0.03, 0.04, 0, h - 0.06, -(d / 2 - 0.02), a);                           // accent lip under the top
-    // 2026-09-13: 4 shelves × 2 slots (BOOKS_PER_SHELF 8) — slot 0 = top-left, row-major, same order as the 2D panel
+    // 2026-09-13: `BOOK_SHELF_ROWS` shelves, `ceil(BOOKS_PER_SHELF / rows)` slots each — slot 0 = top-left, row-major, same order as the 2D panel
     const rows = BOOK_SHELF_ROWS, perRow = Math.ceil(BOOKS_PER_SHELF / rows);
     const y0 = 0.1, rowH = (h - 0.2) / rows;
     const books = extra?.books ?? [];
@@ -754,7 +754,7 @@ const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
   /**
    * 기업 네트워크 컴퓨터 (2026-09-12, 공용 시설 가구): **the same body** as the built-in desk (`stations.shipComputerBody`). The body's centre
    * is pushed to `d/2 − 0.4` so the desk's back sits against the footprint's rear edge (local +Z) — the chair stays inside the footprint at the front (−Z).
-   * The left monitor's text panel (`TextPlane`) is beyond a builder, so `FurnitureLayer.addPiece` attaches it at `COMPUTER_SCREEN_LOCAL`.
+   * The left monitor's text panel (`TextPlane`) is beyond a builder, so `FurnitureLayer.addPiece` attaches it where `computerScreenLocal(d)` below says.
    */
   corp_computer: (b, _w, d) => {
     shipComputerBody(b, 0, d / 2 - 0.4, 0);
@@ -810,8 +810,9 @@ export interface FurnitureCallbacks {
    * 정비 벤치 (Phase 8) — **retired 2026-09-12** (user's decision). `onRepairBench(): void` lived here and opened
    * `hub/ui/WorkbenchMenu`. Repairing a weapon in the ship is now done from the inventory with materials, so neither that
    * window nor the `furn_repair_bench` piece exists (`retired=1` in `data/furniture.csv` → `ShipState.sanitize` refunds it).
-   * `'repair_bench'` stays in `FurnitureInteraction` because the contract is add-only, and the dispatch below catches that
-   * value in a branch that does **nothing** — drop it and it falls through to `else cb.onRangeConsole()` and opens the wrong window.
+   * `'repair_bench'` stays in `FurnitureInteraction` because the contract is add-only, and `RETIRED_INTERACTIONS` below
+   * keeps a stale piece from registering an interactable at all (the dispatch table has neither a `repair_bench` branch
+   * nor an `else` tail any more — `onRangeConsole` went the same day, see the note above).
    */
   /** 책장 (Phase 9): open the bookshelf panel of this piece (`ctx.housing.openBookshelfMenu(uid)`). */
   onBookshelf(uid: string): void;
@@ -1039,7 +1040,11 @@ export class FurnitureLayer {
     return s && s.uid ? { uid: s.uid, phase: s.drivePhase ?? 0 } : null;
   }
 
-  /** Placed piece under a room cell, or null. With a stack (재배층) the **top** layer wins — housing only lets the top one be recovered. */
+  /**
+   * Placed piece under a room cell, or null. With a stack the **top** layer wins — housing only lets the top one be
+   * recovered. No live `data/furniture.csv` row sets `stackLimit > 1` any more (`furn_grow_rack` retired), so the tie
+   * break is unreachable today; it stays because `stackLimit` is a csv column and a new row turns it back on.
+   */
   pieceAt(room: number, x: number, y: number): PlacedFurniture | null {
     let best: PlacedFurniture | null = null;
     for (const p of this.pieces.values()) {
@@ -1137,7 +1142,8 @@ export class FurnitureLayer {
     const fp = furnitureFootprint(def, item.yaw);
     const model = buildFurniture(def, item.level, this.buildExtra(def, item.uid));
     roomCellToWorld(item.room, item.x, item.y, _pos, fp.cols, fp.rows);
-    // stacked furniture (재배층): each layer sits GROW_RACK_LAYER_HEIGHT higher on the same footprint
+    // stacked furniture (`FurnitureDef.stackLimit`): each layer sits `GROW_RACK_LAYER_HEIGHT` higher on the same
+    // footprint. `layer` is 0 for everything placed today — the only kind that ever stacked, 재배층, is retired.
     const layer = item.layer ?? 0;
     const layerY = layer * GROW_RACK_LAYER_HEIGHT;
     model.group.position.set(_pos.x, layerY, _pos.z);
@@ -1171,6 +1177,8 @@ export class FurnitureLayer {
     if (def.interaction !== 'none' && !RETIRED_INTERACTIONS.has(def.interaction) && this.source === null) {
       const bench = benchKindOf(def.interaction);
       const kind = def.interaction;
+      // `stackLimit` is a csv column no live row raises above 1 since `furn_grow_rack` retired, so every `stack > 1`
+      // branch below is unreachable today. They stay because turning stacking back on is a csv edit, not a code change.
       const stack = Math.max(1, def.stackLimit ?? 1);
       const fixture = FIXTURE_INTERACTABLE[kind];
       // A-3e · A-3a (2026-09-12): holders · 흔들의자 · furniture that toggles · gym machines
@@ -1478,11 +1486,6 @@ export class FurnitureLayer {
   }
 
   /**
-   * The number of culture slots waiting to be collected (a 배양조's tube colours). Same shape as `analysisReady` — a
-   * visited ship has none on the wire and `ctx.housing` is duck-typed / try-caught, so an unfinished folder degrades
-   * to a dark tank instead of throwing in the middle of a room rebuild.
-   */
-  /**
    * The per-slot look of a 배양조 (2026-09-17). The player's own ship reads `ctx.housing.getCultureSlots`, a visited ship the wire (`FurnitureSource.getCultures`
    * ← `ShipVisitWire.cultures`). Either way the medium colour comes from the local catalogue (a book rarity's path). Both duck-typed / try-caught.
    */
@@ -1510,6 +1513,11 @@ export class FurnitureLayer {
     return out;
   }
 
+  /**
+   * The number of culture slots waiting to be collected (a 배양조's tube colours). Same shape as `analysisReady` — a
+   * visited ship has none on the wire and `ctx.housing` is duck-typed / try-caught, so an unfinished folder degrades
+   * to a dark tank instead of throwing in the middle of a room rebuild.
+   */
   private cultureReady(uid: string): number {
     if (this.source) return 0;
     const h = this.ctx.housing;

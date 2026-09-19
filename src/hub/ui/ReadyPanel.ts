@@ -349,10 +349,13 @@ export class ReadyPanel {
     const c = this.cells[i];
     const views = info ? this.gearOf(info) : null;
     const key = views ? views.map((v) => `${v.defId ?? ''}:${v.unknown ? '?' : ''}${[...v.filled].join('')}`).join('|') : '';
-    if (key === this.gearKey[i]) return;
-    this.gearKey[i] = key;
+    // Visibility is applied **before** the no-change bail-out: a cell that never held gear has key `''` and `gearKey[i]`
+    // starts `''` too, so the bail-out used to fire on the very first paint and leave the five empty `.hr-slot`s and the
+    // empty `.hr-value` on screen. Setting `hidden` is idempotent, so doing it every call costs nothing.
     c.gear.hidden = !views;
     c.value.hidden = !views;
+    if (key === this.gearKey[i]) return;
+    this.gearKey[i] = key;
     if (!views) return;
     let total = 0;
     for (let k = 0; k < c.slots.length; k++) {

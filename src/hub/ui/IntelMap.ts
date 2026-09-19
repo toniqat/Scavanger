@@ -7,7 +7,7 @@ import { MAP_SIZE } from '@/shared';
  * User's decision: **the real layout, blurred onto a grid.** It takes the layout run from the same seed (no mesh)
  * and draws only 「which grid cell holds what」, smeared — an exact coordinate is never readable. So it
  *
- *   ① **snaps** everything to `cells × cells` cells (a cell = MAP_SIZE / cells ≈ 60 m),
+ *   ① **snaps** everything to `cells × cells` cells (a cell is `MAP_SIZE / cells` metres across — see `DEFAULT_CELLS`),
  *   ② fills the cells as flat blocks and smears them with `ctx.filter = blur(…)`,
  *   ③ lays one very faint sharp rectangle on top, leaving no more than 「there is something here」.
  *
@@ -59,7 +59,7 @@ export type IntelMapLayout = MapPreviewLayout;
 export interface DrawIntelMapOptions {
   /** One side of the world (m). Default `MAP_SIZE`. */
   mapSize?: number;
-  /** Number of grid cells (per side). The more there are the sharper a coordinate reads — default 18 (≈ 60 m cells). */
+  /** Number of grid cells (per side). The more there are the sharper a coordinate reads — default `DEFAULT_CELLS`, i.e. cells of `MAP_SIZE / DEFAULT_CELLS` m. */
   cells?: number;
   /** The text printed in the centre when there is no layout (default `지도 미리보기 없음`). */
   emptyText?: string;

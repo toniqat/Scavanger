@@ -5,7 +5,8 @@ import { GeoBatch, HUB_MATS as M } from './GeoBatch';
 import type { BuildExtra, FurnitureModel } from './Furniture';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Library media (A-3e) · gym (A-3a) furniture, 11 kinds — 2026-09-12.
+ * Library media (A-3e) · gym (A-3a) furniture — 2026-09-12. The kinds are `LeisureKind` below (counting them here only
+ * rots: five more arrived on 2026-09-13 and this line kept the old number until 2026-09-19).
  *
  * Same contract as the other builders in `Furniture.ts`: footprint centre · floor y 0 · **front = −Z** · one `GeoBatch`
  * mesh per material. Two differences:
@@ -235,7 +236,11 @@ const ALONG_X = Math.PI / 2;
  */
 /** Bench pad top height — the bench rack and the smith machine use the same bench. */
 const PAD_TOP = 0.4;
-/** The bench's foot-end · head-end z. The head side is +Z (the rack side). The foot end is just past the hips (z 0.18) — the soles (z −0.18) reach the floor beside the pad. */
+/**
+ * The bench's foot-end · head-end z. The head side is +Z (the rack side). The foot end reaches a little past where the
+ * **soles** land (the pose table above, foot-side offset from `BENCH_SHOULDER_Z`), so the feet stand on the floor beside
+ * the pad while the hips — a good deal further toward the head end — still lie on it.
+ */
 const PAD_Z0 = -0.2, PAD_Z1 = 0.78;
 /** The z of the shoulder blades of a body lying on the bench (0.18 m in from the pad's head end). */
 const BENCH_SHOULDER_Z = 0.6;
@@ -384,7 +389,8 @@ function tvGameOverlay(model: FurnitureModel, cy: number, sw: number, sh: number
 
 export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   /**
-   * Disc stand (`3 × 1 · 1.8`): a metal-framed display cabinet — three shelves with two slots each (`SHELF_SLOTS.disc`),
+   * Disc stand (`3 × 1 · 1.8`): a metal-framed display cabinet — `SHELF_SLOTS.disc` slots spread over three shelves
+   * (`perRow = ceil(n / rows)`, so the shelf count is fixed and the row width follows the csv slot count),
    * and in every slot a disc case standing tilted slightly forward. The case's back panel is the **rarity colour** and the
    * silvery disc face shows in front of it. An empty slot keeps only its base. Under the front edge of every shelf runs a
    * white LED strip (emissive), which is what makes it read as a display cabinet.
@@ -879,7 +885,7 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
    * (`barPress`) and travels up and down.
    */
   bench_rack: (b, model, _w, _d, _h, a, extra) => {
-    // The bar on the J hooks sits a little below the arms-extended height (BENCH_BAR_HIGH 1.21) — it reads as being lifted up and out
+    // The bar on the J hooks sits a little below the arms-extended height (`BENCH_BAR_HIGH.y` = `PAD_TOP` + `PRESS_HIGH_UP`) — it reads as being lifted up and out
     const upZ = 0.95, upX = 0.5, hookY = BENCH_BAR_HIGH.y - 0.07, restZ = 0.85;
     b.box(1.14, 0.05, 0.08, 0, 0.025, upZ + 0.05, M.gunmetal);                                   // floor crossbar
     for (const sx of [-1, 1]) {
@@ -913,7 +919,8 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
    * on the rails, and below them the same flat bench as the bench rack. Plates only during a session.
    */
   smith_machine: (b, model, _w, _d, _h, a, extra) => {
-    // The rails are vertical, so the bar's z is fixed — it stands at the middle of player's fist path (z 0.57 → 0.66), off by ±4.5 cm at either end
+    // The rails are vertical, so the bar's z is fixed — it stands at the middle of player's fist path
+    // (`BENCH_BAR_LOW.z` … `BENCH_BAR_HIGH.z` = `BENCH_SHOULDER_Z` + `PRESS_LOW_Z` … + `PRESS_HIGH_Z`), off by half that span at either end
     const railZ = (BENCH_BAR_LOW.z + BENCH_BAR_HIGH.z) / 2, railX = 0.72, restY = BENCH_BAR_HIGH.y - 0.06, topY = 2.16;
     for (const sz of [-1, 1]) b.box(1.9, 0.06, 0.08, 0, 0.03, sz * 1.15, M.gunmetal);          // floor frame
     for (const sx of [-1, 1]) b.box(0.08, 0.06, 2.3, sx * 0.92, 0.03, 0, M.gunmetal);

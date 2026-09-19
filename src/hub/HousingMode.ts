@@ -34,14 +34,16 @@ const CANCEL_KEY = 'KeyC';
  * would stay true and `player/`'s click-to-relock fallback would fight for the pointer. Its own token is ignored by
  * this controller (see `blockedByPanel`).
  *
- * **Phase 10**: the pointer lock is **kept** — `ctx.input.setCursorMode(true, MANAGE_BLOCKER)` drives the software
- * cursor (`shared/cursor.ts`) from the raw locked deltas instead of handing the OS cursor back.
+ * **The pointer lock is released**: `ctx.input.setCursorMode(true, MANAGE_BLOCKER)` exits the lock (`shared/Input.ts`
+ * `setCursorMode`) and the OS cursor comes back; leaving the mode drops the token and `main.ts` — the only relock site —
+ * asks for the lock again. The floor cursor is therefore a camera ray onto the deck, not an accumulated delta.
  */
 const MANAGE_BLOCKER = 'shipmanage';
 /**
  * Camera over the room: how far **toward +X** from the room centre, and how high.
  *
- * Phase 10: the eye used to be `cx − rb.side · CAM_TOWARD_DOOR`, i.e. over each room's *own* door wall. `rb.side` is
+ * Phase 10: the eye used to be `cx − rb.side · CAM_TOWARD_DOOR` (a constant that no longer exists — the two below
+ * replaced it), i.e. over each room's *own* door wall. `rb.side` is
  * −1 for rooms 0–4 and +1 for rooms 5–9, so both halves of the ship were seen with their door at the bottom of the
  * screen and therefore read 180° apart. The **port** convention is now used for every room (eye on the +X side of the
  * room looking −X), so a starboard room is seen from the outer hull toward the corridor and its door sits at the
@@ -78,13 +80,15 @@ const _ray = new THREE.Raycaster();
 /**
  * 3D side of housing mode (`housing:modeChanged {active:true, room}` → this; the rules live in `ctx.housing`).
  * Controls off, oblique top-down camera **on the room's +X side looking −X** (`setCameraOverride`, blended; one
- * convention for every room since Phase 10 — see `CAM_TOWARD_DOOR`), the pointer **stays locked** and its deltas move
- * a floor cursor over the `ROOM_GRID_COLS × ROWS` grid. A ghost of `ctx.housing.selectedFurniture` (or of a picked-up piece) follows the
- * cursor, green / red by `canPlace`.
+ * convention for every room since Phase 10 — see `CAM_TOWARD_FRAC` · `CAM_HEIGHT_FRAC`), the pointer lock is **released**
+ * and the free cursor is ray-cast onto the deck to move a floor cursor over the area's own grid (`roomGridSize(room)` —
+ * a room and the cockpit do not have the same one). A ghost of `ctx.housing.selectedFurniture` (or of a picked-up piece)
+ * follows the cursor, green / red by `canPlace`.
  *   LMB (`Keys.FIRE`)         place the selection · pick up the piece under the cursor · put a picked-up piece down (`move`)
  *   R   (`Keys.ROTATE_ITEM`)  rotate the selection / the carried piece
  *   X   (`Keys.DROP_ITEM`)    recover the piece under the cursor (→ furniture storage)
- *   wheel / [ ]               cycle the selection through the furniture storage (null = cursor only)
+ *   wheel / [ ]               cycle the selection through the furniture storage (null = cursor only) — **room console only**:
+ *                             ship management takes a new piece from a card in `ui/hud/ShipManage`, so `update()` gates this on `!manage`
  *   C   (`CANCEL_KEY`)        cancel the current selection / put a carried piece back — and, with an empty
  *                             cursor, leave the mode just like Esc (Phase 8 UI pass)
  *   Esc (`Keys.MENU`)         same as C, but through the shared escape stack (2026-09-09): the mode registers its own

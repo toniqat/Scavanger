@@ -20,7 +20,8 @@ import { el, setText, toggleClass } from './dom';
  *    `connectThen`). A squadmate has both locked with `분대장만 매칭할 수 있습니다`; `dockPending` shows `도킹 중…`; while
  *    connecting they stay locked with `서버에 연결하는 중…`. **With no connection** (2026-09-15, 2nd pass, user's
  *    decision) the two buttons **disappear and one `다시 연결` of the same size** takes their place, with the reason line
- *    `서버에 연결되어 있지 않습니다` kept (the explicit reconnect the old `신호 찾기` did — without this path there is no
+ *    `서버에 연결되어 있지 않습니다` kept (the explicit reconnect the old `신호 찾기` button did — that label is gone from
+ *    `src/`, `다시 연결` is its replacement; without this path there is no
  *    way back from the terminal after a kick or a full server; earlier that day it was a small button under the line).
  *  - With no connection an empty tile's `초대` is **dimmed but still clickable** (`.is-offline`) — a click flashes the
  *    reason line instead of opening the window (`flashHint`, again on every click). Locking it would leave no way to
@@ -219,7 +220,7 @@ export class MatchTab {
       level: typeof lvl === 'number' && lvl > 0 ? lvl : mine?.level ?? card?.level ?? null,
       // mine is my own character's accent (the save) — the value carried in the lobby is its echo
       accent: sanitizeAccent(card?.accent) ?? sanitizeAccent(mine?.accent) ?? NET_SLOT_COLORS_CSS[mySlot] ?? NET_SLOT_COLORS_CSS[0],
-      isHost: !!mine?.isHost && players.length > 0,
+      isHost: !!mine?.isHost,           // `mine` comes out of `players`, so a non-empty list is already implied
       connected: true,
       me: true,
       slot: mySlot,

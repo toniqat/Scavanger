@@ -202,7 +202,7 @@ forwards interactions.
 - Planet stepping only previews the hologram; `행성 이동` commits. The environment line (`PlanetDef.env`) warns when
   `ctx.progression.hasEnvPrep(env)` is false but never blocks travel.
 - Intel panel: no intel → Raven intro + `정보 구매`; held intel → summary (mismatch warning if for another planet) +
-  `정보 확인` / `지역 재배치`. Only the host can buy (`분대장만 정보를 살 수 있습니다`); squadmates read
+  `정보 확인` / `지역 재배치`. Only the host can buy or move the area — the note names whichever action is offered (`분대장만 정보를 살 수 있습니다` with no intel yet, `분대장만 지역을 재배치할 수 있습니다` once it is held and `정보 구매` is hidden, 2026-09-19 B-42); squadmates read
   `ctx.net.lobbyIntel` with the lobby planet, because `ctx.meta.intel.get()` is local-profile only.
 - Intel screen costs and tiers come from `ctx.meta.intel` (`costOf`, `maxTierOf`), falling back to
   `shared/intel.intelCost`. `buy` may be async — the screen locks until it settles. Re-roll = discard, no refund.
@@ -327,7 +327,9 @@ doorway is an open shared edge.
 - Optional refs (`ctx.housing`, `ctx.inventory`, `ctx.progression`, `ctx.meta`, `ctx.loot`, `ctx.implants`) are
   duck-typed everywhere and degrade to warning toasts.
 - `hub:workbenchToggled` and `.menu.hub-menu.workbench` CSS are leftovers of the removed repair bench; nothing emits or
-  uses them. `Parts.workbench`, `stations.repairBench`, `ShipStations.bench?` are kept but never called.
+  uses them. `Parts.workbench`, `stations.repairBench`, `ShipStations.bench?` are kept but never called —
+  **deliberately, to keep the bench's coordinates**: deleting them loses the only record of where the armoury bench
+  stood, so bringing a repair bench back would be a rebuild from nothing. Removing them is a decision first, not a cleanup.
 - Join / leave toasts are owned by `ui/hud/Notifications`; this folder shows none.
 - Known limits: a visited ship does not show TV consoles, remote video-game staging or a dining plate (`ShipVisitWire`
   carries no plate); a peer's ready cell shows no level until their crew card arrives; the exterior docking cutscene
@@ -336,8 +338,8 @@ doorway is an open shared edge.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.
+- 2026-09-19 — Audit B-40 · B-41 · B-42 · B-43: comments realigned with the code (light-fixture counts, intel-map cell size, `computerScreenLocal`, `CAM_TOWARD_FRAC`, `가공 작업대`, `그래도 준비`, `닫기 (E)`, `.hub-train-row`, the housing-mode cursor mode, the armoury and the retired `재배층` / `repair_bench` paths, the stale `신호 찾기` name) and csv / derived numbers replaced by their source. Behaviour: an empty ready cell now hides its gear board (`ReadyPanel.paintGear`), `shipComputerBody` takes the monitor pose from `computerScreenPose` instead of copying its arithmetic, `CookStaging.stage` reports the **nearest** tool to the work spot, `RemoteFurnitureStaging.drive` is exhaustive over `FurniturePoseKind`, and the intel note names the action that is actually on screen.
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, `data/furniture.csv` names, decision headings and verbatim user quotes kept in backticks / 「」, no string literal touched. One room, two words on purpose: the shared ship's forward room is the **bridge**, the personal ship's the **cockpit**, and the android bays keep CLAUDE.md §3.2's feature name *cockpit bays*.
 - 2026-09-18 — Intel is bought for the **target** planet only: the terminal disables `정보 구매` while the paged planet is not the target and names both (`HubMenu.refreshIntel`; 정보 확인 / 지역 재배치 unchanged), and a locked row in the intel screen names the planet it was judged against (`IntelMenu.lockText`).
 - 2026-09-17 — The intel screen moved off the `.it-` prefix to `.his-` (`intel.css`, `ui/IntelMenu.ts`, `ui/IntelMap.ts`): `.it-` was the item card's (`ui`), and this folder's global `.it-head` was right-aligning that card everywhere it was shown (B-18).
 - 2026-09-17 — Culture tank model shows each slot: medium-coloured translucent fluid (`BuildExtra.cultureSlots`, `cultureFluid` cache) and opaque cell masses when a strain is inside; tubes are translucent glass (no lights). Visited ships get it from `ShipVisitWire.cultures` (`Hangar.shipStateWire` / `furnitureSource.getCultures`).
-- 2026-09-17 — `GameStaging` accepts a seatless video-game session (`seatUid` null): TV game screen on, no furniture pose or camera, not cancelled; a vanished seat still cancels only when one was used.
