@@ -1,9 +1,9 @@
 /**
- * src/gadgets/parts/Queries.ts — **다른 폴더가 배치물에게 묻는 것**.
+ * src/gadgets/parts/Queries.ts — **what other folders ask the deployables**.
  *
- * 적 AI(`findEnemyTarget` / `findDistraction` / `visionFactor`), 무기(`blocksProjectile` — 돔 실드와
- * 바리케이드가 탄을 멈춘다), 플레이어(`fireDamageAt` / `jumpPadAt`). 전부 **순수 질의**이고
- * 상태를 바꾸지 않는다.
+ * Enemy AI (`findEnemyTarget` / `findDistraction` / `visionFactor`), weapons (`blocksProjectile` — the dome
+ * shield and the barricade stop bullets) and the player (`fireDamageAt` / `jumpPadAt`). All of them are
+ * **pure queries** and change no state.
  */
 import * as THREE from 'three';
 import {
@@ -19,7 +19,7 @@ import { GadgetVisualPool } from '../GadgetVisuals';
 import { ThrownGadgetManager } from '../ThrownGadget';
 import { EMPTY_ENEMIES, MAX_DEPLOYABLES, PLACE_CLEARANCE, PLACE_DISTANCE, PLAYER_HALF_H, RECOVER_RADIUS, TURRET_AIM_CONE, TURRET_RETARGET, TURRET_ROF, TURRET_TURN_RATE, USE_COOLDOWN, type Victim, ZONE_TICK, _a, _b, _c, _d, _e, _fwd, _g0, _g1, _g2, _r0, _r1, _r2, _r3, _r4, angleDelta, toTuple } from '../model';
 import type { GadgetSystem } from '../GadgetSystem';
-/* 2026-09-15 (B-16): 화염 지대 질의 · 투척형 배치 높이 */
+/* 2026-09-15 (B-16): the fire zone query · the height a thrown deployable stands at */
 import { PROP_STEP_UP_MAX, type FireZoneInfo } from '@/shared';
 
 export function findEnemyTarget(sys: GadgetSystem, pos: THREE.Vector3, radius: number): DeployableRef | null {
@@ -192,9 +192,11 @@ export function playerAlongRay(sys: GadgetSystem, from: THREE.Vector3, to: THREE
   }
 
 /**
- * 2026-09-15 (B-16): 살아 있는 `fire` 배치물 — 화염수류탄 · G-10 소이 수류탄 둘 다, 권위자든 복제본이든. 전부 `hostile: false`
- * (플레이어가 만든 불). **매 프레임** 불리므로 칸 객체(`sys.fireZonePool`)와 목록 배열(`sys.fireZoneList`)을 재사용한다 —
- * `position` 은 배치물의 살아 있는 벡터를 그대로 가리킨다. 남은 시간이 0 이하인 것(복제본이 호스트의 remove 를 기다리는 중)은 뺀다.
+ * 2026-09-15 (B-16): live `fire` deployables — the thrown `화염수류탄` and the G-10 incendiary grenade alike,
+ * on the authority and on replicas. All of them are `hostile: false` (fire a player lit). It is called **every
+ * frame**, so the entry objects (`sys.fireZonePool`) and the list array (`sys.fireZoneList`) are reused —
+ * `position` points straight at the deployable's live vector. Anything with 0 or less remaining (a replica
+ * waiting for the host's remove) is left out.
  */
 export function getFireZones(sys: GadgetSystem): readonly FireZoneInfo[] {
   const list = sys.fireZoneList;
@@ -215,12 +217,15 @@ export function getFireZones(sys: GadgetSystem): readonly FireZoneInfo[] {
 
 /* ═══════════════════════════ placement / items ═══════════════════════════ */
 /**
- * 투척형 배치물(돔 · 연막 · 화염 · 유인)을 권위자가 처음 세울 높이.
- * 2026-09-15 (B-16 · 화염 지대가 안 보이던 원인): 예전에는 `getHeightAt`(**지형만**)이었다 — 투척체(`ThrownGadget`)는
- * 2026-09-11 부터 건물 2층 · 옥상 · 플랫폼 데크 · 전차 위 **표면에** 떨어지는데, 배치물은 그 밑 지형으로 내려가 바닥판 · 지붕판
- * 아래에 묻혔다 (보이지도 않고, 위층에 선 사람은 `fireDamageAt` 의 높이 창 3.5 m 밖이라 타지도 않았다). 이제 그 점 **아래**의
- * 걸을 수 있는 표면이다: 윗면이 `position.y` 이하인 것 중 가장 높은 것 (`getSurfaceY` 의 발 높이 규약 — `feetY + PROP_STEP_UP_MAX`
- * 가 천장이므로 `position.y − PROP_STEP_UP_MAX` 를 넘긴다). 공중에서 터진 G-10 도 발밑 표면으로 떨어진다.
+ * The height the authority first stands a thrown deployable (dome · smoke · fire · lure) at.
+ * 2026-09-15 (B-16 · why a fire zone was invisible): it used to be `getHeightAt` (**terrain only**) — a thrown
+ * canister (`ThrownGadget`) has landed on the **surface** since 2026-09-11 (an upper floor · a roof · a
+ * platform deck · a tram), while the deployable dropped to the terrain below it and was buried under the
+ * floor plate or roof plate (invisible, and someone standing on the floor above was outside `fireDamageAt`'s
+ * 3.5 m height window and did not burn either). It is now the walkable surface **below** that point: the
+ * highest one whose top face is at or under `position.y` (`getSurfaceY`'s feet-height convention —
+ * `feetY + PROP_STEP_UP_MAX` is its ceiling, so `position.y − PROP_STEP_UP_MAX` is passed in). A G-10 that
+ * went off in the air also drops to the surface underfoot.
  */
 export function groundY(sys: GadgetSystem, position: THREE.Vector3): number {
   const world = sys.ctx.world;
@@ -237,12 +242,13 @@ export function derived(sys: GadgetSystem, key: 'useSpeedMul' | 'interactSpeedMu
 
 /* ═══════════════════════════ enemy helpers ═══════════════════════════ */
 /**
- * 설치물이 보는 적 목록.
+ * The enemy list a deployable sees.
  *
- * 2026-09-18 (벌레 알): **싸우는 몸만** 돌려준다 — 둥지의 `bug_egg` 는 빠진다. 포탑이 알을 표적으로 잡아 탄을 쏟거나
- * (「가장 가까운 적」이 바로 옆의 알이다), 둥지 곁에 깐 지뢰가 서 있기만 한 알에 곧장 터지는 것을 막는다.
- * `includeProps` 를 주면 알까지 포함한다 — 「닿는 것은 다 부순다」 는 폭발 피해 질의를 위한 문이다.
- * (`EnemyManagerRef.queryNear` 도 같은 기본값이라 이 함수는 그것을 그대로 넘긴다.)
+ * 2026-09-18 (nest eggs): it returns **only what fights back** — a nest's `bug_egg` is left out. That keeps a
+ * turret from taking an egg as its target and emptying its ammo into it ("the nearest enemy" being the egg
+ * right beside it), and a mine laid next to a nest from going off on an egg that is only standing there.
+ * Passing `includeProps` includes the eggs — the door for a blast-damage query, which breaks all it reaches.
+ * (`EnemyManagerRef.queryNear` has the same default, so this function just passes it through.)
  */
 export function enemiesNear(sys: GadgetSystem, pos: THREE.Vector3, radius: number, includeProps = false): readonly EnemyRef[] {
   const enemies = sys.ctx.enemies;
@@ -258,8 +264,9 @@ export function enemiesNear(sys: GadgetSystem, pos: THREE.Vector3, radius: numbe
   }
 
 /**
- * id 로 적 하나. 2026-09-18: **알은 돌려주지 않는다** — 이 함수를 쓰는 곳은 포탑이 「지난 틱의 표적」을 다시 잡는 자리라
- * (`parts/Simulate.updateTurret`), 알이 표적으로 남아 있으면 `enemiesNear` 에서 거른 뜻이 없어진다.
+ * One enemy by id. 2026-09-18: **eggs are never returned** — the one caller is the turret re-acquiring "last
+ * tick's target" (`parts/Simulate.updateTurret`), and leaving an egg as a target would undo the filtering
+ * `enemiesNear` does.
  */
 export function enemyById(sys: GadgetSystem, id: number): EnemyRef | null {
   const enemies = sys.ctx.enemies;

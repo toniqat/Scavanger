@@ -12,7 +12,10 @@ import { GadgetVisualPool } from './GadgetVisuals';
 import { ThrownGadgetManager } from './ThrownGadget';
 
 import { EMPTY_ENEMIES, MAX_DEPLOYABLES, PLACE_CLEARANCE, PLACE_DISTANCE, PLAYER_HALF_H, RECOVER_RADIUS, TURRET_AIM_CONE, TURRET_RETARGET, TURRET_ROF, TURRET_TURN_RATE, USE_COOLDOWN, type Victim, ZONE_TICK, _a, _b, _c, _d, _e, _fwd, _g0, _g1, _g2, _r0, _r1, _r2, _r3, _r4, angleDelta, toTuple } from './model';
-/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+/**
+ * The folder's shared vocabulary (constants · types · scratch) lives in `model.ts` — re-exported here so the
+ * existing import paths keep working.
+ */
 export * from './model';
 import * as Deploy from './parts/Deploy';
 import * as Sim from './parts/Simulate';
@@ -41,28 +44,31 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   readonly itemDefCache = new Map<GadgetId, string>();
   seq = 0;
   netHooked = false;
-  /** 2026-09-11 (E-4): 받는 쪽 버프 상한 — `revive` · `cloak` 은 이것을 통과해야 적용된다 (`parts/Wire.onBuff`). */
+  /** 2026-09-11 (E-4): the receiver-side buff guard — `revive` · `cloak` apply only if they pass (`parts/Wire`). */
   readonly buffGuard = createBuffGuard();
-  /** 마지막 `buff` 판정 (디버그 · smoke-trust). */
+  /** The last `buff` verdict (debugging · smoke-trust). */
   lastBuffVerdict: BuffVerdict | null = null;
   useCooldown = 0;
   /**
-   * 2026-09-15 (가젯 개편, 사용자 결정): 방금 `consumeItem` 이 뺀 아이템의 남은 내구도
-   * (`wearsItemDurability` 가젯만 적는다). 돔 실드 · 바리케이드가 **까인 채로** 다시 서는 근거다 —
-   * `undefined` = 새것(아이템에 내구도가 없거나 아직 한 번도 안 썼다).
+   * 2026-09-15 (the gadget rework, user's decision): the durability left on the item `consumeItem` just took
+   * (only a `wearsItemDurability` gadget writes it). This is what lets a dome shield · barricade stand back
+   * up **worn** — `undefined` = new (the item has no durability, or it has never been used).
    */
   lastConsumedDurability: number | undefined = undefined;
   /** Over / under-hand throw toggle (B), shared with grenades. */
   underhand = false;
-  /** 2026-09-11 (parts/Preview): 손에 든 설치형 가젯의 미리보기. `previewActive` 일 때만 `placement` 로 나간다. */
+  /**
+   * 2026-09-11 (parts/Preview): the preview for the `place` gadget in hand — it goes out as `placement` only
+   * while `previewActive`.
+   */
   readonly preview: PlacementPreview = Preview.createPreview();
   previewActive = false;
-  /** 마지막으로 보낸 `gadget:placementChanged` 값 (바뀔 때만 보낸다). */
+  /** The last `gadget:placementChanged` values sent (they go out only when they change). */
   readonly previewSent = Preview.createPreviewKey();
-  /** `use()` 가 설치 순간 다시 돌리는 판정 — 노출용 `preview` 를 건드리지 않는다. */
+  /** The test `use()` re-runs at the moment of placement — it does not touch the exposed `preview`. */
   readonly placeUse: PlacementPreview = Preview.createPreview();
 
-  /** 손에 든 `place` 가젯의 현재 설치 미리보기, 들고 있지 않으면 null. */
+  /** The current placement preview for the `place` gadget in hand, or null when none is held. */
   get placement(): PlacementPreview | null { return this.previewActive ? this.preview : null; }
 
   /* ═══════════════════════════ GameSystem ═══════════════════════════ */
@@ -73,7 +79,8 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
     this.thrown = new ThrownGadgetManager(ctx, (gid, pos, hp) => this.onThrownImpact(gid, pos, hp));
     ctx.scene.add(this.visuals.group);
     this.visuals.warm();
-    // 2026-09-11: 설치 미리보기 고스트 (대형 + 소형 place 종류) · 2026-09-15: 진동 장치 (소형이지만 드론에 못 올린다)
+    // 2026-09-11: placement ghosts (the large + small `place` kinds)
+    // 2026-09-15: the thumper (small, but it does not mount on a drone)
     this.visuals.warmGhosts([...LARGE_DEPLOYABLE_KINDS, ...MOUNTABLE_DEPLOYABLE_KINDS, 'thumper']);
     const b = ctx.bus;
     this.unsubs.push(
@@ -81,9 +88,10 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
       b.on('game:abort', () => { this.clear(); this.resetPlacement(); }),
       b.on('hub:entered', () => { this.clear(); this.resetPlacement(); }),
       b.on('player:died', () => { /* deployables outlive their owner on purpose */ }),
-      // 2026-09-11 (parts/Mount): 드론이 사라지면 그 위 탑재물은 아래 바닥으로 떨어져 남는다
+      // 2026-09-11 (parts/Mount): when a drone goes, what was mounted on it drops to the surface below and stays
       b.on('drone:removed', ({ id }) => Mount.onDroneRemoved(this, id)),
-      // 2026-09-15 (parts/Thumper): 땅굴벌레가 분출하면 그 반경 안의 진동 장치는 부서진다 (권위가 지우고 `gad remove` 로 알린다)
+      // 2026-09-15 (parts/Thumper): a sandworm eruption destroys every thumper inside its radius
+      // (the authority removes them and announces it with `gad remove`)
       b.on('sandworm:erupted', ({ position, radius }) => Thumper.onErupted(this, position, radius)),
       b.on('world:ready', () => {
         this.clear();
@@ -106,7 +114,8 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
     this.handleInput(ctx);
     this.thrown.update(dt);
     this.visuals.updatePulses(dt);
-    // 2026-09-11: 드론 위 탑재물을 먼저 옮기고(미리보기의 "이미 드론에 설치물이 있다" 가 그것을 본다), 그다음 미리보기
+    // 2026-09-11: move drone-mounted deployables first (the preview's "this drone already carries one" test
+    // reads that), then run the preview
     this.updateMounts(ctx);
     this.updatePlacement(ctx);
 
@@ -161,22 +170,25 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
 
   recover(id: string): ItemInstance | null { return Deploy.recover(this, id); }
 
-  /** 2026-09-11: 로컬 플레이어의 무장된 원격 지뢰 전부 기폭 (클라는 `gadq detonate`). 반환 = 개수. */
+  /** 2026-09-11: detonates the local player's armed remote mines (clients send `gadq detonate`). Returns count. */
   detonateRemoteMines(): number { return Remote.detonateRemoteMines(this); }
 
-  /** 2026-09-11: 로컬 플레이어 소유로 월드에 있는 원격 지뢰 수 (무장 여부 무관). */
+  /** 2026-09-11: how many remote mines the local player owns in the world (armed or not). */
   liveRemoteMineCount(): number { return Remote.liveRemoteMineCount(this); }
 
-  /** 2026-09-15 (B-16): 살아 있는 `fire` 배치물 (전부 `hostile: false`, 모든 클라이언트). 재사용 배열 — `parts/Queries`. */
+  /** 2026-09-15 (B-16): live `fire` deployables (all `hostile: false`, every client). Reused array. */
   getFireZones(): readonly FireZoneInfo[] { return Q.getFireZones(this); }
-  /** `getFireZones` 의 칸 객체 풀 · 목록 (매 프레임 새로 만들지 않는다). */
+  /** `getFireZones`'s entry pool · list (nothing is allocated per frame). */
   readonly fireZonePool: FireZoneView[] = [];
   readonly fireZoneList: FireZoneView[] = [];
 
-  /** 2026-09-15 (B-16): G-10 소이 수류탄이 `position` 에서 터졌다 — 로컬 플레이어 소유의 작은 화염 지대 (`parts/Deploy`). */
+  /**
+   * 2026-09-15 (B-16): a G-10 incendiary grenade exploded at `position` — a small fire zone owned by the
+   * local player (`parts/Deploy`).
+   */
   igniteGrenadeFire(position: THREE.Vector3): void { return Deploy.igniteGrenadeFire(this, position); }
 
-  /** 2026-09-15: `wearsItemDurability` 가젯의 최대 hp = 그 아이템의 `durabilityMax` (없으면 `GadgetDef.hp`). */
+  /** 2026-09-15: a `wearsItemDurability` gadget's max hp = that item's `durabilityMax` (or `GadgetDef.hp`). */
   itemDurabilityMaxFor(def: GadgetDef): number { return Deploy.itemDurabilityMaxFor(this, def); }
 
   clear(): void { return Deploy.clear(this); }
@@ -196,14 +208,14 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   /** Authority spawns straight away; clients ask the host and wait for `gad spawn`. */
   requestPlace(def: GadgetDef, position: THREE.Vector3, yaw: number, mount: string | null = null, startHp?: number): void { return Deploy.requestPlace(this, def, position, yaw, mount, startHp); }
 
-  /* ═══════════════════════════ 설치 미리보기 · 드론 탑재 (2026-09-11) ═══════════════════════════ */
-  /** 매 프레임: 손에 든 설치형 가젯의 판정 → 고스트 → `gadget:placementChanged` (parts/Preview). */
+  /* ═══════════════════════════ placement preview · drone mounting (2026-09-11) ═══════════════════════════ */
+  /** Every frame: test the `place` gadget in hand → ghost → `gadget:placementChanged` (parts/Preview). */
   updatePlacement(ctx: GameContext): void { return Preview.updatePreview(this, ctx); }
 
-  /** 고스트를 숨기고 `placement` 를 null 로. */
+  /** Hides the ghost and sets `placement` to null. */
   resetPlacement(): void { return Preview.resetPreview(this); }
 
-  /** 드론 위 탑재물이 드론을 따라간다 / 드론이 없으면 떨어진다 (parts/Mount). */
+  /** Mounted deployables follow their drone, or drop when it is gone (parts/Mount). */
   updateMounts(ctx: GameContext): void { return Mount.updateMounts(this, ctx); }
 
   /* ═══════════════════════════ spawn / remove ═══════════════════════════ */
@@ -222,7 +234,10 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
 
   makeInteractable(d: Deployable, def: GadgetDef): Interactable { return Deploy.makeInteractable(this, d, def); }
 
-  /** Puts the recovered item in the local bag (`RECOVERABLE_KINDS` — 내구도를 아이템이 들면 남은 hp 가 그 `durability` 로 간다). */
+  /**
+   * Puts the recovered item in the local bag (`RECOVERABLE_KINDS` — when the item carries durability, the
+   * remaining hp becomes its `durability`).
+   */
   grantRecovered(d: Deployable): ItemInstance | null { return Deploy.grantRecovered(this, d); }
 
   /* ═══════════════════════════ simulation (authority) ═══════════════════════════ */
@@ -296,7 +311,8 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   deny(text: string | null): false { return Deploy.deny(this, text); }
 
   /* ═══════════════════════════ enemy helpers ═══════════════════════════ */
-  // 2026-09-18: `includeProps` 는 **피해를 주는** 자리만 켠다 (소이 지대 · C4). 표적 고르기 · 접촉 판정은 기본값(끔)이다.
+  // 2026-09-18: `includeProps` is turned on only where damage is **dealt** (the fire zone · C4). Picking a
+  // target or testing contact stays on the default (off).
   enemiesNear(pos: THREE.Vector3, radius: number, includeProps = false): readonly EnemyRef[] { return Q.enemiesNear(this, pos, radius, includeProps); }
 
   enemyById(id: number): EnemyRef | null { return Q.enemyById(this, id); }
@@ -317,7 +333,7 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   onGadgetRequest(m: GadgetRequest, from: PeerId): void { return Wire.onGadgetRequest(this, m, from); }
 
   /**
-   * `buff` receiver. Gadgets own 'revive' (제세동기) and 'cloak' (은폐 장막); 'heal' / 'boost' belong to
+   * `buff` receiver. Gadgets own 'revive' (the defib) and 'cloak' (the cloak veil); 'heal' / 'boost' belong to
    * implants/, so they are ignored here to avoid applying the same buff twice.
    */
   onBuff(m: BuffMessage, from: PeerId): void { return Wire.onBuff(this, m, from); }

@@ -1,14 +1,17 @@
 /**
- * src/gadgets/drones/GroundDrone.ts — **지상 드론 몸체** (2026-09-11).
+ * src/gadgets/drones/GroundDrone.ts — **the ground drone body** (2026-09-11).
  *
- * 낮은 4륜 로버: 절차 모델(차체 · 바퀴 · 센서 헤드 렌즈 · 안테나 · emissive LED · 윗면 탑재판), 소유자 쪽 물리
- * (중력 · `getSurfaceY` 바닥 · 낮은 턱 오르기 · `resolveCollision` · 천장 · 점프), 1인칭 렌즈 카메라.
+ * A low four-wheeled rover: the procedural model (chassis · wheels · the sensor head lens · antenna · emissive
+ * LEDs · the mount plate on top), owner-side physics (gravity · the `getSurfaceY` floor · climbing low ledges ·
+ * `resolveCollision` · ceiling · jump) and the first-person lens camera.
  *
- * - 걷기 = `PLAYER_WALK_SPEED × DRONE_GROUND_WALK_MUL` — 조용하다 (조종자에게만 아주 작은 모터음).
- * - 질주 = `PLAYER_SPRINT_SPEED × DRONE_GROUND_SPRINT_MUL` — 스태미나 없음. 질주음(위치 오디오)과 소음은 `DroneSystem` 이 낸다.
- * - 점프 속도 = `sqrt(2 · GRAVITY · DRONE_GROUND_JUMP_HEIGHT)`.
- * - 광원 없음. 할당 없음(생성자 · dispose 제외).
- * - yaw 규약은 `model.ts` (코 = 모델 +Z).
+ * - Walking = `PLAYER_WALK_SPEED × DRONE_GROUND_WALK_MUL` — quiet (a very faint motor sound, heard only by the
+ *   controlling player).
+ * - Sprinting = `PLAYER_SPRINT_SPEED × DRONE_GROUND_SPRINT_MUL` — no stamina. The sprint sound (positional audio)
+ *   and the noise come from `DroneSystem`.
+ * - Jump speed = `sqrt(2 · GRAVITY · DRONE_GROUND_JUMP_HEIGHT)`.
+ * - No lights. No allocation (outside the constructor · dispose).
+ * - The yaw convention is `model.ts`'s (nose = model +Z).
  */
 import * as THREE from 'three';
 import {
@@ -20,21 +23,24 @@ import {
   type DroneBody, type DroneInput,
 } from './model';
 
-/* ── 시각 · 기하 (게임플레이 수치 아님) ── */
+/* ── Visuals · geometry (not gameplay numbers) ── */
 const WHEEL_R = 0.11;
-/** 지형에 붙어 내려가는 최대 낙차 (m/프레임) — `PlayerController.SNAP_DOWN` 과 같은 역할. */
+/** The largest drop it sticks to the terrain over (m/frame) — the same role as `PlayerController.SNAP_DOWN`. */
 const SNAP_DOWN = 0.35;
 const DECK_TOP = 0.295;
 const MOUNT_Z = -0.12;
 const LENS_Y = 0.345;
-/** 렌즈는 몸체 반경 안쪽이어야 벽에 붙었을 때 카메라가 벽을 뚫고 보지 않는다. */
+/** The lens has to stay inside the body radius, or the camera sees through a wall it is pressed against. */
 const LENS_Z = 0.2;
 const PITCH_MIN = -1.15;
 const PITCH_MAX = 1.2;
-/** 광선 판정 구 (몸체 중심 높이 · 반경). */
+/** Ray-test sphere (body centre height · radius). */
 const HIT_Y = 0.22;
 const HIT_R = 0.4;
-/** 이만큼 아래로 빠지면 지형 위로 되돌린다 (지하실은 지형보다 몇 m 아래라 넉넉히). */
+/**
+ * Sinking this far below puts it back on the terrain (a basement sits a few m under the terrain, so the margin is
+ * generous).
+ */
 const FALL_RESCUE = 40;
 
 const COLOR_IDLE = new THREE.Color(0x3dffb0);
@@ -60,14 +66,14 @@ export class GroundDrone implements DroneBody {
   private readonly ledMat: THREE.MeshStandardMaterial;
   private readonly lensMat: THREE.MeshStandardMaterial;
   private readonly tipMat: THREE.MeshStandardMaterial;
-  /** 바퀴 굴린 거리 (앞 +). */
+  /** Distance the wheels have rolled (forward +). */
   private travel = 0;
   private lastX = 0;
   private lastZ = 0;
   private moveSfxT = 0;
   private looking = false;
   private remoteFlags = 0;
-  /** 소유자 쪽: 이번 프레임 입력이 있었나 (LED 색). */
+  /** Owner side: was there input this frame (the LED colour). */
   private live = false;
 
   constructor() {
@@ -89,21 +95,23 @@ export class GroundDrone implements DroneBody {
       return m;
     };
 
-    // ── 차체
+    // ── Chassis
     this.root.add(this.chassis);
     add(this.chassis, new THREE.BoxGeometry(0.5, 0.14, 0.7), shell, 0, 0.2, 0, true);
     add(this.chassis, new THREE.BoxGeometry(0.56, 0.05, 0.6), dark, 0, 0.135, 0);
-    add(this.chassis, new THREE.BoxGeometry(0.36, 0.025, 0.42), plate, 0, DECK_TOP - 0.0125, MOUNT_Z);   // 탑재판
-    add(this.chassis, new THREE.BoxGeometry(0.52, 0.022, 0.05), hazard, 0, 0.275, 0.33);                  // 앞 범퍼 줄
+    // the mount plate
+    add(this.chassis, new THREE.BoxGeometry(0.36, 0.025, 0.42), plate, 0, DECK_TOP - 0.0125, MOUNT_Z);
+    // the front and rear bumper stripes
+    add(this.chassis, new THREE.BoxGeometry(0.52, 0.022, 0.05), hazard, 0, 0.275, 0.33);
     add(this.chassis, new THREE.BoxGeometry(0.52, 0.022, 0.04), hazard, 0, 0.275, -0.33);
     const ledGeo = new THREE.BoxGeometry(0.012, 0.022, 0.07);
     add(this.chassis, ledGeo, this.ledMat, 0.253, 0.22, 0.24);
     add(this.chassis, ledGeo, this.ledMat, -0.253, 0.22, 0.24);
-    // 안테나 (뒤 왼쪽)
+    // Antenna (rear left)
     add(this.chassis, new THREE.CylinderGeometry(0.006, 0.009, 0.3, 6), dark, -0.17, 0.43, -0.28);
     add(this.chassis, new THREE.SphereGeometry(0.02, 8, 6), this.tipMat, -0.17, 0.59, -0.28);
 
-    // ── 바퀴 (축 = 로컬 X)
+    // ── Wheels (axis = local X)
     const wheelGeo = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 0.09, 14);
     wheelGeo.rotateZ(Math.PI / 2);
     const hubGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.095, 8);
@@ -114,7 +122,7 @@ export class GroundDrone implements DroneBody {
       this.wheels.push(w);
     }
 
-    // ── 센서 헤드 (렌즈) — 조종자 시점에서는 숨긴다
+    // ── Sensor head (the lens) — hidden in the controlling player's view
     this.head.position.set(0, 0.295, LENS_Z);
     this.chassis.add(this.head);
     add(this.head, new THREE.BoxGeometry(0.2, 0.1, 0.13), shell, 0, 0.05, -0.01, true);
@@ -143,7 +151,7 @@ export class GroundDrone implements DroneBody {
     if (input) this.yaw = input.yaw;
     this.live = !!input;
 
-    // ── 원하는 수평 속도 (드론 시점 기준)
+    // ── Desired horizontal velocity (in the drone's own frame)
     let wx = 0, wz = 0, wantSprint = false;
     if (input) {
       let f = Math.max(-1, Math.min(1, input.forward));
@@ -165,7 +173,7 @@ export class GroundDrone implements DroneBody {
     const dl = Math.hypot(dx, dz), step = rate * dt;
     if (dl <= step) { vel.x = wx; vel.z = wz; } else { vel.x += (dx / dl) * step; vel.z += (dz / dl) * step; }
 
-    // ── 점프 / 중력
+    // ── Jump / gravity
     if (input?.jump && !this.airborne) {
       vel.y = Math.sqrt(2 * GRAVITY * DRONE_GROUND_JUMP_HEIGHT);
       this.airborne = true;
@@ -174,12 +182,12 @@ export class GroundDrone implements DroneBody {
     if (this.airborne) vel.y -= GRAVITY * dt;
     else vel.y = Math.max(vel.y, 0);
 
-    // ── 적분
+    // ── Integration
     pos.x += vel.x * dt;
     pos.z += vel.z * dt;
     pos.y += vel.y * dt;
 
-    // ── 천장 (올라가는 동안만): 슬래브에 머리를 박은 채로 `resolveCollision` 에 들어가면 옆으로 밀려난다
+    // ── Ceiling (only while rising): entering `resolveCollision` with its head in a slab pushes it sideways
     if (vel.y > 0) {
       _o.set(pos.x, pos.y + 0.05, pos.z);
       const hit = world.raycast(_o, UP, this.height);
@@ -189,14 +197,14 @@ export class GroundDrone implements DroneBody {
       }
     }
 
-    // ── 표면을 먼저 잡고(낮은 턱은 올라선다) 밀어낸다 — `PlayerController` 와 같은 순서
+    // ── Query the surface first (it steps onto a low ledge), then push out — the same order as `PlayerController`
     if (!this.airborne) {
       const up = world.getSurfaceY(pos.x, pos.z, pos.y);
       if (up > pos.y) pos.y = up;
     }
-    world.resolveCollision(pos, this.radius, this.height);   // 2026-09-12 (C): 키를 넘겨 개구멍 인방 밑을 지나간다
+    world.resolveCollision(pos, this.radius, this.height);   // 2026-09-12 (C): the height lets it clear a vent lintel
 
-    // ── 바닥
+    // ── Floor
     const g = world.getSurfaceY(pos.x, pos.z, pos.y);
     const wasAir = this.airborne;
     if (pos.y <= g + 0.001) {
@@ -213,7 +221,8 @@ export class GroundDrone implements DroneBody {
     const hSpeed = Math.hypot(vel.x, vel.z);
     this.sprinting = wantSprint && hSpeed > 0.5;
 
-    // ── 조종자에게만 들리는 아주 작은 모터음 (걷기는 "소리가 나지 않는다" — 위치 없이, 남에게는 안 간다)
+    // ── A very faint motor sound only the controlling player hears (walking "makes no sound" — no
+    // position, and it never reaches anyone else)
     if (input && !this.sprinting && !this.airborne && hSpeed > 0.3) {
       this.moveSfxT -= dt;
       if (this.moveSfxT <= 0) {
@@ -239,7 +248,7 @@ export class GroundDrone implements DroneBody {
   animate(dt: number, time: number): void {
     const spin = this.travel / WHEEL_R;
     for (let i = 0; i < this.wheels.length; i++) this.wheels[i].rotation.x = spin;
-    // 굴러갈 때 차체가 아주 조금 떨린다
+    // The chassis shivers a touch as it rolls
     this.chassis.position.y = Math.sin(this.travel * 22) * 0.004;
     const controlled = this.looking || this.live || (this.remoteFlags & DroneFlags.CONTROLLED) !== 0;
     const lost = (this.remoteFlags & DroneFlags.LINK_LOST) !== 0;
@@ -303,7 +312,7 @@ export class GroundDrone implements DroneBody {
     this.lastX = this.position.x;
     this.lastZ = this.position.z;
     const d = Math.hypot(dx, dz);
-    if (d < 1e-5 || d > 3) return;   // 순간이동은 굴리지 않는다
+    if (d < 1e-5 || d > 3) return;   // a teleport does not roll the wheels
     const along = dx * Math.sin(this.yaw) + dz * Math.cos(this.yaw);
     this.travel += along >= 0 ? d : -d;
   }

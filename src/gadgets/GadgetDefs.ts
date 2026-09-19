@@ -6,28 +6,30 @@ import {
   GADGET_BARRICADE_RADIUS, GADGET_DEFIB_RANGE, GADGET_JUMPPAD_HP, GADGET_JUMPPAD_RADIUS, GADGET_LURE_HP, GADGET_MINE_HP,
   type DeployableKind, type GadgetDef, type GadgetId,
 } from '@/shared';
-/* 2026-09-11: 원격 지뢰 · 드론 */
+/* 2026-09-11: remote mine · drones */
 import {
   DRONE_AIR_HP, DRONE_AIR_RANGE, DRONE_GROUND_HP, DRONE_GROUND_RANGE, DRONE_RECOVER_HOLD_S,
   GADGET_REMOTE_MINE_HP, GADGET_REMOTE_MINE_RADIUS,
 } from '@/shared';
-/* 2026-09-15 (가젯 개편, 사용자 결정): 돔 실드 회수 시간 · 화염 지대 수치 통합 (아래 「화염 통합」 주석) */
+/* 2026-09-15 (the gadget rework, user's decision): dome shield recover time · fire zone numbers merged
+   (the "fire merge" comment below) */
 import { GADGET_DOME_RECOVER_TIME, GRENADE_INCENDIARY_DURATION, GRENADE_INCENDIARY_RADIUS } from '@/shared';
-/* 2026-09-15 (땅굴벌레 · 진동 장치) */
+/* 2026-09-15 (the sandworm · the thumper) */
 import { THUMPER_GROUND_R, THUMPER_HP } from '@/shared';
 
 /**
- * 특수 가젯 정의. Owned by `src/gadgets/` — `items/` only references them through `ItemDef.gadgetId`,
- * and everyone else reads them via `ctx.gadgets.getDefs()`.
+ * Special gadget definitions. Owned by `src/gadgets/` — `items/` only references them through
+ * `ItemDef.gadgetId`, and everyone else reads them via `ctx.gadgets.getDefs()`.
  *
  * `radius` is the gameplay radius the gadget advertises (blast / cloud / cloak share / turret range);
  * physical trigger and collider sizes are private tuning constants in `GadgetSystem` / `Deployable`.
  *
- * **2026-09-15 (가젯 개편, 사용자 결정) — `description` 에는 숫자를 적지 않는다.** 사거리 · 지속 · 내구도 ·
- * 사용 시간은 툴팁의 **스펙 줄**이 이 정의(`duration` · `hp` · `radius` · `recoverTime`)와 아이템 def 에서
- * 읽어 그린다. 설명은 「무엇을 하는 물건인가」만 말한다 — 같은 숫자를 두 곳에서 말하면 표를 고칠 때 글이
- * 따라오지 않는다 (2026-09-12 「설명 글에 툴팁이 이미 보여 주는 숫자를 적지 않는다」와 같은 근거).
- * 필드 값 자체는 그대로다 (툴팁이 그것을 읽는다).
+ * **2026-09-15 (the gadget rework, user's decision) — `description` carries no numbers.** Range · duration ·
+ * durability · use time are drawn by the tooltip's **spec row**, which reads them from this definition
+ * (`duration` · `hp` · `radius` · `recoverTime`) and from the item def. A description says only "what the
+ * thing does" — the same number in two places means the prose does not follow when the table is fixed (the
+ * same reason as 2026-09-12's "descriptions never repeat numbers the tooltip already shows").
+ * The field values themselves are unchanged (the tooltip reads them).
  */
 export const GADGET_DEFS: readonly GadgetDef[] = [
   {
@@ -45,9 +47,10 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
   },
   {
     /**
-     * 2026-09-15 (사용자 결정): 던진 자리에 **돔 실드 개체**가 서고 그 둘레로 방어막이 켜진다.
-     * 개체를 꾹 누르면 회수되고(`GADGET_DOME_RECOVER_TIME`), 방어막이 깎인 만큼이 **아이템 내구도**로 남는다
-     * (`wearsItemDurability` — 최대 hp 는 여기 `hp` 가 아니라 그 아이템의 `ItemDef.durabilityMax`).
+     * 2026-09-15 (user's decision): a **dome shield unit** stands where the canister landed and the shield
+     * goes up around it. Holding on the unit recovers it (`GADGET_DOME_RECOVER_TIME`), and whatever the
+     * shield lost stays as **item durability** (`wearsItemDurability` — max hp is that item's
+     * `ItemDef.durabilityMax`, not the `hp` here).
      */
     id: 'domeShield',
     name: '돔 실드',
@@ -72,7 +75,8 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
     hp: GADGET_BARRICADE_HP,
     radius: GADGET_BARRICADE_RADIUS,
     recoverTime: GADGET_BARRICADE_RECOVER_TIME,
-    /* 2026-09-15 (사용자 결정): 돔 실드와 같은 규칙 — 맞은 만큼이 아이템 내구도로 남아 작업대 수리가 필요해진다. */
+    /* 2026-09-15 (user's decision): the same rule as the dome shield — the damage it took stays as item
+       durability, so it needs a workbench repair. */
     wearsItemDurability: true,
     icon: '▤',
     color: '#c9a227',
@@ -117,7 +121,8 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
     color: '#ff5a3c',
   },
   {
-    /* 2026-09-15 (사용자 결정): 이름은 「포탑 설치」 → **자동 사격 포탑** (items.csv 의 아이템 이름도 같이 바뀐다). */
+    /* 2026-09-15 (user's decision): renamed from `포탑 설치` to **`자동 사격 포탑`** (the item name in
+       items.csv changed with it). */
     id: 'turret',
     name: '자동 사격 포탑',
     description: '조준한 자리에 자동 포탑을 세운다. 사거리 안의 적을 알아서 쏘지만 사선의 아군도 맞는다. 꾹 눌러 회수.',
@@ -196,15 +201,19 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
     icon: '✈',
     color: '#7fc8ff',
   },
-  /* ── 2026-09-15 (땅굴벌레 · 진동 장치, 사용자 결정 — docs/DECISIONS.md 「2026-09-15 — 땅굴벌레 · 진동 장치」) ── */
+  /* ── 2026-09-15 (the sandworm · the thumper, user's decision — docs/DECISIONS.md
+     「2026-09-15 — 땅굴벌레 · 진동 장치」) ── */
   {
     /**
-     * 듄의 썸퍼. `THUMPER_INTERVAL_S` 마다 바닥을 내리치고 `THUMPER_STRIKES` 번째 타격에 호스트가 `sandworm:summon` 을 **한 번** 낸다
-     * (`parts/Thumper`). 그 뒤로도 영원히 두드린다 — 이미 벌레가 나온 레이드에서도 놓을 수 있고(사용자 결정), 그때는 디렉터가
-     * 부름을 무시할 뿐이다. **회수 없음**(`recoverTime` 0 → 상호작용도 `RECOVERABLE_KINDS` 도 없다), 1회 소모.
-     * 땅굴벌레가 분출하면 그 반경 안의 장치는 부서진다 (`sandworm:erupted` → `Thumper.onErupted`).
-     * `radius` = `THUMPER_GROUND_R`: 설치 판정(`WorldRef.burrowGroundOk`)의 반경이고 바닥 링도 그 크기로 그린다.
-     * 드론에는 못 올린다 (`MOUNTABLE_DEPLOYABLE_KINDS` 밖) — 땅을 쳐야 하는 물건이다.
+     * A Dune-style thumper. It strikes the ground every `THUMPER_INTERVAL_S`, and on strike `THUMPER_STRIKES`
+     * the host emits `sandworm:summon` **once** (`parts/Thumper`). It keeps thumping forever after that — it
+     * may be placed in a raid the worm has already appeared in (user's decision), and the director simply
+     * ignores the summon then. **Not recoverable** (`recoverTime` 0 → no interaction and not in
+     * `RECOVERABLE_KINDS`), one use.
+     * An eruption destroys every device inside its radius (`sandworm:erupted` → `Thumper.onErupted`).
+     * `radius` = `THUMPER_GROUND_R`: the radius of the placement test (`WorldRef.burrowGroundOk`), and the
+     * ground ring is drawn that size too.
+     * It does not mount on a drone (outside `MOUNTABLE_DEPLOYABLE_KINDS`) — it has to hit the ground.
      */
     id: 'thumper',
     name: '진동 장치',
@@ -221,27 +230,29 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
 ];
 
 /**
- * **아이템이 없는 내부 정의.** `getDefs()` · 퀵슬롯 · 콘솔 어디에도 나오지 않고 `use()` 는 거절한다
- * (`isInternalGadget` — 아이템 매칭이 없으면 소모 없이 통과하는 옛 병렬 개발 규칙 때문에, 막지 않으면 공짜로 쓸 수 있다).
+ * **Internal definitions, with no item behind them.** They appear in no `getDefs()`, no quick slot and no
+ * console, and `use()` refuses them (`isInternalGadget` — the old parallel-development rule lets a gadget
+ * with no matching item through without consuming anything, so without that refusal they would be free).
  *
- * ## 화염 통합 (2026-09-15, 사용자 결정)
+ * ## The fire merge (2026-09-15, user's decision)
  *
- * 화염 지대를 만드는 길이 **둘**이었다 — 던지는 가젯 `화염수류탄`(아이템 `gad_incendiary`, `GADGET_INCENDIARY_*`
- * 반경 5 · 10 초)과 G-10 소이 수류탄이 터진 자리의 내부 가젯 `grenadeFire`(`GRENADE_INCENDIARY_*` 반경 3.5 · 6 초).
- * 이제 하나다:
+ * There were **two** ways to make a fire zone — the thrown gadget `화염수류탄` (item `gad_incendiary`,
+ * `GADGET_INCENDIARY_*`, radius 5 · 10 s) and the internal gadget `grenadeFire` left where a G-10 incendiary
+ * grenade exploded (`GRENADE_INCENDIARY_*`, radius 3.5 · 6 s). Now there is one:
  *
- * - **아이템 `gad_incendiary` 가 사라진다** (items.csv · alias → `grenade_incendiary`). 살아남는 것은
- *   **「화염 수류탄」 `grenade_incendiary`** 이고 **폭발과 화염 지대를 동시에** 한다 (폭발은 weapons `Grenade`
- *   의 `GRENADE_INCENDIARY_BLAST_*`, 지대는 여기).
- * - **살아남는 수치는 `GRENADE_INCENDIARY_*`** 다 — 「폭발 + 지대」 한 벌로 튜닝된 값이고 폭발 수치
- *   (`GRENADE_INCENDIARY_BLAST_*`)와 같은 묶음이기 때문이다. `GADGET_INCENDIARY_RADIUS` ·
- *   `GADGET_INCENDIARY_DURATION` 은 **은퇴**(리드가 csv 를 정리한다). 초당 피해 `GADGET_INCENDIARY_DPS` 는
- *   지대 전체의 값이라 **그대로 산다**.
- * - **가젯 id 는 `incendiary` 하나로 남는다** — `GadgetId` 는 계약이라 `grenadeFire` 도 타입에 그대로 있지만
- *   (`airstrike` · `secondary` 와 같은 은퇴 표시) **정의는 없다**. 그래서 `deployable: 'fire'` 를 만드는 정의가
- *   정확히 하나가 되고, `gadgetForKind('fire')` 가 모호하지 않게 답한다.
- * - 그 모호함을 풀려고 만들었던 **배치물 id 의 `-gf` 표식은 필요 없어졌다** (`deployableIdFor` 는 늘 `-g`,
- *   `defForWire` 는 `kind` 만 본다 — 옛 `-gf` id 를 받아도 같은 정의로 풀리므로 호환도 그대로다).
+ * - **The item `gad_incendiary` is gone** (items.csv · alias → `grenade_incendiary`). What survives is
+ *   **`화염 수류탄` `grenade_incendiary`**, and it does **the explosion and the fire zone at once** (the
+ *   explosion from weapons' `Grenade` via `GRENADE_INCENDIARY_BLAST_*`, the zone here).
+ * - **The surviving numbers are `GRENADE_INCENDIARY_*`** — they are tuned as one "explosion + zone" set and
+ *   belong to the same bundle as the blast numbers (`GRENADE_INCENDIARY_BLAST_*`). `GADGET_INCENDIARY_RADIUS` ·
+ *   `GADGET_INCENDIARY_DURATION` are **retired** (the lead cleans the csv up). The damage per second
+ *   `GADGET_INCENDIARY_DPS` is a value of the whole zone, so it **lives on unchanged**.
+ * - **One gadget id is left, `incendiary`** — `GadgetId` is a contract, so `grenadeFire` is still in the type
+ *   (a retired marker like `airstrike` · `secondary`) but **has no definition**. That makes exactly one
+ *   definition produce `deployable: 'fire'`, and `gadgetForKind('fire')` answer unambiguously.
+ * - **The `-gf` marker on the deployable id, built to resolve that ambiguity, is no longer needed**
+ *   (`deployableIdFor` always writes `-g`, `defForWire` looks only at `kind` — an old `-gf` id still resolves
+ *   to the same definition, so compatibility is unchanged).
  */
 export const INTERNAL_GADGET_DEFS: readonly GadgetDef[] = [
   {
@@ -260,7 +271,7 @@ export const INTERNAL_GADGET_DEFS: readonly GadgetDef[] = [
 ];
 
 const BY_ID = new Map<GadgetId, GadgetDef>([...GADGET_DEFS, ...INTERNAL_GADGET_DEFS].map((d) => [d.id, d]));
-/** 공개 정의가 먼저, 내부 정의는 그 종류를 아무도 안 만들 때만 (지금은 `fire` 하나). */
+/** Public definitions first; an internal one only when nothing else produces that kind (today just `fire`). */
 const BY_KIND = new Map<DeployableKind, GadgetDef>();
 for (const d of [...GADGET_DEFS, ...INTERNAL_GADGET_DEFS]) if (d.deployable && !BY_KIND.has(d.deployable)) BY_KIND.set(d.deployable, d);
 const INTERNAL_IDS = new Set<GadgetId>(INTERNAL_GADGET_DEFS.map((d) => d.id));
@@ -268,31 +279,34 @@ const INTERNAL_IDS = new Set<GadgetId>(INTERNAL_GADGET_DEFS.map((d) => d.id));
 export function gadgetDef(id: GadgetId): GadgetDef | undefined { return BY_ID.get(id); }
 /** Every deployable kind is produced by exactly one gadget, so the reverse lookup is unambiguous. */
 export function gadgetForKind(kind: DeployableKind): GadgetDef | undefined { return BY_KIND.get(kind); }
-/** 아이템 없이 코드만 세우는 내부 가젯인가 (`use()` 가 거절한다). */
+/** Is this an internal gadget, stood up by code with no item (`use()` refuses it)? */
 export function isInternalGadget(id: GadgetId): boolean { return INTERNAL_IDS.has(id); }
 
 /**
- * 배치물 id. 2026-09-15 의 화염 통합으로 `fire` 를 만드는 정의가 하나뿐이 되어 **`-gf` 표식은 은퇴했다**
- * (그 전에는 `DeployableWire` 에 가젯 id 칸이 없어 화염수류탄과 G-10 화염을 id 로 갈라야 했다).
- * 인자 `gadget` 은 호출부를 그대로 두려고 남긴 것이고 id 모양에 영향을 주지 않는다.
+ * The deployable id. The 2026-09-15 fire merge left exactly one definition producing `fire`, so the **`-gf`
+ * marker is retired** (before it, `DeployableWire` had no gadget id field and the thrown `화염수류탄` had to
+ * be told from the G-10 fire by id).
+ * The `gadget` argument is kept so call sites stay as they are; it does not affect the shape of the id.
  */
 export function deployableIdFor(base: string, seq: number, gadget?: GadgetId): string {
   void gadget;
   return `${base}-g${seq}`;
 }
-/** 와이어의 배치물 → 그 정의. `kind` 하나로 정해진다 (옛 `-gf` id 도 같은 정의로 풀린다). */
+/** A deployable off the wire → its definition. `kind` alone decides it (an old `-gf` id resolves the same). */
 export function defForWire(w: { id: string; kind: DeployableKind }): GadgetDef | undefined {
   return BY_KIND.get(w.kind);
 }
 
 /**
  * Deployables that hand an item back when someone finishes the recover interaction.
- * 2026-09-15: 돔 실드가 들어왔다 — 중앙 발생기를 꾹 눌러 회수하고 남은 hp 가 아이템 내구도로 간다.
+ * 2026-09-15: the dome shield joined them — holding on the central emitter recovers it, and the remaining hp
+ * goes to the item's durability.
  */
 export const RECOVERABLE_KINDS: readonly DeployableKind[] = ['barricade', 'turret', 'jumpPad',
-  /* 2026-09-11: 원격 지뢰는 밟아도 안 터지는 소유자 도구라 회수하면 아이템이 돌아온다 (바닥 지뢰는 해체 = 반환 없음 그대로) */
+  /* 2026-09-11: a remote mine is the owner's tool and never goes off when stepped on, so recovering it
+     returns the item (a ground mine is still defused = nothing returned) */
   'remoteMine',
-  /* 2026-09-15 (사용자 결정) */
+  /* 2026-09-15 (user's decision) */
   'domeShield'];
 export function isRecoverable(kind: DeployableKind): boolean { return RECOVERABLE_KINDS.includes(kind); }
 

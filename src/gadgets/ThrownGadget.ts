@@ -15,7 +15,7 @@ interface Body {
   gadget: GadgetId;
   age: number;
   active: boolean;
-  /** 2026-09-15: `wearsItemDurability` 가젯(돔 실드)이 실려 나간 남은 내구도 — 닿는 자리에 그 hp 로 선다. */
+  /** 2026-09-15: durability carried by a `wearsItemDurability` gadget (dome shield) — it stands with that hp. */
   hp?: number;
 }
 
@@ -24,8 +24,9 @@ const _prev = new THREE.Vector3();
 const _c = new THREE.Color();
 
 /**
- * Pooled thrown gadget canisters (돔 실드 / 유인 / 연막 / 화염수류탄). Arc with gravity, push out of obstacles,
- * and fire `onImpact` the moment they touch the ground — that is where the deployable is placed.
+ * Pooled thrown gadget canisters (dome shield / lure / smoke / incendiary grenade). Arc with gravity, push
+ * out of obstacles, and fire `onImpact` the moment they touch the ground — that is where the deployable is
+ * placed.
  *
  * No lights (constant scene light count); the canister glow is emissive material only.
  */
@@ -82,10 +83,10 @@ export class ThrownGadgetManager {
       _prev.copy(b.pos);
       b.pos.addScaledVector(b.vel, dt);
       if (world && world.ready) {
-        // 2026-09-11: 창문 유리는 깨고 지나간다
+        // 2026-09-11: window glass is broken and passed through
         breakFragileAlong(world, _prev, b.pos);
         world.resolveCollision(b.pos, BODY_R);
-        // 2026-09-11: 바닥 = 그 자리의 표면 (건물 2층 · 옥상 · 계단)
+        // 2026-09-11: the ground is the surface at that spot (an upper floor · a roof · stairs)
         const terrain = world.getHeightAt(b.pos.x, b.pos.z);
         const surface = world.getSurfaceY(b.pos.x, b.pos.z, b.pos.y + BODY_R - PROP_STEP_UP_MAX);
         const ground = surface + BODY_R;

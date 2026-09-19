@@ -1,33 +1,41 @@
 /**
- * src/gadgets/parts/Mount.ts — **드론 위에 올라탄 설치물은 언제까지, 어떻게 드론을 따라가나?** (2026-09-11)
+ * src/gadgets/parts/Mount.ts — **how long, and how, does a deployable riding a drone follow it?** (2026-09-11)
  *
- * `Deployable.mount` 가 드론 id 를 들고 있는 동안 위치는 매 프레임 `DroneRef.getMountPoint` 다. 드론 위치는 모든
- * 클라이언트에 복제본이 이미 있으므로 **각자 로컬에서 따라간다** — 위치 메시지는 없다.
+ * While `Deployable.mount` holds a drone id, the position is `DroneRef.getMountPoint` every frame. Every client
+ * already has a replica of the drone's position, so **each one follows it locally** — there is no position message.
  *
- * 드론이 사라지면 탑재물은 그 자리 아래 표면으로 떨어져 **바닥 설치물로 남는다** (`mount = null`):
- *  - 모두가 `drone:removed` 를 보고 로컬에서 떨어뜨린다 (즉시 반응).
- *  - 호스트는 거기에 더해 **같은 id 로 `gad spawn` 을 다시 방송**한다 (`mount` 없음). 계약에 위치 갱신 메시지가
- *    없어서 고른 방법이고, 받는 쪽(`Wire` 의 spawn)은 이미 있는 id 면 새로 만들지 않고 위치 · yaw · hp · 무장 ·
- *    mount 만 덮어쓴다 — 복제본의 드론 보간 지연 때문에 어긋난 착지 자리가 호스트 것으로 맞춰진다.
- *  - 비호스트는 `getDrone` 이 null 이어도 **그것만으로는 떼지 않는다** — 늦게 합류하면 `gad sync` 가 `drone sync`
- *    보다 먼저 올 수 있어서, 아직 모르는 드론을 "사라졌다" 로 읽으면 멀쩡한 탑재물이 땅에 떨어진다.
+ * When the drone goes, the mounted deployable drops to the surface below that spot and **stays as a ground
+ * deployable** (`mount = null`):
+ *  - everyone drops it locally on `drone:removed` (an immediate reaction).
+ *  - the host additionally **re-broadcasts `gad spawn` under the same id** (with no `mount`). That route was chosen
+ *    because the contract has no position-update message, and the receiving side (spawn in `Wire`) creates nothing
+ *    for an id it already has: it overwrites position · yaw · hp · armed · mount only — so a landing spot pulled out
+ *    of place by the replica's drone interpolation lag is lined up with the host's.
+ *  - a non-host **does not unmount on that alone** when `getDrone` returns null — for a late joiner `gad sync` can
+ *    arrive before `drone sync`, so reading a drone it does not know yet as "gone" would drop a perfectly good
+ *    mounted deployable to the ground.
  *
- * 드론 위 지뢰의 적 전용 감지는 원격 지뢰 담당(`Simulate`)의 몫이다 — 여기는 `mount` 를 정확히 유지만 한다.
+ * The enemy-only trigger of a mine riding a drone belongs to the mine simulation (`Simulate`) — this file only keeps
+ * `mount` accurate.
  */
 import type { DeployableWire, DroneRef, GameContext } from '@/shared';
 import type { Deployable } from '../Deployable';
 import type { GadgetSystem } from '../GadgetSystem';
 
 /**
- * `DroneRef.mountedDeployableId` 는 계약상 readonly 이고 "gadgets 가 설정한다" 고 적혀 있다. 드론 구현이 쓰기 가능한
- * 필드로 두면 여기서 채우고, getter 로만 두면(스스로 계산하면) 대입이 조용히 실패한다.
+ * `DroneRef.mountedDeployableId` is readonly in the contract and documented as "gadgets sets it". When the drone
+ * implementation keeps it as a writable field this fills it in; when it is a getter only (computing itself) the
+ * assignment fails silently.
  */
 function setDroneMountId(drone: DroneRef | null | undefined, id: string | null): void {
   if (!drone) return;
   try { (drone as { mountedDeployableId: string | null }).mountedDeployableId = id; } catch { /* getter-only */ }
 }
 
-/** 스폰 직후: 드론 위에 올린다. 드론을 아직 모르면 id 만 들고 기다린다 (위치는 요청 자리 그대로). */
+/**
+ * Right after the spawn: mounts it on the drone. While the drone is still unknown it holds the id alone and waits
+ * (the position stays where it was requested).
+ */
 export function attach(sys: GadgetSystem, d: Deployable, droneId: string): void {
   d.mount = droneId;
   const drone = sys.ctx.drones?.getDrone(droneId) ?? null;
@@ -36,7 +44,10 @@ export function attach(sys: GadgetSystem, d: Deployable, droneId: string): void 
   setDroneMountId(drone, d.id);
 }
 
-/** 제거 · 떼어내기 전에: 드론 쪽 표시를 지운다 (그 드론이 아직 이 설치물을 가리키고 있을 때만). */
+/**
+ * Before a removal · a detach: clears the mark on the drone side (only while that drone still points at this
+ * deployable).
+ */
 export function unmount(sys: GadgetSystem, d: Deployable): void {
   const id = d.mount;
   if (!id) return;
@@ -45,7 +56,7 @@ export function unmount(sys: GadgetSystem, d: Deployable): void {
   if (drone && drone.mountedDeployableId === d.id) setDroneMountId(drone, null);
 }
 
-/** 드론에서 떨어져 그 아래 표면에 선다. 호스트는 같은 id 로 `gad spawn` 을 다시 방송한다. */
+/** Drops off the drone and stands on the surface below. The host re-broadcasts `gad spawn` under the same id. */
 export function detach(sys: GadgetSystem, d: Deployable): void {
   if (!d.mount) return;
   unmount(sys, d);
@@ -55,7 +66,7 @@ export function detach(sys: GadgetSystem, d: Deployable): void {
   if (sys.ctx.isAuthority) sys.broadcast({ t: 'gad', ev: 'spawn', d: sys.wireOf(d) }, 'others');
 }
 
-/** 매 프레임 (배치물 루프 전): 탑재물을 드론 윗면으로 옮긴다. */
+/** Every frame (before the deployable loop): moves mounted deployables onto the drone's top face. */
 export function updateMounts(sys: GadgetSystem, ctx: GameContext): void {
   const list = sys.deployables;
   for (let i = list.length - 1; i >= 0; i--) {
@@ -68,12 +79,12 @@ export function updateMounts(sys: GadgetSystem, ctx: GameContext): void {
       if (drone.mountedDeployableId !== d.id) setDroneMountId(drone, d.id);
       continue;
     }
-    // 권위자만 "드론이 없다" 를 믿는다 (위 머리 주석)
+    // Only the authority believes "the drone is gone" (the header comment above)
     if (ctx.isAuthority) detach(sys, d);
   }
 }
 
-/** `drone:removed`: 그 드론에 올라탄 것을 전부 떨어뜨린다 (모든 클라이언트). */
+/** `drone:removed`: drops everything riding that drone (on every client). */
 export function onDroneRemoved(sys: GadgetSystem, droneId: string): void {
   const list = sys.deployables;
   for (let i = list.length - 1; i >= 0; i--) {
@@ -83,8 +94,8 @@ export function onDroneRemoved(sys: GadgetSystem, droneId: string): void {
 }
 
 /**
- * 비호스트: 이미 있는 id 로 `gad spawn` 이 다시 왔다 (호스트가 드론에서 떨어진 탑재물을 재방송) — 새로 만들지 않고
- * 상태만 덮어쓴다.
+ * Non-host: a `gad spawn` arrived again under an id that already exists (the host re-broadcasting a deployable that
+ * dropped off a drone) — nothing is created, only the state is overwritten.
  */
 export function applyWire(sys: GadgetSystem, d: Deployable, w: DeployableWire): void {
   const next = w.mount ?? null;

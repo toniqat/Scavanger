@@ -1,8 +1,9 @@
 /**
- * src/gadgets/parts/Simulate.ts — **배치물이 매 프레임 하는 일**.
+ * src/gadgets/parts/Simulate.ts — **what a deployable does every frame**.
  *
- * 지뢰 · 포탑 · 화염지대 · 유인탄 · 점프대의 동작. 화염지대는 **피아를 구분하지 않고**(설계대로)
- * 자기 주인에게 킬 크레딧을 준다. 점프대는 같은 사람을 `JUMP_PAD_RETRIGGER_S` 안에 다시 쏘지 않는다.
+ * The behaviour of the mine · turret · fire zone · lure · jump pad. The fire zone has **no friend-or-foe
+ * check** (by design) and gives its kill credit to its own owner. A jump pad never launches the same person
+ * twice inside `JUMP_PAD_RETRIGGER_S`.
  */
 import * as THREE from 'three';
 import {
@@ -18,11 +19,11 @@ import { GadgetVisualPool } from '../GadgetVisuals';
 import { ThrownGadgetManager } from '../ThrownGadget';
 import { EMPTY_ENEMIES, MAX_DEPLOYABLES, PLACE_CLEARANCE, PLACE_DISTANCE, PLAYER_HALF_H, RECOVER_RADIUS, TURRET_AIM_CONE, TURRET_RETARGET, TURRET_ROF, TURRET_TURN_RATE, USE_COOLDOWN, type Victim, ZONE_TICK, _a, _b, _c, _d, _e, _fwd, _g0, _g1, _g2, _r0, _r1, _r2, _r3, _r4, angleDelta, toTuple } from '../model';
 import type { GadgetSystem } from '../GadgetSystem';
-/* 2026-09-11: 원격 지뢰 · 드론 위 지뢰 */
+/* 2026-09-11: the remote mine · a mine mounted on a drone */
 import { GADGET_MOUNTED_MINE_TRIGGER_RADIUS, GADGET_REMOTE_MINE_ARM_TIME } from '@/shared';
-/* 2026-09-15 (B-16): 화염 지대 — 지지직 소리 · 드론 */
+/* 2026-09-15 (B-16): the fire zone — the crackle sound · drones */
 import { FIRE_ZONE_CRACKLE_S, FIRE_ZONE_DRONE_HEIGHT } from '@/shared';
-/* 2026-09-15 (사용자 결정): 폭발 감쇠 2단 계단 — 모든 폭발물 공용 */
+/* 2026-09-15 (user's decision): the two-step blast falloff — shared by every explosive */
 import { PLAYER_HEIGHT, blastReachesBody, explosionDamage } from '@/shared';
 import * as Remote from './Remote';
 import * as Thumper from './Thumper';
@@ -30,7 +31,7 @@ import type { DamageSourceWire, PlayerDamageSource } from '@/shared';
 
 /* ═══════════════════════════ simulation (authority) ═══════════════════════════ */
 export function updateArming(sys: GadgetSystem, d: Deployable): void {
-  // 2026-09-11: 원격 지뢰의 첫 프레임 — 설치음 · 소유자당 상한 (Remote.initRemoteMine)
+  // 2026-09-11: a remote mine's first frame — the place sound · the per-owner cap (Remote.initRemoteMine)
   if (d.kind === 'remoteMine' && !d.remoteInit) Remote.initRemoteMine(sys, d);
   if (d.armed || d.removing) return;
   const need = d.kind === 'mine' ? GADGET_MINE_ARM_TIME : d.kind === 'remoteMine' ? GADGET_REMOTE_MINE_ARM_TIME : DOME_UNFOLD_TIME;
@@ -88,11 +89,12 @@ export function explodeMine(sys: GadgetSystem, d: Deployable, ctx: GameContext):
   // 2026-09-11: drones in the blast (a mine riding a drone sits at the centre, so its carrier is destroyed)
   ctx.drones?.applyExplosion(d.position, radius, dmg);
   // players (no friend-or-foe check, the owner included)
-  // 2026-09-15 (사용자 결정): 감쇠는 공용 2단 계단 (`shared/explosion`); 지뢰의 대인 몫 0.85 는 그대로다
+  // 2026-09-15 (user's decision): the falloff is the shared two-step one (`shared/explosion`); the mine's
+  // 0.85 anti-personnel share is unchanged
   const p = ctx.player;
   if (p && !p.isDead) {
     const dist = p.position.distanceTo(d.position);
-    // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머는 맞지 않는다 (몸 3점)
+    // 2026-09-18 (user's decision): nothing behind a wall · roof · floor is hit (three points on the body)
     if (dist < radius && blastReachesBody(ctx.world, d.position, p.position.x, p.position.y, p.position.z, PLAYER_HEIGHT)) p.takeDamage(explosionDamage(dmg, dist, radius) * 0.85, d.position.clone(), Remote.localVictimSource(sys, d.owner));
   }
   for (const r of ctx.net?.getRemotePlayers() ?? []) {
@@ -148,9 +150,10 @@ export function updateFireZone(sys: GadgetSystem, d: Deployable, dt: number, ctx
   if (d.tickTimer > 0) return;
   d.tickTimer = ZONE_TICK;
   const enemies = ctx.enemies;
-  /* 2026-09-18: 여기는 **피해를 주는** 자리라 벌레 알도 센다 (`includeProps` true).
-   * `enemiesNear` 의 기본값이 알을 빼는 것은 「표적을 고르거나 위험을 묻는」 질문 때문이고, 불에 타는 것은 그 질문이 아니다 —
-   * 지뢰 폭발(`applyAreaDamage`)이 이미 알을 부수므로, 여기서 빼면 같은 알이 폭발에는 깨지고 불에는 안 깨진다. */
+  /* 2026-09-18: this is a place that **deals damage**, so nest eggs count too (`includeProps` true).
+   * `enemiesNear` leaves eggs out by default because its callers ask "pick a target" or "is something
+   * dangerous here" — burning is not that question. A mine blast (`applyAreaDamage`) already breaks eggs, so
+   * leaving them out here would let the same egg break to an explosion but not to fire. */
   for (const e of sys.enemiesNear(d.position, d.radius, true)) {
     if (e.isDead) continue;
     // Phase 9: the fire's owner gets the burn kill credit (`enemy:killed.by`)
@@ -224,10 +227,12 @@ export function animate(sys: GadgetSystem, d: Deployable, t: number, dt: number)
   v.root.position.copy(d.position);
   v.root.rotation.y = d.yaw;
   if (v.head) v.head.rotation.y = d.headYaw - d.yaw;
-  // 2026-09-15: the deployable's own gadget first — `fire` is produced by two defs (화염수류탄 10 s · G-10 화염 지대 6 s)
+  // 2026-09-15: the deployable's own gadget first — `fire` is produced by two defs (`화염수류탄` 10 s ·
+  // the G-10 fire zone 6 s)
   const def = gadgetDef(d.gadgetId) ?? gadgetForKind(d.kind);
   const life = d.expires > 0 && def && def.duration > 0 ? THREE.MathUtils.clamp((d.expires - t) / def.duration, 0, 1) : 1;
-  // 2026-09-15 (진동 장치, parts/Thumper): 타격은 모든 클라이언트가 `age` 에서 센다 — 망치 위상을 visual.phase 로 넘기고 타격 순간의 FX · 부름
+  // 2026-09-15 (the thumper, parts/Thumper): every client counts the strikes from `age` — the hammer phase
+  // goes to visual.phase, and the FX · summon happen at the moment of a strike
   if (d.kind === 'thumper') Thumper.tick(sys, d, dt);
   sys.visuals.animate(v, t, dt, d.armed, d.hpRatio, life);
   if (d.kind === 'remoteMine') Remote.updateBeep(sys, d, dt);
@@ -277,13 +282,19 @@ export function damageEnemies(sys: GadgetSystem, center: THREE.Vector3, radius: 
   else enemies.applyExplosion(center, radius, damage);
   }
 
-/** 2026-09-15 (결과 창 개편): `owner` = 쏜 설치물의 주인 → 받는 사람 기준 `self` / `ally` 출처 (생략 = 모름). */
+/**
+ * 2026-09-15 (the results screen rework): `owner` = the owner of the deployable that fired → a `self` /
+ * `ally` source judged from the victim's side (omitted = unknown).
+ */
 export function hurtPlayer(sys: GadgetSystem, victim: Victim, amount: number, from: THREE.Vector3, owner?: PeerId | 'local'): void {
   if (victim === 'local') sys.ctx.player?.takeDamage(amount, from.clone(), owner !== undefined ? Remote.localVictimSource(sys, owner) : undefined);
   else sys.hurtRemote(victim, amount, from, owner !== undefined ? Remote.remoteVictimWire(owner, victim) : undefined);
   }
 
-/** 2026-09-15 (결과 창 개편): `src` = `dmg.src` (받는 사람 기준 출처 — 옛 클라이언트는 무시). */
+/**
+ * 2026-09-15 (the results screen rework): `src` = `dmg.src` (the source judged from the victim's side — an
+ * older client ignores it).
+ */
 export function hurtRemote(sys: GadgetSystem, peer: PeerId, amount: number, from: THREE.Vector3, src?: DamageSourceWire): void {
   const net = sys.ctx.net;
   if (!net || !sys.ctx.isMultiplayer) return;
@@ -291,8 +302,10 @@ export function hurtRemote(sys: GadgetSystem, peer: PeerId, amount: number, from
   }
 
 /**
- * 2026-09-15 (결과 창 개편): 로컬 플레이어가 선 화염 지대의 출처 — `Queries.fireDamageAt` 과 같은 조건으로 훑어,
- * 분대원이 지른 불이 하나라도 있으면 `ally`, 전부 내 것이면 `self`. 화염 지대 안에서만(`dps > 0`) 불리고 할당하지 않는다.
+ * 2026-09-15 (the results screen rework): the source of the fire zone the local player stands in — it sweeps
+ * with the same conditions as `Queries.fireDamageAt` and answers `ally` if even one of the fires was lit by a
+ * squadmate, `self` when they are all mine. It is called only inside a fire zone (`dps > 0`) and allocates
+ * nothing.
  */
 function fireZoneSourceAt(sys: GadgetSystem, pos: THREE.Vector3): PlayerDamageSource {
   for (const d of sys.deployables) {

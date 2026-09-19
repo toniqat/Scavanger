@@ -1,10 +1,11 @@
 /**
- * src/gadgets/drones/parts/Control.ts — **누가 언제 드론 시점으로 들어가고 나오는가.**
+ * src/gadgets/drones/parts/Control.ts — **who enters and leaves a drone view, and when.**
  *
- * R 홀드(`DRONE_CONTROL_HOLD_S`)로 조종을 잡고 같은 홀드로 PC 로 돌아온다. 조종 중에는 키 · 마우스를 `DroneInput`
- * 으로 옮기고, 드론 렌즈를 매 프레임 `player.setCameraOverride(pos, look, true)` 로 넘긴다 — `DroneSystem.update` 는
- * `PlayerSystem.update` 뒤 · `PlayerSystem.lateUpdate`(카메라 리그) 앞이라 한 프레임도 늦지 않는다.
- * 사거리(`linkRatio`) · 강제 끊김 · 지지직도 여기다.
+ * An R hold (`DRONE_CONTROL_HOLD_S`) takes control and the same hold returns to the PC. While controlled, keys ·
+ * mouse move into `DroneInput` and the drone lens is handed over every frame with
+ * `player.setCameraOverride(pos, look, true)` — `DroneSystem.update` runs after `PlayerSystem.update` and before
+ * `PlayerSystem.lateUpdate` (the camera rig), so it is never a frame late.
+ * Link range (`linkRatio`) · the forced release · the static live here too.
  */
 import {
   DRONE_CONTROL_HOLD_S, DRONE_LINK_WARN_RATIO, DroneFlags, Keys, droneKindOfGadget,
@@ -19,7 +20,7 @@ import { deny, ownDrone } from './Lifecycle';
 
 let staticT = 0;
 
-/** 손에 든 아이템이 드론 조종기면 그 종류. */
+/** The kind, when the item in hand is a drone controller. */
 export function heldDroneKind(sys: DroneSystem): DroneKind | null {
   const id = sys.ctx.weapons?.remoteState?.heldItemId;
   if (!id) return null;
@@ -32,8 +33,9 @@ export function controlHold(sys: DroneSystem): number {
 }
 
 /**
- * R 홀드. 홀드는 **이번 누름**(`wasPressed`)에서만 시작한다 — 재장전하려고 누르고 있던 R 이 드론을 손에 드는 순간
- * 조종으로 이어지지 않게. 채우면 한 번 전환하고, 뗄 때까지 다시 세지 않는다.
+ * The R hold. A hold starts only on **this press** (`wasPressed`) — so an R already held down for a reload does not
+ * turn into control the moment a drone reaches the hand. Once filled it switches once and does not count again until
+ * the key is released.
  */
 export function updateControl(sys: DroneSystem, dt: number): void {
   const ctx = sys.ctx;
@@ -44,7 +46,8 @@ export function updateControl(sys: DroneSystem, dt: number): void {
 
   const cur = sys.controlled;
   if (cur) {
-    // `setDroneControl` 은 조용히 거절되거나 스스로 풀릴 수 있다 (사다리 · 헬포드 · 들쳐메기 · 함선 실내 …) — 이벤트가 없으니 매 프레임 본다
+    // `setDroneControl` can be refused silently or release itself (ladder · drop pod · shouldering · ship
+    // interior …) — there is no event, so it is checked every frame
     if (!p || p.isDead || p.isDowned || !ctx.isGameplayPhase() || cur.removing || p.droneControl === false) { releaseControl(sys, 'reset'); return; }
     if (!ctx.isGameplayActive()) { sys.holding = false; sys.holdT = 0; return; }
     if (input.wasPressed(Keys.RELOAD)) { input.consume(Keys.RELOAD); sys.holding = true; sys.holdT = 0; }
@@ -54,7 +57,8 @@ export function updateControl(sys: DroneSystem, dt: number): void {
     return;
   }
 
-  const able = !!p && !p.isDead && !p.isDowned && !p.droneControl && !p.roverRide && ctx.isGameplayActive();   // 2026-09-13: 탐사 차량 안 제외
+  // 2026-09-13: being inside the rover is excluded
+  const able = !!p && !p.isDead && !p.isDowned && !p.droneControl && !p.roverRide && ctx.isGameplayActive();
   const kind = able ? heldDroneKind(sys) : null;
   const d = kind ? ownDrone(sys, kind) : null;
   if (!d) { sys.holding = false; sys.holdT = 0; return; }
@@ -81,7 +85,7 @@ export function startControl(sys: DroneSystem, d: Drone): void {
   if (!p) return;
   if (typeof p.setDroneControl === 'function') {
     p.setDroneControl(true);
-    // 플레이어가 거절했다 (사다리 · 헬포드 · 들쳐메기 · 함선 실내 …) — 시점을 넘기지 않는다
+    // The player refused (ladder · drop pod · shouldering · ship interior …) — the view is not handed over
     if (!p.droneControl) { deny(sys, '지금은 드론을 조종할 수 없다'); return; }
   }
   sys.controlled = d;
@@ -108,13 +112,14 @@ export function releaseControl(sys: DroneSystem, reason: DroneReleaseReason): vo
   d.body.setOwnerView(false);
   const p = ctx.player;
   if (p && (p.droneControl ?? true)) p.setDroneControl?.(false);
-  // snap + null = 즉시 컷. 그냥 null 은 1 초쯤 섞여 돌아오는데, 멀리 있는 드론에서 PC 까지 카메라가 지형을 훑고 지나간다.
+  // snap + null = a hard cut. A plain null blends back over about a second, and from a distant drone that sweeps
+  // the camera across the terrain all the way to the PC.
   p?.setCameraOverride(null, undefined, true);
   ctx.bus.emit('audio:play', { id: 'drone_link_off', volume: 0.7 });
   ctx.bus.emit('drone:controlChanged', { id: null, kind: null, reason });
 }
 
-/** 조종 중인 드론의 이번 프레임 입력. UI 가 열려 있으면 null (지상은 멈추고 공중은 제자리 비행). */
+/** This frame's input for the controlled drone. null while UI is open (ground stops, air hovers in place). */
 export function buildInput(sys: DroneSystem, d: Drone): DroneInput | null {
   const ctx = sys.ctx;
   if (!ctx.isGameplayActive()) return null;
@@ -134,7 +139,10 @@ export function buildInput(sys: DroneSystem, d: Drone): DroneInput | null {
   return inp;
 }
 
-/** 소유자 PC ↔ 드론 3D 거리 ÷ 사거리. 복제본은 그 소유자의 원격 위치로 잰다 (없으면 와이어의 LINK_LOST). */
+/**
+ * Owner PC ↔ drone 3D distance ÷ link range. A replica measures it from that owner's remote position (with no remote
+ * player, the wire's LINK_LOST decides).
+ */
 export function updateLink(sys: DroneSystem, d: Drone): void {
   const ctx = sys.ctx;
   const range = droneRange(d.kind);
@@ -151,7 +159,7 @@ export function updateLink(sys: DroneSystem, d: Drone): void {
   } else d.linkRatio = lost ? 1 : 0;
 }
 
-/** 루프 뒤: 강제 끊김 · 카메라 · 지지직. */
+/** After the loop: the forced release · the camera · the static. */
 export function updateControlled(sys: DroneSystem, dt: number): void {
   const d = sys.controlled;
   if (!d) return;

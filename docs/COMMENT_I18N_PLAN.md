@@ -6,12 +6,13 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **11, `src/gadgets`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
+> **Next session starts here:** queue item **12, `src/allies`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
 > before picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this
 > file originally described**; the old one let a deleted `*/` through, and **§3 step 4b**, which `src/tutorial` added
-> after catching a re-typed Korean label. `src/gadgets` is 573 lines over 22 files; `src/weapons` (queue item 16) and
-> `src/items` (item 10) already fixed the nouns it shares with them, and CLAUDE.md §4.6's gadget bullets are what
-> settle placement · preview · drone wording.
+> after catching a re-typed Korean label. `src/allies` is 561 lines over 22 files; `src/player` (item 9) already fixed
+> the body · pose · avatar nouns it shares with them, `src/enemies` (item 3) the AI-phase ones, and CLAUDE.md §3.2's
+> `src/allies` row plus §4.6's two android bullets are what settle roster · harness · order · roam wording.
+> `src/shared/allies.ts` is already English and is the contract this folder points at — read it first.
 
 > **§3 step 4b earns its place again.** In `src/items` an agent re-typed the csv item name `강화합금 잉곳` as
 > `강화합금 잉고` in **two** `Salvage.ts` comments, and its own report said the audit was clean — it had run the
@@ -41,15 +42,15 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`) | 20,389 | 495 |
-| **Remaining** ([§2](#2-queue)) | **6,227** | **252** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`, `src/gadgets`) | 20,962 | 517 |
+| **Remaining** ([§2](#2-queue)) | **5,654** | **230** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 54 lines, because a comment whose entire substance is
+**Intended permanent exceptions.** A finished folder still prints 64 lines, because a comment whose entire substance is
 a quoted label, a quoted document heading or a verbatim user decision keeps its Korean (§3 rule 2 — the reader has to be
-able to grep it against the real string). So a raw run over everything prints 7,848 / 336, sixty more than the
+able to grep it against the real string). So a raw run over everything prints 5,718 / 276, sixty-four more than the
 queue. `src/ui` alone contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice —
 so its rows are grouped into one line instead of listed file by file:
 
@@ -82,6 +83,7 @@ so its rows are grouped into one line instead of listed file by file:
 | `player/PlayerSystem.ts:413` | the verbatim user decision the scene lock's `allowDamage` option was built from (`처치하지 않은 안드로이드의 사격을 맞은 채 출발한다 · 죽지 않는다`) |
 | `player/RemoteAvatar.ts:611` | a verbatim user decision (`마지막 함선을 탔을 때 PC 가 함선 내부에 실루엣으로 보이지 않도록`) |
 | `items/Loot.ts:552` | a verbatim user decision (`잠긴 방은 지금 그대로, 나머지는 서사 이상 절반`) |
+| `gadgets/GadgetDefs.ts:205` | a `docs/DECISIONS.md` section heading (`2026-09-15 — 땅굴벌레 · 진동 장치`) |
 
 ---
 
@@ -101,7 +103,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~8~~ | ~~`src/tutorial`~~ | 1,278 | 11 | **Done 2026-09-19** (lead + 4 agents, one commit). 6 quoted-only lines stay (§1). Cut **by file**, not by track — see the banner above. Its track · step · stretch · objective-row · control-guide · spotlight vocabulary is now the reference for every guidance-shaped folder after it. |
 | ~~9~~ | ~~`src/player`~~ | 949 | 30 | **Done 2026-09-19** (lead + 6 agents, one commit). 2 quoted-only lines stay (§1). Cut **by subject** and it held: controller · vitals / damage · wake + spawn + camera · body modes · soldier model · remote avatars, lead on `PlayerSystem` · `model` · `index`. Its body-mode · stance / pose · scene-lock · intro-wake · shouldering · rig vocabulary is now the reference for every controller- and avatar-shaped folder after it. |
 | ~~10~~ | ~~`src/items`~~ | 612 | 12 | **Done 2026-09-19** (lead + 3 agents, one commit). 1 quoted-only line stays (§1). Cut **by subject** and it held: the roll engine (`Loot`) · the csv→table loaders (`LootTables` · `Recipes`) · the craft economy and spec rows (`Salvage` · `ItemSpec` · `WeaponStats`), lead on the item defs (`ItemDefs` · `WeaponDefs` · `ArmorDefs` · `ImplantDefs` · `ItemText` · `index`). Its roll · draw · pick · candidate pool · epic+ gate · bucket · craft-inputs vocabulary is now the reference for every data- and economy-shaped folder after it. |
-| 11 | `src/gadgets` | 573 | 22 | |
+| ~~11~~ | ~~`src/gadgets`~~ | 573 | 22 | **Done 2026-09-19** (lead + 3 agents, one commit). 1 quoted-only line stays (§1). Cut **by subject** and it held: drone bodies (`AirDrone` · `GroundDrone` · `Lifecycle` · `Scan`) · drone core + mounting (`drones/model` · `DroneSystem` · `Control` · `drones/Wire` · `parts/Mount`) · placement (`Preview` · `Deploy` · `Thumper`), lead on the host-authoritative centre (`GadgetDefs` · `GadgetSystem` · `GadgetVisuals` · `Queries` · `Simulate` · `Remote` · `Wire` · `Deployable` · `model` · `ThrownGadget`). Its deployable · placement-test · footprint · arming · detonation · mounting · drone-body vocabulary is now the reference for every deployable- and vehicle-shaped folder after it. |
 | 12 | `src/allies` | 561 | 22 | |
 | 13 | `src/game` | 537 | 14 | |
 | 14 | `src/meta` | 305 | 15 | |
@@ -507,7 +509,10 @@ few hundred, because a Korean **label** inside English prose is correct and stay
   `src/shared`, which is why §3 now has step 4b),
   `B-47` · `B-48` · `B-49` · `B-50` (`src/player`, 9 + 7 + 5 + 6),
   `B-51` · `B-52` · `B-53` · `B-54` (`src/items`, 6 + 9 + 3 + 1 — `B-52` caught **three** counts of the same
-  thing disagreeing, one of them in this folder's own `README.md`).
+  thing disagreeing, one of them in this folder's own `README.md`),
+  `B-55` · `B-56` · `B-57` · `B-58` (`src/gadgets`, 11 + 5 + 3 + 3 — `B-58` is the first one that reaches
+  **outside** the folder, into `data/constants.csv` and `src/shared/constants.ts`, because the 2026-09-15 fire
+  merge left stale prose on both sides of the contract).
   Reading a folder this closely is the most productive defect hunt in the project — expect five to ten per folder (`src/ui`
   gave 23 and `src/housing` 35, each with a live bug in it: a member row that is built and never appended, and a stir-fry
   score whose denominator is the number of clicks that were judged), and keep filing rather than fixing.
@@ -806,3 +811,22 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 칩 · 재화 카드 vs 격자 카드 | the **chip · currency card** (`ui/hud/ItemTip`) vs the **grid card** (`inventory/ui/Tooltip`) — both tooltips' own pre-existing English | `items/ItemSpec.ts` |
 | 전진기지 (레이더) · 수류탄 창고 | the **outpost raider** (site `outpost` in `loot_faction_sites.csv`) · a **grenade stash** | `items/Loot.ts` |
 | 등급 (표본 줄) | **tier** when it is the csv `tiers` column (1..6, the rarity index) and **grade** / **rarity** everywhere else — one Korean word, decided from the code as always | `items/LootTables.ts`, `Loot.ts` |
+| 배치물 · 설치물 | **deployable** — one word for both, `gadgets/README.md`'s own | `gadgets` (folder-wide) |
+| 설치 판정 · 미리보기 · 고스트 · 발자국 | the **placement test** (`computePlacement`) · the **preview** · the **placement ghost** (never a bare *ghost* — §7 binds that to `world`'s ghost band and `ui/map`'s `.ghost`) · the **footprint** (`FOOTPRINTS`), whose ring is the **ghost ring** | `gadgets/parts/Preview.ts`, `GadgetVisuals.ts` |
+| 공간 vs 간격 | **space** (obstacles overlapping the footprint) vs **clearance** (`PLACE_CLEARANCE`, the minimum distance between two deployables) — two different tests in one function, never merged. 평탄도 is **flatness** | `gadgets/parts/Preview.ts` |
+| 거부 사유 | the **refusal reason** (`reason`, the nine `R_*` strings the HUD prints verbatim — they stay Korean) | `gadgets/parts/Preview.ts` |
+| 해체 | **defuse** (`GADGET_DEFUSE_TIME`) — kept apart from `src/items`' 해체 = *salvage*. 회수 stays **recover** | `gadgets` (folder-wide) |
+| 무장 · 기폭 · 기폭기 · 불발 | **arming** / **armed** (`armed`) · **detonation** · the **detonator** (§7's *detonator hand*) · a **dud** (a remote mine broken before it fires) | `gadgets/parts/Remote.ts`, `Simulate.ts` |
+| 중첩 피해 · 소유자당 상한 · 삑 | **stacked damage** (CLAUDE.md §4.6) · the **per-owner live cap** (`GADGET_REMOTE_MINE_MAX_LIVE`) · the **beep** (`c4_beep`) | `gadgets/parts/Remote.ts` |
+| 탑재 · 탑재판 | **mounting** (`Deployable.mount`, the README's word) · the **mount plate** (the drone's top plate; its pins are the **mount plate pins**) | `gadgets/parts/Mount.ts`, `drones/AirDrone.ts` |
+| 돔 실드 · 방어막 · 발생기 · 개체 · 펼침 | `돔 실드` when the prose names the csv item, **dome shield** for the concept (the same split `housing` runs for `가구 창고`) · the **shield** · the **emitter** (the code's own `emitter`) · the **unit** · **unfolding** (`DOME_UNFOLD_TIME`) | `gadgets/GadgetDefs.ts`, `GadgetVisuals.ts`, `parts/Deploy.ts` |
+| 진동 장치 · 타격 · 땅 판정 · 안내 기둥 · 망치 머리 | the **thumper** (README's word) · a **strike** · the **ground test** (`burrowGroundOk`), whose radius is the **ground-test radius** · the **rails** (`THUMPER_RAIL_H`) · the **hammer head** | `gadgets/parts/Thumper.ts`, `GadgetVisuals.ts` |
+| 화염 통합 · 결과 창 개편 | the **fire merge** · the **results screen rework** — two 2026-09-15 decision headings this folder quotes in five files each; one name only | `gadgets` (folder-wide) |
+| 칸 (풀 객체) | an **entry** (`sys.fireZonePool` · `fireZoneList`) — a sixth thing 칸 means, kept apart from inventory's grid *cell* / panel *pane* and `hub`'s station *slot* | `gadgets/parts/Queries.ts`, `model.ts` |
+| 표현 전용 값 · 기하 분류 | **presentation-only values** (not gameplay numbers — `enemies`' *presentation numbers* in its section-divider form) · **geometry classification** (values that decide "what did the ray hit", not balance) | `gadgets/parts/Remote.ts`, `Preview.ts` |
+| 조종자 vs 조종기 | the **controlling player** (the person) vs the **controller** (§7 — the quick-slot item that stays in hand). One Korean pair, two different things the drone files need side by side | `gadgets/drones` (folder-wide) |
+| 보이는 몸체 · 제자리 호버 · 고도 상한 | the **visible body** (beside `visualYaw` = the *visual yaw*) · **hovering in place** · the **altitude cap** (README's band is the **altitude band**) | `gadgets/drones/AirDrone.ts` |
+| 스키드 · 프롭 가드 · 블러 원판 · 짐벌 · 항법 LED · 경고 띠 | the **landing skids** · the **prop guards** · the **blur disc** · the **gimbal** (yoke · ball · **scope tube** (§7) · glass) · the **navigation LEDs** · the **warning band** | `gadgets/drones/AirDrone.ts`, `GroundDrone.ts` |
+| 낮은 턱 | a **low ledge** — the thing `PROP_STEP_UP_MAX` lets a body ride onto. Kept apart from `world/structures`' 콘크리트 턱 = *sill* | `gadgets/drones/AirDrone.ts` |
+| 건물 바닥 | a **building floor** (the walkable inside of a structure) — kept apart from `world/structures`' **floor plate**, which names the collider | `gadgets/parts/Preview.ts` |
+| 조작감 · 설계안 | **handling feel** (a drone tuning section; `AirDrone` writes the short *Handling*) · the **design note** (`설계안 §3`) | `gadgets/drones` (folder-wide) |

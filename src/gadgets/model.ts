@@ -1,9 +1,9 @@
 /**
- * src/gadgets/model.ts — 가젯 폴더의 공용 어휘.
+ * src/gadgets/model.ts — the gadget folder's shared vocabulary.
  *
- * `GadgetSystem` 에서 떼어낸 상수 · 타입(그리고 상태 없는 보조 클래스)만 있다. 클래스를 참조하지 않으므로
- * `parts/*` 모듈이 `GadgetSystem.ts` 를 되돌아 import 하지 않고 쓸 수 있다(순환 import 방지).
- * `GadgetSystem.ts` 가 `export *` 로 재수출하므로 기존 import 경로는 전부 유지된다.
+ * Only the constants · types (and the stateless helpers) split out of `GadgetSystem`. Nothing here references
+ * the class, so a `parts/*` module can use it without importing `GadgetSystem.ts` back (no import cycle).
+ * `GadgetSystem.ts` re-exports it with `export *`, so every existing import path still works.
  */
 import * as THREE from 'three';
 import {
@@ -41,8 +41,9 @@ export const MAX_DEPLOYABLES = 40;
 /** Half-height of the player capsule used for turret friendly-fire tests. */
 export const PLAYER_HALF_H = 0.9;
 /**
- * 2026-09-11 (설치 미리보기, `parts/Preview`): 설치 자리가 발 높이에서 위아래로 이만큼(m) 넘게 벗어나면 `너무 멀다`.
- * 값은 `data/constants.csv` 의 `GADGET_PLACE_VERTICAL_REACH` — 옛 이름은 호출부를 위해 재수출만 한다.
+ * 2026-09-11 (the placement preview, `parts/Preview`): a placement spot more than this far (m) above or below
+ * the feet reads as `너무 멀다`. The value is `GADGET_PLACE_VERTICAL_REACH` in `data/constants.csv` — the old
+ * name is only re-exported for the call sites.
  */
 export { GADGET_PLACE_VERTICAL_REACH as PLACE_VERTICAL_REACH } from '@/shared';
 
@@ -67,7 +68,8 @@ export function angleDelta(from: number, to: number): number {
 /** Which peer a turret / mine hurt. */
 export type Victim = PeerId | 'local';
 
-/** 2026-09-15 (B-16): `GadgetsRef.getFireZones` 가 재사용하는 칸 — `FireZoneInfo` 의 쓰기 가능한 모양 (`parts/Queries.getFireZones`). */
+/** 2026-09-15 (B-16): the pooled entry `GadgetsRef.getFireZones` reuses — a writable `FireZoneInfo` shape
+ *  (`parts/Queries.getFireZones`). */
 export interface FireZoneView {
   id: string;
   position: THREE.Vector3;
@@ -77,11 +79,11 @@ export interface FireZoneView {
 }
 
 /**
- * Special gadgets (특수 가젯). Publishes `ctx.gadgets` and owns `GADGET_DEFS`.
+ * Special gadgets. Publishes `ctx.gadgets` and owns `GADGET_DEFS`.
  *
  * - `use(id, underhand)` consumes the matching `ItemDef` (`gadgetId`) and either applies an instant effect
- *   (은폐 장막 / 제세동기), throws a canister (돔 실드 / 유인 / 연막 / 화염) or places a deployable in front of
- *   the player (바리케이드 / 지뢰 / 포탑 / 점프대).
+ *   (cloak veil / defib), throws a canister (dome shield / lure / smoke / fire) or places a deployable in
+ *   front of the player (barricade / mine / turret / jump pad).
  * - World deployables are **host-authoritative**: only `ctx.isAuthority` simulates them. Clients send
  *   `gadq place/damage/recover/sync` and mirror the host's `gad spawn/update/remove/fire/sync`.
  * - Mines, fire zones and turrets have **no friend-or-foe check** — they hurt players and bugs alike.

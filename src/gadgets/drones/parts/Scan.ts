@@ -1,23 +1,31 @@
 /**
- * src/gadgets/drones/parts/Scan.ts — **지상 드론이 들여다본 상자 · 컨테이너 · 시체 안에서 가장 좋은 것은 몇 등급인가** (2026-09-12).
+ * src/gadgets/drones/parts/Scan.ts — **the best rarity inside the crate · container · corpse a ground drone looked
+ * into** (2026-09-12).
  *
- * 지상 드론을 조종하는 동안 렌즈 중심 광선이 스캔 대상(`droneScanKindOf` — 맵 상자 · 구조물 컨테이너 · 적/분대원 시체 ·
- * 보급 상자)에 걸린 채 좌클릭을 `DRONE_SCAN_HOLD_S` 누르고 있으면 결과가 대상 위 월드 라벨(`ui/hud/DroneScanLabels`)로
- * 레이드 내내 남고 분대에 방송된다(`drone scan` + 채팅 한 줄). 공중 드론은 못 한다(설계안 §7).
+ * While a ground drone is controlled, holding left-click for `DRONE_SCAN_HOLD_S` with the lens centre ray on a
+ * scan target (`droneScanKindOf` — map crates · structure containers · enemy / squadmate corpses · supply crates)
+ * leaves the result as a world label above the target (`ui/hud/DroneScanLabels`) for the rest of the raid and
+ * broadcasts it to the squad (`drone scan` + one chat line). An air drone cannot do it (the design note §7).
  *
- *  - **조준**: 대상마다 중심(바닥 + 종류별 높이) 반지름 `DRONE_SCAN_AIM_RADIUS` 구와 광선 교차 — 가장 먼저 닿는 것.
- *    `DRONE_SCAN_HINT_RANGE` 밖은 보지 않고, 렌즈 → 중심이 `DRONE_SCAN_RANGE` 안이어야 게이지가 찬다.
- *  - **가림**: 렌즈 → 대상 중심까지 `world.raycast` — 대상 **자기 콜라이더**(상자 · 컨테이너 · 보급 상자는 자리에 콜라이더가
- *    선다)가 아닌 것이 중심보다 `OCCLUDE_SLACK` 앞에서 걸리면 조준이 아니다. 벽 너머 캐비닛은 벽이 먼저 걸린다.
- *  - **게이지**: 대상이 바뀌거나 조준 · 거리를 잃거나 좌클릭을 떼거나 조종이 끝나면 0. 채운 뒤에는 뗄 때까지 다시 세지 않는다.
- *    좌클릭이 총으로 새지 않는 것은 weapons 의 `droneLatch` 가 보장한다(조종 중 + 끝난 뒤 뗄 때까지).
- *  - **미리보기 = 여는 것**: `InventoryRef.peekContainerItems`(상자 · 보급 상자 = 티어 굴림, 이미 연 것 = 지금 내용물) ·
- *    `WorldRef.previewContainerItems`(구조물 컨테이너 — 열쇠 · 키카드 부가 굴림 포함, owner: world) → `peekSuppliedItems` ·
- *    적 시체는 `enemies/Corpses.Corpse.interact` 와 같은 `shared/lootRolls.corpseLootRandom` → `rollCorpseOn` ·
- *    분대원 시체는 `PlayerCorpse` 가 든 `items`. 아무것도 열거나 굴려 두지 않는다.
- *  - **소음 없음**: `world:noise` 도 위치 오디오도 내지 않는다 (조종자에게만 들리는 작은 딸깍 하나).
+ *  - **Aiming**: the ray is intersected with a sphere of radius `DRONE_SCAN_AIM_RADIUS` around each target's
+ *    centre (the floor + a per-kind height) — the first one it reaches. Anything past `DRONE_SCAN_HINT_RANGE` is
+ *    not looked at, and lens → centre has to be within `DRONE_SCAN_RANGE` for the gauge to fill.
+ *  - **Occlusion**: `world.raycast` from the lens to the target centre — anything that is not the target's **own
+ *    collider** (a crate · container · supply crate stands a collider on its spot) caught `OCCLUDE_SLACK` ahead of
+ *    the centre means it is not aimed at. A cabinet beyond a wall is blocked by the wall first.
+ *  - **The gauge**: 0 when the target changes, when aim · range is lost, when left-click is released, or when
+ *    control ends. Once filled it does not count again until the button is released. That the left-click does not
+ *    leak into the gun is guaranteed by weapons' `droneLatch` (while controlled + until release afterwards).
+ *  - **Previewing = opening**: `InventoryRef.peekContainerItems` (crate · supply crate = a tier roll, already
+ *    opened = the current contents) · `WorldRef.previewContainerItems` (structure containers — the bonus key ·
+ *    keycard roll included, owner: world) → `peekSuppliedItems` · an enemy corpse takes the same
+ *    `shared/lootRolls.corpseLootRandom` → `rollCorpseOn` as `enemies/Corpses.Corpse.interact` · a squadmate
+ *    corpse takes the `items` the `PlayerCorpse` holds. Nothing is opened and nothing is left rolled.
+ *  - **No noise**: it emits neither `world:noise` nor positional audio (one small click, heard only by the
+ *    controlling player).
  *
- * 받는 쪽(`onRemoteScan`)은 표시 전용이라 권위 검사가 없고 **모양 · 로비 멤버 · 빈도 · 보낸 사람의 지상 드론 거리**만 본다.
+ * The receiving side (`onRemoteScan`) is display only, so it has no authority check and looks at **the shape ·
+ * lobby membership · the rate · the distance of the sender's ground drone** alone.
  */
 import * as THREE from 'three';
 import {
@@ -29,14 +37,26 @@ import {
 } from '@/shared';
 import type { DroneSystem } from '../DroneSystem';
 
-/* ── 대상 실루엣 (기하 — 게임플레이 수치 아님) ── */
-/** 조준 구 중심 = 대상 `Interactable.position`(바닥) + 이 높이. 궤짝 0.85 m · 캐비닛 0.85–1.75 m · 누운 시체 · 보급 상자 1.2 m. */
+/* ── Target silhouettes (geometry — not gameplay numbers) ── */
+/**
+ * Aim sphere centre = the target's `Interactable.position` (the floor) + this height. Crate 0.85 m · cabinet
+ * 0.85–1.75 m · a corpse lying down · supply crate 1.2 m.
+ */
 const CENTER_Y: Readonly<Record<DroneScanTargetKind, number>> = { crate: 0.45, container: 0.8, corpse: 0.3, playerCorpse: 0.25, supply: 0.6 };
-/** 대상 중심보다 이만큼(m) 앞에서 걸린 남의 콜라이더 · 지형만 가림으로 친다 (낮은 시체 앞 지형 굴곡 · 대상 표면). */
+/**
+ * Only another collider · terrain caught this far (m) in front of the target centre counts as occlusion (a fold of
+ * terrain in front of a low corpse · the target's own surface).
+ */
 const OCCLUDE_SLACK = 0.35;
-/** 광선이 맞은 장애물의 중심이 대상 자리에서 이만큼(m, 수평) 안이면 대상 자기 콜라이더다. */
+/**
+ * When the centre of the obstacle the ray hit lies within this (m, horizontal) of the target's spot, it is the
+ * target's own collider.
+ */
 const OWN_COLLIDER_EPS = 0.3;
-/** 받는 쪽: 보낸 사람 한 명에게서 이 간격(초)보다 잦은 스캔은 버린다 — 홀드가 `DRONE_SCAN_HOLD_S` 라 정상 흐름은 절대 안 걸린다. */
+/**
+ * Receiving side: scans arriving from one sender more often than this interval (s) are dropped — the hold is
+ * `DRONE_SCAN_HOLD_S`, so a normal flow never trips it.
+ */
 const RECV_MIN_INTERVAL_S = DRONE_SCAN_HOLD_S * 0.5;
 const ID_MAX = 96;
 
@@ -44,17 +64,23 @@ const _pos = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 
-/** `DroneScanAim` 의 재사용 객체 (프레임마다 할당하지 않는다). */
+/** The reused `DroneScanAim` object (nothing is allocated per frame). */
 export interface MutableScanAim { id: string; kind: DroneScanTargetKind; name: string; distance: number; inRange: boolean }
 
 interface AimHit { it: Interactable; kind: DroneScanTargetKind; distance: number }
 
-/** 적 시체(`enemies/Corpses.Corpse`)의 공개 필드 — 계약(`Interactable`) 밖이라 모양만 기대한다. */
-interface EnemyCorpseLike { enemyId?: unknown; type?: unknown; weaponId?: unknown; seed?: unknown; /** 2026-09-13: 스폰 거점 · 남은 수류탄 */ lootOpts?: unknown }
-/** `WorldRef.previewContainerItems`(owner: world, 설계안 §3) — 아직 없는 빌드에서도 컴파일되게 모양으로 읽는다. */
+/**
+ * The public fields of an enemy corpse (`enemies/Corpses.Corpse`) — outside the contract (`Interactable`), so only
+ * the shape is expected.
+ */
+interface EnemyCorpseLike { enemyId?: unknown; type?: unknown; weaponId?: unknown; seed?: unknown; /** 2026-09-13: spawn site · grenades left */ lootOpts?: unknown }
+/**
+ * `WorldRef.previewContainerItems` (owner: world, the design note §3) — read as a shape so a build that does not
+ * have it yet still compiles.
+ */
 interface WorldContainerPreview { previewContainerItems?: (containerId: string) => readonly ItemInstance[] | null }
 
-/* ═══════════════════════════ 조준 · 홀드 (매 프레임) ═══════════════════════════ */
+/* ═══════════════════════════ Aiming · hold (every frame) ═══════════════════════════ */
 
 export function scanHold(sys: DroneSystem): number {
   if (!sys.controlled || !sys.scanTargetId) return 0;
@@ -70,7 +96,7 @@ function resetHold(sys: DroneSystem): void {
   sys.scanTargetId = null;
 }
 
-/** `DroneSystem.update` 끝(카메라가 이번 프레임 자세를 받은 뒤). */
+/** The end of `DroneSystem.update` (after the camera took this frame's pose). */
 export function updateScan(sys: DroneSystem, dt: number): void {
   const ctx = sys.ctx;
   const d = sys.controlled;
@@ -105,7 +131,7 @@ export function updateScan(sys: DroneSystem, dt: number): void {
   completeScan(sys, hit.it, hit.kind);
 }
 
-/** 렌즈 광선에 가장 먼저 닿는 스캔 대상 (가림 검사 포함), 없으면 null. */
+/** The first scan target the lens ray reaches (the occlusion check included), or null. */
 function aimAt(sys: DroneSystem, origin: THREE.Vector3, dir: THREE.Vector3): AimHit | null {
   const ctx = sys.ctx;
   const world = ctx.world;
@@ -127,7 +153,7 @@ function aimAt(sys: DroneSystem, origin: THREE.Vector3, dir: THREE.Vector3): Aim
     if (dist2 > hint2) continue;
     const b = ox * dir.x + oy * dir.y + oz * dir.z;
     const c = dist2 - r2;
-    if (c > 0 && b > 0) continue;              // 구가 광선 뒤에 있다
+    if (c > 0 && b > 0) continue;              // the sphere is behind the ray
     const disc = b * b - c;
     if (disc < 0) continue;
     const t = Math.max(0, -b - Math.sqrt(disc));
@@ -154,11 +180,12 @@ function targetName(sys: DroneSystem, id: string, kind: DroneScanTargetKind): st
   return DRONE_SCAN_TARGET_NAME[kind];
 }
 
-/* ═══════════════════════════ 미리보기 ═══════════════════════════ */
+/* ═══════════════════════════ Preview ═══════════════════════════ */
 
 /**
- * 대상을 지금 열면 보일 내용물 — 여는 경로와 같은 굴림 · 같은 채우기. 알 수 없으면 null (스캔 거부).
- * `it` 가 없으면(스모크 · 디버그) id 로 상호작용 목록에서 찾는다.
+ * What the target would show if it were opened now — the same roll · the same fill as the opening path. Unknown
+ * gives null (the scan is refused).
+ * With no `it` (a smoke test · debugging) it is looked up in the interactable list by id.
  */
 export function previewItems(sys: DroneSystem, id: string): readonly ItemInstance[] | null {
   const ctx = sys.ctx;
@@ -174,14 +201,15 @@ export function previewItems(sys: DroneSystem, id: string): readonly ItemInstanc
     case 'supply':
       return inv.peekContainerItems(id, SUPPLY_CRATE_TIER);
     case 'container': {
-      // 컨테이너 캐시 · `crate:open` 의 id 는 `container:` 를 뗀 명세 id 다 (`world/structures/parts/Containers`)
+      // The container cache · the id in `crate:open` is the spec id with `container:` stripped
+      // (`world/structures/parts/Containers`)
       const specId = id.slice('container:'.length);
       const cached = inv.peekContainerItems(specId);
       if (cached) return cached;
       const pw = world as unknown as WorldContainerPreview;
       if (typeof pw.previewContainerItems !== 'function') return null;
       let rolled: readonly ItemInstance[] | null = null;
-      // 게임 루프 안이다 — 다른 폴더의 미리보기가 던져도 스캔 거부로 끝낸다
+      // This runs inside the game loop — another folder's preview throwing ends as a refused scan
       try { rolled = pw.previewContainerItems(specId) ?? pw.previewContainerItems(id); } catch (e) { console.warn('[drones] previewContainerItems failed', e); return null; }
       if (!rolled) return null;
       return typeof inv.peekSuppliedItems === 'function' ? inv.peekSuppliedItems(specId, rolled) : rolled;
@@ -192,9 +220,9 @@ export function previewItems(sys: DroneSystem, id: string): readonly ItemInstanc
       const it = findInteractable(sys, id) as (Interactable & EnemyCorpseLike) | null;
       const loot = ctx.loot;
       if (!it || !loot || typeof it.enemyId !== 'number' || typeof it.type !== 'string') return null;
-      // `enemies/Corpses.Corpse.interact` 와 같은 식이다 — 시드는 그 시체가 받은 값(= `world.seed`)
+      // The same formula as `enemies/Corpses.Corpse.interact` — the seed is what that corpse got (= `world.seed`)
       const seed = typeof it.seed === 'number' ? it.seed : world.seed;
-      const rng = corpseLootRandom(seed, it.enemyId);   // `Corpse.interact` 와 같은 `shared/lootRolls` 식
+      const rng = corpseLootRandom(seed, it.enemyId);   // the same `shared/lootRolls` formula as `Corpse.interact`
       const weaponId = typeof it.weaponId === 'string' ? it.weaponId : undefined;
       const items = typeof loot.rollCorpseOn === 'function'
         ? loot.rollCorpseOn(it.type as EnemyType, rng, weaponId, ctx.missionPlanet, (it.lootOpts ?? undefined) as CorpseLootOpts | undefined)
@@ -213,7 +241,7 @@ export function previewItems(sys: DroneSystem, id: string): readonly ItemInstanc
   return null;
 }
 
-/** 목록 안의 최고 등급, 비었으면 null. */
+/** The highest rarity in the list, or null when it is empty. */
 export function maxRarity(sys: DroneSystem, items: readonly ItemInstance[]): Rarity | null {
   let best = -1;
   for (const it of items) {
@@ -232,7 +260,7 @@ function findInteractable(sys: DroneSystem, id: string): Interactable | null {
   return null;
 }
 
-/* ═══════════════════════════ 결과 ═══════════════════════════ */
+/* ═══════════════════════════ Results ═══════════════════════════ */
 
 export function scanLine(name: string, rarity: Rarity | null): string {
   return `드론 스캔: ${name} — ${rarity ? `최고 등급 ${RARITY_LABEL_KO[rarity]}` : '비어 있음'}`;
@@ -249,9 +277,10 @@ function completeScan(sys: DroneSystem, it: Interactable, kind: DroneScanTargetK
   const rarity = maxRarity(sys, items);
   const name = targetName(sys, it.id, kind);
   record(sys, it.id, kind, name, rarity, it.position, true, ctx.net?.playerName ?? '나');
-  // 조종자에게만 (위치 없음) — 스캔은 소리를 내지 않는다
+  // For the controlling player only (no position) — a scan makes no sound
   ctx.bus.emit('audio:play', { id: 'ui_click', volume: 0.6 });
-  // 채팅 한 줄: ChatLog 가 내 줄로 그리고 로비에 있으면 분대에도 보낸다 (`ping` = 이름이 붙고 차단해도 숨지 않는 자동 줄)
+  // One chat line: ChatLog draws it as my own line and, in a lobby, sends it to the squad as well
+  // (`ping` = an automatic line that carries a name and is not hidden by a block)
   ctx.bus.emit('chat:post', { text: scanLine(name, rarity), kind: 'ping' });
   const net = ctx.net;
   if (ctx.isMultiplayer && net) {
@@ -262,7 +291,7 @@ function completeScan(sys: DroneSystem, it: Interactable, kind: DroneScanTargetK
 
 const r2 = (v: number): number => Math.round(v * 100) / 100;
 
-/** 결과 하나를 넣거나 갈아 끼운다 (대상마다 최신 하나, 목록 끝이 최신). */
+/** Inserts or swaps in one result (the latest one per target; the end of the list is the newest). */
 export function record(sys: DroneSystem, id: string, kind: DroneScanTargetKind, name: string, rarity: Rarity | null,
   position: THREE.Vector3, local: boolean, byName: string): DroneScanResult {
   const ctx = sys.ctx;
@@ -285,9 +314,12 @@ export function clearScans(sys: DroneSystem): void {
   resetHold(sys);
 }
 
-/* ═══════════════════════════ 받는 쪽 ═══════════════════════════ */
+/* ═══════════════════════════ The receiving side ═══════════════════════════ */
 
-/** 분대원의 `drone scan` — 표시 전용. 모양 · 로비 멤버 · 빈도 · 그 사람의 지상 드론이 대상 곁에 있는지. */
+/**
+ * A squadmate's `drone scan` — display only. The shape · lobby membership · the rate · whether that player's
+ * ground drone is next to the target.
+ */
 export function onRemoteScan(sys: DroneSystem, m: Extract<DroneMessage, { ev: 'scan' }>, from: PeerId): void {
   const ctx = sys.ctx;
   const net = ctx.net;
@@ -307,7 +339,8 @@ export function onRemoteScan(sys: DroneSystem, m: Extract<DroneMessage, { ev: 's
   const last = sys.scanRecvAt.get(from);
   if (last !== undefined && ctx.time - last < RECV_MIN_INTERVAL_S) { sys.scanRefused++; return; }
 
-  // 대상이 이 월드에 있으면 그 살아 있는 자리, 없으면(아직 복제 전인 시체 등) 맵 안의 보낸 자리
+  // If the target exists in this world, its live spot; otherwise (a corpse not replicated yet, say) the
+  // sent spot, as long as it is inside the map
   const it = findInteractable(sys, id);
   let pos: THREE.Vector3;
   if (it) pos = it.position;

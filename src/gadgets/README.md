@@ -100,8 +100,8 @@ instead of `buff revive`). The crosshair gate lives in `weapons/parts/Defib.hasA
 ## Recent changes
 
 Last 5 only — older: `git log -- src/gadgets`.
+- 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-18 — `enemiesNear` / `enemyById` leave nest eggs out by default (`includeProps` opts back in): a turret no longer burns its ammo on a `bug_egg` and a mine laid at a nest is not tripped by one (`parts/Queries.ts`).
 - 2026-09-18 — Mine / remote mine / drone blast damage skips bodies behind walls, roofs and floors (`shared/explosion.blastReachesBody`); deployables are exempt (their body is the collider).
 - 2026-09-15 — Thumper (`thumper` / `gad_thumper`, `parts/Thumper.ts`): burrow-ground placement, 1 s strikes, 5th strike → `sandworm:summon`, destroyed by `sandworm:erupted`, wire `age`.
 - 2026-09-15 — Defib works on downed androids (`DefibTarget.ally` → `AlliesRef.requestRevive({defib:true})`).
-- 2026-09-15 — Dome shield recover; dome / barricade carry item durability; fire gadget merged into internal `incendiary`; defib picks the ally nearest the aim ray.

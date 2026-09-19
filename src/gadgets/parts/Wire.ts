@@ -1,7 +1,7 @@
 /**
- * src/gadgets/parts/Wire.ts — **`gad` / `gadq` / `buff` 네트워크 경로**.
+ * src/gadgets/parts/Wire.ts — **the `gad` / `gadq` / `buff` network paths**.
  *
- * 호스트가 배치물 목록의 진실이고, 늦게 합류한 클라이언트와 호스트 이관 뒤에는 전체를 다시 보낸다.
+ * The host is the truth for the deployable list; a late joiner and a host transfer both get the whole set again.
  */
 import * as THREE from 'three';
 import {
@@ -54,15 +54,16 @@ export function wireOf(sys: GadgetSystem, d: Deployable): DeployableWire {
     armed: d.armed,
     ttl: d.expires > 0 ? Math.max(0, Math.round((d.expires - sys.ctx.time) * 100) / 100) : 0,
   };
-  // 2026-09-11 (parts/Mount): 드론 위면 그 드론 id — 생략 = 바닥
+  // 2026-09-11 (parts/Mount): the drone id when it rides one — omitted = on the ground
   if (d.mount) w.mount = d.mount;
-  // 2026-09-15 (진동 장치): 설치 뒤 흐른 시간 — 복제본이 망치 박자를 맞춘다 (타격마다 메시지를 보내지 않는다)
+  // 2026-09-15 (the thumper): seconds since it was placed — replicas match the hammer's beat from it
+  // (no message per strike)
   if (d.kind === 'thumper') w.age = Math.round(d.age * 100) / 100;
   return w;
   }
 
 export function spawnFromWire(sys: GadgetSystem, w: DeployableWire): void {
-  // 2026-09-15: 배치물의 정의는 `kind` 하나로 정해진다 (화염 통합 — `GadgetDefs.defForWire`)
+  // 2026-09-15: a deployable's definition is decided by `kind` alone (the fire merge — `GadgetDefs.defForWire`)
   const def = defForWire(w);
   if (!def) return;
   _a.set(w.p[0], w.p[1], w.p[2]);
@@ -78,7 +79,8 @@ export function onGadgetMessage(sys: GadgetSystem, m: GadgetMessage, from: PeerI
   if (hostId && from !== hostId) return;
   switch (m.ev) {
     case 'spawn': {
-      // 2026-09-11 (parts/Mount): 이미 있는 id 의 spawn = 호스트가 드론에서 떨어진 탑재물을 재방송한 것 → 상태만 덮어쓴다
+      // 2026-09-11 (parts/Mount): a spawn for an id that already exists = the host re-broadcasting a
+      // deployable that fell off a drone → only the state is overwritten
       const existing = sys.byId.get(m.d.id);
       if (existing && !existing.removing) Mount.applyWire(sys, existing, m.d);
       else sys.spawnFromWire(m.d);
@@ -133,16 +135,19 @@ export function onGadgetRequest(sys: GadgetSystem, m: GadgetRequest, from: PeerI
       const def = gadgetDef(m.gadget);
       if (!def || !def.deployable) return;
       _a.set(m.p[0], m.p[1], m.p[2]);
-      // 2026-09-11 (parts/Preview): 설치형은 표면 / 드론 기준으로 가볍게 다시 본다 (아이템은 이미 클라에서 소모됐다)
+      // 2026-09-11 (parts/Preview): a `place` gadget is re-checked lightly against the surface / the drone
+      // (the item was already consumed on the client)
       let mount: string | null = null;
       if (def.use === 'place') {
         const r = Preview.resolveRemotePlace(sys, def, _a, m.mount ?? null);
         if (r === false) return;
         mount = r;
       }
-      // 2026-09-15: 화염 지대(`incendiary`)는 아이템이 없는 내부 정의라 여기서도 받는다 (클라의 화염 수류탄 폭발).
-      // 2026-09-15 2차: `wearsItemDurability` 가젯은 요청의 `hp`(남은 내구도)로 선다 — `spawnDeployable` 이
-      // 아이템의 `durabilityMax` 로 클램프하므로 부풀린 값을 보내도 새것보다 튼튼해지지 않는다. 생략 = 새것.
+      // 2026-09-15: the fire zone (`incendiary`) is an internal definition with no item, so it is accepted
+      // here too (a client's `화염 수류탄` exploding).
+      // 2026-09-15 2nd pass: a `wearsItemDurability` gadget stands with the request's `hp` (the durability
+      // left) — `spawnDeployable` clamps it to the item's `durabilityMax`, so an inflated value never makes
+      // it tougher than new. Omitted = new.
       sys.spawnDeployable(deployableIdFor(from, ++sys.seq, def.id), def, from, _a, m.yaw, null, mount, m.hp);
       break;
     }
@@ -163,7 +168,7 @@ export function onGadgetRequest(sys: GadgetSystem, m: GadgetRequest, from: PeerI
     case 'sync':
       sys.broadcast({ t: 'gad', ev: 'sync', items: sys.deployables.map((d) => sys.wireOf(d)) }, from);
       break;
-    // 2026-09-11: 보낸 사람 소유의 무장된 원격 지뢰만 터진다 (parts/Remote)
+    // 2026-09-11: only the sender's own armed remote mines go off (parts/Remote)
     case 'detonate':
       Remote.onDetonateRequest(sys, from);
       break;
@@ -171,13 +176,14 @@ export function onGadgetRequest(sys: GadgetSystem, m: GadgetRequest, from: PeerI
   }
 
 /**
- * `buff` receiver. Gadgets own 'revive' (제세동기) and 'cloak' (은폐 장막); 'heal' / 'boost' belong to
+ * `buff` receiver. Gadgets own 'revive' (the defib) and 'cloak' (the cloak veil); 'heal' / 'boost' belong to
  * implants/, so they are ignored here to avoid applying the same buff twice.
  */
 export function onBuff(sys: GadgetSystem, m: BuffMessage, from: PeerId): void {
   if (!m || (m.kind !== 'cloak' && m.kind !== 'revive')) return;
-  /* 2026-09-11 (E-4): 보낸 사람이 같은 로비의 연결된 멤버이고 스냅샷 위치가 사거리 안이어야 한다 · 은폐 지속은 정의값 이하
-   * (`shared/buffRules`). "실제로 전투불능인가" 는 아래의 원래 검사가 그대로 맡는다 — 판정보다 먼저 본다. */
+  /* 2026-09-11 (E-4): the sender must be a connected member of the same lobby, its snapshot position must be
+   * inside range, and a cloak's duration must not exceed the definition's (`shared/buffRules`). "Is the
+   * target really downed" is still answered by the original check below — this guard runs before it. */
   const guard = (me: { position: THREE.Vector3 }): number | null => {
     const v = sys.buffGuard.check(m, buffSenderOf(sys.ctx.net, from, me.position), performance.now() / 1000);
     sys.lastBuffVerdict = v;

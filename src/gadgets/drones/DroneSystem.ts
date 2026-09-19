@@ -1,14 +1,17 @@
 /**
- * src/gadgets/drones/DroneSystem.ts — **지상 · 공중 드론** (`ctx.drones`, 2026-09-11).
+ * src/gadgets/drones/DroneSystem.ts — **ground · air drones** (`ctx.drones`, 2026-09-11).
  *
- * 계약은 `@/shared` 의 `drones.ts` 가 전부다. 이 클래스는 상태와 한 줄 위임만 갖고, 일은 `parts/` 가 한다:
- *  - `parts/Control`   — R 홀드 조종 전환 · 조종 입력 · 드론 카메라 · 사거리/끊김 · 복귀
- *  - `parts/Lifecycle` — 꺼내기 · 소유자 시뮬레이션 · 소리/소음 · 피해/파괴(아이템 1개 소모) · E 회수 · 질의 · 리셋
- *  - `parts/Wire`      — 소유자 권한 동기화 (`drone` / `droneq`) · 복제본 보간
- * 몸체 물리는 `GroundDrone` / `AirDrone` (`model.ts` 의 `DroneBody`).
+ * `drones.ts` in `@/shared` is the whole contract. This class holds state and one-line delegates only; `parts/` does
+ * the work:
+ *  - `parts/Control`   — the R-hold control switch · control input · the drone camera · link range / drop · return
+ *  - `parts/Lifecycle` — deploy · owner simulation · sound / noise · damage / destruction (consumes one item) ·
+ *                        E recover · queries · reset
+ *  - `parts/Wire`      — owner-authoritative sync (`drone` / `droneq`) · replica interpolation
+ * Body physics live in `GroundDrone` / `AirDrone` (`DroneBody` in `model.ts`).
  *
- * `main.ts` 에서 `GadgetSystem` 바로 뒤에 등록된다 — `PlayerSystem` · `WeaponSystem` 보다 뒤라 R 을 읽는 순서 ·
- * `setCameraOverride` 가 같은 프레임 `PlayerSystem.lateUpdate`(카메라 리그) 에 들어가는 순서가 맞다.
+ * Registered right after `GadgetSystem` in `main.ts` — after `PlayerSystem` · `WeaponSystem`, so both the order in
+ * which R is read and the order in which `setCameraOverride` reaches `PlayerSystem.lateUpdate` (the camera rig) in
+ * the same frame come out right.
  */
 import type * as THREE from 'three';
 import type {
@@ -19,7 +22,7 @@ import type { Drone, DroneInput } from './model';
 import * as Control from './parts/Control';
 import * as Life from './parts/Lifecycle';
 import * as Wire from './parts/Wire';
-/* appended (2026-09-12): 지상 드론 스캔 */
+/* appended (2026-09-12): the ground drone's scan */
 import * as Scan from './parts/Scan';
 
 export class DroneSystem implements GameSystem, DronesRef {
@@ -27,33 +30,33 @@ export class DroneSystem implements GameSystem, DronesRef {
   ctx!: GameContext;
   readonly drones: Drone[] = [];
   readonly byId = new Map<string, Drone>();
-  /** 로컬 플레이어가 지금 시점을 빌려 쓰는 드론. */
+  /** The drone whose view the local player is borrowing right now. */
   controlled: Drone | null = null;
-  /** R 홀드가 진행 중인가 (이번 누름이 조종 전환용으로 시작됐다). */
+  /** Is an R hold running (this press started as a control switch). */
   holding = false;
   holdT = 0;
   seq = 0;
   netHooked = false;
   readonly unsubs: Array<() => void> = [];
   readonly input: DroneInput = { forward: 0, right: 0, vertical: 0, sprint: false, jump: false, yaw: 0, pitch: 0 };
-  /** `raycast` 가 돌려주는 객체 — **다음 호출에서 재사용된다** (할당 없음). */
+  /** The object `raycast` returns — **reused by the next call** (no allocation). */
   rayHit: DroneRayHit | null = null;
-  /** 모르는 드론의 `state` 를 받고 그 소유자에게 `droneq sync` 를 마지막으로 물은 시각. */
+  /** When an owner was last asked for `droneq sync` after a `state` for an unknown drone arrived. */
   readonly syncAskedAt = new Map<PeerId, number>();
 
-  /* ── 2026-09-12: 지상 드론 스캔 (`parts/Scan`) ── */
-  /** 스캔 홀드 누적 시간(초)과 그 대상 id (바뀌면 0 부터). */
+  /* ── 2026-09-12: the ground drone's scan (`parts/Scan`) ── */
+  /** Accumulated scan hold (s) and its target id (a change restarts it from 0). */
   scanT = 0;
   scanTargetId: string | null = null;
-  /** 스캔을 한 번 채웠다 — 좌클릭을 뗄 때까지 다시 세지 않는다. */
+  /** One scan has been filled — no counting again until left click is released. */
   scanLatch = false;
-  /** 지금 조준선에 걸린 대상 (`scanAimOn` 일 때만 유효, 재사용 객체). */
+  /** The target currently on the aim line (valid only while `scanAimOn`, a reused object). */
   scanAimOn = false;
   readonly scanAimView: Scan.MutableScanAim = { id: '', kind: 'crate', name: '', distance: 0, inRange: false };
-  /** 이번 레이드의 결과 — 대상 id → 최신 결과 (`scanList` 는 그 값 배열, 바뀔 때만 새로 만든다). */
+  /** This raid's results — target id → the latest result (`scanList` is the value array, rebuilt on a change). */
   readonly scans = new Map<string, DroneScanResult>();
   scanList: readonly DroneScanResult[] = [];
-  /** 받는 쪽: 보낸 사람별 마지막으로 받아들인 스캔 시각 · 버린 스캔 수(디버그 · 스모크). */
+  /** Receiving side: the time of the last accepted scan per sender · the number of scans dropped (debug · smokes). */
   readonly scanRecvAt = new Map<PeerId, number>();
   scanRefused = 0;
 
@@ -120,14 +123,14 @@ export class DroneSystem implements GameSystem, DronesRef {
   clear(): void { Scan.clearScans(this); return Life.clear(this); }
 
   /* ═══════════════════════════ debug / smoke ═══════════════════════════ */
-  /** 내 드론 `id` 의 시점으로 곧장 들어간다 (R 홀드 없이 — 스모크용). 성공하면 true. */
+  /** Enters the view of my own drone `id` straight away (no R hold — for smokes). true on success. */
   debugControl(id: string): boolean {
     const d = this.byId.get(id);
     if (!d || !d.isLocal || d.removing) return false;
     Control.startControl(this, d);
     return this.controlled === d;
   }
-  /** 대상 `id` 를 지금 스캔하면 나올 결과 (아무것도 기록 · 방송하지 않는다), 알 수 없으면 null. */
+  /** What scanning target `id` right now would yield (records and broadcasts nothing), null when unknown. */
   scanPreview(id: string): { rarity: Rarity | null; defIds: string[] } | null {
     const items = Scan.previewItems(this, id);
     if (!items) return null;

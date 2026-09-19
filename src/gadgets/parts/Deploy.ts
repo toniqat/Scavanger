@@ -1,8 +1,8 @@
 /**
- * src/gadgets/parts/Deploy.ts — **가젯을 놓고 회수하기**.
+ * src/gadgets/parts/Deploy.ts — **placing gadgets and recovering them**.
  *
- * 배치물은 **호스트 권한**이다: 클라이언트는 `gadq` 로 요청하고 호스트가 `gad` 로 확정한다.
- * 설치 위치 판정, 회수 / 해체 홀드, 되돌려주는 아이템까지가 이 파일의 범위다.
+ * Deployables are **host-authoritative**: a client asks with `gadq` and the host confirms with `gad`.
+ * The placement test, the recover / defuse hold and the item handed back are this file's range.
  */
 import * as THREE from 'three';
 import {
@@ -13,7 +13,7 @@ import {
   type Interactable, type ItemInstance, type DeployableWire, type PeerId, type PlayerWeaponHost, type Vec3Tuple,
 } from '@/shared';
 import { GADGET_DEFS, gadgetDef, gadgetForKind, isRecoverable } from '../GadgetDefs';
-/* 2026-09-15: 내부 가젯(화염 지대 `incendiary` — 아이템 없음) · 배치물 id · 화염 소리 */
+/* 2026-09-15: the internal gadget (the fire zone `incendiary` — no item) · deployable ids · the fire sound */
 import { deployableIdFor, isInternalGadget } from '../GadgetDefs';
 import { FIRE_ZONE_CRACKLE_S, THUMPER_INTERVAL_S } from '@/shared';
 import { Deployable, BARRICADE_HALF, DOME_UNFOLD_TIME, JUMPPAD_TRIGGER_RADIUS, MINE_TRIGGER_RADIUS } from '../Deployable';
@@ -26,8 +26,9 @@ import * as Preview from './Preview';
 import * as Mount from './Mount';
 
 /**
- * 제세동기가 일으킬 대상. 2026-09-15 (안드로이드 분대원): `ally` 가 붙었다 — true 면 쓰러진 **안드로이드**라
- * `buff revive` 가 아니라 `AlliesRef.requestRevive` 로 간다. 생략 · false 는 지금까지와 똑같은 사람 분대원이다.
+ * What the defib raises. 2026-09-15 (android squadmates): `ally` was added — true means a downed **android**, so it
+ * goes through `AlliesRef.requestRevive` instead of `buff revive`. Omitted · false is the same human squadmate as
+ * before.
  */
 export interface DefibTarget {
   id: PeerId;
@@ -39,7 +40,8 @@ export interface DefibTarget {
 export function use(sys: GadgetSystem, id: GadgetId, underhand?: boolean): boolean {
   const ctx = sys.ctx;
   const def = gadgetDef(id);
-  // 2026-09-15: 내부 정의(화염 지대 `incendiary`)는 아이템이 없어 `consumeItem` 이 소모 없이 통과시킨다 — 쓰는 길은 `igniteGrenadeFire` 하나
+  // 2026-09-15: the internal def (the fire zone `incendiary`) has no item, so `consumeItem` would let it through
+  // consuming nothing — the one way to light it is `igniteGrenadeFire`
   if (!def || isInternalGadget(id)) return false;
   const player = ctx.player;
   // usable from the quick bar with the inventory open, but never in the hub / menus / while paused
@@ -47,7 +49,8 @@ export function use(sys: GadgetSystem, id: GadgetId, underhand?: boolean): boole
   if (!player || player.isDead || player.isDowned) return sys.deny(null);
   if (sys.useCooldown > 0) return false;
 
-  // 2026-09-11: 드론은 아이템을 소모하지 않는다 — 퀵슬롯의 그 아이템이 조종기로 남는다 (shared/drones). 파괴될 때 drones 가 하나 뺀다.
+  // 2026-09-11: a drone consumes no item — the quick-slot item stays in hand as the controller (shared/drones).
+  // `drones` takes one away when the drone is destroyed.
   if (def.use === 'drone') {
     const kind = droneKindOfGadget(def.id);
     if (!kind || !ctx.drones) return sys.deny('드론을 사용할 수 없다');
@@ -59,9 +62,11 @@ export function use(sys: GadgetSystem, id: GadgetId, underhand?: boolean): boole
 
   // validate before consuming the item
   let target: DefibTarget | null = null;
-  // 2026-09-11: 설치형은 미리보기와 **같은 판정**을 그 순간 다시 돌린다 (parts/Preview) — 빨강이면 같은 사유로 거부
+  // 2026-09-11: a `place` gadget re-runs **the same test** as the preview at that moment (parts/Preview) — red
+  // refuses it for the same reason
   if (def.use === 'place') {
-    // 기폭기 손(마지막 C4 를 놓은 뒤)에서는 설치하지 않는다 — 우클릭 기폭만 (weapons 의 `remoteState.detonator`)
+    // The detonator hand (after the last C4 was placed) places nothing — right-click detonation only (weapons'
+    // `remoteState.detonator`)
     if (Preview.isDetonatorHand(ctx)) return sys.deny(null);
     const spot = Preview.computePlacement(sys, def, sys.placeUse);
     if (!spot.valid) return sys.deny(spot.reason ?? '설치할 공간이 없다');
@@ -74,8 +79,9 @@ export function use(sys: GadgetSystem, id: GadgetId, underhand?: boolean): boole
 
   sys.useCooldown = USE_COOLDOWN / Math.max(0.25, sys.derived('useSpeedMul', 1));
   const over = underhand === undefined ? sys.underhand : underhand;
-  // 2026-09-15 (사용자 결정): 내구도를 아이템이 들고 다니는 가젯(돔 실드 · 바리케이드)은 **방금 쓴 그 아이템의 남은
-  // 내구도**로 선다 — `consumeItem` 이 적어 둔 값 (`lastConsumedDurability`, 아니면 `undefined` = 새것).
+  // 2026-09-15 (user's decision): a gadget whose item carries the durability (`돔 실드` · barricade) stands up with
+  // **the durability left on the very item just used** — the value `consumeItem` wrote down
+  // (`lastConsumedDurability`, otherwise `undefined` = a new one).
   const startHp = def.wearsItemDurability ? sys.lastConsumedDurability : undefined;
   switch (def.use) {
     case 'self': sys.useCloakVeil(def); break;
@@ -152,7 +158,8 @@ export function useDefib(sys: GadgetSystem, def: GadgetDef, target: DefibTarget)
   const ctx = sys.ctx;
   const net = ctx.net;
   if (target.ally) {
-    // 안드로이드는 allies/ 가 굴린다 — 권위면 바로 세우고, 아니면 `allyq revive {defib}` 로 호스트에게 간다
+    // Androids are simulated by allies/ — the authority raises it straight away, anyone else goes to the host
+    // with `allyq revive {defib}`
     ctx.allies?.requestRevive?.(target.id, { defib: true });
   } else {
     const msg: BuffMessage = {
@@ -169,7 +176,10 @@ export function useDefib(sys: GadgetSystem, def: GadgetDef, target: DefibTarget)
   ctx.bus.emit('chat:post', { text: `${target.name} 을(를) 일으켰다`, kind: 'system' });
   }
 
-/** @param startHp 2026-09-15: `wearsItemDurability` 가젯이 실려 나가는 남은 내구도 (통이 땅에 닿을 때까지 들고 간다). */
+/**
+ * @param startHp 2026-09-15: the durability left on a `wearsItemDurability` gadget — the canister carries it until
+ *   it lands.
+ */
 export function throwGadget(sys: GadgetSystem, def: GadgetDef, underhand: boolean, startHp?: number): void {
   const ctx = sys.ctx;
   const p = ctx.player;
@@ -196,12 +206,15 @@ export function onThrownImpact(sys: GadgetSystem, gid: GadgetId, pos: THREE.Vect
   }
 
 /**
- * 2026-09-15 (B-16): 화염 수류탄(`ItemDef.grenade === 'fire'`)이 `position` 에서 터졌다 — `onThrownImpact` 와 **같은 길**
- * (`requestPlace`: 권위자는 즉시 스폰 · 클라는 `gadq place {gadget:'incendiary'}`)로 로컬 플레이어 소유의 화염 지대를 세운다.
- * 높이는 스폰이 그 점 아래 표면으로 내린다(`Queries.groundY`) — 공중에서 터져도 바닥에 불이 붙는다. 부르는 곳은 weapons 의 로컬 폭발뿐.
+ * 2026-09-15 (B-16): an incendiary grenade (`ItemDef.grenade === 'fire'`) went off at `position` — it stands up a
+ * fire zone owned by the local player through **the same path** as `onThrownImpact` (`requestPlace`: the authority
+ * spawns it at once · a client sends `gadq place {gadget:'incendiary'}`). The spawn takes the height down to the
+ * surface under that point (`Queries.groundY`) — a grenade that goes off in the air still lights the ground. The
+ * only caller is weapons' local explosion.
  *
- * 2026-09-15 (가젯 개편, 사용자 결정): 화염 지대 정의가 `incendiary` 하나로 합쳐졌다 (`GadgetDefs` 의 「화염 통합」 절) —
- * 옛 내부 정의 `grenadeFire` 는 없어졌고 이 함수 이름만 계약(`GadgetsRef.igniteGrenadeFire`)이라 그대로다.
+ * 2026-09-15 (the gadget rework, user's decision): the fire zone defs were merged into the one `incendiary` (the
+ * fire merge section of `GadgetDefs`) — the old internal def `grenadeFire` is gone, and only this function's name
+ * stayed, because the name is the contract (`GadgetsRef.igniteGrenadeFire`).
  */
 export function igniteGrenadeFire(sys: GadgetSystem, position: THREE.Vector3): void {
   const def = gadgetDef('incendiary');
@@ -212,19 +225,21 @@ export function igniteGrenadeFire(sys: GadgetSystem, position: THREE.Vector3): v
 /**
  * Authority spawns straight away; clients ask the host and wait for `gad spawn`.
  *
- * @param startHp 2026-09-15: `wearsItemDurability` 가젯이 물려받는 남은 내구도 — 비호스트도 `gadq place` 의
- *   `hp` 로 실어 보낸다(계약 추가, 2026-09-15 2차). 호스트는 그 값을 **아이템의 `durabilityMax` 로 클램프**해
- *   그대로 세운다(`Preview.resolveRemotePlace` 뒤 `spawnDeployable`) — 생략 = 새것이다(옛 클라이언트).
+ * @param startHp 2026-09-15: the durability a `wearsItemDurability` gadget inherits — a non-host sends it too, as
+ *   `gadq place`'s `hp` (added to the contract, 2026-09-15 2nd pass). The host **clamps that value to the item's
+ *   `durabilityMax`** and stands it up with it (`spawnDeployable` after `Preview.resolveRemotePlace`) — omitted =
+ *   a new one (an older client).
  */
 export function requestPlace(sys: GadgetSystem, def: GadgetDef, position: THREE.Vector3, yaw: number, mount: string | null = null, startHp?: number): void {
   const ctx = sys.ctx;
   if (!def.deployable) return;
   if (!ctx.isAuthority && ctx.isMultiplayer && ctx.net) {
-    // 2026-09-11: 드론 위에 올리는 요청이면 `mount` (호스트가 `Preview.resolveRemotePlace` 로 다시 본다)
+    // 2026-09-11: a drone mount request carries `mount` (the host re-checks it in `Preview.resolveRemotePlace`)
     ctx.net.send({
       t: 'gadq', ev: 'place', gadget: def.id, p: toTuple(position), yaw,
       ...(mount ? { mount } : {}),
-      // 2026-09-15 2차: 깎인 돔 실드 · 바리케이드는 그만큼 약하게 서야 한다 (호스트가 `durabilityMax` 로 클램프한다)
+      // 2026-09-15 2nd pass: a worn `돔 실드` · barricade must stand up that much weaker (the host clamps it to
+      // `durabilityMax`)
       ...(def.wearsItemDurability && typeof startHp === 'number' && startHp > 0 ? { hp: Math.round(startHp) } : {}),
     }, 'host');
     return;
@@ -233,7 +248,10 @@ export function requestPlace(sys: GadgetSystem, def: GadgetDef, position: THREE.
   }
 
 /* ═══════════════════════════ spawn / remove ═══════════════════════════ */
-/** 2026-09-15 (B-16): `gadget` 이 G-10 화염 지대면 id 에 `-gf` 표식 (`GadgetDefs.deployableIdFor` — 복제본이 정의를 되찾는 열쇠). */
+/**
+ * 2026-09-15 (B-16): when `gadget` is the G-10 fire zone the id carries a `-gf` mark
+ * (`GadgetDefs.deployableIdFor` — the key a replica finds the def again by).
+ */
 export function nextId(sys: GadgetSystem, gadget?: GadgetId): string {
   return deployableIdFor(sys.ctx.net?.localId ?? 'sp', ++sys.seq, gadget);
   }
@@ -248,8 +266,9 @@ export function spawnDeployable(sys: GadgetSystem, id: string, def: GadgetDef, o
   const ctx = sys.ctx;
   while (sys.deployables.length >= MAX_DEPLOYABLES) sys.removeLocal(sys.deployables[0], 'expired');
 
-  // 2026-09-15 (사용자 결정): `wearsItemDurability` 면 최대 hp 가 `GadgetDef.hp` 가 아니라 **그 아이템의 `durabilityMax`** 다.
-  // 복제본은 늘 와이어(`maxHp` 가 이미 실려 있다)를 그대로 쓰므로 이 갈래는 권위자 · 싱글에서만 돌다.
+  // 2026-09-15 (user's decision): with `wearsItemDurability` the max hp is **the item's `durabilityMax`**, not
+  // `GadgetDef.hp`. A replica always takes the wire as it is (`maxHp` is already on it), so this branch only runs on
+  // the authority · in single-player.
   const defMax = def.wearsItemDurability ? itemDurabilityMaxFor(sys, def) : def.hp;
   const maxHp = wire ? wire.maxHp : defMax;
   const hp = wire ? wire.hp : (def.wearsItemDurability && typeof startHp === 'number' && startHp > 0
@@ -261,15 +280,17 @@ export function spawnDeployable(sys: GadgetSystem, id: string, def: GadgetDef, o
   const visual = sys.visuals.acquire(kind, def.color, def.radius);
   const d = new Deployable(id, kind, owner, def.id, def.radius, hp, maxHp, armed, expires, visual);
   d.position.copy(position);
-  // 2026-09-15 (진동 장치): 복제본은 호스트가 실어 보낸 나이로 시작해 망치 박자(1 초 주기)가 맞는다 — 늦은 합류자의 `gad sync` 도 같다
+  // 2026-09-15 (the thumper): a replica starts from the age the host sent, so the hammer beat (a 1 s cycle)
+  // matches — a late joiner's `gad sync` is the same
   if (wire && typeof wire.age === 'number' && wire.age > 0) { d.age = wire.age; d.strikes = Math.floor(wire.age / THUMPER_INTERVAL_S); }
-  // 2026-09-11: 설치형(place)은 미리보기 판정이 준 높이(표면 · 건물 바닥 · 드론 윗면)를, 복제본은 호스트가 정한 높이를
-  // 그대로 쓴다. 지형으로 내리는 것은 투척형(돔 · 연막 · 화염 · 유인)을 권위자가 처음 스폰할 때뿐이다.
+  // 2026-09-11: a `place` gadget keeps the height the placement test gave it (the surface · a building floor · a
+  // drone's top face), and a replica keeps the height the host decided. The only thing taken down to the ground is a
+  // thrown gadget (dome · smoke · fire · lure), and only when the authority first spawns it.
   if (!wire && def.use !== 'place') d.position.y = sys.groundY(position);
   d.yaw = yaw;
   d.headYaw = yaw;
   d.onDamage = (dep, amount, from) => sys.onDeployableDamage(dep, amount, from);
-  // 2026-09-11 (parts/Mount): 드론 위 — 복제본은 와이어의 `mount`, 권위자는 요청의 `mount`
+  // 2026-09-11 (parts/Mount): on a drone — a replica takes the wire's `mount`, the authority the request's
   const mountId = wire ? (wire.mount ?? null) : (mount ?? null);
   if (mountId) Mount.attach(sys, d, mountId);
   visual.root.position.copy(d.position);
@@ -283,8 +304,9 @@ export function spawnDeployable(sys: GadgetSystem, id: string, def: GadgetDef, o
     ctx.interactables.register(it);
   }
   ctx.bus.emit('gadget:deployed', { id, kind, position: d.position, owner: String(owner) });
-  // 2026-09-11: 원격 지뢰는 `parts/Remote` 가 첫 프레임에 `c4_place` 를 낸다 — 여기서는 조용히
-  // 2026-09-15 (B-16): 화염 지대는 불붙는 소리 — 이 클라이언트에 생길 때마다 (복제본 포함, 와이어 없음). 지지직은 `Simulate.animate`.
+  // 2026-09-11: for a remote mine `parts/Remote` plays `c4_place` on the first frame — this path stays silent
+  // 2026-09-15 (B-16): a fire zone gets the ignition sound — every time one appears on this client (replicas
+  // included, not gated on the wire). The crackle is `Simulate.animate`.
   if (kind === 'fire') {
     d.crackleTimer = FIRE_ZONE_CRACKLE_S;
     ctx.bus.emit('audio:play', { id: 'fire_ignite', position: d.position, volume: 0.9 });
@@ -304,7 +326,7 @@ export function remove(sys: GadgetSystem, d: Deployable, reason: 'destroyed' | '
 export function removeLocal(sys: GadgetSystem, d: Deployable, reason: 'destroyed' | 'recovered' | 'expired'): void {
   if (d.removing) return;
   d.removing = true;
-  if (d.mount) Mount.unmount(sys, d);   // 2026-09-11: 드론 쪽 탑재 표시를 지운다
+  if (d.mount) Mount.unmount(sys, d);   // 2026-09-11: clears the mount mark on the drone side
   const i = sys.deployables.indexOf(d);
   if (i >= 0) sys.deployables.splice(i, 1);
   sys.byId.delete(d.id);
@@ -337,8 +359,9 @@ export function grantRecovered(sys: GadgetSystem, d: Deployable): ItemInstance |
   const loot = sys.ctx.loot;
   if (!defId || !loot) return null;
   const item = loot.createItem(defId, 1);
-  // 2026-09-15 (사용자 결정): 돔 실드 · 바리케이드는 **까인 만큼 내구도가 닳아서** 돌아온다 — 함선 장비 작업대에서
-  // 고쳐야 다시 튼튼해지고, 분해 산출도 「제작 재료 × 남은 내구도 20 % 5구간」(2026-09-10)에 그대로 올라탄다.
+  // 2026-09-15 (user's decision): the `돔 실드` · barricade come back with **the durability worn down by what they
+  // took** — they are strong again only after a repair at the ship's gear workbench, and the salvage yield rides the
+  // 「craft materials × five 20 % buckets of remaining durability」 rule (2026-09-10) unchanged.
   if (gadgetDef(d.gadgetId)?.wearsItemDurability) {
     const max = loot.getItemDef(defId)?.durabilityMax ?? 0;
     if (max > 0) item.durability = Math.max(0, Math.min(max, Math.round(d.hp)));
@@ -352,7 +375,8 @@ export function grantRecovered(sys: GadgetSystem, d: Deployable): ItemInstance |
 
 /**
  * Spot for a 'place' gadget. false when it is blocked / off the map.
- * 2026-09-11: 정면 2.8 m 고정 자리는 걷어냈다 — 조준점 판정(`Preview.computePlacement`)의 얇은 포장이다.
+ * 2026-09-11: the fixed spot 2.8 m straight ahead was taken out — this is a thin wrapper around the aim-point test
+ * (`Preview.computePlacement`).
  */
 export function placementSpot(sys: GadgetSystem, def: GadgetDef, out: THREE.Vector3): boolean {
   const spot = Preview.computePlacement(sys, def, sys.placeUse);
@@ -381,9 +405,10 @@ export function consumeItem(sys: GadgetSystem, def: GadgetDef): boolean {
   const defId = sys.itemDefIdFor(def.id);
   sys.lastConsumedDurability = undefined;
   if (!inv || !defId) return true;
-  // 2026-09-15 (사용자 결정): 내구도를 들고 다니는 가젯은 **어느 스택이 빠졌는지**를 알아야 한다 (그 남은 내구도로 선다).
-  // `consumeWhere` 의 술어는 빠질 후보를 순서대로 보므로 첫 후보가 곰 빠지는 것이다 — 이 아이템들은 `stackMax` 1 이라
-  // 「수량이 작은 것 먼저」 정렬이 순서를 바꾸지 않는다 (가방 → 주머니 → 휠 단계 순서도 그대로).
+  // 2026-09-15 (user's decision): a gadget that carries durability has to know **which stack was taken** (it stands
+  // up with that remaining durability). `consumeWhere`'s predicate sees the candidates in the order they will be
+  // taken, so the first candidate is the one that goes — these items have `stackMax` 1, so the 「smallest quantity
+  // first」 sort does not change that order (and the bag → pouch → wheel order of the passes stands too).
   if (def.wearsItemDurability) {
     let first: number | undefined;
     const n = inv.consumeWhere((d, inst) => {
@@ -400,8 +425,9 @@ export function consumeItem(sys: GadgetSystem, def: GadgetDef): boolean {
   }
 
 /**
- * 2026-09-15 (사용자 결정): `wearsItemDurability` 가젯의 최대 hp — **그 아이템의 `ItemDef.durabilityMax`**.
- * 아이템이 아직 없거나(병렬 개발) 내구도가 없는 정의면 `GadgetDef.hp` 로 돌아간다.
+ * 2026-09-15 (user's decision): the max hp of a `wearsItemDurability` gadget — **that item's
+ * `ItemDef.durabilityMax`**. With no item yet (parallel development), or a def that carries no durability, it falls
+ * back to `GadgetDef.hp`.
  */
 export function itemDurabilityMaxFor(sys: GadgetSystem, def: GadgetDef): number {
   const defId = sys.itemDefIdFor(def.id);
@@ -411,12 +437,14 @@ export function itemDurabilityMaxFor(sys: GadgetSystem, def: GadgetDef): number 
   }
 
 /**
- * 제세동기가 일으킬 아군.
+ * The squadmate the defib raises.
  *
- * 2026-09-15 (사용자 결정): 거리가 아니라 **조준 광선에서 각이 가장 작은** 아군을 고른다 — 새 조작이 「크로스헤어를
- * 대상에 가져다 대고 좌클릭을 둔다」 라서, 사거리 안에 둘이 쓰러져 있을 때 견눈 쪽이 아니라 가까운 쪽을 일으키면
- * 거짓말이 된다. **견눴는지**(반각 `DEFIB_AIM_CONE_DEG`)는 `weapons/parts/Defib` 이 크로스헤어에서 판정하고, 여기서는
- * 「어느 아군인가」만 정한다 — 그래서 두 곳이 같은 아군을 가리킨다. 조준 광선이 없으면(구식 호출) 옛 최근접 규칙.
+ * 2026-09-15 (user's decision): it picks the squadmate at **the smallest angle from the aim ray**, not the nearest
+ * one — the new control is 「크로스헤어를 대상에 가져다 대고 좌클릭을 둔다」, so with two of them down inside the
+ * range, raising the near one instead of the one being aimed at would be a lie. **Whether it is aimed at** (the
+ * half-angle `DEFIB_AIM_CONE_DEG`) is judged from the crosshair by `weapons/parts/Defib`, and only 「which
+ * squadmate」 is decided here — which is why the two places point at the same one. With no aim ray (an older call)
+ * the old nearest-one rule applies.
  */
 export function findDownedAlly(sys: GadgetSystem, radius: number): DefibTarget | null {
   const ctx = sys.ctx;
@@ -435,7 +463,7 @@ export function findDownedAlly(sys: GadgetSystem, radius: number): DefibTarget |
     if (aimed) {
       _c.copy(position); _c.y += DEFIB_CHEST_Y; _c.sub(_a);
       const len = _c.length();
-      score = len < 1e-3 ? -1 : -(_c.dot(_b) / len);   // 각이 작을수록(코사인이 클수록) 작은 점수
+      score = len < 1e-3 ? -1 : -(_c.dot(_b) / len);   // smaller angle (bigger cosine) = smaller score
     }
     if (score < bestScore) { bestScore = score; best = { id, position, name, ally }; }
   };
@@ -443,9 +471,10 @@ export function findDownedAlly(sys: GadgetSystem, radius: number): DefibTarget |
     if (!r.isDowned || r.stale) continue;
     consider(r.id, r.position, r.name, false);
   }
-  /* 2026-09-15 (안드로이드 분대원, 사용자 결정 「제세동기가 있으면 안전상태가 아니어도 시도한다」의 역방향):
-   * 쓰러진 **안드로이드**도 사람과 같은 사거리 · 같은 조준 점수로 겨눠진다. 일으키는 길만 다르다 —
-   * 사람은 `buff revive`, 안드로이드는 `AlliesRef.requestRevive(id, {defib:true})` (`useDefib`). */
+  /* 2026-09-15 (android squadmates, the other direction of the user's decision 「제세동기가 있으면 안전상태가
+   * 아니어도 시도한다」): a downed **android** is aimed at with the same range and the same aim score as a person.
+   * Only the path that raises it differs — `buff revive` for a person, and for an android
+   * `AlliesRef.requestRevive(id, {defib:true})` (`useDefib`). */
   for (const b of ctx.allies?.getBodies?.() ?? []) {
     if (!b.downed || b.dead || b.hidden || b.mode !== 'raid') continue;
     consider(b.id, b.position, b.name, true);
@@ -453,7 +482,7 @@ export function findDownedAlly(sys: GadgetSystem, radius: number): DefibTarget |
   return best;
   }
 
-/** `findDownedAlly` 의 조준 판정이 쓰는 「가슴」 높이 — `weapons/parts/Defib` 의 `CHEST_Y` 와 같은 값이다. */
+/** The 「chest」 height `findDownedAlly`'s aim test uses — the same value as `CHEST_Y` in `weapons/parts/Defib`. */
 const DEFIB_CHEST_Y = 1.15;
 
 export function deny(sys: GadgetSystem, text: string | null): false {

@@ -48,19 +48,22 @@ export class Deployable implements DeployableRef {
   netCooldown = 0;
   /** true once removal was already dispatched (guards double removal). */
   removing = false;
-  /** 2026-09-11 (parts/Mount): 드론 위에 올라탄 설치물이면 그 드론 id — 위치가 매 프레임 드론 윗면을 따라간다. */
+  /**
+   * 2026-09-11 (parts/Mount): the drone id when this deployable rides one — its position follows the drone's
+   * top face every frame.
+   */
   mount: string | null = null;
-  /* 2026-09-11: 원격 지뢰 (parts/Remote) — 모든 클라이언트가 로컬로 돌린다 */
-  /** 원격 지뢰: 첫 프레임 처리(설치음 · 삑 위상 · 호스트의 소유자당 상한)를 마쳤다. */
+  /* 2026-09-11: the remote mine (parts/Remote) — every client runs it locally */
+  /** Remote mine: the first-frame work (the place sound · the beep phase · the host's per-owner cap) is done. */
   remoteInit = false;
-  /** 원격 지뢰: 다음 `c4_beep` 까지 남은 초 (무장된 동안만 줄어든다). */
+  /** Remote mine: seconds until the next `c4_beep` (it counts down only while armed). */
   beepTimer = 0;
-  /** 2026-09-15 (B-16): 화염 지대 — 다음 `fire_crackle` 까지 남은 초. 모든 클라이언트가 로컬로 돌린다 (와이어 없음). */
+  /** 2026-09-15 (B-16): fire zone — seconds until the next `fire_crackle`. Every client runs it locally (no wire). */
   crackleTimer = 0;
-  /* 2026-09-15 (땅굴벌레 · 진동 장치, `parts/Thumper`) */
-  /** 진동 장치: 지금까지 이 클라이언트가 본 타격 수 — `age` 에서 센다 (`floor(age / THUMPER_INTERVAL_S)`), 와이어 없음. */
+  /* 2026-09-15 (the sandworm · the thumper, `parts/Thumper`) */
+  /** Thumper: strikes this client has seen — counted from `age` (`floor(age / THUMPER_INTERVAL_S)`), no wire. */
   strikes = 0;
-  /** 진동 장치 (권위만): `sandworm:summon` 을 이미 냈다 — 장치 하나가 한 번만 부른다. */
+  /** Thumper (authority only): `sandworm:summon` has already gone out — one device summons exactly once. */
   summoned = false;
 
   constructor(

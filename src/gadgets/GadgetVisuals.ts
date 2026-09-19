@@ -52,17 +52,18 @@ function parseCss(css: string, out: THREE.Color): THREE.Color {
 
 const PULSE_COUNT = 12;
 
-/* 2026-09-15: 진동 장치 실루엣 (시각 전용, m) — 안내 기둥 길이 · 망치 머리의 최저 · 최고 높이 (기둥 사이) */
+/* 2026-09-15: thumper silhouette (visual only, m) — rail length · the hammer head's lowest and highest
+   height (between the rails) */
 const THUMPER_RAIL_H = 1.25;
 const THUMPER_HAMMER_LOW = 0.32;
 const THUMPER_HAMMER_HIGH = 1.2;
 
-/* 2026-09-11: 설치 미리보기 고스트 (시각 전용) */
+/* 2026-09-11: the placement ghost (visual only) */
 const GHOST_OK = 0x4dff88;
 const GHOST_BAD = 0xff5a4d;
-/** 바닥과 z-fighting 하지 않게 살짝 띄운다(m). */
+/** Lifted slightly (m) so it does not z-fight with the ground. */
 const GHOST_LIFT = 0.02;
-/** 맥동 각속도(rad/s). */
+/** Pulse rate (rad/s). */
 const GHOST_PULSE_RATE = 4;
 
 export class GadgetVisualPool {
@@ -98,13 +99,14 @@ export class GadgetVisualPool {
   private readonly lureHornGeo = new THREE.ConeGeometry(0.24, 0.34, 10, 1, true);
   private readonly lureRingGeo = new THREE.TorusGeometry(0.42, 0.025, 6, 22);
   private readonly pulseGeo = new THREE.RingGeometry(0.86, 1, 36);
-  /* 2026-09-11: 원격 지뢰 (C4) — 납작한 벽돌 + 테이프 두 줄 + 수신기 + 안테나 + LED */
+  /* 2026-09-11: the remote mine (C4) — a flat brick + two strips of tape + receiver + antenna + LED */
   private readonly c4BrickGeo = new THREE.BoxGeometry(0.36, 0.1, 0.24);
   private readonly c4TapeGeo = new THREE.BoxGeometry(0.05, 0.106, 0.246);
   private readonly c4RecvGeo = new THREE.BoxGeometry(0.12, 0.05, 0.09);
   private readonly c4AntennaGeo = new THREE.CylinderGeometry(0.006, 0.009, 0.24, 5);
   private readonly c4Mat = new THREE.MeshStandardMaterial({ color: 0x8a7b58, metalness: 0.05, roughness: 0.85 });
-  /* 2026-09-15: 진동 장치 — 받침(포탑 받침 · 다리 재사용) + 안내 기둥 둘 + 머리 캡 + 오르내리는 망치 머리 (`parts[0]`) + LED */
+  /* 2026-09-15: the thumper — base (the turret base · legs reused) + two rails + head cap + the hammer head
+     riding up and down (`parts[0]`) + LED */
   private readonly thumperRailGeo = new THREE.CylinderGeometry(0.025, 0.025, THUMPER_RAIL_H, 6);
   private readonly thumperCapGeo = new THREE.BoxGeometry(0.46, 0.08, 0.2);
   private readonly thumperHeadGeo = new THREE.CylinderGeometry(0.2, 0.22, 0.28, 12);
@@ -258,8 +260,9 @@ export class GadgetVisualPool {
         break;
       }
       case 'thumper': {
-        // 2026-09-15: `v.phase` 는 여기서만 **주기 진행도 0..1** 이다 (`parts/Thumper.tick` 이 매 프레임 넣는다; 0 = 방금 내리쳤다).
-        // 잠깐 박혀 있다가(0–0.12) 천천히 올라가고(–0.8) 가속 낙하한다 — 낙하가 끝나는 순간이 다음 타격이다.
+        // 2026-09-15: here alone `v.phase` is the **0..1 progress through one cycle** (`parts/Thumper.tick`
+        // writes it every frame; 0 = it has just struck). The head rests a moment (0–0.12), rises slowly
+        // (–0.8) and then falls with acceleration — the end of the fall is the next strike.
         const ph = v.phase;
         let h: number;
         if (ph < 0.12) h = 0;
@@ -321,24 +324,24 @@ export class GadgetVisualPool {
   }
 
   /* ───────────────────────── placement ghost (2026-09-11, parts/Preview) ─────────────────────────
-   * 손에 든 설치형 가젯의 반투명 고스트 — 종류당 하나를 `create` 로 만들어(기존 지오메트리 재사용) 모든 메시를
-   * 공용 고스트 머티리얼 둘로 바꿔 끼운다. 한 번에 하나만 보이고 `visible` 만 토글한다 (광원 없음 → 토글해도 된다).
-   * 로컬 화면에만 있다 — 와이어를 타지 않는다.
+   * The translucent ghost of the `place` gadget in hand — one per kind, built with `create` (existing geometry
+   * reused) and then re-pointed at the two shared ghost materials. Only one shows at a time and only `visible`
+   * is toggled (no lights → toggling is safe). It exists on the local screen only — it never goes on the wire.
    */
   private readonly ghosts = new Map<DeployableKind, GadgetVisual>();
   private ghostShown: GadgetVisual | null = null;
   private readonly ghostMat = new THREE.MeshBasicMaterial({ color: GHOST_OK, transparent: true, opacity: 0.3, depthWrite: false, toneMapped: false });
   private readonly ghostRingMat = new THREE.MeshBasicMaterial({ color: GHOST_OK, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
 
-  /** 설치형 종류의 고스트를 미리 만든다 (첫 미리보기에서 할당하지 않게). */
+  /** Builds the ghosts of the `place` kinds up front (so the first preview allocates nothing). */
   warmGhosts(kinds: readonly DeployableKind[]): void {
     for (const k of kinds) if (!this.ghosts.has(k)) this.buildGhost(k);
   }
 
   /**
-   * @param valid  초록(설치 가능) / 빨강(불가)
-   * @param t      `ctx.time` — 은은한 맥동
-   * @param ringX  발자국 링 반경(로컬 X, 0 = 링 없음) · `ringZ` 로컬 Z
+   * @param valid  green (can be placed) / red (cannot)
+   * @param t      `ctx.time` — the gentle pulse
+   * @param ringX  footprint ring radius (local X, 0 = no ring) · `ringZ` local Z
    */
   showGhost(kind: DeployableKind, position: THREE.Vector3, yaw: number, valid: boolean, t: number, ringX: number, ringZ: number): void {
     const v = this.ghosts.get(kind) ?? this.buildGhost(kind);
@@ -364,7 +367,8 @@ export class GadgetVisualPool {
   }
 
   private buildGhost(kind: DeployableKind): GadgetVisual {
-    // `create` 가 `all` 에 넣으므로 그 visual 고유 머티리얼은 `dispose` 가 치운다 — 메시는 고스트 머티리얼만 가리킨다
+    // `create` puts it in `all`, so `dispose` clears that visual's own materials — the meshes point only at
+    // the ghost materials
     const v = this.create(kind);
     v.root.traverse((o) => {
       const m = o as THREE.Mesh;
@@ -437,7 +441,7 @@ export class GadgetVisualPool {
         v.ring.scale.setScalar(Math.min(radius, 8));
         break;
       case 'thumper':
-        v.ring.scale.setScalar(radius);   // = THUMPER_GROUND_R, 땅 판정 반경
+        v.ring.scale.setScalar(radius);   // = THUMPER_GROUND_R, the ground-test radius
         break;
       default:
         v.ring.scale.setScalar(radius);
@@ -481,10 +485,11 @@ export class GadgetVisualPool {
         const rib1 = new THREE.Mesh(this.domeRibGeo, ribMat);
         const rib2 = new THREE.Mesh(this.domeRibGeo, ribMat); rib2.position.y = 0.55; rib2.scale.setScalar(0.83);
         body.add(shell, rib1, rib2);
-        /* 2026-09-15 (사용자 결정): 던진 자리에 **방어막 발생기**가 서고 그 둘레로 돔이 켜진다 — 꾹 눌러 회수하는
-           것도 이 개체다. `body` 가 아니라 `root` 에 붙는다: `layout` 이 `body.children` 을 반경만큼 키우고
-           `animate` 가 전개 연출로 `body` 를 스케일하는데, 발생기는 반경과 무관하게 늘 같은 크기로 서 있어야 한다.
-           광원 없음 — 빛나는 것은 emissive 한 점(`glowMats[1]`)뿐이다. */
+        /* 2026-09-15 (user's decision): the **shield emitter** stands where the canister landed and the dome
+           lights up around it — the emitter is also what a hold recovers. It is attached to `root`, not
+           `body`: `layout` scales `body.children` up to the radius and `animate` scales `body` for the
+           unfolding, while the emitter has to stand at the same size whatever the radius is.
+           No lights — the only thing that glows is one emissive point (`glowMats[1]`). */
         const emitter = new THREE.Group();
         emitter.add(new THREE.Mesh(this.mineBodyGeo, this.darkMat));
         emitter.children[0].position.y = 0.055;
@@ -596,7 +601,8 @@ export class GadgetVisualPool {
         break;
       }
       case 'thumper': {
-        // 2026-09-15: 받침 + 다리 셋 (포탑과 같은 실루엣), 안내 기둥 둘, 머리 캡, 그 사이를 오르내리는 망치 머리 (`parts[0]`), 띠 LED
+        // 2026-09-15: base + three legs (the turret's silhouette), two rails, a head cap, the hammer head
+        // riding up and down between them (`parts[0]`), and a band LED
         add(this.turretBaseGeo, this.darkMat, 0, 0.08, 0).castShadow = true;
         for (let i = 0; i < 3; i++) {
           const a = (i / 3) * Math.PI * 2 + 0.5;

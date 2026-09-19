@@ -1,9 +1,10 @@
 /**
- * src/gadgets/drones/model.ts — **드론 폴더 공용 어휘.**
+ * src/gadgets/drones/model.ts — **the drone folder's shared vocabulary.**
  *
- * `DroneSystem`(코어: 꺼내기 · 조종 전환 · 카메라 · 사거리 · 소유자 권한 동기화 · 회수)은 몸체 종류를 모른다.
- * 지상 드론(`GroundDrone`)과 공중 드론(`AirDrone`)이 이 `DroneBody` 를 각자 구현해 물리 · 모델 · 카메라 자세를 채운다.
- * 공개 계약은 `@/shared` 의 `drones.ts` 이고, 이 파일은 폴더 안에서만 쓴다.
+ * `DroneSystem` (the core: deploy · the control switch · the camera · link range · owner-authoritative sync ·
+ * recovery) knows nothing about the body kinds. The ground drone (`GroundDrone`) and the air drone (`AirDrone`) each
+ * implement this `DroneBody` and fill in physics · model · camera pose.
+ * The public contract is `drones.ts` in `@/shared`; this file is used inside the folder only.
  */
 import * as THREE from 'three';
 import type { DroneKind, GameContext } from '@/shared';
@@ -12,63 +13,67 @@ import {
   type DroneRef, type Interactable, type PeerId,
 } from '@/shared';
 
-/** 조종 입력 한 프레임. `DroneSystem` 이 키 · 마우스에서 만든다 (몸체는 `ctx.input` 을 직접 읽지 않는다). */
+/** One frame of control input. `DroneSystem` builds it from keys · mouse (a body never reads `ctx.input` itself). */
 export interface DroneInput {
-  /** −1..1 — 드론 시점 기준 앞(+) / 뒤. */
+  /** −1..1 — forward (+) / back, in the drone view's frame. */
   forward: number;
-  /** −1..1 — 오른쪽(+) / 왼쪽. */
+  /** −1..1 — right (+) / left. */
   right: number;
-  /** 공중 드론: Space = +1, C = −1. 지상 드론은 무시한다. */
+  /** Air drone: Space = +1, C = −1. The ground drone ignores it. */
   vertical: number;
-  /** 지상 드론: Shift 질주. */
+  /** Ground drone: Shift sprint. */
   sprint: boolean;
-  /** 지상 드론: 이 프레임에 Space 가 **눌렸다** (홀드가 아니다). */
+  /** Ground drone: Space was **pressed** this frame (not held). */
   jump: boolean;
-  /** 드론 시점의 yaw / pitch (rad). */
+  /** The drone view's yaw / pitch (rad). */
   yaw: number;
   pitch: number;
 }
 
 export interface DroneBody {
   readonly kind: DroneKind;
-  /** 씬에 붙는 루트. **광원 금지** — 씬 광원 개수 규칙(CLAUDE.md). 발광은 emissive / additive 로만. */
+  /**
+   * The root that attaches to the scene. **No lights** — the scene point-light count rule (CLAUDE.md). Glow comes
+   * from emissive / additive only.
+   */
   readonly root: THREE.Group;
   readonly radius: number;
   readonly height: number;
-  /** 지상 = 바닥점, 공중 = 몸체 중심. `DroneRef.position` 이 이 벡터를 그대로 내보낸다. */
+  /** Ground = the foot point, air = the body centre. `DroneRef.position` hands out this very vector. */
   readonly position: THREE.Vector3;
   readonly velocity: THREE.Vector3;
   readonly yaw: number;
   readonly sprinting: boolean;
   readonly airborne: boolean;
-  /** 꺼낸 자리 · 방향으로 초기화한다. */
+  /** Resets to the deploy spot · facing. */
   reset(position: THREE.Vector3, yaw: number, ctx: GameContext): void;
-  /** 소유자 쪽 물리 한 프레임. `input` null = 아무도 조종하지 않는다 (지상은 멈추고, 공중은 제자리 비행). */
+  /** One frame of owner-side physics. `input` null = nobody is controlling it (ground stops, air hovers in place). */
   simulate(dt: number, ctx: GameContext, input: DroneInput | null): void;
-  /** 복제본: 보간된 와이어 자세(`DroneFlags` 포함)를 그대로 입힌다. */
+  /** Replica: applies the interpolated wire pose (`DroneFlags` included) as it is. */
   applyRemote(position: THREE.Vector3, yaw: number, flags: number): void;
-  /** 바퀴 · 로터 · LED 같은 시각 연출 (소유자 · 복제본 둘 다). */
+  /** Visual presentation such as wheels · rotor · LEDs (owner and replica alike). */
   animate(dt: number, time: number): void;
-  /** 1인칭 렌즈 위치와 바라볼 점. */
+  /** The first-person lens position and the point it looks at. */
   getCameraPose(pitch: number, outPos: THREE.Vector3, outLook: THREE.Vector3): void;
-  /** 소형 설치물이 올라앉는 윗면 중심. */
+  /** The centre of the top face a small deployable mounts on. */
   getMountPoint(out: THREE.Vector3): THREE.Vector3;
-  /** 몸체와의 광선 교차 거리, 없으면 −1. 할당하지 않는다. */
+  /** Ray intersection distance with the body, −1 with no hit. Allocates nothing. */
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): number;
-  /** 소유자가 이 드론 시점으로 볼 때 렌즈를 가리는 부분을 숨긴다. */
+  /** Hides the parts that cover the lens while the owner looks through this drone. */
   setOwnerView(looking: boolean): void;
   dispose(): void;
 }
 
-/* ═══════════════════════ appended (2026-09-11, 드론 코어) ═══════════════════════ */
+/* ═══════════════════════ appended (2026-09-11, drone core) ═══════════════════════ */
 
 /*
- * ── yaw 규약 (두 몸체가 반드시 같아야 한다) ─────────────────────────────────────────
- * 드론의 yaw 는 **모델의 +Z 가 코** 인 규약이다 — `root.rotation.y = yaw` 이면 코가 향하는 방향은
+ * ── The yaw convention (both bodies must agree on it) ──────────────────────────────
+ * A drone's yaw follows the convention **nose = model +Z** — with `root.rotation.y = yaw` the nose points along
  *   forward = ( sin yaw, 0, cos yaw ),   right = ( −cos yaw, 0, sin yaw )
- * 이고 pitch 는 + 가 위다 (`look.y = sin pitch`). 마우스는 플레이어 카메라 리그와 똑같이 `yaw −= dx × 감도`
- * `pitch −= dy × 감도` 로 돈다 — 그러면 마우스를 오른쪽으로 밀 때 코가 오른쪽으로 돈다.
- * 플레이어의 yaw 는 반대 규약(forward = −sin, −cos)이라 PC 가 보는 방향으로 꺼내려면 `+π` 한다 (`droneYawFromPlayer`).
+ * and + pitch is up (`look.y = sin pitch`). The mouse turns it exactly as the player camera rig does —
+ * `yaw −= dx × sensitivity`, `pitch −= dy × sensitivity` — so pushing the mouse right turns the nose right.
+ * The player's yaw is the opposite convention (forward = −sin, −cos), so deploying a drone facing where the PC
+ * looks adds `+π` (`droneYawFromPlayer`).
  */
 export function droneYawFromPlayer(playerYaw: number): number { return wrapAngle(playerYaw + Math.PI); }
 
@@ -78,51 +83,54 @@ export function wrapAngle(a: number): number {
   return a;
 }
 
-/** `from` → `to` 로 가는 가장 짧은 각. */
+/** The shortest angle from `from` to `to`. */
 export function angleDelta(from: number, to: number): number { return wrapAngle(to - from); }
 
-/** 드론 종류별 사거리(m, 3D) · 최대 체력 · 한국어 이름. */
+/** Per drone kind: link range (m, 3D) · max hp · Korean name. */
 export function droneRange(kind: DroneKind): number { return kind === 'air' ? DRONE_AIR_RANGE : DRONE_GROUND_RANGE; }
 export function droneMaxHp(kind: DroneKind): number { return kind === 'air' ? DRONE_AIR_HP : DRONE_GROUND_HP; }
 export function droneName(kind: DroneKind): string { return kind === 'air' ? '공중 드론' : '지상 드론'; }
 
-/* ── 조작감 · 시각 · 네트워크 보조값 (게임플레이 수치 아님) ── */
-/** `player/CameraRig.sensitivity` 와 같은 값 (설정으로 바뀌지 않는 고정값이다). */
+/* ── Handling feel · visuals · networking helper values (not gameplay numbers) ── */
+/** The same value as `player/CameraRig.sensitivity` (a fixed value — settings do not change it). */
 export const DRONE_LOOK_SENSITIVITY = 0.0022;
-/** 드론 시점 pitch 한계 (rad). 몸체가 더 좁게 자를 수 있다. */
+/** Pitch limit of the drone view (rad). A body may clamp it tighter. */
 export const DRONE_LOOK_PITCH_MAX = 1.4;
-/** 복제본 보간: 샘플 사이가 이보다 멀면 끌어오지 않고 순간이동한다 (m). */
+/** Replica interpolation: a gap between samples wider than this teleports instead of easing across (m). */
 export const DRONE_REPLICA_SNAP_DIST = 8;
-/** 질주음 · 지지직 · 조종 중 걷기음의 반복 간격 (초, 오디오 박자). */
+/** Repeat interval of the sprint sound · the static · the move sound while controlled (s, an audio beat). */
 export const DRONE_SPRINT_SFX_S = 0.32;
 export const DRONE_STATIC_SFX_S = 0.45;
 export const DRONE_MOVE_SFX_S = 0.42;
-/** 모르는 드론의 `state` 를 받았을 때 그 소유자에게 `droneq sync` 를 다시 묻기까지의 최소 간격 (초). */
+/** Minimum interval before asking an owner for `droneq sync` again after a `state` for an unknown drone (s). */
 export const DRONE_SYNC_RETRY_S = 2;
 
-/* ── 조작감 수치 — 2026-09-11 리드가 `data/constants.csv` 로 옮겼다. 옛 이름은 호출부를 위해 재수출만 한다. ── */
+/* ── Handling-feel numbers — the lead moved them into `data/constants.csv` on 2026-09-11; the old names are
+ * re-exported only for the call sites. ── */
 export {
   DRONE_DEPLOY_DIST_GROUND, DRONE_DEPLOY_DIST_AIR, DRONE_DEPLOY_LIFT_AIR,
   DRONE_GROUND_ACCEL, DRONE_GROUND_BRAKE, DRONE_GROUND_AIR_ACCEL, DRONE_RECOVER_AIR_BONUS,
 } from '@/shared';
 
-/* ── 스크래치 (용도별로 나눴다 — 한 함수가 인자로 받은 스크래치를 다른 함수가 덮어쓰지 않게) ── */
+/* ── Scratch (split by purpose — so that one function's scratch argument is never overwritten by another) ── */
 export const UP = new THREE.Vector3(0, 1, 0);
-/** Control: 카메라 자세. */
+/** Control: the camera pose. */
 export const _camPos = new THREE.Vector3();
 export const _camLook = new THREE.Vector3();
-/** Lifecycle: 꺼낼 자리 · 광선. */
+/** Lifecycle: the deploy spot · rays. */
 export const _l0 = new THREE.Vector3();
 export const _l1 = new THREE.Vector3();
 export const _l2 = new THREE.Vector3();
-/** Wire: 수신한 샘플. */
+/** Wire: a received sample. */
 export const _w0 = new THREE.Vector3();
 
 /**
- * `DroneRef` 구현 — 몸체(`DroneBody`) 하나와 그 드론의 코어 상태. 소유자 쪽(`owner === 'local'`)은 몸체를 직접
- * 시뮬레이션하고, 복제본은 와이어 샘플을 보간해 `applyRemote` 로 입힌다.
+ * The `DroneRef` implementation — one body (`DroneBody`) and that drone's core state. The owner side
+ * (`owner === 'local'`) simulates the body directly; a replica interpolates the wire samples and applies them with
+ * `applyRemote`.
  *
- * `owner` 는 **내 드론이면 늘 `'local'`** (싱글 · 멀티 모두), 복제본이면 소유자 PeerId 다 — 와이어에는 내 PeerId 가 실린다.
+ * `owner` is **always `'local'` for my own drone** (single-player and multiplayer alike) and the owner's PeerId on a
+ * replica — the wire carries my own PeerId.
  */
 export class Drone implements DroneRef {
   readonly id: string;
@@ -133,30 +141,33 @@ export class Drone implements DroneRef {
   hp: number;
   maxHp: number;
   removing = false;
-  /** 소유자 쪽: 이 클라이언트가 지금 이 드론 시점으로 본다. */
+  /** Owner side: this client is looking through this drone right now. */
   localControlled = false;
-  /** 복제본: 마지막 와이어 플래그. 소유자: 마지막으로 보낸 플래그. */
+  /** Replica: the last wire flags. Owner: the flags last sent. */
   flags = 0;
   linkRatio = 0;
-  /** 소유자 쪽: 이 시각(`ctx.time`)까지 질주 소음이 남는다 → `aggroable`. */
+  /** Owner side: the sprint noise lasts until this time (`ctx.time`) → `aggroable`. */
   noiseUntil = -Infinity;
-  /** 권한 클라이언트: 다음 `world:noise` 를 낼 수 있는 시각. */
+  /** The authority client: the time at which the next `world:noise` may be emitted. */
   noiseNextAt = 0;
-  /** `world:noise.position` · 폭발/회수 오디오의 위치 — 이 드론이 가진 벡터라 받는 쪽이 들고 있어도 안전하다. */
+  /**
+   * `world:noise.position` · the position for the explosion / recovery audio — a vector owned by this drone, so a
+   * receiver that holds on to it is safe.
+   */
   readonly noisePos = new THREE.Vector3();
   readonly fxPos = new THREE.Vector3();
-  /** 조종 시점 (드론 yaw 규약). */
+  /** The control view (the drone yaw convention). */
   lookYaw = 0;
   lookPitch = 0;
-  /* 네트워크 (소유자) */
+  /* Networking (owner) */
   netNextAt = 0;
   netDirty = true;
-  /* 오디오 박자 */
+  /* Audio beats */
   sprintSfxT = 0;
-  /** 복제본: 지난 프레임에 공중이었나 (점프 · 착지음). */
+  /** Replica: was it airborne last frame (jump · landing sound). */
   airborneSeen = false;
   interactable: Interactable | null = null;
-  /* 복제본 보간 — 지금 그려진 자세 → 마지막 샘플을 샘플 간격 동안 */
+  /* Replica interpolation — from the pose drawn now to the last sample, over the sample interval */
   readonly fromPos = new THREE.Vector3();
   fromYaw = 0;
   readonly toPos = new THREE.Vector3();
@@ -197,7 +208,7 @@ export class Drone implements DroneRef {
   }
   getMountPoint(out: THREE.Vector3): THREE.Vector3 { return this.body.getMountPoint(out); }
 
-  /** 소유자 쪽에서 와이어에 실을 플래그. */
+  /** The flags the owner side puts on the wire. */
   ownFlags(): number {
     let fl = 0;
     if (this.localControlled) fl |= DroneFlags.CONTROLLED;

@@ -1,13 +1,16 @@
 /**
- * src/gadgets/parts/Preview.ts — **손에 든 설치형 가젯을 지금 놓으면 어디에 서고, 설 수 있나?** (2026-09-11)
+ * src/gadgets/parts/Preview.ts — **where does the `place` gadget in hand stand if it is put down now, and may it
+ * stand there?** (2026-09-11)
  *
- * 판정은 `computePlacement` **하나**다. 매 프레임 미리보기(고스트 + `GadgetsRef.placement`)가 그것을 돌리고,
- * 좌클릭(`Deploy.use` 의 place 경로)도 그 순간 같은 함수를 다시 돌린 결과로 설치한다 — 초록이면 서고, 빨강이면
- * 같은 사유로 거부된다. 호스트는 클라이언트의 `gadq place` 를 `resolveRemotePlace` 로 가볍게만 다시 본다
- * (아이템은 이미 클라이언트에서 소모됐으므로 드론이 사라졌으면 그 아래 바닥에 세운다).
+ * The test is `computePlacement`, **one** function. The preview runs it every frame (the placement ghost +
+ * `GadgetsRef.placement`), and a left click (`Deploy.use`'s place path) places from the result of running that same
+ * function again at that moment — green stands it up, red refuses it for the same reason. The host only re-checks a
+ * client's `gadq place` lightly, through `resolveRemotePlace` (the item is already consumed on the client, so when
+ * the drone is gone it is stood up on the floor below it).
  *
- * 조준 광선은 카메라 레티클(`PlayerWeaponHost.getAimRay`)이고, 발에서 수평 `GADGET_PLACE_RANGE` 원을
- * 빠져나가는 지점에서 끊는다. 그 안에서 아무것도 맞지 않았거나 벽을 맞혔으면 그 아래 표면으로 떨어뜨린다.
+ * The aim ray is the camera reticle (`PlayerWeaponHost.getAimRay`), cut where it leaves the horizontal
+ * `GADGET_PLACE_RANGE` circle around the feet. When nothing was hit inside that circle, or a wall was hit, it is
+ * dropped to the surface below.
  */
 import * as THREE from 'three';
 import {
@@ -21,7 +24,7 @@ import { BARRICADE_HALF } from '../Deployable';
 import { PLACE_CLEARANCE, PLACE_VERTICAL_REACH } from '../model';
 import type { GadgetSystem } from '../GadgetSystem';
 
-/* ── 거부 사유 (UI 가 그대로 찍는다) ── */
+/* ── refusal reasons (the UI prints them verbatim) ── */
 const R_NOWHERE = '설치할 수 없는 곳이다';
 const R_FAR = '너무 멀다';
 const R_SLOPE = '바닥이 너무 기울었다';
@@ -30,44 +33,53 @@ const R_SPACE = '공간이 부족하다';
 const R_OVERLAP = '다른 설치물과 겹친다';
 const R_DRONE_LARGE = '드론 위에는 올릴 수 없다';
 const R_DRONE_TAKEN = '이미 드론에 설치물이 있다';
-/** 2026-09-15 (진동 장치): `WorldRef.burrowGroundOk` 가 아니라고 한 바닥 — 건물 바닥 · 옥상 · 바위 · 물 · 재해 · 둥지 위. */
+/**
+ * 2026-09-15 (the thumper): ground `WorldRef.burrowGroundOk` said no to — a building floor · a roof · rock · water ·
+ * a hazard · on top of a nest.
+ */
 export const R_BURROW = '땅굴벌레가 파고들 수 없는 땅이다';
 
-/* ── 기하 분류 (수치 밸런스가 아니라 "무엇을 맞혔나" 를 가르는 값) ── */
-/** 맞힌 면의 법선 y 가 이보다 작으면 바닥이 아니라 벽 · 천장으로 본다 → 한 걸음 물러나 아래 바닥으로 떨어뜨린다. */
+/* ── geometry classification (values that decide "what did the ray hit", not a balance number) ── */
+/**
+ * A hit face whose normal y is below this counts as a wall · ceiling rather than a floor → it steps back one pace
+ * and is dropped to the floor below.
+ */
 const WALL_NORMAL_Y = 0.3;
-/** 벽을 맞혔을 때 광선 반대 방향으로 물러나는 수평 거리(m). */
+/** The horizontal distance (m) it steps back along the ray when a wall was hit. */
 const WALL_BACKOFF = 0.35;
-/** 위를 보고 있을 때(발 원 안에서 광선이 끝나지 않을 때) 광선을 쏘는 최대 길이(m). */
+/** The longest ray (m) cast when looking up — when the ray does not end inside the circle around the feet. */
 const RAY_CAP = 40;
-/** 표면을 찾을 때 발 높이 위로 보는 여유(m) — 가슴 높이 상자 윗면까지는 올린다. */
+/** The margin (m) above foot height the surface search looks at — it still lifts onto a chest-high box's top face. */
 const DROP_FEET_MARGIN = 0.5;
-/** 지형 위로 이만큼(m) 떠 있는 표면은 장애물 윗면(건물 바닥 · 상자)이라 법선을 위로 본다. */
+/**
+ * A surface floating this far (m) above the terrain is an obstacle's top face (a building floor · a crate), so its
+ * normal is taken as up.
+ */
 const OBSTACLE_TOP_EPS = 0.05;
-/** 호스트가 클라의 드론 탑재 요청을 믿는 거리(m) — 복제본 보간 지연만큼 넉넉히. */
+/** How far (m) the host trusts a client's drone mount request — loose enough for the replica interpolation lag. */
 const MOUNT_TOLERANCE = 4;
-/** 포탑 받침대 + 다리가 차지하는 반경(m) (`GadgetVisuals` 의 포탑 실루엣). */
+/** The radius (m) the turret base and its legs take up (the turret silhouette in `GadgetVisuals`). */
 const TURRET_FOOTPRINT = 0.6;
 const TURRET_HEIGHT = 1.15;
-/** 소형 설치물(지뢰 · 원격 지뢰)의 반경 · 높이(m). */
+/** The radius · height (m) of a small deployable (mine · remote mine). */
 const SMALL_FOOTPRINT = 0.3;
 const SMALL_HEIGHT = 0.3;
 const JUMPPAD_HEIGHT = 0.35;
-/** 진동 장치 받침 + 망치 기둥의 반경 · 높이(m) (`GadgetVisuals` 의 실루엣). */
+/** The radius · height (m) of the thumper's base and hammer post (its silhouette in `GadgetVisuals`). */
 const THUMPER_FOOTPRINT = 0.45;
 const THUMPER_HEIGHT = 1.5;
 
-/** 한 종류가 차지하는 자리. 좌표는 설치물 로컬(yaw 회전 전). */
+/** The spot one kind occupies. The coordinates are deployable-local (before the yaw rotation). */
 interface Footprint {
-  /** 장애물 겹침 원 `[x, z, r, …]`. */
+  /** The obstacle-overlap circles `[x, z, r, …]`. */
   circles: readonly number[];
-  /** 광역 질의 반경 — 원 전부를 품는다. */
+  /** The area query radius — it holds every circle. */
   reach: number;
-  /** 이 높이 안에 들어오는 장애물만 "공간을 막는다". */
+  /** Only an obstacle reaching into this height "blocks the space". */
   height: number;
-  /** 평탄도 샘플 `[x, z, …]` (대형만). */
+  /** The flatness samples `[x, z, …]` (large deployables only). */
   samples: readonly number[];
-  /** 고스트 발자국 링의 반경 (0 = 링 없음). */
+  /** The radius of the ghost footprint ring (0 = no ring). */
   ringX: number;
   ringZ: number;
 }
@@ -93,7 +105,7 @@ function footprintOf(kind: DeployableKind): Footprint {
       const cx = hx * 0.66;
       const samples: number[] = [];
       for (const x of [-hx, -hx * 0.5, 0, hx * 0.5, hx]) samples.push(x, -hz, x, 0.5);
-      // 받침다리가 +z 로 0.6 m 쯤 뻗는다 (`GadgetVisuals` barricade) → 원 중심을 조금 민다
+      // The feet reach about 0.6 m toward +z (`GadgetVisuals` barricade) → the circle centres are pushed over
       fp = { circles: [-cx, 0.1, 0.75, 0, 0.1, 0.75, cx, 0.1, 0.75], reach: hx + 0.4, height: BARRICADE_HALF.y * 2, samples, ringX: hx + 0.2, ringZ: 0.8 };
       break;
     }
@@ -106,7 +118,8 @@ function footprintOf(kind: DeployableKind): Footprint {
       fp = { circles: [0, 0, TURRET_FOOTPRINT], reach: TURRET_FOOTPRINT, height: TURRET_HEIGHT, samples: ringSamples(TURRET_FOOTPRINT, 6), ringX: TURRET_FOOTPRINT + 0.1, ringZ: TURRET_FOOTPRINT + 0.1 };
       break;
     case 'thumper':
-      // 2026-09-15: 소형 규칙(경사 `GADGET_PLACE_SMALL_MIN_NORMAL_Y`)이지만 공간은 제 실루엣만큼 본다. 고스트 링 = 땅 판정 반경 (`THUMPER_GROUND_R`)
+      // 2026-09-15: the small rule (slope `GADGET_PLACE_SMALL_MIN_NORMAL_Y`), but the space is measured against
+      // its own silhouette. Ghost ring = the ground-test radius (`THUMPER_GROUND_R`)
       fp = { circles: [0, 0, THUMPER_FOOTPRINT], reach: THUMPER_FOOTPRINT, height: THUMPER_HEIGHT, samples: [], ringX: THUMPER_GROUND_R, ringZ: THUMPER_GROUND_R };
       break;
     default:
@@ -117,14 +130,14 @@ function footprintOf(kind: DeployableKind): Footprint {
   return fp;
 }
 
-/* scratch — 이 파일 전용 (model 의 `_a…` 는 호출자(Wire)가 들고 들어온다) */
+/* scratch — this file's own (model's `_a…` are already held by the caller (Wire)) */
 const _o = new THREE.Vector3(), _dir = new THREE.Vector3(), _n = new THREE.Vector3(), _mp = new THREE.Vector3();
 
 export function createPreview(): PlacementPreview {
   return { gadget: 'barricade', kind: 'barricade', valid: false, reason: null, position: new THREE.Vector3(), yaw: 0, mount: null };
 }
 
-/** 마지막으로 `gadget:placementChanged` 에 실어 보낸 값. */
+/** The values last sent on `gadget:placementChanged`. */
 export interface PreviewKey { gadget: GadgetId | null; valid: boolean; reason: string | null; mount: string | null }
 export function createPreviewKey(): PreviewKey {
   return { gadget: null, valid: false, reason: null, mount: null };
@@ -137,20 +150,24 @@ function fail(out: PlacementPreview, reason: string): PlacementPreview {
 }
 
 /**
- * 2026-09-15 (진동 장치): 이 자리 반경 `THUMPER_GROUND_R` 이 땅굴벌레가 파고들 수 있는 땅인가 — 판정은 world 의 것이고
- * (`WorldRef.burrowGroundOk`, 호스트의 발동 자리 검사와 같은 함수), 아직 없으면 **거부**다. 미리보기 · 좌클릭 · 호스트 재검사가 전부 이것을 부른다.
+ * 2026-09-15 (the thumper): is the ground within `THUMPER_GROUND_R` of this spot ground the sandworm can dig into —
+ * the test is world's (`WorldRef.burrowGroundOk`, the same function as the worm director's eruption-site check), and
+ * a world that does not have it yet **refuses**. The preview, the left click and the host's re-check all call this.
  */
 export function burrowGroundOk(world: NonNullable<GameContext['world']>, x: number, z: number): boolean {
   return world.burrowGroundOk?.(x, z, THUMPER_GROUND_R) ?? false;
 }
 
-/** 이 드론 위에 이미 올라탄 설치물이 있나. */
+/** Is a deployable already mounted on this drone? */
 export function droneOccupied(sys: GadgetSystem, droneId: string): boolean {
   for (const d of sys.deployables) if (!d.removing && d.mount === droneId) return true;
   return false;
 }
 
-/** 광선이 발 중심 수평 반경 `r` 원을 빠져나가는 `t` (광선이 원 안에서 시작한다고 본다). −1 = 원과 만나지 않는다. */
+/**
+ * The `t` at which the ray leaves the horizontal circle of radius `r` around the feet (the ray is taken to start
+ * inside the circle). −1 = it never meets the circle.
+ */
 function exitT(ox: number, oz: number, dx: number, dz: number, fx: number, fz: number, r: number): number {
   const px = ox - fx, pz = oz - fz;
   const a = dx * dx + dz * dz;
@@ -163,7 +180,10 @@ function exitT(ox: number, oz: number, dx: number, dz: number, fx: number, fz: n
   return t > 0 ? Math.min(t, RAY_CAP) : -1;
 }
 
-/** 원(월드 XZ)이 장애물 단면과 겹치나 — 사각은 OBB, 볼록 기둥은 윤곽, 나머지는 원기둥. */
+/**
+ * Does the circle (world XZ) overlap the obstacle's cross-section — a box by its OBB, a convex column by its
+ * outline, anything else as a cylinder.
+ */
 function circleHitsObstacle(o: Obstacle, cx: number, cz: number, r: number): boolean {
   const dx = cx - o.position.x, dz = cz - o.position.z;
   if (o.box) {
@@ -185,7 +205,7 @@ function circleHitsObstacle(o: Obstacle, cx: number, cz: number, r: number): boo
       const ex = p[j * 2] - ax, ez = p[j * 2 + 1] - az;
       const len = Math.sqrt(ex * ex + ez * ez);
       if (len < 1e-9) continue;
-      // 반시계 윤곽: 양수 = 그 변의 바깥
+      // Counter-clockwise outline: positive = outside that edge
       if (((cx - ax) * ez - (cz - az) * ex) / len > r) return false;
     }
     return true;
@@ -195,8 +215,8 @@ function circleHitsObstacle(o: Obstacle, cx: number, cz: number, r: number): boo
 }
 
 /**
- * **설치 판정 하나.** `def` 를 지금 조준점에 놓으면 어디에(`position` · `yaw` · `mount`) 서고, 설 수 있나(`valid` ·
- * `reason`). `out` 을 채워 돌려준다 — 이벤트도 상태 변경도 없다.
+ * **The one placement test.** Where (`position` · `yaw` · `mount`) `def` stands if it is put at the aim point now,
+ * and whether it may (`valid` · `reason`). Fills `out` and returns it — no events, no state changes.
  */
 export function computePlacement(sys: GadgetSystem, def: GadgetDef, out: PlacementPreview): PlacementPreview {
   const ctx = sys.ctx;
@@ -216,7 +236,7 @@ export function computePlacement(sys: GadgetSystem, def: GadgetDef, out: Placeme
   const large = isLargeDeployable(kind);
   const feet = p.position;
 
-  // ── 조준 광선 (레티클), 발 수평 반경에서 끊는다 ──
+  // ── The aim ray (the reticle), cut at the horizontal radius around the feet ──
   const host = p as unknown as Partial<PlayerWeaponHost>;
   if (typeof host.getAimRay === 'function') host.getAimRay(_o, _dir);
   else { p.getEyePosition(_o); p.getForward(_dir); }
@@ -227,7 +247,7 @@ export function computePlacement(sys: GadgetSystem, def: GadgetDef, out: Placeme
 
   const hit = world.raycast(_o, _dir, tMax);
 
-  // ── 드론 몸체가 세계보다 가까우면 드론 위 ──
+  // ── A drone body nearer than the world means it mounts on the drone ──
   const drones = ctx.drones;
   const droneHit = drones ? drones.raycast(_o, _dir, hit ? hit.distance : tMax) : null;
   if (droneHit && (!hit || droneHit.distance < hit.distance)) {
@@ -240,13 +260,13 @@ export function computePlacement(sys: GadgetSystem, def: GadgetDef, out: Placeme
     return out;
   }
 
-  // ── 바닥 ──
+  // ── The floor ──
   let drop = false;
   if (hit) {
     out.position.copy(hit.point);
     _n.copy(hit.normal);
     if (_n.y < WALL_NORMAL_Y) {
-      // 벽 · 천장 밑면: 광선 반대로 한 걸음 물러나 그 아래 바닥으로
+      // A wall · a ceiling's underside: step back one pace along the ray and take the floor under it
       const flat = Math.hypot(_dir.x, _dir.z);
       if (flat > 1e-4) {
         out.position.x -= (_dir.x / flat) * WALL_BACKOFF;
@@ -255,7 +275,7 @@ export function computePlacement(sys: GadgetSystem, def: GadgetDef, out: Placeme
       drop = true;
     }
   } else {
-    // 반경 안에서 아무것도 맞지 않았다 → 반경 가장자리에서 끊고 그 아래 표면으로
+    // Nothing was hit inside the radius → cut at the edge of the radius and take the surface under it
     out.position.copy(_o).addScaledVector(_dir, tMax);
     drop = true;
   }
@@ -270,20 +290,21 @@ export function computePlacement(sys: GadgetSystem, def: GadgetDef, out: Placeme
   }
   const y = out.position.y;
   if (Math.abs(y - feet.y) > PLACE_VERTICAL_REACH) return fail(out, R_FAR);
-  // 움직이는 발판(전차 데크) 위에는 세우지 않는다 — 설치물은 발판을 따라가지 않는다
+  // Nothing is stood up on a moving platform (the tram deck) — a deployable does not travel with the platform
   const standing = world.getStandingObstacle(x, z, y);
   if (standing && standing.velocity) return fail(out, R_NOWHERE);
 
-  // ── 경사 ──
+  // ── Slope ──
   if (_n.y < (large ? GADGET_PLACE_LARGE_MIN_NORMAL_Y : GADGET_PLACE_SMALL_MIN_NORMAL_Y)) return fail(out, R_SLOPE);
 
-  // ── 진동 장치: 땅굴벌레가 파고들 수 있는 땅인가 (2026-09-15) — world 가 답하고, 없으면(병렬 개발) 어디에도 못 놓는다 ──
+  // ── The thumper: is this ground the sandworm can dig into (2026-09-15) — world answers, and a world without
+  //    the query (parallel development) places it nowhere ──
   if (kind === 'thumper' && !burrowGroundOk(world, x, z)) return fail(out, R_BURROW);
 
   const fp = footprintOf(kind);
   const cos = Math.cos(out.yaw), sin = Math.sin(out.yaw);
 
-  // ── 평탄도 (대형): 발자국 안 표면 높이의 최고 − 최저 ──
+  // ── Flatness (large deployables): the highest − the lowest surface height inside the footprint ──
   if (large && fp.samples.length > 0) {
     let lo = y, hi = y;
     for (let i = 0; i < fp.samples.length; i += 2) {
@@ -297,7 +318,7 @@ export function computePlacement(sys: GadgetSystem, def: GadgetDef, out: Placeme
     }
   }
 
-  // ── 공간: 발자국 원과 겹치는 장애물 (밟고 선 바닥 · 머리 위 슬래브는 빼고) ──
+  // ── Space: obstacles overlapping the footprint circles (minus the floor it stands on · the slab overhead) ──
   const near = world.getObstaclesNear(x, z, fp.reach);
   const floorTop = y + GADGET_PLACE_LARGE_MAX_STEP;
   const ceil = y + fp.height;
@@ -312,7 +333,7 @@ export function computePlacement(sys: GadgetSystem, def: GadgetDef, out: Placeme
     }
   }
 
-  // ── 다른 설치물 간격 (지금 `PLACE_CLEARANCE` 규칙, 바리케이드는 두 배) ──
+  // ── Clearance from other deployables (the current `PLACE_CLEARANCE` rule, doubled for a barricade) ──
   for (const d of sys.deployables) {
     if (d.removing || d.mount) continue;
     if (d.kind === 'smoke' || d.kind === 'fire' || d.kind === 'domeShield') continue;
@@ -325,19 +346,21 @@ export function computePlacement(sys: GadgetSystem, def: GadgetDef, out: Placeme
 }
 
 /**
- * 손이 **기폭기**인가 — 마지막 원격 지뢰를 놓은 뒤 weapons 가 남기는 손(슬롯 없음 · 수량 0). 그동안
- * `heldItemId` 는 C4 def id 로 남으므로 이것으로 가른다. 계약 타입에 없는 필드라 캐스트로 읽는다.
+ * Is the hand the **detonator** — the hand weapons leaves behind after the last remote mine was placed (no slot ·
+ * quantity 0). `heldItemId` stays the C4 def id all the while, so this is what tells the two apart. The field is not
+ * in the contract type, so it is read through a cast.
  */
 export function isDetonatorHand(ctx: GameContext): boolean {
   return (ctx.weapons?.remoteState as { detonator?: boolean } | undefined)?.detonator === true;
 }
 
-/** 지금 손에 든 `place` 가젯, 없으면 null. */
+/** The `place` gadget in hand right now, null when there is none. */
 function heldPlaceDef(ctx: GameContext): GadgetDef | null {
   if (!ctx.isGameplayActive()) return null;
   if (isDetonatorHand(ctx)) return null;
   const p = ctx.player;
-  if (!p || p.isDead || p.isDowned || p.droneControl || p.roverRide) return null;   // 2026-09-13: 탐사 차량 안 — 고스트 없음
+  // 2026-09-13: inside the rover — no placement ghost
+  if (!p || p.isDead || p.isDowned || p.droneControl || p.roverRide) return null;
   const itemId = ctx.weapons?.remoteState?.heldItemId;
   if (!itemId) return null;
   const gid = ctx.loot?.getItemDef(itemId)?.gadgetId as GadgetId | undefined;
@@ -358,7 +381,7 @@ function emitIfChanged(sys: GadgetSystem): void {
   sys.ctx.bus.emit('gadget:placementChanged', { gadget, valid, reason, mount });
 }
 
-/** 매 프레임: 손에 든 설치형 가젯이 있으면 판정 → 고스트 → (바뀌었을 때만) 이벤트. */
+/** Every frame: with a `place` gadget in hand, the test → the placement ghost → (only on a change) the event. */
 export function updatePreview(sys: GadgetSystem, ctx: GameContext): void {
   const def = heldPlaceDef(ctx);
   if (!def || !def.deployable) { resetPreview(sys); return; }
@@ -369,7 +392,7 @@ export function updatePreview(sys: GadgetSystem, ctx: GameContext): void {
   emitIfChanged(sys);
 }
 
-/** 고스트를 숨기고 `placement` 를 null 로 (미션 리셋 · 허브 · 손에서 내려놓음). */
+/** Hides the placement ghost and puts `placement` back to null (mission reset · the hub · taken out of the hand). */
 export function resetPreview(sys: GadgetSystem): void {
   sys.previewActive = false;
   sys.visuals.hideGhost();
@@ -377,8 +400,8 @@ export function resetPreview(sys: GadgetSystem): void {
 }
 
 /**
- * 호스트: 클라이언트의 `gadq place` 를 가볍게 다시 본다. `pos` 를 제자리에서 고친다.
- * 반환 = 탑재할 드론 id, null = 바닥, false = 거부 (맵 밖).
+ * The host: re-checks a client's `gadq place` lightly. Fixes `pos` in place.
+ * Returns the drone id to mount on, null = the floor, false = refused (off the map).
  */
 export function resolveRemotePlace(sys: GadgetSystem, def: GadgetDef, pos: THREE.Vector3, mount: string | null): string | null | false {
   const world = sys.ctx.world;
@@ -390,9 +413,11 @@ export function resolveRemotePlace(sys: GadgetSystem, def: GadgetDef, pos: THREE
       if (_mp.distanceTo(pos) <= MOUNT_TOLERANCE) { pos.copy(_mp); return mount; }
     }
   }
-  // 바닥 (또는 드론이 사라졌을 때 그 아래): 요청 높이 근처에서 올라설 수 있는 표면
+  // The floor (or, when the drone is gone, the floor under it): a surface that can be stepped onto near the
+  // requested height
   if (world && world.ready) pos.y = world.getSurfaceY(pos.x, pos.z, pos.y + 0.2);
-  // 2026-09-15: 진동 장치는 땅굴벌레를 부르는 물건이라 호스트도 땅 판정을 다시 본다 — 같은 시드의 같은 함수라 정직한 클라와는 늘 일치한다
+  // 2026-09-15: the thumper is the thing that summons the sandworm, so the host re-runs the ground test too — the
+  // same function on the same seed, so it always agrees with an honest client
   if (def.deployable === 'thumper' && world && world.ready && !burrowGroundOk(world, pos.x, pos.z)) return false;
   return null;
 }

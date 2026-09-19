@@ -1,36 +1,44 @@
 /**
- * src/gadgets/drones/AirDrone.ts — **공중 드론 몸체** (2026-09-11).
+ * src/gadgets/drones/AirDrone.ts — **the air drone body** (2026-09-11).
  *
- * `DroneBody` 구현 하나. 조종 전환 · 카메라 적용 · 사거리 · 체력 · 네트워크는 `DroneSystem`(코어)이 하고, 이 파일은
- * 물리 · 절차 모델 · 렌즈 자세 · 광선 판정만 갖는다.
+ * One `DroneBody` implementation. Taking control · applying the camera · link range · hp · networking belong to
+ * `DroneSystem` (the core); this file holds only physics · the procedural model · the lens pose · the ray test.
  *
- * ## 좌표 규약
- * - `position` = **몸체 중심**. 아래로 `BODY_BOTTOM`(착륙 스키드 밑), 위로 `BODY_TOP`(탑재판 핀 윗면).
- * - `yaw` 는 **`model.ts` 의 드론 yaw 규약**을 따른다 (두 몸체가 같아야 한다) — 모델의 코 = 로컬 **+Z**,
- *   `root.rotation.y = yaw`, 앞 = `(sin yaw, 0, cos yaw)`, 오른쪽 = `(−cos yaw, 0, sin yaw)`, pitch + = 위.
- *   플레이어 yaw(앞 = −sin, −cos)와는 반대라 꺼낼 때 코어가 `droneYawFromPlayer`(+π)로 바꿔 넘긴다.
- *   그래서 왼쪽 = 로컬 +X 다 (빨강 항법 LED 가 +X 에 있다).
- * - 조종 중 `yaw` 는 입력 yaw 를 **그대로** 받는다 — `getCameraPose` 가 이 yaw 로 시점을 풀기 때문에, 여기서
- *   늦추면 마우스가 늦게 따라온다. 입력 yaw 를 부드럽게 따라가는 것은 **보이는 몸체**(`visualYaw`)다.
+ * ## Coordinate convention
+ * - `position` = the **body centre**. `BODY_BOTTOM` below it (the underside of the landing skids), `BODY_TOP`
+ *   above (the top face of the mount plate pins).
+ * - `yaw` follows **`model.ts`'s drone yaw convention** (both bodies have to agree) — the model's nose = local
+ *   **+Z**, `root.rotation.y = yaw`, forward = `(sin yaw, 0, cos yaw)`, right = `(−cos yaw, 0, sin yaw)`,
+ *   pitch + = up. It is the opposite of the player yaw (forward = −sin, −cos), so on deploy the core converts it
+ *   with `droneYawFromPlayer` (+π). That makes left = local +X (the red navigation LED sits on +X).
+ * - While controlled, `yaw` takes the input yaw **as it is** — `getCameraPose` resolves the view from this yaw, so
+ *   damping it here makes the mouse lag behind. What follows the input yaw smoothly is the **visible body**
+ *   (`visualYaw`).
  *
- * ## 비행
- * - 수평: 입력 방향 × `DRONE_AIR_SPEED` 로 지수 가감속, 손을 떼면 공기 저항처럼 서서히 멈춘다.
- * - 수직: `input.vertical` × `DRONE_AIR_CLIMB_SPEED`. 입력이 없으면 수직 속도도 0 으로 — **제자리 호버**.
- * - `input === null`(아무도 조종 안 함 · 연결 끊김)이면 속도를 0 으로 감쇠하고 그 자리에 떠 있다.
- *   상하 흔들림은 물리가 아니라 `animate` 의 시각 오프셋(`bobY`)이다 — 와이어 자세가 떨리지 않는다.
+ * ## Flight
+ * - Horizontal: exponential accel / decel towards the input direction × `DRONE_AIR_SPEED`; with the input released
+ *   it coasts to a stop like air drag.
+ * - Vertical: `input.vertical` × `DRONE_AIR_CLIMB_SPEED`. With no input the vertical speed goes to 0 as well —
+ *   **hovering in place**.
+ * - With `input === null` (nobody is controlling it · out of link) the velocity decays to 0 and it hangs there.
+ *   The up-and-down wobble is not physics but a visual offset in `animate` (`bobY`) — the wire pose never jitters.
  *
- * ## 고도 · 충돌
- * - 바닥 = `getSurfaceY(x, z, 몸 밑 + FLOOR_GRACE − PROP_STEP_UP_MAX)` — 몸 밑보다 낮은(또는 거의 같은) 윗면만
- *   바닥으로 센다. 그래서 지붕 · 나무 위로 넘어가면 그 윗면이 바닥이 되고, 2층 바닥판 **밑**을 날 때는 그 판이
- *   바닥이 되지 않는다. 최소 여유 `HOVER_CLEARANCE`, 최대 바닥 + `DRONE_AIR_MAX_ALTITUDE`(넘으면 서서히 내린다).
- * - 장애물은 `world.resolveCollision` 을 **쓰지 않는다** — 그 함수는 걷는 몸 기준(머리 위 여유 2.1 m · 올라설 수
- *   있는 단 예외)이라, 천장 슬래브 1 m 밑을 나는 드론을 슬래브 발자국 밖으로 순간이동시킨다. 대신
- *   `getObstaclesNear` 목록에 대해 3D 로 푼다: 몸의 높이 구간과 겹치는 장애물만, 옆으로 밀기 · 윗면으로 올리기 ·
- *   (떠 있는 상자 한정) 아래로 내리기 중 **가장 얕은 쪽**. 원기둥 · `Obstacle.box`(+`ramp`) · `Obstacle.hull` 셋 다.
- * - 한 프레임 이동은 `SUBSTEP_LEN` 씩 나눠 푼다 (얇은 벽 터널링 방지). 프레임 이동이 몸 반지름의 절반을 넘으면
- *   `world.raycast` 로 진행 방향을 한 번 더 막는다 (프레임 끊김 · 해시에 없는 훈련장 벽).
+ * ## Altitude · collision
+ * - Floor = `getSurfaceY(x, z, body underside + FLOOR_GRACE − PROP_STEP_UP_MAX)` — only a top face lower than (or
+ *   nearly level with) the body underside counts as floor. So crossing a roof or a treetop makes that top face the
+ *   floor, while flying **under** a second-storey floor plate does not make that plate the floor. Minimum
+ *   clearance `HOVER_CLEARANCE`, maximum floor + `DRONE_AIR_MAX_ALTITUDE` (past it, it descends gradually).
+ * - Obstacles do **not** go through `world.resolveCollision` — that function measures a walking body (2.1 m of
+ *   headroom · the step-up exception), so it teleports a drone flying 1 m under a ceiling slab out past the slab's
+ *   footprint. They are resolved in 3D against the `getObstaclesNear` list instead: only obstacles overlapping the
+ *   body's height span, taking the **shallowest** of pushing sideways · lifting onto the top face · (floating
+ *   boxes only) dropping below. All three of cylinder · `Obstacle.box` (+ `ramp`) · `Obstacle.hull`.
+ * - One frame of movement is resolved in `SUBSTEP_LEN` substeps (thin-wall tunnelling). When the frame's movement
+ *   exceeds half the body radius, `world.raycast` blocks the direction of travel once more (frame hitches ·
+ *   training range walls that are not in the hash).
  *
- * **광원 없음** (씬 광원 개수 규칙, CLAUDE.md) — LED 는 emissive, 로터 블러는 반투명 원판.
+ * **No lights** (the scene point-light count rule, CLAUDE.md) — the LEDs are emissive, the rotor blur a
+ * translucent disc.
  */
 import * as THREE from 'three';
 import {
@@ -39,64 +47,76 @@ import {
 import type { GameContext, Obstacle, WorldRef } from '@/shared';
 import type { DroneBody, DroneInput } from './model';
 
-/* ── 몸체 치수 (모델 실측, m) ─────────────────────────────────────────────────────────────── */
-/** 중심 → 탑재판 핀 윗면. */
+/* ── Body dimensions (measured from the model, m) ──────────────────────────────────────────── */
+/** Centre → the top face of the mount plate pins. */
 const BODY_TOP = 0.11;
-/** 중심 → 착륙 스키드 밑면. */
+/** Centre → the underside of the landing skids. */
 const BODY_BOTTOM = 0.15;
-/** 수평 반지름 — 축 방향 프롭 가드 바깥(0.43)과 대각 끝(0.54) 사이. 갈고리 · 총알 · 충돌이 같이 쓴다. */
+/**
+ * Horizontal radius — between the outer edge of an axis-aligned prop guard (0.43) and the diagonal tip (0.54).
+ * The grapple · bullets · collision all share it.
+ */
 const BODY_RADIUS = 0.5;
-/** 탑재판 윗면 (로컬 y). */
+/** Top face of the mount plate (local y). */
 const MOUNT_Y = 0.096;
-/** 모터 중심의 로컬 |x| = |z|. */
+/** Local |x| = |z| of a motor centre. */
 const ROTOR_OFF = 0.26;
 const ROTOR_Y = 0.085;
-/** 짐벌 볼 중심 (로컬). */
+/** Gimbal ball centre (local). */
 const GIMBAL_Y = -0.095;
 const GIMBAL_Z = 0.17;
-/** 1인칭 렌즈: 몸체 중심에서 앞으로 / 위아래로. 유리면(0.228)보다 살짝 앞. */
+/** First-person lens: forward / up and down from the body centre. Slightly ahead of the glass (0.228). */
 const LENS_FWD = 0.25;
 const LENS_Y = GIMBAL_Y;
 
-/* ── 조작감 (게임플레이에 닿는 것은 TODO(csv)) ─────────────────────────────────────────────── */
+/* ── Handling (whatever touches gameplay is TODO(csv)) ─────────────────────────────────────── */
 const MAX_DT = 0.1;
-/** 수평 가속 응답 (1/s) — `data/constants.csv` 의 `DRONE_AIR_ACCEL` (2026-09-11 리드가 옮김). */
+/** Horizontal accel response (1/s) — `DRONE_AIR_ACCEL` in `data/constants.csv` (the lead moved it 2026-09-11). */
 const ACCEL_K = DRONE_AIR_ACCEL;
-/** 조종 중 입력을 뗐을 때의 제동 (1/s). */
+/** Braking while controlled, once the input is released (1/s). */
 const BRAKE_K = 3.2;
-/** 아무도 조종하지 않을 때 제자리로 서는 감쇠 (1/s) — 조금 흘러가다 선다. */
+/** Decay to a standstill while nobody is controlling it (1/s) — it drifts a little, then stops. */
 const HOVER_BRAKE_K = 2.4;
 const CLIMB_K = 6;
 const CLIMB_BRAKE_K = 7;
-/** 몸 밑과 바닥 사이 최소 여유(m) — `data/constants.csv` 의 `DRONE_AIR_MIN_CLEARANCE` (2026-09-11 리드가 옮김). */
+/**
+ * Minimum clearance (m) between the body underside and the floor — `DRONE_AIR_MIN_CLEARANCE` in
+ * `data/constants.csv` (the lead moved it 2026-09-11).
+ */
 const HOVER_CLEARANCE = DRONE_AIR_MIN_CLEARANCE;
-/** 몸 밑보다 이만큼 위에 있는 윗면까지는 바닥으로 센다 (낮은 턱을 스치면 올라탄다). */
+/** A top face this far above the body underside still counts as floor (it rides onto a low ledge it brushes). */
 const FLOOR_GRACE = 0.25;
-/** 고도 상한을 넘었을 때 내려오는 속도 = 상승 속도 × 이 값. */
+/** Descent speed once past the altitude cap = climb speed × this value. */
 const OVER_ALT_DESCENT_MUL = 1.5;
 const SUBSTEP_LEN = 0.2;
 const MAX_SUBSTEPS = 8;
 const SWEEP_MIN = BODY_RADIUS * 0.5;
-/** 장애물 목록 캐시: 이만큼 움직였거나 이 시간이 지나면 다시 묻는다 (`getObstaclesNear` 는 배열을 새로 만든다). */
+/**
+ * Obstacle list cache: re-queried after moving this far or after this long (`getObstaclesNear` builds a new
+ * array).
+ */
 const REQUERY_MOVE = 1;
 const REQUERY_S = 0.3;
-/** 윗면 판정 여유 — 이만큼 파고든 것은 겹침으로 치지 않는다. */
+/** Top-face test margin — biting in this far does not count as an overlap. */
 const TOP_SKIN = 0.02;
-/** 원기둥 소품은 땅에서 올라온다 — 밑면을 조금 묻는다 (`WorldSystem.rayCylinder` 와 같은 값). */
+/**
+ * A cylinder prop rises out of the ground — its underside is buried a little (the same value as
+ * `WorldSystem.rayCylinder`).
+ */
 const CYL_SINK = 0.5;
 
-/* ── 시각 연출 ─────────────────────────────────────────────────────────────────────────────── */
+/* ── Visual presentation ───────────────────────────────────────────────────────────────────── */
 const MAX_TILT = 0.3;
 const TILT_K = 6;
 const YAW_FOLLOW_K = 10;
 const BOB_AMP = 0.025;
 const BOB_W = 2.4;
-/** 로터 각속도 (rad/s) — 공회전 · 조종 중 가산 · 속도 가산. */
+/** Rotor angular speed (rad/s) — idling · a bonus while controlled · a bonus from speed. */
 const ROTOR_IDLE = 70;
 const ROTOR_CTRL = 18;
 const ROTOR_MOVE = 30;
 const ROTOR_SPIN_K = 2.5;
-/** 블레이드 메시가 실제로 도는 최대 속도 — 그 이상은 스트로보처럼 보이므로 블러 원판이 대신한다. */
+/** The fastest the blade meshes really turn — above it they read as a strobe, so the blur disc takes over. */
 const BLADE_VIS_MAX = 22;
 const BLUR_START = 25;
 const BLUR_FULL = 80;
@@ -113,27 +133,33 @@ const STATUS_IDLE = 0x3a7bff;
 const STATUS_CONTROLLED = 0x33e6ff;
 const STATUS_LOST = 0xffa21a;
 
-/* ── 소리 ──────────────────────────────────────────────────────────────────────────────────── */
+/* ── Sound ─────────────────────────────────────────────────────────────────────────────────── */
 const ROTOR_SFX_SLOW = 0.55;
 const ROTOR_SFX_FAST = 0.3;
-/** 조종하지 않아도 이 속도 비율 이상으로 움직이면 로터 소리를 낸다. */
+/** Even when not controlled, it plays the rotor sound while moving above this fraction of top speed. */
 const SFX_MOVE_FRAC = 0.15;
 
-/** 모터 배치 순서 (앞왼 · 앞오 · 뒤오 · 뒤왼, 코 = +Z · 왼쪽 = +X) 와 회전 방향 — 대각끼리 같은 방향. */
+/**
+ * Motor order (front-left · front-right · rear-right · rear-left; nose = +Z · left = +X) and the spin
+ * direction — diagonal pairs turn the same way.
+ */
 const ROTOR_SIGN_X = [1, -1, -1, 1] as const;
 const ROTOR_SIGN_Z = [1, 1, -1, -1] as const;
 const ROTOR_DIR = [1, -1, 1, -1] as const;
 
-/** world 가 해시 엔트리에 붙이는 내부 플래그 (계약 밖) — 깨진 창틀은 작은 몸이 지나간다. */
+/**
+ * An internal flag world attaches to its hash entries (outside the contract) — a small body passes through a
+ * broken window frame.
+ */
 type PassFlags = { passSmall?: boolean };
 
-/* ── 모듈 스크래치 (핫 패스 할당 없음) ─────────────────────────────────────────────────────── */
+/* ── Module scratch (no allocation on hot paths) ───────────────────────────────────────────── */
 const _dir = new THREE.Vector3();
 const _euler = new THREE.Euler();
-/** 수평 밀어내기 결과: 변위 벡터와 깊이. */
+/** Horizontal push-out result: the displacement vector and the depth. */
 const H = { x: 0, z: 0, depth: 0 };
 
-/* ── 공유 지오메트리 · 머티리얼 (모듈 캐시, 인스턴스가 dispose 하지 않는다) ─────────────────────── */
+/* ── Shared geometry · materials (a module cache; instances never dispose them) ────────────── */
 interface AirGeo {
   hull: THREE.BufferGeometry; shell: THREE.BufferGeometry; plate: THREE.BufferGeometry; pin: THREE.BufferGeometry;
   nose: THREE.BufferGeometry; stripe: THREE.BufferGeometry; arm: THREE.BufferGeometry; motor: THREE.BufferGeometry;
@@ -162,7 +188,7 @@ function geo(): AirGeo {
     yoke: new THREE.BoxGeometry(0.07, 0.014, 0.05),
     ball: new THREE.SphereGeometry(0.042, 14, 10),
     lens: new THREE.CylinderGeometry(0.022, 0.026, 0.03, 12).rotateX(Math.PI / 2),
-    glass: new THREE.CircleGeometry(0.019, 14),   // 기본 법선 +Z = 코 방향
+    glass: new THREE.CircleGeometry(0.019, 14),   // default normal +Z = the nose direction
     led: new THREE.SphereGeometry(0.014, 8, 6),
   };
   return GEO;
@@ -194,7 +220,7 @@ function ledMat(hex: number): THREE.MeshStandardMaterial {
   });
 }
 
-/* ── 순수 수학 ─────────────────────────────────────────────────────────────────────────────── */
+/* ── Pure maths ────────────────────────────────────────────────────────────────────────────── */
 function clampN(v: number, lo: number, hi: number): number { return v < lo ? lo : v > hi ? hi : v; }
 
 function wrapAngle(a: number): number {
@@ -202,7 +228,10 @@ function wrapAngle(a: number): number {
   return ((((a + Math.PI) % t) + t) % t) - Math.PI;
 }
 
-/** 경사 발판 윗면 높이 (`world/obb.rampTopAt` 과 같은 식 — 폴더 import 금지라 계약 필드만 읽어 다시 푼다). */
+/**
+ * Top-face height of a ramp (the same formula as `world/obb.rampTopAt` — importing another feature folder is
+ * forbidden, so it is re-solved here from contract fields alone).
+ */
 function rampTopAt(o: Obstacle, x: number, z: number): number {
   const b = o.box!, r = o.ramp!;
   const c = Math.cos(b.yaw), s = Math.sin(b.yaw);
@@ -211,7 +240,10 @@ function rampTopAt(o: Obstacle, x: number, z: number): number {
   return o.position.y + o.height - r.rise + r.rise * t;
 }
 
-/** 원 vs 원기둥 단면 (총알 실루엣 `shotRadius` 우선 — 날아가는 몸은 보이는 모양에 부딪혀야 한다). */
+/**
+ * Circle vs a cylinder's cross-section (the bullet silhouette `shotRadius` wins — a flying body has to hit the
+ * shape it looks like).
+ */
 function pushCircle(o: Obstacle, px: number, pz: number, radius: number): boolean {
   const r = o.shotRadius !== undefined && o.shotRadius > 0 ? o.shotRadius : o.radius;
   let dx = px - o.position.x, dz = pz - o.position.z;
@@ -224,7 +256,10 @@ function pushCircle(o: Obstacle, px: number, pz: number, radius: number): boolea
   return true;
 }
 
-/** 원 vs 회전 상자 단면 (`world/obb.boxPushOut` 과 같은 규약: 중심이 안이면 가장 얕은 면으로). */
+/**
+ * Circle vs a rotated box's cross-section (the same convention as `world/obb.boxPushOut`: a centre inside leaves
+ * through the shallowest face).
+ */
 function pushBox(o: Obstacle, px: number, pz: number, radius: number): boolean {
   const b = o.box!;
   const c = Math.cos(b.yaw), s = Math.sin(b.yaw);
@@ -248,7 +283,10 @@ function pushBox(o: Obstacle, px: number, pz: number, radius: number): boolean {
   return true;
 }
 
-/** 원 vs 볼록 윤곽 (`world/hull.hullPushOut` 과 같은 규약, 점은 반시계 `[x0, z0, …]`). */
+/**
+ * Circle vs a convex outline (the same convention as `world/hull.hullPushOut`; the points are counter-clockwise
+ * `[x0, z0, …]`).
+ */
 function pushHull(p: Float32Array, px: number, pz: number, radius: number): boolean {
   const m = p.length >> 1;
   if (m < 3) return false;
@@ -299,15 +337,15 @@ export class AirDrone implements DroneBody {
   readonly sprinting = false;
   readonly airborne = true;
 
-  /** 기울기 · 흔들림을 받는 몸체 (root 는 위치 + 보이는 yaw 만). */
+  /** The body that carries tilt · wobble (root holds only the position + the visual yaw). */
   private readonly tilt = new THREE.Group();
   private readonly gimbal = new THREE.Group();
-  /** 소유자 시점에서 렌즈를 가리는 부품. */
+  /** The parts that block the lens in the owner's view. */
   private readonly ownerHidden: THREE.Object3D[] = [];
   private readonly rotors: THREE.Group[] = [];
   private readonly discs: THREE.Mesh[] = [];
 
-  /* 인스턴스 머티리얼 — 드론마다 따로 깜빡이고 흐려진다 (dispose 대상은 이 넷뿐). */
+  /* Instance materials — each drone blinks and blurs on its own (only these four are disposed). */
   private readonly blurMat: THREE.MeshBasicMaterial;
   private readonly ledRed: THREE.MeshStandardMaterial;
   private readonly ledGreen: THREE.MeshStandardMaterial;
@@ -327,7 +365,7 @@ export class AirDrone implements DroneBody {
 
   private controlled = false;
   private linkLost = false;
-  /** 마지막으로 자세를 받은 경로가 `applyRemote` 다 (속도를 위치 변화로 추정한다). */
+  /** The last pose came in through `applyRemote` (velocity is estimated from the position change). */
   private remote = false;
   private statusMode = -1;
   private readonly remoteVel = new THREE.Vector3();
@@ -365,7 +403,7 @@ export class AirDrone implements DroneBody {
       return mesh;
     };
 
-    // 몸통 · 윗면 셸 · 탑재판 (+ 모서리 핀) · 전면 센서 · 측면 경고 띠
+    // Hull · top shell · mount plate (+ corner pins) · front sensor · side warning bands
     add(g.hull, m.hull, 0, 0, 0).castShadow = true;
     add(g.shell, m.shell, 0, 0.06, -0.01).castShadow = true;
     add(g.plate, m.rubber, 0, 0.0865, 0);
@@ -374,11 +412,11 @@ export class AirDrone implements DroneBody {
     add(g.stripe, m.accent, -0.113, 0, -0.01);
     add(g.stripe, m.accent, 0.113, 0, -0.01);
 
-    // X 암
+    // X arms
     add(g.arm, m.hull, 0, 0.02, 0).rotation.y = Math.PI / 4;
     add(g.arm, m.hull, 0, 0.02, 0).rotation.y = -Math.PI / 4;
 
-    // 모터 · 프롭 가드 · 로터(블레이드 + 허브) · 블러 원판
+    // Motors · prop guards · rotors (blades + hub) · blur discs
     for (let i = 0; i < 4; i++) {
       const x = ROTOR_SIGN_X[i] * ROTOR_OFF, z = ROTOR_SIGN_Z[i] * ROTOR_OFF;
       add(g.motor, m.hull, x, 0.05, z);
@@ -396,12 +434,12 @@ export class AirDrone implements DroneBody {
       this.discs.push(disc);
     }
 
-    // 항법 LED (빨강 = 왼쪽 = +X, 초록 = 오른쪽 = −X, 둘 다 앞 암 끝) · 뒷면(−Z) 상태 LED
+    // Navigation LEDs (red = left = +X, green = right = −X, at the front arm tips) · the rear (−Z) status LED
     add(g.led, this.ledRed, ROTOR_OFF, 0.012, ROTOR_OFF);
     add(g.led, this.ledGreen, -ROTOR_OFF, 0.012, ROTOR_OFF);
     add(g.led, this.ledStatus, 0, 0.02, -0.182);
 
-    // 착륙 다리 + 스키드
+    // Landing legs + skids
     const legs = new THREE.Group();
     this.tilt.add(legs);
     for (const sx of [-1, 1]) {
@@ -411,7 +449,7 @@ export class AirDrone implements DroneBody {
     }
     this.ownerHidden.push(legs);
 
-    // 짐벌: 요크(고정) + 볼 · 경통 · 유리(피치)
+    // Gimbal: yoke (fixed) + ball · scope tube · glass (pitch)
     this.ownerHidden.push(add(g.yoke, m.hull, 0, -0.052, GIMBAL_Z));
     this.gimbal.position.set(0, GIMBAL_Y, GIMBAL_Z);
     this.gimbal.rotation.x = -GIMBAL_REST;
@@ -443,7 +481,7 @@ export class AirDrone implements DroneBody {
     this.cacheAge = 0;
     this.sfxTimer = 0;
     const world = ctx.world;
-    if (world && world.ready) this.clampAltitude(world, 0);   // 땅속에서 꺼내지 않게
+    if (world && world.ready) this.clampAltitude(world, 0);   // so it is never deployed inside the ground
     this.syncRoot();
   }
 
@@ -454,14 +492,14 @@ export class AirDrone implements DroneBody {
     this.controlled = input !== null;
     const p = this.position, v = this.velocity;
 
-    // ── 목표 속도
+    // ── Target velocity
     let tvx = 0, tvy = 0, tvz = 0, kH = HOVER_BRAKE_K, kV = HOVER_BRAKE_K;
     if (input) {
       this.yaw = input.yaw;
       this.gimbalTarget = clampN(input.pitch, GIMBAL_MIN, GIMBAL_MAX);
       const f = clampN(input.forward, -1, 1), r = clampN(input.right, -1, 1);
       const sy = Math.sin(input.yaw), cy = Math.cos(input.yaw);
-      // 앞 = (sin, cos) · 오른쪽 = (−cos, sin) — `GroundDrone` 과 같은 식
+      // forward = (sin, cos) · right = (−cos, sin) — the same formula as `GroundDrone`
       let wx = sy * f - cy * r, wz = cy * f + sy * r;
       const wl = Math.sqrt(wx * wx + wz * wz);
       if (wl > 1) { wx /= wl; wz /= wl; }
@@ -481,7 +519,7 @@ export class AirDrone implements DroneBody {
     if (Math.abs(v.y) < 1e-4) v.y = 0;
     if (Math.abs(v.z) < 1e-4) v.z = 0;
 
-    // ── 이동 (서브스텝) + 충돌 + 고도
+    // ── Movement (substeps) + collision + altitude
     const world = ctx.world && ctx.world.ready ? ctx.world : null;
     let mx = v.x * dt, my = v.y * dt, mz = v.z * dt;
     const dist = Math.sqrt(mx * mx + my * my + mz * mz);
@@ -506,7 +544,7 @@ export class AirDrone implements DroneBody {
     }
     this.syncRoot();
 
-    // ── 로터 소리 (조종 중 · 움직일 때만)
+    // ── Rotor sound (only while controlled · while moving)
     const frac = clampN(Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) / DRONE_AIR_SPEED, 0, 1);
     if (this.controlled || frac > SFX_MOVE_FRAC) {
       this.sfxTimer -= dt;
@@ -536,7 +574,7 @@ export class AirDrone implements DroneBody {
     const p = this.position;
     const d = dt > 0 ? Math.min(dt, MAX_DT) : 0;
 
-    // 속도: 소유자는 물리 값, 복제본은 위치 변화에서 추정
+    // Velocity: the owner uses the physics value, a replica estimates it from the position change
     let vx: number, vy: number, vz: number;
     if (this.remote) {
       if (this.hasAnimPos && dt > 1e-4) {
@@ -554,13 +592,14 @@ export class AirDrone implements DroneBody {
     this.hasAnimPos = true;
     const frac = clampN(Math.sqrt(vx * vx + vy * vy + vz * vz) / DRONE_AIR_SPEED, 0, 1);
 
-    // 보이는 yaw 가 입력 yaw 를 부드럽게 따라간다
+    // The visual yaw follows the input yaw smoothly
     this.visualYaw = wrapAngle(this.visualYaw + wrapAngle(this.yaw - this.visualYaw) * (1 - Math.exp(-YAW_FOLLOW_K * d)));
     this.root.position.copy(p);
     this.root.rotation.y = this.visualYaw;
 
-    // 진행 방향으로 기울기 (앞으로 가면 기수가 숙여지고, 오른쪽으로 가면 오른쪽이 내려간다) + 공회전 흔들림.
-    // Rx(+) 는 +Z(코)를 내리고, Rz(+) 는 −X(오른쪽)를 내린다 — 그래서 둘 다 속도 성분의 부호 그대로다.
+    // Tilt into the direction of travel (moving forward dips the nose, moving right drops the right
+    // side) + the idling wobble. Rx(+) drops +Z (the nose) and Rz(+) drops −X (the right side), so both take the
+    // sign of the velocity component as it is.
     const s = Math.sin(this.visualYaw), c = Math.cos(this.visualYaw);
     const vf = vx * s + vz * c, vr = -vx * c + vz * s;
     const aT = 1 - Math.exp(-TILT_K * d);
@@ -573,7 +612,7 @@ export class AirDrone implements DroneBody {
     this.bobY = Math.sin(time * BOB_W + this.phase) * BOB_AMP * calm;
     this.tilt.position.y = this.bobY;
 
-    // 로터: 블레이드는 눈에 보이는 속도까지만 돌고, 그 위는 블러 원판이 짙어진다
+    // Rotors: the blades only turn up to the visible speed; above that the blur disc darkens
     const climb = vy > 0 ? (vy / DRONE_AIR_CLIMB_SPEED) * 10 : 0;
     const target = ROTOR_IDLE + (this.controlled ? ROTOR_CTRL : 0) + ROTOR_MOVE * frac + climb;
     this.rotorSpin += (target - this.rotorSpin) * (1 - Math.exp(-ROTOR_SPIN_K * d));
@@ -584,17 +623,17 @@ export class AirDrone implements DroneBody {
     const showDisc = blur > 0.01;
     for (let i = 0; i < this.discs.length; i++) this.discs[i].visible = showDisc;
 
-    // 짐벌
+    // Gimbal
     this.gimbalPitch += (this.gimbalTarget - this.gimbalPitch) * (1 - Math.exp(-GIMBAL_K * d));
-    this.gimbal.rotation.x = -this.gimbalPitch;   // Rx(+) 가 +Z(렌즈)를 내리므로 pitch + = 위는 부호를 뒤집는다
+    this.gimbal.rotation.x = -this.gimbalPitch;   // Rx(+) drops +Z (the lens), so pitch + = up flips the sign
 
-    // 항법 LED: 켜진 채 주기마다 두 번 번쩍
+    // Navigation LEDs: lit, with a double flash every cycle
     const cyc = (((time + this.phase) % NAV_CYCLE) + NAV_CYCLE) % NAV_CYCLE;
     const nav = cyc < 0.07 || (cyc > 0.16 && cyc < 0.23) ? LED_FLASH : LED_ON;
     this.ledRed.emissiveIntensity = nav;
     this.ledGreen.emissiveIntensity = nav;
 
-    // 상태 LED: 조종 중 = 청록 · 연결 끊김 = 호박색 점멸 · 대기 = 파랑 느린 맥동
+    // Status LED: controlled = cyan · out of link = an amber blink · idle = a slow blue pulse
     const mode = this.linkLost ? 2 : this.controlled ? 1 : 0;
     if (mode !== this.statusMode) {
       this.statusMode = mode;
@@ -615,7 +654,7 @@ export class AirDrone implements DroneBody {
   }
 
   getMountPoint(out: THREE.Vector3): THREE.Vector3 {
-    // root(Ry) × tilt(Rx·Rz) 와 같은 회전 = Euler 'YXZ'
+    // The same rotation as root(Ry) × tilt(Rx·Rz) = Euler 'YXZ'
     _euler.set(this.appliedTiltX, this.visualYaw, this.appliedTiltZ, 'YXZ');
     out.set(0, MOUNT_Y, 0).applyEuler(_euler);
     out.x += this.position.x;
@@ -624,7 +663,10 @@ export class AirDrone implements DroneBody {
     return out;
   }
 
-  /** 납작한 타원체 (수평 반지름 `radius`, 수직 반지름 `height / 2`). 원점이 안에 있으면 −1 (world 규약). */
+  /**
+   * A flattened ellipsoid (horizontal radius `radius`, vertical radius `height / 2`). An origin inside it
+   * returns −1 (the world convention).
+   */
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): number {
     if (this.disposed || !(maxDist > 0)) return -1;
     let dx = dir.x, dy = dir.y, dz = dir.z;
@@ -661,7 +703,7 @@ export class AirDrone implements DroneBody {
     this.obstacles = [];
   }
 
-  /* ── 내부 ────────────────────────────────────────────────────────────────────────────────── */
+  /* ── internals ───────────────────────────────────────────────────────────────────────────── */
 
   private syncRoot(): void {
     this.root.position.copy(this.position);
@@ -681,7 +723,10 @@ export class AirDrone implements DroneBody {
     this.hasCache = true;
   }
 
-  /** 프레임 이동이 길면 진행 방향 레이로 막는다. 이동 배율(0..1)을 돌려주고, 벽으로 향한 속도 성분을 지운다. */
+  /**
+   * Blocks a long frame movement with a ray along the direction of travel. Returns a movement scale (0..1) and
+   * clears the velocity component pointing into the wall.
+   */
   private sweepScale(world: WorldRef, mx: number, my: number, mz: number, dist: number): number {
     if (dist <= SWEEP_MIN) return 1;
     _dir.set(mx / dist, my / dist, mz / dist);
@@ -696,7 +741,10 @@ export class AirDrone implements DroneBody {
     return allowed / dist;
   }
 
-  /** 몸의 높이 구간과 겹치는 장애물을 옆 · 위 · (떠 있는 상자면) 아래 중 가장 얕은 쪽으로 빼낸다. */
+  /**
+   * Takes the body out of every obstacle overlapping its height span, the shallowest way: sideways · up · (for a
+   * floating box) down.
+   */
   private resolveObstacles(world: WorldRef): void {
     const list = this.obstacles;
     const p = this.position, v = this.velocity;
@@ -721,7 +769,8 @@ export class AirDrone implements DroneBody {
           : pushCircle(o, p.x, p.z, BODY_RADIUS);
       if (!hit) continue;
       const up = top - yb;
-      // 아래로 빼내기는 밑에 드론이 들어갈 틈이 있는 떠 있는 상자(천장 · 2층 바닥판 · 창 윗벽)만
+      // Only a floating box with room for the drone underneath (a ceiling · a second-storey floor plate ·
+      // the wall above a window) pushes it down
       let down = Infinity;
       if (o.box && base - world.getHeightAt(p.x, p.z) > this.height + HOVER_CLEARANCE + 0.1) down = yt - base;
       if (up <= H.depth && up <= down) {
@@ -741,12 +790,12 @@ export class AirDrone implements DroneBody {
     }
   }
 
-  /** 발밑 표면 위 최소 여유 ~ 최대 고도. `dt` 0 = 즉시 (reset). */
+  /** Minimum clearance above the surface underfoot ~ the maximum altitude. `dt` 0 = immediate (reset). */
   private clampAltitude(world: WorldRef, dt: number): void {
     const p = this.position, v = this.velocity;
     const bottom = p.y - BODY_BOTTOM;
     let floor = world.getSurfaceY(p.x, p.z, bottom + FLOOR_GRACE - PROP_STEP_UP_MAX);
-    // 비탈을 향해 날 때 로터가 먼저 박히지 않게 진행 방향 앞쪽 지형도 본다
+    // Flying at a slope, it also looks at the terrain ahead so the rotors do not dig in first
     const hs = Math.sqrt(v.x * v.x + v.z * v.z);
     if (hs > 0.5) {
       const k = (BODY_RADIUS * 0.8) / hs;

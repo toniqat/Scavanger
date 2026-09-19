@@ -1,9 +1,9 @@
 /**
- * src/gadgets/drones/parts/Lifecycle.ts — **드론이 생기고, 움직이고, 맞고, 사라지는 것.**
+ * src/gadgets/drones/parts/Lifecycle.ts — **a drone coming out, moving, taking hits and going away.**
  *
- * 꺼내기(`deploy` — 인벤토리를 건드리지 않는다) · 소유자 쪽 시뮬레이션 · 질주음 · 적 소음(`world:noise`, 권한만) ·
- * 피해(소유자가 아니면 `droneq damage`) · 파괴(그때 소유자 가방/퀵슬롯에서 그 아이템 1개) · E 홀드 회수(무소모) ·
- * 광선 질의 · 리셋.
+ * Deploy (`deploy` — it does not touch the inventory) · owner-side simulation · the sprint sound · enemy noise
+ * (`world:noise`, the authority only) · damage (`droneq damage` when not the owner) · destruction (which spends
+ * one of that item from the owner's bag / quick slots) · E-hold recovery (spends nothing) · the ray query · reset.
  */
 import * as THREE from 'three';
 import {
@@ -42,14 +42,14 @@ export function createBody(kind: DroneKind): DroneBody {
   return kind === 'air' ? new AirDrone() : new GroundDrone();
 }
 
-/* ═══════════════════════════ 꺼내기 ═══════════════════════════ */
+/* ═══════════════════════════ Deploy ═══════════════════════════ */
 export function deploy(sys: DroneSystem, kind: DroneKind): boolean {
   const ctx = sys.ctx;
   const p = ctx.player;
   const world = ctx.world;
-  // 함선(허브) · 메뉴 · 강하 전에는 꺼낼 수 없다
+  // It cannot be deployed in the ship (the hub) · in a menu · before the drop
   if (!ctx.isGameplayPhase() || !ctx.isRaidActive() || !world || !world.ready) return deny(sys, null);
-  if (!p || p.isDead || p.isDowned || p.climbingLadder || p.droneControl || p.roverRide) return deny(sys, null);   // 2026-09-13: + 탐사 차량 안
+  if (!p || p.isDead || p.isDowned || p.climbingLadder || p.droneControl || p.roverRide) return deny(sys, null);   // 2026-09-13: + the rover
   if (ownDrone(sys, kind)) return deny(sys, `이미 ${droneName(kind)}을 꺼내 뒀다`);
 
   const body = createBody(kind);
@@ -59,7 +59,7 @@ export function deploy(sys: DroneSystem, kind: DroneKind): boolean {
   if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); else fwd.normalize();
 
   if (kind === 'ground') {
-    // PC 정면 표면. 벽이 가까우면 그 앞에.
+    // The surface straight in front of the PC. With a wall close by, in front of that.
     _l2.copy(p.position); _l2.y += 0.5;
     let dist = DRONE_DEPLOY_DIST_GROUND;
     const hit = world.raycast(_l2, fwd, dist + body.radius);
@@ -71,7 +71,7 @@ export function deploy(sys: DroneSystem, kind: DroneKind): boolean {
     world.resolveCollision(pos, body.radius);
     pos.y = world.getSurfaceY(pos.x, pos.z, feet);
   } else {
-    // PC 눈 앞 위쪽 공중. 천장 · 벽이 가까우면 그 안쪽.
+    // In the air above and in front of the PC's eyes. With a ceiling · wall close by, inside that.
     p.getEyePosition(_l2);
     let dist = DRONE_DEPLOY_DIST_AIR;
     const hit = world.raycast(_l2, fwd, dist + body.radius);
@@ -107,7 +107,7 @@ export function addDrone(sys: DroneSystem, d: Drone): void {
   sys.byId.set(d.id, d);
 }
 
-/* ═══════════════════════════ 매 프레임 ═══════════════════════════ */
+/* ═══════════════════════════ Every frame ═══════════════════════════ */
 export function simulateOwn(sys: DroneSystem, d: Drone, dt: number): void {
   const ctx = sys.ctx;
   const input = sys.controlled === d ? buildInput(sys, d) : null;
@@ -115,17 +115,20 @@ export function simulateOwn(sys: DroneSystem, d: Drone, dt: number): void {
   if (d.kind === 'ground' && d.body.sprinting) d.noiseUntil = ctx.time + DRONE_NOISE_MEMORY_S;
 }
 
-/** 질주음(위치 오디오 — 소유자 · 복제본 모두) · 복제본의 점프/착지음 (소유자 쪽은 몸체가 낸다). */
+/**
+ * The sprint sound (positional audio — the owner and a replica alike) · a replica's jump / landing sound (on the
+ * owner side the body emits them).
+ */
 export function updateSounds(sys: DroneSystem, d: Drone, dt: number): void {
   const bus = sys.ctx.bus;
   if (d.kind === 'air') {
-    // 2026-09-11 (리드): 복제본 공중 드론의 로터 소리 — 소유자 쪽 소리는 `AirDrone.simulate` 가 낸다.
+    // 2026-09-11 (the lead): rotor sound for a replica air drone — on the owner side `AirDrone.simulate` emits it.
     if (d.isLocal) return;
     const moving = (d.flags & DroneFlags.CONTROLLED) !== 0 || d.toPos.distanceToSquared(d.fromPos) > 0.0004;
     if (!moving) { d.sprintSfxT = 0; return; }
     d.sprintSfxT -= dt;
     if (d.sprintSfxT <= 0) {
-      d.sprintSfxT = 0.45;   // 오디오 박자 (AirDrone 의 ROTOR_SFX 범위 한가운데)
+      d.sprintSfxT = 0.45;   // audio beat (the middle of AirDrone's ROTOR_SFX range)
       bus.emit('audio:play', { id: 'drone_rotor', position: d.position, volume: 0.45 });
     }
     return;
@@ -148,8 +151,9 @@ export function updateSounds(sys: DroneSystem, d: Drone, dt: number): void {
 }
 
 /**
- * **권한 클라이언트만**: 소음 중인 지상 드론(내 것 = 최근 질주, 복제본 = `DroneFlags.NOISY`)마다 `world:noise` 를
- * `DRONE_NOISE_EMIT_HZ` 이하로. 위치는 드론이 가진 벡터에 복사해서 넘긴다 (받는 쪽이 보관해도 드론을 따라가지 않는다).
+ * **The authority client only**: `world:noise` at up to `DRONE_NOISE_EMIT_HZ` for every noisy ground drone (mine =
+ * sprinted recently, a replica = `DroneFlags.NOISY`). The position is copied into a vector the drone owns before
+ * it is passed on (so a receiver that keeps it does not follow the drone).
  */
 export function emitNoise(sys: DroneSystem, d: Drone): void {
   const ctx = sys.ctx;
@@ -161,7 +165,7 @@ export function emitNoise(sys: DroneSystem, d: Drone): void {
   ctx.bus.emit('world:noise', { position: d.noisePos, radius: DRONE_NOISE_RADIUS, source: 'drone', sourceId: d.id });
 }
 
-/* ═══════════════════════════ 피해 · 파괴 ═══════════════════════════ */
+/* ═══════════════════════════ Damage · destruction ═══════════════════════════ */
 export function damageDrone(sys: DroneSystem, id: string, amount: number, _from?: THREE.Vector3): void {
   const ctx = sys.ctx;
   const d = sys.byId.get(id);
@@ -173,7 +177,7 @@ export function damageDrone(sys: DroneSystem, id: string, amount: number, _from?
   applyOwnDamage(sys, d, amount);
 }
 
-/** 소유자 쪽 피해 적용 (로컬 호출 · `droneq damage` 수신 공용). */
+/** Applies damage on the owner side (shared by a local call and an incoming `droneq damage`). */
 export function applyOwnDamage(sys: DroneSystem, d: Drone, amount: number): void {
   const ctx = sys.ctx;
   if (d.removing || !(amount > 0)) return;
@@ -188,13 +192,14 @@ export function applyOwnDamage(sys: DroneSystem, d: Drone, amount: number): void
 function destroyOwn(sys: DroneSystem, d: Drone): void {
   const ctx = sys.ctx;
   destroyFx(sys, d);
-  // 아이템은 **파괴될 때** 하나 사라진다 — 가방 + 퀵슬롯(`consumeWhere` 는 휠까지 본다, CLAUDE.md 퀵슬롯 절)
+  // One item is spent **on destruction** — bag + quick slots (`consumeWhere` looks at the wheel too,
+  // CLAUDE.md's quick-slot section)
   const gid = DRONE_GADGET_OF[d.kind];
   ctx.inventory?.consumeWhere((def) => def.gadgetId === gid, 1);
   removeDrone(sys, d, 'destroyed', true);
 }
 
-/** 작은 폭발 — 파티클 풀만 (광원 없음). */
+/** A small explosion — pooled particles only (no lights). */
 export function destroyFx(sys: DroneSystem, d: Drone): void {
   const ctx = sys.ctx;
   d.fxPos.copy(d.position);
@@ -213,7 +218,7 @@ export function destroyFx(sys: DroneSystem, d: Drone): void {
   }
 }
 
-/** 2026-09-15 (사용자 결정): 드론도 다른 대상과 **같은** 2단 계단 감쇠 (`shared/explosion`). */
+/** 2026-09-15 (user's decision): drones take the **same** two-step falloff as anything else (`shared/explosion`). */
 export function applyExplosion(sys: DroneSystem, center: THREE.Vector3, radius: number, damage: number): void {
   if (!(radius > 0) || !(damage > 0)) return;
   for (let i = sys.drones.length - 1; i >= 0; i--) {
@@ -223,14 +228,15 @@ export function applyExplosion(sys: DroneSystem, center: THREE.Vector3, radius: 
     if (d.kind === 'ground') _l2.y += d.height * 0.5;
     const dist = _l2.distanceTo(center);
     if (dist >= radius) continue;
-    // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 차폐 — 지상 드론은 몸 3점, 공중 드론은 몸체 중심 한 점
+    // 2026-09-18 (user's decision): wall · roof · floor occlusion — a ground drone uses 3 body points,
+    // an air drone the single body centre
     if (d.kind === 'ground' ? !blastReachesBody(sys.ctx.world, center, d.position.x, d.position.y, d.position.z, d.height)
       : !blastReachesBody(sys.ctx.world, center, _l2.x, _l2.y, _l2.z, 0)) continue;
     damageDrone(sys, d.id, explosionDamage(damage, dist, radius), center);
   }
 }
 
-/* ═══════════════════════════ 회수 · 제거 ═══════════════════════════ */
+/* ═══════════════════════════ Recover · remove ═══════════════════════════ */
 function registerRecover(sys: DroneSystem, d: Drone): void {
   const ctx = sys.ctx;
   const prompt = `${droneName(d.kind)} 회수`;
@@ -254,7 +260,7 @@ function recover(sys: DroneSystem, d: Drone): void {
   removeDrone(sys, d, 'recovered', true);
 }
 
-/** 로컬에서 지우고, `broadcast` 이면서 내 드론이면 남에게도 알린다. */
+/** Removes it locally and, when `broadcast` and it is one of mine, tells the others as well. */
 export function removeDrone(sys: DroneSystem, d: Drone, reason: 'destroyed' | 'recovered' | 'expired', broadcast: boolean): void {
   if (d.removing) return;
   const ctx = sys.ctx;
@@ -277,7 +283,10 @@ export function removeOwnedBy(sys: DroneSystem, owner: PeerId): void {
   sys.syncAskedAt.delete(owner);
 }
 
-/** 전부 제거 + dispose (아이템은 건드리지 않는다). 내 드론은 아직 레이드에 남은 분대원에게 지우라고 알린다. */
+/**
+ * Removes and disposes every drone (items are left alone). My own drones tell the squadmates still in the raid to
+ * remove them.
+ */
 export function clear(sys: DroneSystem): void {
   sys.releaseControl('reset');
   for (let i = sys.drones.length - 1; i >= 0; i--) {
@@ -289,7 +298,7 @@ export function clear(sys: DroneSystem): void {
   sys.syncAskedAt.clear();
 }
 
-/* ═══════════════════════════ 질의 ═══════════════════════════ */
+/* ═══════════════════════════ Queries ═══════════════════════════ */
 export function raycast(sys: DroneSystem, origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, kind?: DroneKind): DroneRayHit | null {
   let best = maxDist;
   let hit: Drone | null = null;

@@ -1,16 +1,19 @@
 /**
- * src/gadgets/parts/Remote.ts — **원격 지뢰(C4)는 언제 · 어떻게 터지는가** (2026-09-11).
+ * src/gadgets/parts/Remote.ts — **when and how a remote mine (C4) goes off** (2026-09-11).
  *
- * - 근접 감지로는 **절대** 터지지 않는다. 터지는 길은 소유자의 기폭(`detonateRemoteMines`) 하나뿐이고,
- *   부서지면(`GADGET_REMOTE_MINE_HP`) **불발로** 사라진다 (`Simulate.onDeployableDamage`).
- * - 기폭은 **호스트 권한**이다. 싱글 / 호스트는 바로 터뜨리고, 클라이언트는 `gadq detonate` 를 보내며
- *   호스트는 relay `from` 소유의 무장된 것만 터뜨린다 (`onDetonateRequest`).
- * - **중첩 피해**: 한 번의 기폭에서 대상마다 각 C4 가 줄 피해(중심 `GADGET_REMOTE_MINE_DAMAGE`, 반경
- *   `GADGET_REMOTE_MINE_RADIUS`, 공용 2단 계단 감쇠 `shared/explosion`)를 모아, 가장 큰 한 발은 그대로 · 나머지는 **각각**
- *   `× GADGET_REMOTE_MINE_STACK_MUL` 로 더해 **한 번에** 적용한다 (복리 아님). 대상 = 적 · 로컬 플레이어 ·
- *   원격 플레이어(`dmg`) · 드론(`ctx.drones.damageDrone` — `applyExplosion` 은 부르지 않는다, 이중 적용) ·
- *   다른 설치물(`takeDamage`). 폭발 FX · 흔들림 · `explosion` 소리는 C4 마다 따로 난다.
- * - **소유자당 상한** `GADGET_REMOTE_MINE_MAX_LIVE` — 넘으면 그 소유자의 가장 오래된 것부터 사라진다(호스트).
+ * - It **never** goes off on proximity. The only path to a detonation is the owner's own
+ *   (`detonateRemoteMines`); broken (`GADGET_REMOTE_MINE_HP`) it disappears as a **dud**
+ *   (`Simulate.onDeployableDamage`).
+ * - The detonation is the **host's authority**. Single-player / the host fires straight away, a client sends
+ *   `gadq detonate`, and the host fires only the armed ones owned by the relay `from` (`onDetonateRequest`).
+ * - **Stacked damage**: one detonation gathers, per target, what each C4 would deal (centre
+ *   `GADGET_REMOTE_MINE_DAMAGE`, radius `GADGET_REMOTE_MINE_RADIUS`, the shared two-step falloff
+ *   `shared/explosion`), keeps the strongest hit as it is, adds the rest **each** ×
+ *   `GADGET_REMOTE_MINE_STACK_MUL` and applies the total **once** (not compounded). Targets = enemies · the
+ *   local player · remote players (`dmg`) · drones (`ctx.drones.damageDrone` — `applyExplosion` is not
+ *   called, it would apply twice) · other deployables (`takeDamage`). The blast FX · shake · `explosion`
+ *   sound fire once per C4.
+ * - **A per-owner live cap** `GADGET_REMOTE_MINE_MAX_LIVE` — over it, that owner's oldest go first (the host).
  */
 import * as THREE from 'three';
 import {
@@ -23,30 +26,33 @@ import type { Deployable } from '../Deployable';
 import { PLAYER_HALF_H } from '../model';
 import type { GadgetSystem } from '../GadgetSystem';
 
-/* ── 표현 전용 값 (게임플레이 수치 아님) ─────────────────────────────────────── */
-/** 무장된 C4 가 `c4_beep` 을 내는 간격(초). */
+/* ── presentation-only values (not gameplay numbers) ────────────────────────── */
+/** Seconds between the `c4_beep` an armed C4 gives off. */
 const BEEP_INTERVAL = 4.5;
-/** 삑 소리 크기 — 위치 소리라 가까이서만 들린다. */
+/** Beep volume — a positional sound, so it is only heard nearby. */
 const BEEP_VOLUME = 0.22;
-/** 적 광역 질의 여유(m): `queryNear` 는 캡슐 중심 거리로 거르므로, 몸집이 큰 적의 표면이 반경에 걸리는 경우를 넣으려고 넓혀 묻는다. */
+/**
+ * Enemy area-query margin (m): `queryNear` filters by the distance to the capsule centre, so the query is
+ * widened to catch a big enemy whose surface reaches into the radius.
+ */
 const ENEMY_QUERY_PAD = 4;
 
-/** 대상 종류 — 모은 피해를 어느 경로로 적용하는가. */
+/** Target kind — which path the gathered damage is applied through. */
 const TargetKind = { Enemy: 0, LocalPlayer: 1, RemotePlayer: 2, Drone: 3, Deployable: 4 } as const;
 type TargetKind = (typeof TargetKind)[keyof typeof TargetKind];
 
 interface Acc {
   kind: TargetKind;
   ref: unknown;
-  /** 가장 센 한 발. */
+  /** The strongest single hit. */
   max: number;
-  /** 모든 발의 합. */
+  /** The sum of every hit. */
   sum: number;
-  /** 가장 센 한 발을 준 C4 (피격 방향 표시용). */
+  /** The C4 that dealt the strongest hit (for the hit direction). */
   from: Deployable | null;
 }
 
-/* 기폭은 드문 이벤트지만 그래도 버퍼는 재사용한다. */
+/* A detonation is a rare event, but the buffers are reused all the same. */
 const _mines: Deployable[] = [];
 const _accs = new Map<unknown, Acc>();
 const _accPool: Acc[] = [];
@@ -54,31 +60,35 @@ let _accUsed = 0;
 const _v = new THREE.Vector3();
 const _from = new THREE.Vector3();
 
-/** `owner` 가 이 클라이언트의 플레이어인가 (싱글 = `'local'`, 멀티 = 내 peer id). */
+/** Is `owner` this client's player (single-player = `'local'`, multiplayer = my peer id)? */
 export function isLocalOwner(sys: GadgetSystem, owner: PeerId | 'local'): boolean {
   if (owner === 'local') return true;
   const me = sys.ctx.net?.localId;
   return me != null && owner === me;
 }
 
-/* ══ 2026-09-15 (결과 창 개편): 설치물 · 가젯이 플레이어에게 준 피해의 출처 ══
- * 피해를 받는 사람 기준이다 — 내 설치물이면 `self`, 분대원 것이면 `ally`. 한 객체씩 돌려 쓴다 (화염 지대는 매 프레임 묻는다). */
+/* ══ 2026-09-15 (the results screen rework): the source of damage a deployable · gadget did to a player ══
+ * It is judged from the victim's side — `self` for my own deployable, `ally` for a squadmate's. One object
+ * each is reused (the fire zone asks every frame). */
 export const SELF_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'self' });
 export const ALLY_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'ally' });
 const SELF_DAMAGE_WIRE: DamageSourceWire = Object.freeze({ k: 'self' });
 const ALLY_DAMAGE_WIRE: DamageSourceWire = Object.freeze({ k: 'ally' });
 
-/** 로컬 플레이어가 `owner` 의 설치물에 맞았다. */
+/** The local player was hit by `owner`'s deployable. */
 export function localVictimSource(sys: GadgetSystem, owner: PeerId | 'local'): PlayerDamageSource {
   return isLocalOwner(sys, owner) ? SELF_DAMAGE_SOURCE : ALLY_DAMAGE_SOURCE;
 }
 
-/** 분대원 `victim` 이 `owner` 의 설치물에 맞았다 (`dmg.src` — 받는 쪽 기준으로 여기서 정해 싣는다). */
+/** The squadmate `victim` was hit by `owner`'s deployable (`dmg.src` — decided here, from the victim's side). */
 export function remoteVictimWire(owner: PeerId | 'local', victim: PeerId): DamageSourceWire {
   return owner === victim ? SELF_DAMAGE_WIRE : ALLY_DAMAGE_WIRE;
 }
 
-/** 로컬 플레이어 소유로 월드에 남아 있는 원격 지뢰 수 (무장 여부 무관, 제거 중 제외). 매 프레임 불려도 싸다. */
+/**
+ * Remote mines the local player still owns in the world (armed or not, ones being removed excluded).
+ * Cheap enough to call every frame.
+ */
 export function liveRemoteMineCount(sys: GadgetSystem): number {
   let n = 0;
   const list = sys.deployables;
@@ -90,8 +100,8 @@ export function liveRemoteMineCount(sys: GadgetSystem): number {
 }
 
 /**
- * 로컬 플레이어의 무장된 원격 지뢰를 전부 기폭한다. 기폭기 딸깍 소리는 여기서 즉시 난다.
- * 반환 = 터뜨린(클라이언트는 요청한 — 로컬이 아는 무장된 내 것) 개수.
+ * Detonates every armed remote mine of the local player. The detonator click sounds here, immediately.
+ * Returns how many went off (on a client, how many were requested — the armed ones of mine it knows about).
  */
 export function detonateRemoteMines(sys: GadgetSystem): number {
   const ctx = sys.ctx;
@@ -106,7 +116,8 @@ export function detonateRemoteMines(sys: GadgetSystem): number {
   if (live === 0) return 0;
 
   if (!ctx.isAuthority && ctx.isMultiplayer && ctx.net) {
-    // 클라의 무장 타이머는 호스트보다 늦게 시작하므로, 로컬에서 아직 무장 전이어도 요청은 보낸다
+    // a client's arming timer starts later than the host's, so the request goes out even when nothing is
+    // armed locally yet
     ctx.net.send({ t: 'gadq', ev: 'detonate' }, 'host');
     if (armed === 0) notArmedYet(sys);
     return armed;
@@ -116,7 +127,7 @@ export function detonateRemoteMines(sys: GadgetSystem): number {
   return n;
 }
 
-/** 호스트: `gadq detonate` — 보낸 사람(relay `from`) 소유의 무장된 원격 지뢰만. */
+/** Host: `gadq detonate` — only the armed remote mines owned by the sender (relay `from`). */
 export function onDetonateRequest(sys: GadgetSystem, from: PeerId): void {
   if (!sys.ctx.isAuthority) return;
   detonateWhere(sys, from);
@@ -127,8 +138,8 @@ function notArmedYet(sys: GadgetSystem): void {
 }
 
 /**
- * 첫 프레임(모든 클라이언트): 설치음 · 삑 위상, 호스트는 소유자당 상한을 건다.
- * 늦게 합류해 `gad sync` 로 받은 것은 이미 무장돼 있으므로 설치음을 내지 않는다.
+ * The first frame (on every client): the place sound · the beep phase, and on the host the per-owner cap.
+ * One a late joiner received through `gad sync` is already armed, so it makes no place sound.
  */
 export function initRemoteMine(sys: GadgetSystem, d: Deployable): void {
   d.remoteInit = true;
@@ -137,7 +148,7 @@ export function initRemoteMine(sys: GadgetSystem, d: Deployable): void {
   if (sys.ctx.isAuthority) enforceCap(sys, d.owner);
 }
 
-/** 무장된 C4 의 드문 삑 (모든 클라이언트, 위치 소리). */
+/** The armed C4's occasional beep (every client, a positional sound). */
 export function updateBeep(sys: GadgetSystem, d: Deployable, dt: number): void {
   if (!d.armed || dt <= 0) return;
   d.beepTimer -= dt;
@@ -146,7 +157,7 @@ export function updateBeep(sys: GadgetSystem, d: Deployable, dt: number): void {
   sys.ctx.bus.emit('audio:play', { id: 'c4_beep', position: d.position, volume: BEEP_VOLUME });
 }
 
-/** 소유자당 `GADGET_REMOTE_MINE_MAX_LIVE` — `deployables` 는 설치 순서이므로 앞쪽이 오래된 것이다. */
+/** `GADGET_REMOTE_MINE_MAX_LIVE` per owner — `deployables` is in placement order, so the front is oldest. */
 function enforceCap(sys: GadgetSystem, owner: PeerId | 'local'): void {
   const max = Math.max(1, Math.floor(GADGET_REMOTE_MINE_MAX_LIVE));
   let count = 0;
@@ -167,7 +178,7 @@ function enforceCap(sys: GadgetSystem, owner: PeerId | 'local'): void {
 
 /* ═══════════════════════════ detonation (authority) ═══════════════════════════ */
 
-/** `peer` null = 로컬 플레이어 소유. 반환 = 터진 개수. */
+/** `peer` null = owned by the local player. Returns how many went off. */
 function detonateWhere(sys: GadgetSystem, peer: PeerId | null): number {
   const ctx = sys.ctx;
   _mines.length = 0;
@@ -180,11 +191,11 @@ function detonateWhere(sys: GadgetSystem, peer: PeerId | null): number {
   if (count === 0) return 0;
   const owner = _mines[0].owner;
   const localOwned = isLocalOwner(sys, owner);
-  /** 킬 크레딧: enemies 의 규약대로 내 것은 'local', 남의 것은 그 peer id. */
+  /** Kill credit: by the enemies contract, mine is 'local' and someone else's is their peer id. */
   const credit: string = localOwned ? 'local' : String(owner);
   const R = GADGET_REMOTE_MINE_RADIUS;
 
-  // 1) 대상마다 각 C4 의 피해를 모은다 (C4 들이 아직 월드에 있을 때 — 서로를 대상에서 뺀다)
+  // 1) gather each C4's damage per target (while the C4s are still in the world — they exclude each other)
   resetAccs();
   const p = ctx.player;
   const remotes = ctx.net?.getRemotePlayers() ?? [];
@@ -193,10 +204,12 @@ function detonateWhere(sys: GadgetSystem, peer: PeerId | null): number {
     const mine = _mines[m];
     const c = mine.position;
 
-    // 2026-09-18: 피해를 주는 자리라 벌레 알도 센다 (`includeProps` true) — 지뢰 폭발과 같은 취급이다. 표적 고르기가 아니다.
+    // 2026-09-18: a place that deals damage, so nest eggs count too (`includeProps` true) — the same
+    // treatment as a mine blast. This is not picking a target.
     for (const e of sys.enemiesNear(c, R + ENEMY_QUERY_PAD, true)) {
       if (e.isDead) continue;
-      // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머의 대상은 이 C4 몫을 받지 않는다 (몸 3점, 설치물은 제외 — 그 몸이 곧 콜라이더)
+      // 2026-09-18 (user's decision): a target behind a wall · roof · floor gets no share from this C4
+      // (three points on the body; deployables are exempt — their body is the collider)
       if (!blastReachesBody(ctx.world, c, e.position.x, e.position.y, e.position.z, e.height)) continue;
       _v.set(e.position.x, e.position.y + e.height * 0.5, e.position.z);
       addHit(TargetKind.Enemy, e, falloff(_v.distanceTo(c) - e.radius), mine);
@@ -228,14 +241,14 @@ function detonateWhere(sys: GadgetSystem, peer: PeerId | null): number {
     }
   }
 
-  // 2) C4 마다 폭발 FX · 제거 방송 (클라는 `gad remove {destroyed}` 를 받아 같은 폭발 FX 를 그린다)
+  // 2) the blast FX · removal broadcast per C4 (a client draws the same blast FX from `gad remove {destroyed}`)
   for (let m = 0; m < count; m++) {
     const mine = _mines[m];
     sys.blastFx(mine.position, R);
     sys.remove(mine, 'destroyed');
   }
 
-  // 3) 합산 피해를 대상마다 한 번씩. 설치물 피해는 연쇄(바닥 지뢰 폭발)를 부를 수 있어 맨 끝에 둔다.
+  // 3) the totalled damage, once per target. Deployable damage can chain (a ground mine going off), so last.
   const mul = GADGET_REMOTE_MINE_STACK_MUL;
   for (const pass of [0, 1] as const) {
     for (const acc of _accs.values()) {
@@ -264,9 +277,10 @@ function detonateWhere(sys: GadgetSystem, peer: PeerId | null): number {
 }
 
 /**
- * 거리(표면까지) → 한 발의 피해. 반경 밖이면 0.
- * 2026-09-15 (사용자 결정): 공용 2단 계단 (`shared/explosion`) — 안쪽 절반 100 % · 바깥 띠 고정 배수.
- * 중첩은 그대로다 (가장 큰 한 발 + 나머지 × `GADGET_REMOTE_MINE_STACK_MUL`, 복리 아님).
+ * Distance (to the surface) → the damage of one hit. 0 outside the radius.
+ * 2026-09-15 (user's decision): the shared two-step falloff (`shared/explosion`) — 100 % over the inner half,
+ * a fixed multiplier over the outer band.
+ * The stacking is unchanged (the strongest hit + the rest × `GADGET_REMOTE_MINE_STACK_MUL`, not compounded).
  */
 function falloff(dist: number): number {
   return explosionDamage(GADGET_REMOTE_MINE_DAMAGE, dist, GADGET_REMOTE_MINE_RADIUS);
@@ -292,9 +306,10 @@ function resetAccs(): void {
 }
 
 /**
- * 적 피해 + 킬 크레딧. `EnemyRef.takeDamage` 계약에는 공격자 인자가 없지만 enemies 의 구현(`Enemy.takeDamage`)은
- * 4번째 인자로 공격자(`'local'` | PeerId)를 받는다 — 폭발(`explode`)과 같은 호출이다. 인자를 모르는 구현은 그냥 무시한다.
- * 폭발은 부위 배수가 없으므로 맞은 자리 · 방향은 넘기지 않는다.
+ * Enemy damage + kill credit. The `EnemyRef.takeDamage` contract has no attacker argument, but the enemies
+ * implementation (`Enemy.takeDamage`) takes one as its 4th argument (`'local'` | PeerId) — the same call the
+ * explosion (`explode`) makes. An implementation that does not know the argument simply ignores it.
+ * An explosion has no hit-location multiplier, so the hit point · direction are not passed.
  */
 function hurtEnemy(e: EnemyRef, amount: number, credit: string): void {
   if (e.isDead) return;

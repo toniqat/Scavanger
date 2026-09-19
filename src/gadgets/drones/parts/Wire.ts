@@ -1,10 +1,10 @@
 /**
- * src/gadgets/drones/parts/Wire.ts — **드론 네트워크: 소유자 권한 (`drone` / `droneq`).**
+ * src/gadgets/drones/parts/Wire.ts — **drone networking: owner-authoritative (`drone` / `droneq`).**
  *
- * 배치물(`gad`)과 반대로 **조종하는 손이 권위**다. 소유자가 `drone spawn` / `state`(`DRONE_NET_HZ`) / `remove` 를
- * `'others'` 로 보내고, 남(호스트 포함)은 복제본을 보간해 그린다. 호스트의 적이 드론을 때리면 `droneq damage` 가
- * 소유자에게 간다. 늦게 합류한 클라이언트는 `world:ready` 에 `droneq sync` 를 `'others'` 로 묻고, 각 소유자가
- * 자기 드론 목록(`drone sync`)을 그 피어에게만 답한다.
+ * Unlike deployables (`gad`), **the controlling hand is the authority**. The owner sends `drone spawn` /
+ * `state` (`DRONE_NET_HZ`) / `remove` to `'others'`, and everyone else (the host included) interpolates and draws a
+ * replica. When the host's enemies hit a drone, `droneq damage` goes to the owner. A late joiner asks `droneq sync`
+ * of `'others'` on `world:ready`, and each owner answers that peer alone with its own drone list (`drone sync`).
  */
 import {
   DRONE_NET_HZ, type DroneMessage, type DroneRequest, type DroneWire, type PeerId,
@@ -12,7 +12,7 @@ import {
 import { _w0, angleDelta, Drone, DRONE_REPLICA_SNAP_DIST, DRONE_SYNC_RETRY_S, droneMaxHp } from '../model';
 import type { DroneSystem } from '../DroneSystem';
 import { addDrone, applyOwnDamage, createBody, destroyFx, removeDrone } from './Lifecycle';
-/* appended (2026-09-12): 분대원의 스캔 결과 (`drone scan`) */
+/* appended (2026-09-12): a squadmate's scan results (`drone scan`) */
 import { onRemoteScan } from './Scan';
 
 const r2 = (v: number): number => Math.round(v * 100) / 100;
@@ -28,7 +28,10 @@ export function ensureNetHooks(sys: DroneSystem): void {
   );
 }
 
-/** 복제본을 받아도 되는 때 — 레이드 월드가 서 있을 때만 (함선 · 로딩 중에 받은 것은 버리고 `world:ready` 의 sync 로 받는다). */
+/**
+ * When replicas may be accepted — only while the raid world stands (anything that arrives in the ship or during
+ * loading is dropped and comes back through the `world:ready` sync).
+ */
 function accepting(sys: DroneSystem): boolean {
   const ctx = sys.ctx;
   return ctx.isMultiplayer && !!ctx.world?.ready && ctx.isRaidActive();
@@ -61,7 +64,7 @@ export function sendRemove(sys: DroneSystem, id: string, reason: 'destroyed' | '
   ctx.net.send({ t: 'drone', ev: 'remove', id, reason }, 'others');
 }
 
-/** 소유자: `DRONE_NET_HZ` 로 (피해 · 조종 전환 직후에는 바로) 자세를 보낸다. */
+/** Owner: sends the pose at `DRONE_NET_HZ` (immediately right after damage · a control switch). */
 export function maybeSendState(sys: DroneSystem, d: Drone): void {
   const ctx = sys.ctx;
   if (!ctx.isMultiplayer || !ctx.net) return;
@@ -74,8 +77,8 @@ export function maybeSendState(sys: DroneSystem, d: Drone): void {
   ctx.net.send({ t: 'drone', ev: 'state', id: d.id, p: [r2(p.x), r2(p.y), r2(p.z)], yaw: r3(d.yaw), hp: Math.ceil(d.hp), fl }, 'others');
 }
 
-/* ═══════════════════════════ 복제본 ═══════════════════════════ */
-/** 지금 그려진 자세 → 새 샘플을 샘플 간격 동안 끌어간다. 멀리 뛰었으면 순간이동. */
+/* ═══════════════════════════ replica ═══════════════════════════ */
+/** Eases from the pose drawn now to the new sample over the sample interval. A long jump teleports instead. */
 function pushSample(sys: DroneSystem, d: Drone, x: number, y: number, z: number, yaw: number): void {
   const now = sys.ctx.time;
   _w0.set(x, y, z);
@@ -159,7 +162,7 @@ export function onDroneMessage(sys: DroneSystem, m: DroneMessage, from: PeerId):
       break;
     }
     case 'sync': {
-      // 그 소유자의 드론 목록 전체 — 없는 것은 지우고, 있는 것은 갱신하거나 새로 만든다
+      // That owner's full drone list — what is missing is removed, what is there is updated or newly created
       for (let i = sys.drones.length - 1; i >= 0; i--) {
         const d = sys.drones[i];
         if (d.owner !== from) continue;
@@ -179,7 +182,8 @@ export function onDroneMessage(sys: DroneSystem, m: DroneMessage, from: PeerId):
       break;
     }
     case 'scan':
-      // 2026-09-12: 표시 전용 — 모양 · 로비 멤버 · 빈도 · 보낸 사람의 지상 드론 거리는 `Scan.onRemoteScan` 이 본다
+      // 2026-09-12: display only — shape · lobby membership · rate · the sender's ground-drone distance are all
+      // checked by `Scan.onRemoteScan`
       onRemoteScan(sys, m, from);
       break;
   }
@@ -210,7 +214,7 @@ export function onDroneRequest(sys: DroneSystem, m: DroneRequest, from: PeerId):
   }
 }
 
-/** 모르는 드론의 `state` — spawn 을 놓쳤다. 그 소유자에게만, `DRONE_SYNC_RETRY_S` 에 한 번. */
+/** A `state` for an unknown drone — its spawn was missed. To that owner only, once per `DRONE_SYNC_RETRY_S`. */
 function askSync(sys: DroneSystem, owner: PeerId): void {
   const ctx = sys.ctx;
   const last = sys.syncAskedAt.get(owner);
