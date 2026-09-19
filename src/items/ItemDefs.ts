@@ -7,7 +7,7 @@ import {
   AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_KINDS, MEAL_BUFFS,
   QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, RARITY_ORDER, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade } from '@/shared';
 import { GROW_SOCKET_EFFECTS, GROW_SOCKET_TARGETS, SAMPLE_FAMILIES } from '@/shared';
-/* appended (2026-09-16, 18 samples): family glyphs — a sample tile's glyph is the family, its colour the rarity */
+/* appended (2026-09-16, sample families): family glyphs — a sample tile's glyph is the family, its colour the rarity */
 import type { SampleFamily } from '@/shared';
 import { SAMPLE_FAMILY_ICON } from '@/shared';
 /* appended (2026-09-13, library series · video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */

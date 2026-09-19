@@ -359,12 +359,12 @@ export class LootService implements LootRef {
       }
     }
 
-    // Phase 6: bosses may carry one legendary unique (rolled last so earlier draws are unchanged) + a stack of its calibre
+    // Phase 6: bosses may carry one mythic unique (rolled last so earlier draws are unchanged) + a stack of its calibre
     // 2026-09-09: a unique has no grade and so rides no curve — the planet's `uniqueMul` shrinks the chance itself
     // (0 = none). `rng.chance` spends one draw regardless of the multiplier, so the planet-null path consumes rng
     // exactly as before.
-    // 2026-09-16: every unique is legendary, so the epic+ gate (`keep`) multiplies straight into the chance too
-    // (still the one draw).
+    // 2026-09-16: every unique is mythic (above epic), so the epic+ gate (`keep`) multiplies straight into the
+    // chance too (still the one draw).
     if (table.unique && rng.chance(table.unique.chance * (curve?.uniqueMul ?? 1) * keep)) {
       const unique = WEAPON_DEF_MAP.get(rng.pick(UNIQUE_WEAPON_IDS));
       if (unique) {
@@ -437,8 +437,8 @@ export class LootService implements LootRef {
    * The corpse sample rows (`CorpseTable.samples`). Per row: chance → count → a weighted tier draw **per unit** →
    * one stack per identical item.
    * ⚠ 2026-09-17 (user's decision): they are **exempt** from the epic+ gate (`epicPlusMul`) — the same exemption as
-   * the lab's locked room. Cell IV (epic) has to come out at exactly the rate written in the csv (charger 10 % ·
-   * behemoth · sandworm 60 %). So this takes no `keep` and spends no gate draw.
+   * the lab's locked room. Cell IV (epic) has to come out at exactly the rate written in
+   * `data/loot_corpse_samples.csv`. So this takes no `keep` and spends no gate draw.
    * The other corpse rows (`loot_corpses.csv` and the rest) ride the gate as usual.
    */
   private rollCorpseSamples(rows: readonly CorpseSampleDrop[], rng: Random, out: ItemInstance[]): void {
@@ -680,9 +680,9 @@ export class LootService implements LootRef {
     if (isUniqueWeapon(weapon)) {
       /* A unique has no grade and cannot ride the curve — it survives only on the `uniqueMul` chance, and on a
          fail it becomes one ordinary gun. Why this is applied here, in one place, rather than in the crate pick
-         weights is in the `curveMul` comment above. */
+         weights is in the `curveMul` comment below (`curveMul` is the last method of this file). */
       if (curve.uniqueMul >= 1 || rng.chance(curve.uniqueMul)) {
-        /* 2026-09-16: a surviving unique (legendary) rides the epic+ gate too — when it catches, the highest grade
+        /* 2026-09-16: a surviving unique (mythic) rides the epic+ gate too — when it catches, the highest grade
            below epic of a random family. */
         if (keep >= 1 || !isEpicPlus(def) || rng.chance(keep)) return def;
         const fallback = rng.pick(WEAPON_FAMILIES);

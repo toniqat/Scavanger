@@ -23,10 +23,12 @@ const RECIPE_UNLOCK_SERIES: ReadonlyMap<string, string> = (() => {
  * The flow:
  *  1. **Ammo crafting** — 화약 + 폐금속/합금 → the ammo type wanted (the input is the 화약 salvage yields).
  *  2. **Field ordnance · medicine** — smoke / incendiary grenades, 붕대 · 약초 붕대 (`station: 'field'`).
- *  3. **정제 작업대** (`bench: 'refine'`, 2026-09-10) — lower materials → the 7 **upper-tier materials**.
- *     Upper-tier materials come from here only, and every grade IV~V piece of gear requires them.
- *  4. **총기 / 장비 / 가젯 / 의학 작업대** — 25 weapons · 14 attachments · 5 armors · 8 bags ·
- *     12 gadgets · 3 shield chargers. `benchLevel` is the grade threshold (Lv.1 low · Lv.2 mid · Lv.3 high).
+ *  3. **가공 작업대** (`bench: 'refine'`, 2026-09-10) — lower materials → the **upper-tier materials** (the
+ *     `refine_*` rows of the csv). Upper-tier materials come from here only, and every grade IV~V piece of gear
+ *     requires them.
+ *  4. **총기 / 장비 / 가젯 / 의학 작업대** — weapons · attachments · armor · bags · gadgets · shield chargers;
+ *     which window a row shows in is its `bench` column. `benchLevel` is the grade threshold
+ *     (Lv.1 low · Lv.2 mid · Lv.3 high).
  *
  * `station: 'field'` recipes also work on the ship; `'ship'` recipes without `bench` work at any ship workbench.
  */
@@ -43,7 +45,8 @@ const recipeOf = (r: (typeof RECIPE_ROWS)[number]): CraftRecipe => ({
   skill: r.enum('skill', ['crafting', 'medicine', 'gardening'] as const),
   skillRequired: r.int('skillRequired', { min: 0 }),
   description: r.str('description'),
-  /* 2026-09-10: 'refine' (정제 작업대) added — `WorkbenchKind` already accepts that value.
+  /* 2026-09-10: 'refine' (가공 작업대 — renamed 2026-09-12, the kind id stays `refine`) added —
+     `WorkbenchKind` already accepts that value.
      2026-09-11: 'extract' (추출기) · 'mixer' (조합대) — the two lab benches.
      2026-09-11 (A-3c · A-15): 'cook' (조리대) · 'print' (3D 프린터). This spot was **copying `WorkbenchKind`
      out**, so every added workbench had to be fixed here too — now it uses `WORKBENCH_KINDS` as it is

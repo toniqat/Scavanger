@@ -8,18 +8,12 @@ import { CRAFT_RECIPES, craftCostOf } from './Recipes';
  * Salvage · repair (2026-09-10, the big craft rework)
  *
  * The baseline is **the materials it takes to craft that item anew** (`Recipes.craftCostOf`). The remaining
- * durability is cut into five buckets of 20 % and each bucket has its own fixed multiplier — repair rounds
- * **up**, salvage rounds **down**.
+ * durability is cut into buckets of equal width and each bucket has its own fixed multiplier — repair rounds
+ * **up**, salvage rounds **down**. The worse the bucket, the more a repair costs and the less a salvage yields.
  *
- * | remaining durability | repair | salvage |
- * |---|---|---|
- * | 81~100 % | ×0.10 | ×0.40 |
- * | 61~80 %  | ×0.20 | ×0.32 |
- * | 41~60 %  | ×0.30 | ×0.24 |
- * | 21~40 %  | ×0.40 | ×0.16 |
- * |  0~20 %  | ×0.50 | ×0.08 |
- *
- * The values are `REPAIR_COST_BY_DURABILITY` · `SALVAGE_YIELD_BY_DURABILITY` in `data/tables.csv`.
+ * The multipliers **and the bucket count** are `REPAIR_COST_BY_DURABILITY` · `SALVAGE_YIELD_BY_DURABILITY` in
+ * `data/tables.csv`, read into the two constants below — the table is never copied into this comment, because a
+ * copy goes stale without anything failing.
  *
  * **Rounding rule** — repair rounds up (the side against the player), salvage rounds down. Salvage does **not
  * guarantee a minimum of 1 per material type**: guaranteeing it would hand a grade IV gun's 「강화합금 잉곳 2」
@@ -36,9 +30,9 @@ export const REPAIR_COST_BY_DURABILITY: readonly number[] = numberList('tables.c
 /** The salvage yield multiplier per bucket (same order). */
 export const SALVAGE_YIELD_BY_DURABILITY: readonly number[] = numberList('tables.csv', 'SALVAGE_YIELD_BY_DURABILITY');
 
-/** The bucket count (5). */
+/** The bucket count — the length of the csv list. */
 export const DURABILITY_BUCKETS = REPAIR_COST_BY_DURABILITY.length;
-/** The salvage multiplier of the last bucket (81~100 %) — the reference value the listing carries. */
+/** The salvage multiplier of the top (full-durability) bucket — the reference value the listing carries. */
 const TOP_SALVAGE_MUL = SALVAGE_YIELD_BY_DURABILITY[DURABILITY_BUCKETS - 1] ?? 0;
 /** The bucket labels — `0~20 %` … `81~100 %`. */
 export const DURABILITY_BUCKET_LABELS: readonly string[] =
@@ -47,9 +41,9 @@ export const DURABILITY_BUCKET_LABELS: readonly string[] =
 /**
  * The categories that can be repaired. A healing spray is still handled by `inventory`'s `sprayRepairCost`.
  * 2026-09-11 (C-36): `bag` joined — bags gained a `durabilityMax`, and without them here the repair cost is
- * `[]`, which means a **full repair for no materials**, while the salvage buckets still split 0–4 so
+ * `[]`, which means a **full repair for no materials**, while the salvage buckets still split so
  * "repair-then-salvage" tips the balance. So the csv column · this list · the
- * "제작 레시피가 있는데 수리비가 비었다" check in `checkSalvageEconomy` are one bundle.
+ * 「제작 레시피가 있는데 수리비가 비어 있다」 check in `checkSalvageEconomy` are one bundle.
  */
 const REPAIRABLE: readonly ItemCategory[] = ['primary', 'secondary', 'armor', 'bag'];
 /** The categories whose salvage recipe is generated from the craft recipe. */
@@ -65,12 +59,12 @@ const SALVAGEABLE: readonly ItemCategory[] = ['primary', 'secondary', 'armor', '
  * `durabilityMax`, repair · salvage · the economy check follow on their own.
  *
  * **2026-09-16 (the mining rework, user's decision) — the category was taken out of the predicate.** The
- * processor (`mat_processor`) is a `material` yet carries `durabilityMax` 500, plugs into the compute cluster
- * and wears down each cycle (the ship workbench repairs it). The old formula, which split on the category,
- * missed this row and the repair cost became `[]` — which means a free repair — so `checkSalvageEconomy`
- * caught it in all five buckets as 「제작 레시피가 있는데 수리비가 비어 있다」. This only widens beyond gadgets
- * the intent already written in the paragraph above (split on 「does it have durability」) — whatever the
- * category, writing a `durabilityMax` brings repair · salvage · the economy check with it.
+ * processor (`mat_processor`) is a `material` yet carries a `durabilityMax` (`data/items.csv`), plugs into the
+ * compute cluster and wears down each cycle (the ship workbench repairs it). The old formula, which split on
+ * the category, missed this row and the repair cost became `[]` — which means a free repair — so
+ * `checkSalvageEconomy` caught it in every bucket as 「제작 레시피가 있는데 수리비가 비어 있다」. This only widens
+ * beyond gadgets the intent already written in the paragraph above (split on 「does it have durability」) —
+ * whatever the category, writing a `durabilityMax` brings repair · salvage · the economy check with it.
  *
  * The one exception is the **healing spray**: its `durabilityMax` is not durability but a liquid gauge, so its
  * refill is taken separately by `inventory`'s `sprayRepairCost` (`needsRepairCost` filters it out on the same
@@ -94,8 +88,9 @@ const wearsDurability = (def: ItemDef): boolean => !def.heal?.spray && (def.dura
  * The 100 % baseline of the salvage yield — the craft inputs **minus mythic rarity**. It carries the rule
  * above in one single place. Why it does not ask whether the item is unique: what has to be stopped is not
  * 「a unique」 but 「a mythic material coming back out of salvage」, and cutting on rarity makes the rule follow
- * on its own for any future item that eats a mythic material. Today the only mythic materials are the 6
- * minerals dedicated to the unique weapons, so those are in fact the only thing this line filters out.
+ * on its own for any future item that eats a mythic material. Today the only mythic materials are the minerals
+ * dedicated to the unique weapons (the `mythic` rows of `data/items.csv`), so those are in fact the only thing
+ * this line filters out.
  */
 const salvageYieldOf = (inputs: readonly CraftIngredient[]): readonly CraftIngredient[] =>
   inputs.filter((i) => ITEM_DEF_MAP.get(i.defId)?.rarity !== 'mythic');
@@ -189,9 +184,10 @@ export function durabilityBucketInfo(inst: ItemInstance): DurabilityBucketInfo {
 /* ── the fallback baseline of gear with no craft recipe ──────────────────────────
  * Repair has to work even without a craft recipe, so one baseline is borrowed — the craft inputs of
  * **grade V of the same gun class** (perk armor borrows armor V) × `UNIQUE_REPAIR_MUL`. Why the old formula
- * (missing durability ÷ REPAIR_SCRAP_PER) was not kept: unique durability runs 320~3000, so the repair bill
- * split tenfold even within one grade, and it moved on a completely different axis from graded weapons —
- * "how expensive a repair is this" could not be read off it.
+ * (missing durability ÷ REPAIR_SCRAP_PER) was not kept: unique durability spans an order of magnitude
+ * (`data/weapons_unique.csv` `maxDurability`), so the repair bill split by the same factor even within one
+ * grade, and it moved on a completely different axis from graded weapons — "how expensive a repair is this"
+ * could not be read off it.
  *
  * **2026-09-16**: the 6 unique weapons now have their own craft recipe (`make_wpn_u_*`) and no longer come
  * down this road — `repairCostFor` looks at `craftCostOf(def.id)` first (which is why a unique repair costs a
@@ -314,8 +310,9 @@ const HAND_SALVAGE: readonly HandSalvage[] = csvRows('salvage.csv').map((r) => {
 const HAND_BY_INPUT: ReadonlyMap<string, HandSalvage> = new Map(HAND_SALVAGE.map((h) => [h.listed.inputs[0].defId, h]));
 
 /* ── salvage generated from craft recipes ──────────────────────────────────────
- * 25 weapons · 5 armors · 8 bags. The yield **follows that item's craft input list exactly**, so stripping a
- * gun gives back not only 폐금속 but the 합금 판 · 기계 부품 · 강화합금 잉곳 its grade demanded.
+ * Every weapon · armor · bag that has a craft recipe in `data/recipes.csv`. The yield **follows that item's
+ * craft input list exactly**, so stripping a gun gives back not only 폐금속 but the 합금 판 · 기계 부품 ·
+ * 강화합금 잉곳 its grade demanded.
  * 2026-09-16: the unique weapons gained recipes and joined this list too, but `salvageYieldOf` hands out the
  * yield with the mythic mineral removed (comment above). Perk armor still has no recipe and drops out on its
  * own. The processor (`material` + durability) newly joins. */
@@ -489,7 +486,7 @@ export function checkSalvageEconomy(): EconomyViolation[] {
     /* A recipe that makes several at once, like ammo, is converted to "the number that goes into the salvage".
        2026-09-16: and the **max-skill material refund** is applied — ammo · 기계 부품 · 실드 충전기 are not
        durable gear and so are refundable, which makes this the only place the refund actually competes (the
-       baseline comes down to ×0.65). */
+       baseline comes down by `maxSkillCraftFactor`, i.e. `CRAFT_REFUND_CHANCE_AT_MAX`). */
     const factor = maxSkillCraftFactor(recipe);
     const runs = input.qty / recipe.outputQty;
     const craft = asMap(recipe.inputs.map((i) => ({ defId: i.defId, qty: i.qty * runs })), factor);

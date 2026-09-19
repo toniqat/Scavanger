@@ -52,7 +52,8 @@ function expandWeightTarget(target: string): readonly string[] {
 }
 
 /* ── retired items (2026-09-13, the cooking material tiers) ──────────────────
- * `ItemDef.retired` — 11 old samples · 5 old strains · 5 culture products · 4 special dishes. The defs stay, but
+ * `ItemDef.retired` — the samples · strains · culture products · special dishes the tier rework replaced (which
+ * rows they are is the `retired` column of the item csv files, never a count copied here). The defs stay, but
  * they **never enter a crate or supply draw**: whether the csv (`loot_item_weights.csv`) keeps their rows or
  * drops them, and whoever adds their category to another tier, this is where it is stopped.
  * Two layers — the tier table's `itemWeightMul` is overwritten with 0 (so a tool reading the table sees the same
@@ -292,7 +293,7 @@ export interface PlanetGradeCurve {
   /** The planet's **maximum grade** = the last of `grades`. A corpse weapon only takes this as a cap. */
   maxGrade: WeaponGrade;
   /**
-   * The multiplier on the appearance chance of a legendary **unique weapon** (0 = no uniques on that planet).
+   * The multiplier on the appearance chance of a mythic **unique weapon** (0 = no uniques on that planet).
    * A unique has no grade, so it never rides the `grades` curve and has to be gated on its own — a planet that
    * seals grade V cannot coherently hand out something above it. It applies both to the crate pick weight and
    * to the boss corpse's unique roll.
@@ -446,7 +447,7 @@ export interface CorpseWeapon {
   attachment?: { maxRarity: Rarity };
 }
 
-/** Phase 6: chance of one extra legendary unique (`UNIQUE_WEAPON_IDS`, uniform) plus a stack of its calibre. */
+/** Phase 6: chance of one extra mythic unique (`UNIQUE_WEAPON_IDS`, uniform) plus a stack of its calibre. */
 export interface CorpseUnique {
   chance: number;
   /** Durability as a fraction of the def's max, drawn from [min, max]. */

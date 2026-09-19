@@ -105,7 +105,11 @@ function mulPct(mul: number, betterWhenUp = true): { text: string; tone: SpecTon
   return { text: `${pct >= 0 ? '+' : '−'}${Math.abs(pct)} %`, tone: (pct >= 0) === betterWhenUp ? 'good' : 'bad' };
 }
 
-/** Mixes number segments · text segments into one value. The odd-numbered ones are the dim text. */
+/**
+ * The two segment kinds a `SpecRow` value is mixed from: `num` is a highlighted number (or an already
+ * formatted string), `dim` is the dim prose around it. The order is up to the sentence — a row may open with
+ * either kind (`healLine` starts dim, the gadget rows start with the number).
+ */
 const num = (v: number | string): SpecSeg => ({ text: typeof v === 'number' ? n(v) : v });
 const dim = (t: string): SpecSeg => ({ text: t, dim: true });
 

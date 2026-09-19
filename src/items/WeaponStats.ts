@@ -146,14 +146,6 @@ export function damageFalloffStats(stats: Pick<EffectiveWeaponStats, 'falloffSta
   return 1 - ((distance - start) / (end - start)) * (1 - min);
 }
 
-/*
- * 2026-09-10 — `repairCost(def, inst)` **is gone from here.** The repair bill is no longer the missing durability
- * but **the craft inputs × the multiplier of the remaining durability bucket**, and armor rides the same rule as
- * weapons do. The one implementation is `repairCostFor(inst)` in `items/Salvage.ts`, which `ctx.loot.getRepairCost`
- * calls. The `REPAIR_SCRAP_PER` · `REPAIR_ALLOY_PER` constants only stay in `shared/constants` because they are
- * contract.
- */
-
 /**
  * Does `attachment` fit `weaponDef`? The class must have that socket (2026-09-14 — `WeaponDef.sockets`, `data/weapons.csv`:
  * SG = muzzle · mag · sight …), then the class list and calibre list when given. Uniques take no attachments.

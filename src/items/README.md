@@ -15,7 +15,7 @@ Unlike other feature folders, `@/items` is imported directly by `inventory/`, `w
 | `WeaponDefs.ts` | Graded families from `weapons.csv` × grades I–V (`buildGrade`) + 6 uniques from `weapons_unique.csv`: `WEAPON_DEFS`, `WEAPON_DEF_MAP`, `getWeaponDef`, `WEAPON_FAMILIES` (graded only), `WEAPON_GRADES`, `weaponGradesOf`, `weaponIdForGrade`, `weaponClassOf`, `weaponFamilyOf`, `gradeOf`, `meleeMulOf`, `damageFalloff`, `WEAPON_FAMILY_TUNING`/`weaponFamilyTuning`, `WEAPON_GRADE_HANDLING_MUL`/`weaponHandlingMul`, `UNIQUE_WEAPON_DEFS`, `UNIQUE_WEAPON_DEF_MAP`, `isUniqueWeapon`, `isUniqueWeaponId`, `UNIQUE_WEAPON_MAG`, `UNIQUE_WEAPON_DURABILITY`, class labels (`WEAPON_CLASS_LABEL_KO`, `WEAPON_CLASS_SHORT`, `WEAPON_CLASSES`, `WEAPON_BASE_DURABILITY`) |
 | `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats`; `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `fittingAttachments`, `canAttach(weaponDef, attachmentDef)`, `damageFalloffStats(stats, d)`, `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO`, `SECONDARY_ADS_TIME_MUL`, `WEAPON_BLOOM_*_DEFAULT` |
 | `ArmorDefs.ts` | `ARMOR_DEFS`, `ARMOR_DEF_MAP`, `getArmorDef`, `armorItemSize` (fixed 2×2), `ARMOR_ICON` |
-| `ImplantDefs.ts` | Implant items (category `implant`): stat implants `imp_<stat>_<g>` (grades I–IV) + perk implants `imp_perk_<perk>` (`implants_perks.csv`), each with a broken twin `imp_broken_*` (`repairsTo`, `repairCost`). `IMPLANT_WORKING_DEFS`, `IMPLANT_BROKEN_DEFS`, `IMPLANT_ITEM_DEFS`, `PERK_IMPLANT_DEFS`, `IMPLANT_GRADES`, `IMPLANT_SLOTS_BY_GRADE`, `IMPLANT_VALUE_BY_RARITY`, `BROKEN_IMPLANT_VALUE_DIV`, `IMPLANT_REPAIR_COST`, `IMPLANT_STAT_NAME_KO`, `implantItemIdFor`, `perkImplantItemIdFor`, `isImplantItemDef`, `isBrokenImplantDef` |
+| `ImplantDefs.ts` | Implant items (category `implant`): stat implants `imp_<stat>_<g>` (grades I–IV) + perk implants `imp_perk_<perk>` (`implants_perks.csv`), each with a broken pair `imp_broken_*` (`repairsTo`, `repairCost`). `IMPLANT_WORKING_DEFS`, `IMPLANT_BROKEN_DEFS`, `IMPLANT_ITEM_DEFS`, `PERK_IMPLANT_DEFS`, `IMPLANT_GRADES`, `IMPLANT_SLOTS_BY_GRADE`, `IMPLANT_VALUE_BY_RARITY`, `BROKEN_IMPLANT_VALUE_DIV`, `IMPLANT_REPAIR_COST`, `IMPLANT_STAT_NAME_KO`, `implantItemIdFor`, `perkImplantItemIdFor`, `isImplantItemDef`, `isBrokenImplantDef` |
 | `Recipes.ts` | Craft recipes only: `CRAFT_RECIPES` (from `recipes.csv`), `CRAFT_COST_BY_OUTPUT` / `craftCostOf(defId)` (value index used by repair and salvage); fills `CraftRecipe.unlockSeries` from library `recipe:<id>` effects |
 | `Salvage.ts` | Durability buckets (`durabilityBucketOf`, `durabilityBucketInfo`, `bucketOfRatio`, `DURABILITY_BUCKETS`, `DURABILITY_BUCKET_LABELS`, `maxDurabilityOf`), `repairCostFor`, `needsRepairCost`, `salvageFor`, `scaleSalvage`, `SALVAGE_RECIPES` (hand rows from `salvage.csv` + rows generated from craft inputs), `ALL_CRAFT_RECIPES`, `CRAFT_RECIPE_MAP`, `getRecipe`, `checkSalvageEconomy()` |
 | `LootTables.ts` | Loot table loaders and planet rules: tier tables (`LOOT_TABLES`, `getTierTable`, `getTierLabel`), `LootCategory`/`LOOT_CATEGORIES`/`lootCategoryOf`, planet curves (`PLANET_GRADE_CURVES`, `getPlanetGradeCurve`, `planetRarityWeights`), planet-bound drops (`PLANET_BOUND_CATEGORIES`, `lootPlanetsOf`, `isLootableOnPlanet`, `libraryVolumeWeight`, `planetCategoryAvailable`, `libraryBookPool`, `planetSeedPool`), retirement (`RETIRED_ITEM_IDS`, `isLootableDef`), corpse tables (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseSampleDrop`, `DEFAULT_ROGUE_WEAPON_ID`), named drops (`NAMED_DROPS`, `NAMED_DROP_MAP`, `numberedArmorIdForTier`), faction corpses (`FACTION_LOOT`, `FACTION_LOOT_MAP`, `FACTION_SITE_BONUSES`, `getFactionSiteBonus`) |
@@ -82,7 +82,7 @@ Direct `@/items` imports: `inventory/` (grids, crafting, tooltips, sort, durabil
   `category: 'stim'`, so quick slots, loot and hand pose follow healing items; the effect goes to `PlayerRef.chargeShield`.
 - **Boosts**: `boostEffect`/`boostUseTime` → `BOOST_ITEM_MAP` (`adrenaline`, `stimulant`, `implant_refill`).
 - **Bags**: `quickSlots` capped at `QUICK_SLOTS`; `durabilityMax` wears per raid (inventory applies it) and follows armor repair/salvage.
-- **Implants**: only broken twins drop (tier tables zero working implants; corpse `implantWeights`); working implants come from the
+- **Implants**: only broken pairs drop (tier tables zero working implants; corpse `implantWeights`); working implants come from the
   Ceres shop and repair desk (`src/meta`). Slot rules live in `src/progression`.
 - **Pouches**: `pouchAccepts` is validated with `enumList` against `ITEM_CATEGORIES`; a pouch accepting nothing is reported.
 - **Meals are not items** (2026-09-16): `data/meals.csv` is parsed by `src/shared/meals.ts` (`MEAL_DEFS`, `getMealDef`) and
@@ -181,8 +181,8 @@ whose `durabilityMax` is a liquid gauge and is excluded by name in the same pred
 - `checkSalvageEconomy()` (run by `npm run data:check`) checks every salvage recipe × bucket: salvage ≤ inputs; repair + salvage ≤ inputs
   with one input strictly less; salvage(4) − repair(b) ≤ salvage(b); no output that is not an input; non-empty repair cost; every
   non-unique weapon def has a craft recipe.
-- Upper-tier materials (`mat_ingot`, `mat_machine_parts`, `mat_capacitor`, `mat_control_module`, `mat_weave`, `mat_ballistic_fiber`) come
-  from the refine bench, from crates at a constrained share (tiers 3–5), and — intentionally — from salvaging grade IV–V gear.
+- Upper-tier materials (the `refine_*` rows of `data/recipes.csv`) come from the 가공 작업대 (`bench: 'refine'`), from crates at a
+  constrained share (tiers 3–5), and — intentionally — from salvaging grade IV–V gear.
 
 ## Rules
 
@@ -219,8 +219,8 @@ whose `durabilityMax` is a liquid gauge and is excluded by name in the same pred
 ## Recent changes
 
 Last 5 only — older: `git log -- src/items`.
+- 2026-09-19 — Comment audit B-51~B-54: uniques are called **mythic** (not 전설) everywhere, csv counts and the repair/salvage multiplier table are out of the comment prose (they point at the csv / the constants), 「정제 작업대」 → 「가공 작업대」, and the `repairCost` tombstone block in `WeaponStats.ts` is gone.
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, csv names and decision headings kept verbatim in backticks / 「」, no string literal touched.
-- 2026-09-17 — `data/loot_corpse_samples.csv` (`CorpseTable.samples`, `Loot.rollCorpseSamples`): 8 bug types drop only 미확인 세포 with a tier rolled **per unit** on a forked corpse rng; stacks split at `SAMPLE_STACK_MAX`; exempt from the epic+ gate (cell IV at csv rates).
+- 2026-09-17 — `data/loot_corpse_samples.csv` (`CorpseTable.samples`, `Loot.rollCorpseSamples`): the bug types listed there drop only 미확인 세포 with a tier rolled **per unit** on a forked corpse rng; stacks split at `SAMPLE_STACK_MAX`; exempt from the epic+ gate (cell IV at csv rates).
 - 2026-09-17 — `ItemSpec`: explosive damage rows read as a range `min-max` (frag `30-60`, incendiary blast `15-30`, mine `40-80`, remote mine `50-100`).
 - 2026-09-17 — `spec_gene_6` (미확인 유전자 VI) and the mythic sockets `sock_soil_prime` · `sock_medium_prime` deleted from csv (no aliases): mythic is reserved for the gun line, so the 유전자 family tops out at legendary.
-- 2026-09-16 — The 6 unique weapons are **mythic** (`weaponItemDef`); `isSalvageable` now bans their salvage by name (they gained craft recipes), and sample tiles read rarity as the background with the family as the glyph.

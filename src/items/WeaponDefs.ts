@@ -7,7 +7,7 @@ import { SOCKET_SLOTS, numberList } from '@/shared';   // 2026-09-14 (gun balanc
 
 /*
  * The weapon numbers come from `data/weapons.csv` (the six families at grade I) and `data/weapons_unique.csv`
- * (the six legendary uniques). This file holds no table — only the code that moves those two csv files into
+ * (the six mythic uniques). This file holds no table — only the code that moves those two csv files into
  * `WeaponDef`, and the grade-step arithmetic.
  */
 
@@ -190,7 +190,7 @@ export type UniqueWeaponId = (typeof UNIQUE_WEAPON_IDS)[number];
 const UNIQUE_ROWS = csvRows('weapons_unique.csv');
 
 /**
- * 2026-09-15 (user's decision): a legendary unique's name is **the nickname alone** (`인페르노` — it was
+ * 2026-09-15 (user's decision): a unique's name is **the nickname alone** (`인페르노` — it was
  * `「인페르노」 화염방사기`). The kind label (`UNIQUE_WEAPON_LABEL_KO`) is out of the name and the UI shows it
  * separately.
  */
@@ -200,9 +200,12 @@ const uniqueName = (nick: string): string => nick;
 const UNIQUE_KINDS = Object.keys(UNIQUE_WEAPON_LABEL_KO) as UniqueWeaponKind[];
 
 /**
- * The six legendary uniques. `grade: 5` (legendary rarity / repair cost), no `family` (they are their own
- * family, `buildGrades` never touches them), a dedicated `ammoType` (never `AMMO_FOR_CLASS`), `altFire`
- * (RMB = alternative fire, no ADS) on every one (2026-09-14: the bow too — RMB cancels its draw). A csv cell
+ * The six uniques — **mythic** rarity since 2026-09-16 (the item rarity is written in `weaponItemDef`,
+ * `ItemDefs.ts`; `weapons_unique.csv` has no `rarity` column). `grade: 5` here is bookkeeping, not a rarity:
+ * it is the grade-V slot the grade-keyed tables and the repair fallback (`Salvage.ts`) need. No `family`
+ * (they are their own family, `buildGrades` never touches them), a dedicated `ammoType` (never
+ * `AMMO_FOR_CLASS`), `altFire` (RMB = alternative fire, no ADS) on every one (2026-09-14: the bow too — RMB
+ * cancels its draw). A csv cell
  * like `=FLAME_DPS` points straight at the constant in `data/constants.csv` — the behaviour code
  * (`src/weapons/unique/*`) reads the same constant, so the number never splits in two.
  * `weaponClass` is csv bookkeeping only — 2026-09-15 (user's decision): uniques get no
@@ -284,7 +287,7 @@ export const UNIQUE_WEAPON_ITEM_META: ReadonlyMap<string, WeaponItemMeta> = meta
 
 export const UNIQUE_WEAPON_DEF_MAP: ReadonlyMap<string, WeaponDef> = new Map(UNIQUE_WEAPON_DEFS.map((w) => [w.id, w]));
 
-/** True for the six legendary uniques (`WeaponDef.unique` set). Never graded, never socketed. */
+/** True for the six mythic uniques (`WeaponDef.unique` set). Never graded, never socketed. */
 export function isUniqueWeapon(def: WeaponDef | undefined): def is WeaponDef & { unique: UniqueWeaponKind } {
   return !!def?.unique;
 }

@@ -96,7 +96,7 @@ function working(spec: WorkingSpec): ItemDef {
   };
 }
 
-/** The broken twin of a working def: same rarity / slots, no stats, `repairsTo` the working id. */
+/** The broken pair of a working def: same rarity / slots, no stats, `repairsTo` the working id. */
 function broken(w: ItemDef): ItemDef {
   const imp = w.implant!;
   return {
@@ -139,7 +139,7 @@ export const IMPLANT_WORKING_DEFS: readonly ItemDef[] = [
   ...STAT_IDS.flatMap((stat) => IMPLANT_GRADES.map((g) => statImplant(stat, g))),
   ...PERK_SPECS.map(perkImplant),
 ];
-/** One broken twin per working def, in the same order (`IMPLANT_BROKEN_DEFS[i].implant.repairsTo === IMPLANT_WORKING_DEFS[i].id`). */
+/** One broken pair per working def, in the same order (`IMPLANT_BROKEN_DEFS[i].implant.repairsTo === IMPLANT_WORKING_DEFS[i].id`). */
 export const IMPLANT_BROKEN_DEFS: readonly ItemDef[] = IMPLANT_WORKING_DEFS.map(broken);
 /** Every implant item def — working first, then broken (46). */
 export const IMPLANT_ITEM_DEFS: readonly ItemDef[] = [...IMPLANT_WORKING_DEFS, ...IMPLANT_BROKEN_DEFS];
