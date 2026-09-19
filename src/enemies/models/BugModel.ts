@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { Layers } from '@/shared';
+import { BUG_MESH_SEGMENTS, Layers } from '@/shared';
 import type { BugType } from '../EnemyTypes';
 import { BUG_PARAMS, type BugParams } from './BugParams';
 
@@ -37,7 +37,16 @@ function colorize(geo: THREE.BufferGeometry, hex: number): THREE.BufferGeometry 
   return geo;
 }
 
-function ellipsoid(rx: number, ry: number, rz: number, x: number, y: number, z: number, hex: number, seg = 16): THREE.BufferGeometry {
+/**
+ * 2026-09-20 (`docs/PERF_PLAN.md` Phase A, user's decision 「전 타입 12~14 세그먼트」): every sphere a bug body is
+ * built from passes through here, so the detail budget lives in one place (`BUG_MESH_SEGMENTS`) while the per-part
+ * `seg` arguments keep saying what the part *wants*. Raising a `seg` above the budget now changes nothing — change
+ * the csv row instead.
+ */
+const segBudget = (seg: number): number => Math.min(seg, BUG_MESH_SEGMENTS);
+
+function ellipsoid(rx: number, ry: number, rz: number, x: number, y: number, z: number, hex: number, want = 16): THREE.BufferGeometry {
+  const seg = segBudget(want);
   const g = new THREE.SphereGeometry(1, seg, Math.max(8, Math.round(seg * 0.7)));
   g.scale(rx, ry, rz);
   g.translate(x, y, z);
@@ -228,7 +237,8 @@ function getAssets(type: BugType): TypeAssets {
     mandible: cone(p.mandibleR, p.mandibleLen, lighten(p.accent, 0.55), 6),
     femur: segment(legR * 0.72, legR, p.legs.l1, p.base),
     tibia: segment(legR * 0.15, legR * 0.72, p.legs.l2, lighten(p.base, 0.85)),
-    abdomen: p.separateAbdomen ? (() => { const g = new THREE.SphereGeometry(1, 20, 14); g.scale(p.abdomen[0], p.abdomen[1], p.abdomen[2]); return g; })() : null,
+    // the spewer's sac is its own animated mesh (it swells), so it is not merged — but it obeys the same budget
+    abdomen: p.separateAbdomen ? (() => { const s = segBudget(20); const g = new THREE.SphereGeometry(1, s, Math.max(8, Math.round(s * 0.7))); g.scale(p.abdomen[0], p.abdomen[1], p.abdomen[2]); return g; })() : null,
     mortar: buildMortarGeometry(p),
     chitin: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.35, metalness: 0.1, emissive: 0x000000 }),
     eye: new THREE.MeshStandardMaterial({ color: 0x150500, emissive: p.eye, emissiveIntensity: 2.4, roughness: 0.3 }),

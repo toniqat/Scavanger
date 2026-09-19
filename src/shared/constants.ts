@@ -2291,3 +2291,16 @@ export const MESSENGER_DOT_POP_PX = K.num('MESSENGER_DOT_POP_PX');
 export const ENEMY_ANIM_LOD_HALF_M = K.num('ENEMY_ANIM_LOD_HALF_M');
 /** Beyond this distance (m) a living enemy's pose is not recomputed at all — see `ENEMY_ANIM_LOD_HALF_M`. */
 export const ENEMY_ANIM_LOD_FREEZE_M = K.num('ENEMY_ANIM_LOD_FREEZE_M');
+
+/* ── 2026-09-20 bug mesh segment budget (owner: enemies — `models/BugModel.ellipsoid`) ── */
+/**
+ * The widest sphere segment count any one ellipsoid of a **bug body** may use. The per-part numbers stay where they
+ * read as intent (thorax 18 · abdomen 16 · armour 14) and are clipped to this in one place; the ring count is always
+ * 0.7 × the segments, floor 8, so a thorax goes from 18×13 to 12×8 and from 432 triangles to 168.
+ *
+ * Why triangles and not draw calls: the 2026-09-20 A/B (`docs/PERF_PLAN.md`) cut 31 % of the draw calls and
+ * `x:rendererRender` did not move — the render block on this machine is GPU time, which only pixels and triangles
+ * touch. Phase A, user's decision 「전 타입 12~14 세그먼트」. Bug **bodies** only: eggs have `EGG_SEG_W`, and the
+ * sandworm and the humanoid rig are built elsewhere.
+ */
+export const BUG_MESH_SEGMENTS = K.num('BUG_MESH_SEGMENTS');

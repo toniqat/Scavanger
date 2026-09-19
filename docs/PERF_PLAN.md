@@ -1,6 +1,10 @@
 # Performance plan — frame hitches with many bodies
 
-**Status:** **Phase 0 measured (2026-09-19) · Phase 1 and 2 built and re-measured (2026-09-20).** The 2026-09-20
+**Status:** **Phase 0 measured (2026-09-19) · Phases 1 · 2 · A built and re-measured (2026-09-20).** Phase A is the
+first change in this plan that moved `x:rendererRender` (7.29–7.75 → 6.75–6.77 ms, twice per side) — by triangles,
+exactly as the A/B below predicted. Its own target of 「below 6.0 ms」 turned out to be unreachable with shadows on at
+all (the whole shadow pass is 1.07 ms and its floor is 5.758), and what is left of the render block belongs to the
+**world**, not to bodies. **Phase B is next.** The 2026-09-20
 A/B (same machine state, back to back, `--only s2` twice per side) **refutes the central finding of Phase 0**: the
 work removed 31 % of the draw calls and 36 % of the scene nodes and `x:rendererRender` did not move. The render
 block is not paid per draw call on this machine — it is the GPU. The ranking below is rewritten around that.
@@ -19,15 +23,21 @@ spike counts move more between two identical runs than between two builds.
 
 ## Next session starts here
 
-1. **Read [What the 2026-09-20 A/B says](#what-the-2026-09-20-ab-says)** before planning anything — four of the
-   phases below were re-ranked by it and one was struck.
-2. **Ask the user the two questions** in [Decisions needed](#decisions-needed). Both are look trade-offs (geometry
-   detail, shadow quality) and Phase A cannot be scoped without them.
+1. **Read [What the 2026-09-20 A/B says](#what-the-2026-09-20-ab-says)** and then
+   [Phase A's result](#result--measured-twice-per-side-plus-the---display-split) before planning anything — between
+   them they struck 「draw calls」 and 「bloom」 as costs and named the world as the owner of what is left.
+2. **Phase B** ([the one-off ≥ 10 ms calls](#phase-b--the-one-off--10-ms-calls--enemies-audio-allies-ui)) is the next
+   phase, and it needs no decision from the user — it starts with a DevTools trace of one spike frame. The spikes are
+   still there after Phase A: a **19.4 ms `u:enemies`** and a **4.4 ms `l:hud`** show up in the after-runs.
 3. **Take a fresh `before`** — the logs are git-ignored and the tree moves:
-   `npm run dev`, then `node scripts/perf-measure.mjs --only s2 --label before-phaseA`. **Run it twice.** One run
-   is not a measurement: two identical builds differed by 1.6× in spike count on 2026-09-20.
+   `npm run dev`, then `node scripts/perf-measure.mjs --only s2 --label before-phaseB`. **Run it twice.** One run
+   is not a measurement: on 2026-09-20 two runs of one build gave 5 and 22 frames over 33 ms.
 4. Use `--display bloom=0`, `--display bloom=0,shadows=0` to split the render block whenever a change is supposed to
-   touch it. That split is what turned the ranking over.
+   touch it. That split is what turned the ranking over — and in Phase A it is what showed the 6.0 ms target to be
+   arithmetically impossible.
+5. **If the render block is picked up again**, it is a **world** question now (178 shadow casters · shadow map size ·
+   resolution scale) and needs the decision in
+   [Still open after Phase A](#still-open-after-phase-a) put to the user first.
 
 ---
 
@@ -148,12 +158,17 @@ Same machine state, back to back, `--only s2`, two runs per side (`git stash pus
   not CPU submission cost. It is the CPU blocking on a full driver queue, i.e. the GPU frame.
 - **What does move it: pixels and triangles.** Bloom ≈ **0.6 ms**. The shadow pass ≈ **0.75 ms** (and −188 draws,
   −213k triangles). With both off, the spike count fell from 22–24 to **4** — the clearest signal in the table.
+  *(Re-split after Phase A: the shadow pass measured **1.07 ms** and **bloom measured free** — 6.83 ms with it off vs
+  6.75–6.77 with it on. Of these two numbers only the shadow pass reproduced. The spike-count signal did **not**
+  reproduce either — see [Phase A's result](#result--measured-twice-per-side-plus-the---display-split).)*
 - **Total honest gain of Phase 1 + 2: ~0.3 ms of js/frame** (10.45 → 10.15, consistent across both pairs) and a
   third of the scene gone. Worth keeping, and worth much more on a weaker CPU — but it is not what the user feels.
 - **Two identical builds differ by more than two different builds do.** before: 13 · 14 frames > 33 ms;
   after: 22 · 24; after with bloom off: 14. Never conclude from one run.
 
 **So the honest ranking is now: pixel and vertex work first, then the one-off spikes, then the multiplayer path.**
+*(Phase A took the body-side vertex work; the pixel and world-side vertex work is still there, but it now needs a
+decision. **The next phase to run is B.**)*
 
 ---
 
@@ -176,7 +191,7 @@ Same machine state, back to back, `--only s2`, two runs per side (`git stash pus
 | # | Finding | Measured | Verdict |
 |---|---|---|---|
 | B1 | **Draw calls** — bug 17–18 meshes, soldier ≈ 130, no batching / instancing / LOD | **cut 31 % on 2026-09-20 with no change in the render block** | **refuted as a cost driver; the cut is done and kept** |
-| **NEW-1** | **GPU frame, not CPU submission**: bloom 0.6 ms · shadow pass 0.75 ms · the rest scales with triangles (1.0 M in S2) and pixels | the `--display` split above | **confirmed — #1** |
+| **NEW-1** | **GPU frame, not CPU submission**: the render block scales with triangles (1.0 M in S2) and pixels | the `--display` split above; then Phase A bought **0.6 ms for 6.7 % of the triangles** | **confirmed and acted on — Phase A.** Refinement: bloom is free here, the shadow pass is 1.07 ms, and what is left belongs to the **world** |
 | **NEW-2** | **Layout flush** 1.04–1.07 ms/frame is **one** layout of a HUD dirtied by per-body text and per-body nodes — not read/write thrash | unchanged by removing all twelve per-frame reads | **confirmed — #3** |
 | B2 | Android combat AI per ally per frame | 0.055 ms/frame for 3; **one 10.0–11.7 ms first-contact call** | **struck** except the one-off → Phase B |
 | B3 | `LightBudget.update` walks the whole visible scene every frame | 0.10 idle → 0.27–0.30 at 160 bodies (worst 1.7) | **small, real** → Phase C |
@@ -192,22 +207,54 @@ without S5; C2 (a `SoldierModel` per corpse) never fired; C4 (`snapshotFace`) is
 
 ## Phases (re-ranked by the 2026-09-20 A/B)
 
-### Phase A — the GPU frame · `core`, `enemies/models`, `world`
+### Phase A — the GPU frame · done 2026-09-20 · `enemies/models`, `data`
 
-The only thing measured to move `x:rendererRender`. In order of measured size:
+Built, from the user's answers (recorded in `docs/DECISIONS.md`):
 
-1. **The shadow pass ≈ 0.75 ms and 188 draws.** Phase 1 already cut the casters on soldiers; the remaining casters
-   are the world (178 in S2) and humanoid enemies (**9 each**, `models/RogueModel.ts` — the same treatment
-   `SoldierModel` just got, and the user's decision covers the same body shape). Then the map itself: shadow map
-   size, cascade range and `shadow.bias` live in `core/` and are worth one experiment each with
-   `--display shadows=0` as the floor.
-2. **Triangles: 1.0 M in S2, 778k with the shadow pass off.** A bug body is merged ellipsoids at 16–18 segments
-   (`models/BugModel.buildBodyGeometry`); the sphere segment counts were never tuned and halving them on the small
-   types is invisible at 10 m. This is a look change → **ask the user** (Decisions).
-3. **Bloom ≈ 0.6 ms.** Already optional (`설정 › 화면 설정`). Worth deciding whether the **default** stays on;
-   the perf guard already turns it off under load.
-4. Re-measure with `--display` on both sides of every step, twice.
-- **Done when** S2 `x:rendererRender` is **below 6.0 ms with bloom and shadows on**, measured twice.
+1. **Every bug sphere goes through one segment budget** — `BUG_MESH_SEGMENTS` = 12 in `data/constants.csv`,
+   applied inside `BugModel.ellipsoid` (and the spewer's own sac mesh), so the per-part `seg` arguments keep saying
+   what a part wants and one csv row says what it gets. A thorax goes 18×13 → 12×8, 432 triangles → 168.
+   **S2: 997–998k triangles → 930–932k.**
+2. **Humanoid enemies cast shadows the way a soldier does** — trunk · head · legs; the visor, the thrown grenade and
+   the merged `gunArms` (the rifle is a held item, and the arm segments merged into it sit against the chest) do not.
+   `mesh(geo, mat, shadow)` in `createRogueRig` is the switch. **9 shadow draws each → 7.**
+3. **Bloom's default stays on** (user's decision). No code — `설정 › 화면 설정 › 화면 효과` and the perf guard
+   already cover it.
+
+#### Result — measured twice per side, plus the `--display` split
+
+| Run | Draw calls | Triangles | Scene nodes | `x:rendererRender` | js/frame p50 | frames > 33 ms |
+|---|---|---|---|---|---|---|
+| before 1 | 1 318 | 997k | 3 816 | 7.751 | 10.9 | 47 |
+| before 2 | 1 312 | 998k | 3 816 | 7.294 | 10.2 | 22 |
+| **after 1** | 1 286 | **932k** | 3 767 | **6.753** | 9.7 | 5 |
+| **after 2** | 1 285 | **930k** | 3 767 | **6.765** | 9.9 | 22 |
+| after, `--display bloom=0` | 1 301 | 940k | 3 806 | 6.828 | 9.6 | 15 |
+| after, `--display bloom=0,shadows=0` | 1 164 | **747k** | 3 817 | **5.758** | 8.7 | 5 |
+
+- **`x:rendererRender` 7.29–7.75 → 6.75–6.77 ms**, and the two after-runs agree to 0.012 ms where the two
+  before-runs differed by 0.46. **js/frame p50 10.2–10.9 → 9.7–9.9.** For 6.7 % of the triangles and 2 % of the draw
+  calls, that is a real ~0.6 ms — and it is **the first thing in this plan to move the render block at all**,
+  which confirms NEW-1: triangles, not draw calls.
+- **The `> 33 ms` count still proves nothing.** after 1 = 5, after 2 = 22 on the same build. Read the table's
+  deterministic columns only, as `How to work this plan` §3 says.
+- **Bloom is not 0.6 ms — it is free here.** 6.83 with it off vs 6.75–6.77 with it on. The 2026-09-20 figure does not
+  reproduce; with the frame on vsync, `renderer.render` is entered ~15× instead of once and costs the same in total.
+- **The whole shadow pass is ≈ 1.07 ms** (6.83 → 5.76), −137 draws and −193k triangles. Our humanoid cut took
+  2 draws off each of 9 bodies; the pass is owned by the **world's 178 casters** and the hellpod's 25, not by bodies.
+- **The 「below 6.0 ms」 target is out of reach as stated, and the target was wrong — not the work.** Deleting the
+  *entire* shadow pass lands at 5.758. So with shadows on, no body-side change can go under 6.0: the remainder is the
+  world's own triangles and the pixels they cover. That is the next lever and it needs a decision that was not asked
+  for (world shadow casters · shadow map size · resolution scale) — see [Still open after Phase A](#still-open-after-phase-a).
+
+#### Still open after Phase A
+
+- **The world owns the shadow pass**: 375 visible drawables, **178 casters**, plus `Hellpod` 25 visible · 25 casting.
+  A terrain/prop caster rule (the same shape as the body rule) and the shadow map size / cascade range in `core/` are
+  untouched. The user chose **not** to shrink the map (it softens every shadow in the raid); the caster rule was never
+  put to them.
+- **Pixels.** Nothing in this phase touched resolution scale, and `--display scale=0.75` has never been measured
+  against the other two.
 
 ### Phase B — the one-off ≥ 10 ms calls · `enemies`, `audio`, `allies`, `ui`
 
@@ -257,16 +304,16 @@ driver**. The draw-call cut is built and kept for weaker machines; **do not spen
 
 ---
 
-## Decisions needed
+## Decisions — answered 2026-09-20 (full text in `docs/DECISIONS.md`)
 
-1. **Bug geometry detail.** A bug body is merged ellipsoids at 16–18 sphere segments and S2 carries 1.0 M triangles.
-   May the small types (scavenger · hunter) drop to 10–12 segments — invisible past ~10 m, slightly faceted in a
-   close-up — or must the silhouette stay exactly as it is?
-2. **Shadows.** The shadow pass is ~0.75 ms and the clearest spike reducer in the table. Options: leave it; give
-   humanoid enemies the same torso · head · limbs rule the soldier just got (~5 draws each back, no visible change);
-   or shrink the shadow map / cascade range, which softens every shadow in the raid.
+1. **Bug geometry detail** → **every type to 12–14 segments** (not just the small ones). Built as
+   `BUG_MESH_SEGMENTS` = 12.
+2. **Shadows** → **the soldier's rule for humanoid enemies**; the shadow map and cascade range stay as they are
+   (shrinking them softens every shadow in the raid).
+3. **Bloom's default** → **stays on**; the perf guard already turns it off under load. It then measured free anyway.
 
-Answers go in `docs/DECISIONS.md` under a 2026-09-xx heading, in Korean titles as the file does.
+**Not asked, and now the next question:** the world's 178 shadow casters, and resolution scale. See
+[Still open after Phase A](#still-open-after-phase-a).
 
 ---
 

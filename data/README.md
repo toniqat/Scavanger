@@ -23,7 +23,7 @@ One line per csv. "Loader" is the parsing module under `src/`; values usually ta
 
 | File | What it holds | Loader |
 |---|---|---|
-| `constants.csv` | Global scalars (`key,value,note`): player, movement, gravity, extraction, implants, gadgets, stratagems, hazards, explosions, minigame windows, tutorial, light budget … Exported one-by-one from `src/shared/constants.ts` | `shared/constants.ts` (also `shared/cooking.ts`, `enemies/factionTables.ts`) |
+| `constants.csv` | Global scalars (`key,value,note`): player, movement, gravity, extraction, implants, gadgets, stratagems, hazards, explosions, minigame windows, tutorial, light budget, mesh detail … Exported one-by-one from `src/shared/constants.ts` | `shared/constants.ts` (also `shared/cooking.ts`, `enemies/factionTables.ts`) |
 | `tables.csv` | Named number/string tables (`table,key,value`): ammo stacks, rep levels (`REP_TABLE`), armor shield by tier, repair/salvage durability multipliers, per-threat and per-squad-size tables, meal quality … | `shared/data/tables.ts` helpers, many callers |
 | `tuning.csv` | Folder-local scalars (`key,value,note`): default item weight, value multipliers, bag capacity per cell, grid cell sizes, NPC log limits … | many (`items/`, `meta/Rules.ts`, `progression/defs.ts`, `shared/housing.ts`, `shared/meta.ts`, `shared/npc.ts`, `shared/crypto.ts`, `shared/intelDefs.ts`, `inventory/ui/labels.ts`) |
 | `currencies.csv` | Currency definitions (credits, XP, rep). The `rep` row is a template expanded per corp from `corps.csv` | `shared/currency.ts` |

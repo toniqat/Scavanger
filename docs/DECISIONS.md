@@ -997,3 +997,22 @@ everything else was prose brought back in line with code that already existed.
 - **One owner for the HUD's screen size** (`ui/hud/viewport.ts`, measured on `resize`). *Rejected*: reading it once
   per frame at the top of `HudSystem.lateUpdate` and passing it down — still one forced layout inside the frame, and
   it leaves the trap open for the next widget.
+
+## 2026-09-20 — GPU 프레임 줄이기 · Cutting the GPU frame (PERF_PLAN Phase A)
+
+- **벌레 지오메트리: 전 타입 12~14 세그먼트.** One budget (`BUG_MESH_SEGMENTS` = 12 in `data/constants.csv`) clips
+  every sphere a bug body is built from, so the per-part `seg` arguments keep reading as intent and the csv row
+  decides. A thorax goes 18×13 → 12×8 (432 triangles → 168). *Rejected*: only the small types (scavenger · hunter) —
+  it was the recommended option and the user went wider, because the merge hides the facets on a warrior too;
+  leaving the geometry alone (then Phase A has nothing left but shadows, and shadows alone cannot reach the target).
+- **휴머노이드 적에게 병사 규칙 적용.** Trunk · head · legs cast a shadow; the visor, the thrown grenade and the
+  merged `gunArms` do not — the rifle is a held item, and the four arm segments merged into it are posed against the
+  chest, inside the trunk's own shadow. *Rejected*: also shrinking the shadow map / cascade range — it softens every
+  shadow in the raid, for a pass that turned out to cost 1.07 ms in total; leaving the shadow pass alone.
+- **블룸 기본값은 켜진 채로 둔다.** The first impression (glow · neon) is the reason, and the perf guard already turns
+  it off under load. *Rejected*: defaulting it off to get the 0.6 ms back — and the 0.6 ms did not survive
+  re-measuring: with the frame on vsync, bloom measured **free** (6.83 ms with it off vs 6.75–6.77 with it on).
+- **The phase's own 「below 6.0 ms」 target was dropped as arithmetically impossible, not missed.** Removing the
+  *entire* shadow pass lands at 5.758 ms, so no body-side change can go under 6.0 with shadows on. What is left of the
+  render block is the world's own triangles and pixels — a separate decision, written up in `docs/PERF_PLAN.md`
+  under 「Still open after Phase A」 rather than guessed at here.

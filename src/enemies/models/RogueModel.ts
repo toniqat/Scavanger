@@ -166,9 +166,16 @@ export function createRogueRig(type: RogueType): RogueRig {
   const a = getAssets(type);
   const chitin = a.chitin.clone();
   const eyeMat = a.eye.clone();
-  const mesh = (g: THREE.BufferGeometry, m: THREE.Material = chitin): THREE.Mesh => {
+  /**
+   * 2026-09-20 (`docs/PERF_PLAN.md` Phase A, user's decision 「휴머노이드 적에게 병사 규칙 적용」): `shadow` is what
+   * the soldier's `core` / `shadowed` split says — the **trunk, the head and the limb segments** cast, and a glow
+   * detail or a held item does not. Here that drops the visor (a 2 cm plate inside the helmet), the grenade (in the
+   * hand, and only during the throw wind-up) and `gunArms`: the rifle is a held item, and the four arm segments
+   * merged into it are posed against the chest, so their shadow was inside the trunk's already.
+   */
+  const mesh = (g: THREE.BufferGeometry, m: THREE.Material = chitin, shadow = true): THREE.Mesh => {
     const x = new THREE.Mesh(g, m);
-    x.castShadow = true;
+    x.castShadow = shadow;
     x.layers.enable(Layers.ENEMY);
     return x;
   };
@@ -176,9 +183,7 @@ export function createRogueRig(type: RogueType): RogueRig {
   const glow = (part: GlowPart, parent: THREE.Object3D): void => {
     const g = a.glow[part];
     if (!g) return;
-    const x = mesh(g, eyeMat);
-    x.castShadow = false;
-    parent.add(x);
+    parent.add(mesh(g, eyeMat, false));
   };
 
   const root = new THREE.Group();
@@ -197,13 +202,13 @@ export function createRogueRig(type: RogueType): RogueRig {
 
   const head = new THREE.Group();
   head.position.set(0, 0.61 + 0.14, 0.02);
-  head.add(mesh(a.head), mesh(a.visor, eyeMat));
+  head.add(mesh(a.head), mesh(a.visor, eyeMat, false));
   torso.add(head);
 
   const gun = new THREE.Group();
   gun.position.set(0.23, 0.5, 0.06);
   gun.rotation.x = 0.6;
-  gun.add(mesh(a.gunArms));
+  gun.add(mesh(a.gunArms, chitin, false));
   glow('gunArms', gun);
   const muzzle = new THREE.Object3D();
   muzzle.position.set(-0.1, -0.13, 1.1);
@@ -211,7 +216,7 @@ export function createRogueRig(type: RogueType): RogueRig {
   torso.add(gun);
   // Phase 7: grenade in the off hand (shared material — it never flashes), hidden until the throw wind-up
   const grenade = new THREE.Mesh(a.grenade, a.grenadeMat);
-  grenade.castShadow = true;
+  grenade.castShadow = false;   // held item — see `mesh` above
   grenade.layers.enable(Layers.ENEMY);
   grenade.visible = false;
   grenade.position.set(-0.3, 0.5, 0.25);
