@@ -27,7 +27,8 @@
 //   2. raid frames with 60 bugs alive (nameplates · detection arrows · danger · markers · compass) — 0
 //   3. the Phase B case itself, run **inside** one frame: three `ally:chat` callouts + an android ping + a notify +
 //      squad chat + damage + the hit marker / dry fire / implant flashes — 0 outside the known idiom
-//   4. no console errors
+//   4. tutorial frames with the control guide (`.tut-controls`) up and the toast stack hanging under it — 0
+//   5. no console errors
 //
 // Usage: node scripts/smoke-layout-reads.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -49,12 +50,19 @@ const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshad
  * Files allowed to force a layout **for the CSS animation restart idiom only** (see the header). Every entry is a
  * `void <el>.offsetWidth` sandwiched between a `classList.remove` and a `classList.add`. The list is a ratchet: it
  * may shrink, never grow. Shrinking it is `docs/TODO.md` B-68.
+ *
+ * 2026-09-20: being on this list excuses **`offsetWidth` and nothing else** (`KNOWN_ACCESSOR`). It used to excuse
+ * every accessor in those files, so a new `getBoundingClientRect` on a per-frame path in, say, `WeaponPanel.ts` would
+ * have been waved through as the idiom — the one thing this smoke exists to catch. (`ShipManage.ts` reads
+ * `scrollHeight` / `clientHeight` as well, but from a `wheel` handler, outside a frame, where nothing is counted.)
  */
 const KNOWN_IDIOM = [
   'ActionFeedback.ts', 'DamageOverlay.ts', 'DroneHud.ts', 'DroneScanLabels.ts', 'ImplantWidget.ts',
   'NamedScanWarning.ts', 'Reticle.ts', 'RoomLabel.ts', 'ShipManage.ts', 'StratagemPanel.ts',
   'TrainingPanel.ts', 'Vitals.ts', 'WeaponPanel.ts',
 ];
+/** The idiom's only read. A site's key is `<accessor> @ <url> <fn>`, so the accessor is the first word. */
+const KNOWN_ACCESSOR = 'offsetWidth';
 
 let pass = 0, fail = 0;
 const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok   ${label}`); } else { fail++; console.log(`  FAIL ${label} ${extra}`); } };
@@ -193,7 +201,10 @@ try {
   /** Split a report's sites into the allowed idiom and everything else. */
   const split = (r) => {
     const known = [], unknown = [];
-    for (const s of r.sites) (KNOWN_IDIOM.some((f) => s.includes('/' + f)) ? known : unknown).push(s);
+    for (const s of r.sites) {
+      const idiom = s.startsWith(KNOWN_ACCESSOR + ' @ ') && KNOWN_IDIOM.some((f) => s.includes('/' + f));
+      (idiom ? known : unknown).push(s);
+    }
     return { known, unknown };
   };
   const measure = async (label, seconds) => {
@@ -273,6 +284,32 @@ try {
   ok(strayFiles.length === 0, `no file outside KNOWN_IDIOM forces a layout in a frame`, strayFiles.join(', '));
   const lines = await page.evaluate(() => document.querySelectorAll('.chat-line').length);
   ok(lines >= 4, `the chat really drew the lines (${lines} rows) — the count above is not an empty test`);
+
+  /* ── 4. the tutorial: the control panel the toast stack hangs under ── */
+  // 2026-09-20: this window exists because the rule was being broken exactly where nothing looked — `Notifications.update`
+  // measured `.tut-controls` with `getBoundingClientRect` on **every frame** of the tutorial, and the three windows above
+  // never open a tutorial, so the panel was never on screen while the probe counted.
+  await page.evaluate(() => {
+    const g = window.__game, ctx = g.ctx;
+    g.getSystem('tutorial').restartTrack('raid');     // the seeded save above marks every track done
+    ctx.missionMode = 'tutorial'; ctx.missionPlanet = null; ctx.missionIntel = null;   // the `enterShip.startTutorialRaid` contract
+    ctx.bus.emit('game:newMission', { seed: 4242, mode: 'tutorial' });
+  });
+  await waitFor(page, () => { const c = window.__game.ctx; return c.missionMode === 'tutorial' && !!c.world && c.world.ready && c.isGameplayPhase() && c.player.spawned; }, 'tutorial raid', 90000);
+  const panelUp = await waitFor(page, () => {
+    const el = document.querySelector('.tut-controls');
+    return !!el && !el.hidden && el.getBoundingClientRect().height > 0;   // outside a frame — not counted
+  }, 'tutorial control panel', 60000);
+  ok(!!panelUp, 'the tutorial control guide is on screen (the toast stack hangs under it)');
+  await page.evaluate(() => window.__game.ctx.bus.emit('ui:notify', { text: '튜토리얼 토스트', duration: 6 }));
+  await sleep(1200);
+  const tut = await measure('tutorial frames with the control panel up', 3);
+  const stack = await page.evaluate(() => {
+    const n = document.querySelector('.notifs');
+    return { below: !!n && n.classList.contains('below-tut'), top: n ? n.style.top : '' };
+  });
+  ok(stack.below && stack.top !== '', `and the stack really is placed under the panel (top ${stack.top}) — the count above is not an empty test`);
+  ok(tut.frames > 0, `the tutorial ran frames while counting (${tut.frames})`);
 
   const gameErrors = errors.filter((e) => !/WebSocket|\/ws\b|ERR_CONNECTION_REFUSED/.test(e));
   ok(gameErrors.length === 0, `no console errors (${gameErrors.length}; ${errors.length - gameErrors.length} relay socket errors ignored)`, gameErrors.slice(0, 5).join(' | '));

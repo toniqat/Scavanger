@@ -2281,6 +2281,14 @@ export const MESSENGER_DOT_POP_S = K.num('MESSENGER_DOT_POP_S');
 /** Height (px) of that first peak. */
 export const MESSENGER_DOT_POP_PX = K.num('MESSENGER_DOT_POP_PX');
 
+/* ── 2026-09-20 camera base FOV (owner: player `CameraRig`; the correction lives in `shared/viewZoom.ts`) ── */
+/**
+ * The third-person vertical FOV (degrees) everything on-screen-size is measured against. `CameraRig.baseFov` is this
+ * value, and a scope narrows `camera.fov` to `base / adsZoom` rather than touching `camera.zoom` — so a number that
+ * was decided as 「this is ~10 cm on screen」 has to be corrected by `viewZoom.viewZoomK` when the camera is zoomed in.
+ */
+export const CAMERA_BASE_FOV_DEG = K.num('CAMERA_BASE_FOV_DEG');
+
 /* ── 2026-09-20 enemy animation LOD (owner: enemies — `EnemySystem.update` → `Enemy.animate`) ── */
 /**
  * Beyond this distance (m) from the camera a living enemy's **pose** is recomputed every other frame, and beyond

@@ -49,6 +49,8 @@ export * from './comms';
 export * from './ballistics';
 /* appended (2026-09-10): shader pre-compilation · the point-light budget — `ctx.shaders` */
 export * from './render';
+// 2026-09-20: the camera-zoom correction for anything sized in screen space (enemies' animation LOD, the sniper glint)
+export * from './viewZoom';
 /* appended (2026-09-11): the point-light pool — the ship (hub) and planet structures (world) light only the nearest spots by the same rule */
 export * from './lightPool';
 /* appended (2026-09-11): the one line that lets a throwable break window glass and pass — shared by weapons · gadgets · enemies */

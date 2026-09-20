@@ -22,7 +22,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { Layers } from '@/shared';
+import { Layers, viewZoomK } from '@/shared';
 import type { BugAnim } from '../BugModel';
 import type { RogueRig, RogueRigParams } from '../RogueModel';
 import type { Enemy } from '../../Enemy';
@@ -69,7 +69,6 @@ const BODY_PRONE_R = 0.25;
 /* ── Scope glint ─────────────────────────────────────────────────────────── */
 /** Sprite size relative to the screen height (no sizeAttenuation — view-space units × depth). */
 const GLINT_SCALE = 0.05;
-const TAN_BASE_HALF_FOV = Math.tan((70 * Math.PI) / 360);
 
 interface SniperLookState {
   kind: 'sniperLook';
@@ -329,8 +328,8 @@ export function decorateSniperLook(rig: RogueRig): void {
     spriteMat.opacity = Math.min(1, st.glintOut * (0.12 + 0.88 * f));
     const pc = camera as THREE.PerspectiveCamera;
     if (pc.isPerspectiveCamera) {
-      const k = Math.tan((pc.fov * Math.PI) / 360) / Math.max(1e-3, pc.zoom) / TAN_BASE_HALF_FOV;
-      st.fovK = Math.min(1, k * 1.6);
+      // 2026-09-20: the same correction the animation LOD makes, from `shared/viewZoom` (it was a second copy of 70° here)
+      st.fovK = Math.min(1, viewZoomK(pc.fov, pc.zoom) * 1.6);
     }
   };
 }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  SLASH_FOV_MUL, AIM_SWAY_PITCH_RATIO, AIM_SWAY_CROUCH_MUL, AIM_SWAY_PRONE_MUL, AIM_SWAY_MOVE_MUL, AIM_SWAY_BLEND_RATE,
+  CAMERA_BASE_FOV_DEG, SLASH_FOV_MUL, AIM_SWAY_PITCH_RATIO, AIM_SWAY_CROUCH_MUL, AIM_SWAY_PRONE_MUL, AIM_SWAY_MOVE_MUL, AIM_SWAY_BLEND_RATE,
   /* 2026-09-13 rover orbit camera */
   ROVER_CAM_ELEV_MIN_DEG, ROVER_CAM_ELEV_MAX_DEG, ROVER_CAM_ELEV_START_DEG, ROVER_CAM_ZOOM_MIN_MUL, ROVER_CAM_ZOOM_MAX_MUL,
   ROVER_CAM_ZOOM_STEP, ROVER_CAM_ZOOM_RATE, ROVER_CAM_SMOOTH_RATE, ROVER_CAM_COLLISION_PAD, ROVER_CAM_MIN_DIST, ROVER_CAM_FLOOR,
@@ -105,8 +105,9 @@ export class CameraRig {
   pitch = -0.12;
   sensitivity = 0.0022;
 
-  readonly baseFov = 70;
-  private fov = 70;
+  /** 2026-09-20: `data/constants.csv` — anything sized in screen space corrects against the same number (`shared/viewZoom`). */
+  readonly baseFov = CAMERA_BASE_FOV_DEG;
+  private fov = CAMERA_BASE_FOV_DEG;
   /** ADS FOV divisor from the active weapon (1 = default ADS, 4 = sniper scope). */
   aimZoom = 1;
   /** 용검 slash view widen (`PlayerRef.setViewWiden`): target FOV × SLASH_FOV_MUL while true, damped both ways. */

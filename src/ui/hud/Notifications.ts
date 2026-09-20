@@ -93,6 +93,8 @@ export class Notifications {
   /** 2026-09-16: the tutorial control guide panel (found through the DOM) · the stack top applied now (px, -1 = the default right-centre). */
   private tutPanel: HTMLElement | null = null;
   private belowTop = -1;
+  /** 2026-09-20: fires whenever that panel's box changes (line count · fold · `hidden`) — see `update`. */
+  private tutRO: ResizeObserver | null = null;
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'notifs', parent });
@@ -456,6 +458,11 @@ export class Notifications {
       }),
       b.on('game:abort', () => this.clear()),
     );
+    // 2026-09-20: the panel is vertically centred in its band, so a viewport change moves its bottom without resizing
+    // it — the one move the `ResizeObserver` in `update` cannot see. Outside the frame, like every other resize read.
+    const onResize = (): void => this.measureTutPanel();
+    window.addEventListener('resize', onResize);
+    this.unsubs.push(() => window.removeEventListener('resize', onResize));
   }
 
   /**
@@ -549,17 +556,45 @@ export class Notifications {
   /**
    * 2026-09-16 (user's decision): while the tutorial's right-hand control guide (`tutorial/ui/Controls`, `.tut-controls`) is up, the toast stack
    * starts **directly below that panel** — so the right-centre stack is not hidden behind it. It is found by DOM class alone, with no folder
-   * import (the same coupling as the tutorial spotlight looking for `.key-guide .kg-close`). The panel is vertically centred in its band and its height
-   * changes with the line count, so it is measured every frame — none or hidden ends it in one comparison. HudSystem.update calls it regardless of layer visibility.
+   * import (the same coupling as the tutorial spotlight looking for `.key-guide .kg-close`). The panel appears late and may be replaced, so the
+   * lookup stays here (a `querySelector` forces no layout). HudSystem.update calls it regardless of layer visibility.
+   *
+   * 2026-09-20: **the box is measured when it can change, not every frame.** This used to call `getBoundingClientRect`
+   * on the panel from inside the frame, which is the forced layout of the whole HUD that `CLAUDE.md` §4.2 forbids —
+   * for the whole tutorial, the first minutes a new player ever sees (Phase B measured one such read at 8.3 ms on a
+   * bad frame). `measureTutPanel` now runs from a `ResizeObserver` on the panel and from the window `resize`, both of
+   * which fire **after** layout and outside `Engine.frame`, so `scripts/smoke-layout-reads.mjs` counts zero by
+   * construction. Those two cover every way the panel's bottom moves: its own height (the line count, the fold
+   * `.tut-controls.is-folded`, and `hidden` — a `display: none` element reports a 0 box, which is the 「none」 case),
+   * and the viewport, which moves a panel that is vertically centred in its band without resizing it.
    */
   update(): void {
-    let panel = this.tutPanel;
-    if (!panel || !panel.isConnected) panel = this.tutPanel = document.querySelector<HTMLElement>('.tut-controls');
+    const found = this.tutPanel && this.tutPanel.isConnected ? this.tutPanel : document.querySelector<HTMLElement>('.tut-controls');
+    if (found !== this.tutPanel) this.observeTutPanel(found);
+  }
+
+  /** Point the observer at the panel that is up now (null = none). `observe` itself fires once, which measures it. */
+  private observeTutPanel(panel: HTMLElement | null): void {
+    this.tutPanel = panel;
+    this.tutRO?.disconnect();
+    if (!panel) { this.applyTutTop(-1); return; }
+    if (!this.tutRO) this.tutRO = new ResizeObserver(() => this.measureTutPanel());
+    this.tutRO.observe(panel);
+  }
+
+  /** The stack's one layout read — only ever from the observer or a window resize, never from inside a frame. */
+  private measureTutPanel(): void {
+    const panel = this.tutPanel;
     let top = -1;
-    if (panel && !panel.hidden) {
+    if (panel && panel.isConnected && !panel.hidden) {
       const r = panel.getBoundingClientRect();
       if (r.height > 0) top = Math.ceil(r.bottom) + TUT_PANEL_GAP_PX;
     }
+    this.applyTutTop(top);
+  }
+
+  /** -1 = back to the default right-centre stack. */
+  private applyTutTop(top: number): void {
     if (top === this.belowTop) return;
     this.belowTop = top;
     this.root.classList.toggle('below-tut', top >= 0);
@@ -579,5 +614,5 @@ export class Notifications {
     if (this.channel) { this.channel.el.remove(); this.channel = null; }
   }
 
-  dispose(): void { for (const u of this.unsubs) u(); this.root.remove(); }
+  dispose(): void { for (const u of this.unsubs) u(); this.tutRO?.disconnect(); this.tutRO = null; this.root.remove(); }
 }

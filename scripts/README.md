@@ -80,7 +80,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-ladder.mjs` | player, net | Ladder grab/climb/leave, step smoothing, world ceiling clamp, remote `CLIMBING` |
 | `smoke-library.mjs` | housing, items, hub, inventory | Library series share formula, one-per-kind shelving, storages, game-disc stand |
 | `smoke-library-consumers.mjs` | inventory, meta, game, console, ui | "Not shelved" band, library effects at consumers, item aliases (uses `window.__imp`) |
-| `smoke-layout-reads.mjs` | ui | **No layout read inside a frame** (CLAUDE.md §4.2), as a count: every layout-forcing accessor (`offsetWidth` · `scrollHeight` · `getBoundingClientRect` · `getComputedStyle` …) is patched on its prototype and counted **only while `Engine.frame` is on the stack**, so a new widget is covered the day it is written and a read from a pointer handler or a resize is not. Ship frames · a 60-bug raid · and the chat / ping / notify / damage / hit-marker / animation-restart events fired **from inside a frame**. Unknown sites must be **0**; the CSS animation-restart idiom is a **ratchet** (`KNOWN_IDIOM`, 13 files — may shrink, never grow, `docs/TODO.md` B-68) and the run asserts it really fired, so the ratchet is never green on an empty test. `hud/ChatLog` broke the rule per chat line for a year (`docs/PERF_PLAN.md` Phase B) |
+| `smoke-layout-reads.mjs` | ui | **No layout read inside a frame** (CLAUDE.md §4.2), as a count: every layout-forcing accessor (`offsetWidth` · `scrollHeight` · `getBoundingClientRect` · `getComputedStyle` …) is patched on its prototype and counted **only while `Engine.frame` is on the stack**, so a new widget is covered the day it is written and a read from a pointer handler or a resize is not. Four windows: ship frames · a 60-bug raid · the chat / ping / notify / damage / hit-marker / animation-restart events fired **from inside a frame** · and (2026-09-20) **tutorial frames with the control guide `.tut-controls` up**, where the toast stack hangs under that panel — the screen where the rule was actually being broken, and the run also asserts the stack really was placed under it. Unknown sites must be **0**; the CSS animation-restart idiom is a **ratchet** (`KNOWN_IDIOM`, 13 files — may shrink, never grow, `docs/TODO.md` B-68) that since 2026-09-20 excuses **`offsetWidth` and nothing else** (`KNOWN_ACCESSOR`; being on the file list used to excuse every accessor, so a new `getBoundingClientRect` in one of those files would have been waved through), and the run asserts it really fired, so the ratchet is never green on an empty test. `hud/ChatLog` broke the rule per chat line for a year (`docs/PERF_PLAN.md` Phase B) |
 | `smoke-lights.mjs` | extraction, player, game, hub, world, core | Visible point-light count never changes across a full session; budget, prebuilt arrival ship |
 | `smoke-loadout.mjs` | inventory | Loadout persistence, corp-shop access methods, container events |
 | `smoke-map-quests.mjs` | ui, meta | Map quest panels, legend placement, quest toasts |
@@ -88,7 +88,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-meta.mjs` | meta, inventory, hub, ui, game | Credits, trust, shop buy/sell, contracts and settlement, persistence |
 | `smoke-mining.mjs` | housing, items, meta | Mining rules, wallet, exchange trades, crypto data |
 | `smoke-mining-ui.mjs` | housing, hub | Mining screen tabs, core slots, coin picker, furniture models |
-| `smoke-named.mjs` | enemies, weapons | Named rogues: prone capsule, buried muzzle, scan-drone adoption, replica hooks, faction |
+| `smoke-named.mjs` | enemies, weapons | Named rogues: prone capsule, buried muzzle, scan-drone adoption, replica hooks, faction. Plus the **animation LOD** (2026-09-20): a sniper past `ENEMY_ANIM_LOD_FREEZE_M` still draws its scope glint and still spends `glintHold` (a named rig is exempt — it integrates `dt` and carries a telegraph), and a plain bug at the same distance is frozen at the base FOV but animated again through an 8× scope (the bands are screen size) |
 | `smoke-netlink.mjs` | net, ui, hub | Link states, anonymous background probe, connection badge, refused links, shell relay source |
 | `smoke-npc-quests.mjs` | meta, enemies, world, weapons | NPC quest engine: first contact, offers, objectives commit, delivery, report, saves |
 | `smoke-phase2.mjs` | player, weapons, inventory, game, ui | Downed / bleed / give up / respawn, quick-use wheel, heal hold, grenade cooking |
@@ -146,8 +146,8 @@ Things today's smokes deliberately do not measure. Each is here so the next read
 - **Eggs on a replica and across a host change.** Egg size is derived deterministically from `WorldRef.getNestEggSpots`
   with no wire field, so host and replica should agree by construction — untested live. A host change releases the
   nest leash by design (`Enemy.nestOf` is host-local).
-- **Layout reads outside the raid / ship HUD** (2026-09-20). `smoke-layout-reads` drives the `.hud` widgets and the
-  events that feed them, so it covers `src/ui`. The other folders that own DOM — `src/inventory/ui` (Tab screen,
+- **Layout reads outside the raid / ship HUD** (2026-09-20, narrowed the same day — the tutorial is covered now).
+  `smoke-layout-reads` drives the `.hud` widgets and the events that feed them, so it covers `src/ui`. The other folders that own DOM — `src/inventory/ui` (Tab screen,
   craft, trade grids), `src/housing/ui` (ship management, cooking, gym), `src/hub/ui` (terminal, match tab) — are
   screens built from pointer handlers, i.e. **outside** `Engine.frame`, which is exactly where the guard stops
   counting. A widget of theirs that starts reading layout from an `update` would slip through. Covering it means

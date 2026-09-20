@@ -1162,4 +1162,17 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
   section was rewritten to say so — new work still goes to `docs/TODO.md`, and only a **measurement** may be added
   here. *Rejected*: deleting it and moving the surviving facts into `CLAUDE.md` §4.5 (the detail is the value, and
   §4.5 is a rules list, not a record); renaming it `PERF_NOTES.md` (every inbound link would move for a title).
-
+- **애니메이션 LOD 거리를 줌 배율로 보정한다** (2026-09-20, asked while closing the perf audit's F2). The two
+  distances were chosen as 「the legs are ~10 cm on screen」, which is only true at the base FOV — a scope narrows
+  `camera.fov`, so through an 8× scope a body at 100 m is drawn the size it has at ~12 m and slid along with frozen
+  legs. One `tan` per frame (`shared/viewZoom.viewZoomK`), clamped to ≤ 1. The **AI** LOD is deliberately not scaled:
+  it measures what a body can act on, and a scope changes none of that. *Rejected*: leaving it and writing it up as an
+  intended limit in `src/enemies/README.md` (the cost is a multiply per body, and the scope is exactly where a player
+  looks at a distant body).
+- **기준 FOV 는 `data/constants.csv` 행으로** (same question). `CAMERA_BASE_FOV_DEG` = 70, read by `player/CameraRig.baseFov`
+  and by `shared/viewZoom`, which `enemies` uses twice. *Rejected*: a `src/shared` constant alone (§4.1 is 「no numbers in
+  code」, and this number decides what every screen-size judgement means).
+- **튜토리얼 레이아웃 읽기는 고치고 스모크 창도 늘린다** (same session, the audit's F3). `hud/Notifications` measured
+  `.tut-controls` every frame; it measures from a `ResizeObserver` + window `resize` now, and `smoke-layout-reads` gained
+  a fourth window that runs the tutorial. *Rejected*: fixing the code only — a rule that is 「counted, not commented」 has
+  to count the screen it was being broken on (the old code fails the new window: 180 reads in 180 frames).

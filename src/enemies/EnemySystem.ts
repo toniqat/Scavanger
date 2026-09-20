@@ -3,7 +3,7 @@ import type { RogueShotOpts } from './Enemy';
 import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
-  ENEMY_AI_LOD_HALF_M, ENEMY_AI_LOD_MAX_STEP_S, ENEMY_AI_LOD_QUARTER_M, ENEMY_ANIM_LOD_FREEZE_M, ENEMY_ANIM_LOD_HALF_M, SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet, planetThreat,
+  ENEMY_AI_LOD_HALF_M, ENEMY_AI_LOD_MAX_STEP_S, ENEMY_AI_LOD_QUARTER_M, ENEMY_ANIM_LOD_FREEZE_M, ENEMY_ANIM_LOD_HALF_M, viewZoomK, SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet, planetThreat,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
   /* appended (2026-09-09): the rogue drop contract */
@@ -50,7 +50,7 @@ import { placeTutorialEnemies, type TutorialPlacement } from './Tutorial';
 import { onTutorialCheckpoint, onTutorialFell, onTutorialLiftoff, updateTutorialScript } from './Tutorial';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
 import { NamedRogueDirector, type NamedRollResult } from './named/Director';
-import { isNamedAiType } from './ai/named';   // 2026-09-20: a named rogue is never reduced by the AI LOD
+import { isNamedAiType } from './ai/named';   // 2026-09-20: a named rogue is never reduced by the AI LOD, nor by the animation LOD
 /* appended (2026-09-13): the dig-in spawn · the sandworm */
 import { BURROW_EMERGE_S } from '@/shared';
 import { SandwormDirector } from './sandworm/Director';
@@ -552,6 +552,16 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     // Animation LOD (2026-09-20): legs are ~10 cm on screen at 60 m. `camPos` was read at the top of the frame.
     const halfD2 = ENEMY_ANIM_LOD_HALF_M * ENEMY_ANIM_LOD_HALF_M;
     const freezeD2 = ENEMY_ANIM_LOD_FREEZE_M * ENEMY_ANIM_LOD_FREEZE_M;
+    /*
+     * 2026-09-20 (user's decision 「줌 배율로 LOD 거리 보정」): those two distances were decided as 「how big is this on
+     * screen」 (`data/constants.csv`: 「legs are ~10 cm」), and that only holds at `CAMERA_BASE_FOV_DEG`. A scope narrows
+     * `camera.fov` instead of touching `camera.zoom`, so through an 8× scope a body at 100 m is drawn the size it has
+     * at ~12 m — and it used to slide along with frozen legs. One `tan` per frame corrects it (`shared/viewZoom`);
+     * clamped to ≤ 1, so a wider-than-base view (the sprint kick, the slash widen) never *pushes* the bands out.
+     * The **AI** LOD is deliberately left alone: it measures what a body can act on, and a scope changes none of that.
+     */
+    const lodK = Math.min(1, viewZoomK(ctx.camera.fov, ctx.camera.zoom));
+    const lodK2 = lodK * lodK;
     const odd = (this.animFrame = (this.animFrame + 1) & 1);
     for (let i = this.active.length - 1; i >= 0; i--) {
       const e = this.active[i];
@@ -561,7 +571,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         if (c) c.position.copy(e.position);
         if (e.deathLanded) e.corpseDropped = false;
       }
-      e.animate(dt, this.poseSkip(e, halfD2, freezeD2, (i & 1) === odd));
+      e.animate(dt, this.poseSkip(e, halfD2, freezeD2, lodK2, (i & 1) === odd));
       // 2026-09-17: a corpse that has begun to sink cannot be searched any more (an emptied one and one at the end of its lifetime alike — `anim.fade` > 0 means sinking)
       if (e.state === 'dead') { const c = this.corpses.get(e.id); if (c) c.sinking = e.anim.fade > 0; }
       // Phase 10: a mid-air kill registers its corpse once the body has come to rest (or after CORPSE_LAND_TIMEOUT)
@@ -632,12 +642,22 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    *
    * A body that is flashing from a hit, burning, shocked or dead is never skipped: those frames are the feedback a
    * player reads through a scope at 100 m, and there are only ever a handful of them at once.
+   *
+   * 2026-09-20: **nor is a named rogue** (`ai/named.isNamedAiType`, the same exemption the AI LOD makes). `animateRig`
+   * is the only caller of `animateNamedRig`, and a named look file is not a function of `anim.time` the way the base
+   * bug / rogue pose is: it **integrates `dt`** (`st.age`, `glintHold`, the prone blend, the rotor angle), so a
+   * skipped frame is lost, not caught up. What it costs is gameplay, not polish — `SniperLook` writes the scope
+   * glint there, the `glintTime` 1.4 s telegraph of a 150-damage shot the sniper takes out to `NAMED_SNIPER range`
+   * 320 m, so past the 80 m freeze the telegraph was never drawn at all (and a replica's `ee glint` hold is consumed
+   * inside that same function). At most one named rogue + its scan drone live in a raid, so the exemption costs nothing.
    */
-  private poseSkip(e: Enemy, halfD2: number, freezeD2: number, offFrame: boolean): boolean {
+  private poseSkip(e: Enemy, halfD2: number, freezeD2: number, lodK2: number, offFrame: boolean): boolean {
     const a = e.anim;
     if (e.state === 'dead' || a.hitFlash > 0.001 || a.writhe > 0.001 || a.spark > 0.001 || a.flip > 0.001) return false;
+    if (isNamedAiType(e.type)) return false;
     const dx = e.position.x - this.camPos.x, dy = e.position.y - this.camPos.y, dz = e.position.z - this.camPos.z;
-    const d2 = dx * dx + dy * dy + dz * dz;
+    // `lodK2` is the camera zoom folded in (≤ 1) — the bands are screen size, not metres. See `update`.
+    const d2 = (dx * dx + dy * dy + dz * dz) * lodK2;
     if (d2 > freezeD2) return true;
     return d2 > halfD2 && offFrame;
   }

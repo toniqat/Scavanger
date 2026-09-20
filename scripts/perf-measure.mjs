@@ -23,12 +23,15 @@
  *     --display k=v,…     apply `설정 › 화면 설정` before recording: `bloom` · `shadows` (0/1), `scale` (0.5…1).
  *                         The composer passes and the shadow map are part of the render block, so this is how a run
  *                         answers 「how much of `x:rendererRender` is the scene and how much is the post chain」.
- *     --alloc             count **allocation by owner** during each window (V8 sampling heap profiler over CDP) and
- *                         print the top call sites by bytes. `docs/PERF_PLAN.md` finding B6 — S2 allocates 63-65 MB/s
- *                         and its spike frames have everything slow at once, so the question is 「who makes the
- *                         garbage」, which is a count, not a timing. The profiler itself costs time: a `--alloc` run's
- *                         `ms` columns are **not** comparable with a plain one, and the banner in PERF_PLAN applies
- *                         twice over.
+ *     --alloc             count **allocation by owner** during each window. `docs/PERF_PLAN.md` finding B6 — S2
+ *                         allocates 63-65 MB/s and its spike frames have everything slow at once, so the question is
+ *                         「who makes the garbage」, which is a count, not a timing. The answer comes from the
+ *                         **per-mark `performance.memory` delta** (`markAlloc`, and the typed-array census): B6
+ *                         showed the V8 sampling heap profiler cannot see this churn at all — it samples what
+ *                         **survives**, and reported 0.085 MB/s against the counter's 63. The CDP profile is still
+ *                         taken for its call sites, but it is the weaker of the two numbers, not the answer. It also
+ *                         costs time: a `--alloc` run's `ms` columns are **not** comparable with a plain one, and the
+ *                         banner in PERF_PLAN applies twice over.
  *     --peer-headful      show S5's second client instead of running it headless (debugging the squad flow)
  *     --out <path>        json path (default scripts/logs/perf/<label>.json)
  *

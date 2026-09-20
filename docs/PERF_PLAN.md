@@ -166,6 +166,9 @@ Built, from the user's answers (recorded in `docs/DECISIONS.md`):
 3. **Animation LOD**: past `ENEMY_ANIM_LOD_HALF_M` (40 m) a living body re-solves its pose every other frame, past
    `ENEMY_ANIM_LOD_FREEZE_M` (80 m) not at all; a body that is dead, flashing, burning, shocked or flipped is never
    skipped, at any distance. — `enemies/EnemySystem.poseSkip`, `enemies/Enemy.animate`
+   *(2026-09-20, after the fact: a **named rogue is exempt too**, and the two distances are scaled by the camera's
+   zoom — a named look file integrates `dt` and carries a gameplay telegraph, and the bands are screen size, not
+   metres. Not a measurement, so it is only noted here; the reasons live above the code.)*
 4. **Bloom already had its off switch** — `설정 › 화면 설정 › 화면 효과`, plus the perf guard's automatic off. The
    fourth decision needed no code.
 
@@ -230,7 +233,7 @@ untouched**, and it needs the measurement fixed first.)*
 | # | Finding | Measured | Verdict |
 |---|---|---|---|
 | A1 | Pools never pre-warmed (`parts/Pool.ts`, `Enemy.ts`, `models/BugModel.ts`) | cold 4.9 ms vs warm 3.9 ms for 8 bodies → **0.12 ms/body** | **struck** |
-| A2 | Shared geometry baked lazily on a type's first appearance | Phase B could not reproduce it on demand (burrows · five fresh types · corpses: nothing over 2.4 ms), but **one S2 run of five** still gave a single 18.8 ms `u:enemies` | **still open, still unreproduced** → Phase C |
+| A2 | Shared geometry baked lazily on a type's first appearance | Phase B could not reproduce it on demand (burrows · five fresh types · corpses: nothing over 2.4 ms), but **one S2 run of five** still gave a single 18.8 ms `u:enemies` | **still open, still unreproduced** — Phase C did not take it either; it is [Next session starts here](#next-session-starts-here) item 3 |
 | A3 | Placement search raycasts per living player per candidate | patrol tick 0.0–0.1 ms total | **struck** |
 | A4 | `ensureCapacity` rescans; `despawn` uses `indexOf` | never above the noise floor | **struck** |
 | A5 | `burrow_emerge` synthesises ~15 sources per bug | 0.27 ms/frame over 5 600 calls; the 16.3 ms call **never came back** — worst 0.90–1.30 ms across five 2026-09-20 runs | **struck** (Phase B) |
@@ -768,8 +771,10 @@ says a distance LOD could never have been large here.
 
 Struck by Phase B on top of those: **A5** (the `burrow_emerge` audio graph — the 16.3 ms call never came back in five
 runs), **`h:detection`** (the corpse pillars — 0.20 ms worst, and the pool is pre-built now anyway), and the
-**per-body half of NEW-2**. **B6 moved the other way** — it was rated 「low」 on one run and is now the best remaining
-explanation for the S2 spikes. **A2 alone survives unreproduced**, which is why it is still listed.
+**per-body half of NEW-2**. ~~**B6 moved the other way** — it was rated 「low」 on one run and is now the best remaining
+explanation for the S2 spikes.~~ *(Superseded by the Phase C paragraph above: B6 was then counted three ways and
+struck — the 63 MB/s is real and nothing owns it. The sentence is kept because the plan keeps its history.)*
+**A2 alone survives unreproduced**, which is why it is still listed.
 
 Struck by Phase D, last of all: **A6** (the `ee spawn` burst is 7.3 KB, smaller than the `es` keyframe that arrives
 every 2 s anyway, and it never dropped a frame), **C1** (4 body builds per raid entry at 0.3–0.5 ms each, inside the

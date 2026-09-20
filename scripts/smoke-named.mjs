@@ -273,6 +273,84 @@ try {
   });
   ok(pre3.glints === 0 && pre3.relocate <= 0 && pre3.fireCd > 0, `still blocked during the cooldown: no glint, no second hop, re-check paced (glints ${pre3.glints}, relocate ${pre3.relocate}, fireCooldown ${pre3.fireCd.toFixed(2)} s)`);
 
+  /* ── F1: the animation LOD must not freeze a named rig (2026-09-20) ── */
+  // `EnemySystem.poseSkip` stops `Enemy.animateRig` past `ENEMY_ANIM_LOD_FREEZE_M`, and `animateNamedRig` is called
+  // from nowhere else — so a frozen named rig loses the scope glint (the telegraph of a 150-damage shot the sniper
+  // takes out to 320 m), the prone blend, and the `ee glint` hold a replica is given, which is consumed inside that
+  // same function. Asserted here because the rest of this file only ever watches timers and bus events.
+  console.log('F1 animation LOD exempts a named rogue');
+  await freeze();
+  const lodSet = await P(async () => {
+    const ctx = window.__game.ctx; const e = window.__sn;
+    const { ENEMY_ANIM_LOD_FREEZE_M } = await import('/src/shared/index.ts');
+    const { holdSniperGlint } = await import('/src/enemies/models/named/SniperLook.ts');
+    window.__lod = { hold: holdSniperGlint, home: { x: e.position.x, z: e.position.z } };
+    const cam = window.__sys.camPos;                    // stamped at the top of every EnemySystem.update
+    const d = ENEMY_ANIM_LOD_FREEZE_M * 1.6;            // past the freeze band, far inside the sniper's own reach
+    const x = cam.x + d, z = cam.z;
+    e.position.set(x, ctx.world.getSurfaceY(x, z, ctx.world.getHeightAt(x, z)), z);
+    holdSniperGlint(e.rig, 2);                          // the `ee glint` path: glintHold is spent inside animateSniperLook
+    return { freeze: ENEMY_ANIM_LOD_FREEZE_M, hold0: e.rig.named.glintHold };
+  });
+  await waitSim(0.3);
+  const lodFar = await P(() => {
+    const e = window.__sn; const st = e.rig.named; const cam = window.__sys.camPos;
+    return { dist: Math.hypot(e.position.x - cam.x, e.position.z - cam.z), out: st.glintOut, vis: st.sprite.visible, hold: st.glintHold };
+  });
+  ok(lodFar.dist > lodSet.freeze, `the sniper stands past ENEMY_ANIM_LOD_FREEZE_M (${lodFar.dist.toFixed(0)} m > ${lodSet.freeze} m)`);
+  ok(lodFar.out > 0 && lodFar.vis, `its glint is still drawn there (glintOut ${lodFar.out.toFixed(3)}, sprite visible ${lodFar.vis}) — the animation LOD does not freeze a named rig`);
+  ok(lodFar.hold < lodSet.hold0, `and the rig still integrates dt (glintHold ${lodSet.hold0.toFixed(2)} → ${lodFar.hold.toFixed(2)} s)`);
+  // control: the same body in the near band — so a failure above names the LOD, not a broken glint
+  await P(() => {
+    const ctx = window.__game.ctx; const e = window.__sn; const h = window.__lod.home;
+    e.position.set(h.x, ctx.world.getSurfaceY(h.x, h.z, ctx.world.getHeightAt(h.x, h.z)), h.z);
+    window.__lod.hold(e.rig, 2);
+  });
+  await waitSim(0.3);
+  const lodNear = await P(() => {
+    const e = window.__sn; const st = e.rig.named; const cam = window.__sys.camPos;
+    window.__lod.hold(e.rig, 0);
+    return { dist: Math.hypot(e.position.x - cam.x, e.position.z - cam.z), out: st.glintOut, vis: st.sprite.visible };
+  });
+  ok(lodNear.out > 0 && lodNear.vis, `control: the same glint at ${lodNear.dist.toFixed(0)} m (inside the band) is drawn too`);
+
+  /* ── F2: the animation LOD is screen size, so it follows the scope zoom (2026-09-20) ── */
+  // The LOD distances were decided as 「legs are ~10 cm on screen」, which only holds at `CAMERA_BASE_FOV_DEG`. A scope
+  // narrows `camera.fov` (`att_scope8` → base / 8) instead of touching `camera.zoom`, so a body past the freeze
+  // distance is drawn large and used to slide along with a frozen pose. `anim.shake` is what makes an idle body's
+  // pose a function of `anim.time` here — frozen = the drawn offset does not move at all between two samples.
+  console.log('F2 animation LOD follows the scope zoom');
+  const lodBug = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys;
+    const cam = sys.camPos;
+    const d = 128;                                     // 1.6 × ENEMY_ANIM_LOD_FREEZE_M
+    const e = sys.debugSpawn('scavenger', { x: cam.x + d, z: cam.z }, false);
+    window.__lodBug = e;
+    window.__camFov = ctx.camera.fov;
+    return !!e && Math.hypot(e.position.x - cam.x, e.position.z - cam.z) > 80;
+  });
+  ok(lodBug, 'a bug stands past the freeze distance for the zoom test');
+  const poseMoves = async () => {
+    const read = async () => { await P(() => { window.__lodBug.anim.shake = 1; }); await waitSim(0.12); return P(() => window.__lodBug.rig.body.position.x); };
+    const a = await read(); const b = await read();
+    return a !== b;
+  };
+  ok(!(await poseMoves()), 'at the base FOV that pose is frozen (the LOD itself still works)');
+  await P(() => {
+    // an 8× scope, held against `CameraRig`, which rewrites `camera.fov` every frame
+    const cam = window.__game.ctx.camera; const base = window.__camFov;
+    Object.defineProperty(cam, 'fov', { configurable: true, get: () => base / 8, set: () => {} });
+    cam.updateProjectionMatrix();
+  });
+  await waitSim(0.2);
+  ok(await poseMoves(), 'through an 8× scope the same body is animated again (shared/viewZoom.viewZoomK)');
+  await P(() => {
+    const cam = window.__game.ctx.camera;
+    Object.defineProperty(cam, 'fov', { configurable: true, enumerable: true, writable: true, value: window.__camFov });
+    cam.updateProjectionMatrix();
+    window.__lodBug.kill(false);
+  });
+
   /* ── C-49: scan drone adopted through a host promotion ───────────────── */
   console.log('C-49 scan drone adoption on promotion');
   await freeze();
