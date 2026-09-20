@@ -85,7 +85,18 @@ export class Detection {
     this.ctx = ctx;
     this.unsubs.push(
       ctx.bus.on('game:abort', () => this.teardown()),
-      ctx.bus.on('game:newMission', () => this.teardown()),
+      /*
+       * `world:ready`, **not** `game:newMission` (docs/ARCHITECTURE.md gotcha): `WorldSystem` generates inside its own
+       * `game:newMission` handler and is registered before `ui`, so `world:ready` reaches us *first* — a build done
+       * there would be torn down again a moment later by the `game:newMission` handler this replaces.
+       *
+       * Building the pool **here** rather than on first use is `docs/PERF_PLAN.md` Phase B: `ensureScene` mints a
+       * geometry, a material and `MAX_SHELLS` meshes, and its material's shader is linked the first time it is drawn.
+       * On first use that lands on the frame a corpse comes into range, in the middle of a fight. `world:ready` is
+       * inside the raid-entry hold (`core/Engine` calls `holdForScene()` on it), so the same work is free there —
+       * the group is in the scene before that frame's compile pass and the cost is paid behind the loading screen.
+       */
+      ctx.bus.on('world:ready', () => { this.teardown(); this.ensureScene(); }),
       ctx.bus.on('hub:entered', () => this.hideAll()),
     );
   }

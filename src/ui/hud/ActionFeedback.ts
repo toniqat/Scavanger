@@ -1,5 +1,8 @@
 import type { GameContext } from '@/shared';
-import { el, setText, toggleClass } from '../dom';
+import { el, restartAnim, setText, toggleClass } from '../dom';
+
+/** The one-shot animation classes `play` swaps between — only one may sit on a node at a time. */
+const ANIM_CLASSES = ['go', 'hit', 'grit'] as const;
 
 /**
  * Short screen-space feedback for the tactical kit: melee swings/hits, rolls, dashes, barrier impacts,
@@ -58,19 +61,16 @@ export class ActionFeedback {
     );
   }
 
-  /** Restart a CSS animation class (remove → reflow → add). */
+  /** Replay one of the three one-shot animation classes (`ui/dom.restartAnim` — no forced layout). */
   private play(node: HTMLElement, cls: string): void {
-    node.classList.remove('go', 'hit', 'grit');
-    void node.offsetWidth;
-    node.classList.add(cls);
+    for (const other of ANIM_CLASSES) if (other !== cls) node.classList.remove(other);
+    restartAnim(node, cls);
   }
 
   private showBanner(text: string, ttl: number): void {
     setText(this.banner, text);
     this.banner.hidden = false;
-    this.banner.classList.remove('in');
-    void this.banner.offsetWidth;
-    this.banner.classList.add('in');
+    restartAnim(this.banner, 'in');
     this.bannerTimer = ttl;
   }
 

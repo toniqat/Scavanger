@@ -2,7 +2,7 @@ import type { GameContext, ImplantId, ItemInstance, Stance } from '@/shared';
 import { Keys, createKeycap, onKeybindsChanged, paintKeycap } from '@/shared';
 /* 2026-09-16: how long the crosshair takes to appear after the intro wake cutscene */
 import { TUTORIAL_RETICLE_FADE_S } from '@/shared';
-import { el, setText, toggleClass, damp } from '../dom';
+import { damp, el, restartAnim, setText, toggleClass } from '../dom';
 import '../styles/implant.css';
 
 /** Base reticle gap (px) per stance, [hip, ADS]. */
@@ -199,10 +199,10 @@ export class Reticle {
       // 2026-09-09: the communication wheel (H) dims the aim point like its sibling wheels — this is talking, not aiming.
       b.on('comms:wheelChanged', ({ open }) => { this.commsOpen = open; }),
       b.on('ui:hitmarker', ({ kill, headshot }) => {
-        this.hitmarker.classList.remove('show', 'kill', 'head');
-        // force restart of transition
-        void this.hitmarker.offsetWidth;
-        this.hitmarker.classList.add('show');
+        // this runs inside `Engine.frame` (a hit resolves in `WeaponSystem.update`), so the old
+        // remove → `offsetWidth` → add idiom forced a full UI layout on every hit — CLAUDE.md §4.2.
+        this.hitmarker.classList.remove('kill', 'head');
+        restartAnim(this.hitmarker, 'show');
         if (kill) this.hitmarker.classList.add('kill');
         // 2026-09-09: a headshot draws the same X at 1.6× (the colour is unchanged — only a kill has its own red).
         if (headshot) this.hitmarker.classList.add('head');

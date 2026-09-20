@@ -1,6 +1,6 @@
 # Performance plan — frame hitches with many bodies
 
-**Status:** **Phase 0 measured (2026-09-19) · Phases 1 · 2 · A · A2 built (2026-09-20).**
+**Status:** **Phase 0 measured (2026-09-19) · Phases 1 · 2 · A · A2 · B built (2026-09-20).**
 
 > ### ⚠ Read this before any number below: `ms` in this plan is not evidence
 > On 2026-09-20 the **same committed build** measured `x:rendererRender` **6.842 ms and 5.112 ms** back to back
@@ -12,7 +12,9 @@
 > quantity. If the render block has to be judged, it needs many runs (or a different method) first.
 
 Phases A and A2 cut what is drawn; neither has a demonstrated `ms` effect on this machine, and Phase A's own
-「below 6.0 ms」 target was dropped as unreachable with shadows on. **Phase B is next.** The 2026-09-20
+「below 6.0 ms」 target was dropped as unreachable with shadows on. **Phase B is done** — and it is the first phase
+with a result that repeats: S4's android first-contact frame stopped overrunning a vsync, twice, and the owner it
+found was not the one this file predicted. **Phase C or D is next.** The 2026-09-20
 A/B (same machine state, back to back, `--only s2` twice per side) **refutes the central finding of Phase 0**: the
 work removed 31 % of the draw calls and 36 % of the scene nodes and `x:rendererRender` did not move. The render
 block is not paid per draw call on this machine — it is the GPU. The ranking below is rewritten around that.
@@ -34,17 +36,21 @@ individual frames, and those are what Phase B goes after.
 1. **Read the banner above, then [What the 2026-09-20 A/B says](#what-the-2026-09-20-ab-says)** before planning
    anything — between them they strike 「draw calls」 as a cost and strike every `ms` figure in this file as a
    verdict.
-2. **Phase B** ([the one-off ≥ 10 ms calls](#phase-b--the-one-off--10-ms-calls--enemies-audio-allies-ui)) is the next
-   phase, and it needs no decision from the user — it starts with a DevTools trace of one spike frame. It also suits
-   this machine: a one-off **19.4 ms `u:enemies`** in a 16.7 ms frame is **above** the noise floor the banner
-   describes, where a 0.6 ms average is not.
-3. **Take a fresh `before`** — the logs are git-ignored and the tree moves:
-   `npm run dev`, then `node scripts/perf-measure.mjs --only s2 --label before-phaseB`. **Run it twice.** One run
+2. **Phase B is done** ([what it found](#phase-b--the-one-off--10-ms-calls--done-2026-09-20--ui)). Its lesson for
+   whoever picks this up: **the autopsy names a mark, and the mark was not the owner.** The 10 ms `u:allies` was
+   `ui/hud/ChatLog` forcing a layout from inside `AllySystem.update`, not `pickCoverSpot`. Do not write a fix against
+   a mark name — instrument until a **counter** names the line.
+3. **Counters beat traces here.** What cracked Phase B was patching the layout-forcing accessors on their prototypes
+   and counting them per frame: 7 reads in a 637-frame window, all of them in one file, on one frame. That technique
+   is now a smoke (`scripts/smoke-layout-reads.mjs`) and the same shape — *count the thing, don't time it* — is what
+   the banner above is asking for everywhere else.
+4. **Take a fresh `before`** — the logs are git-ignored and the tree moves:
+   `npm run dev`, then `node scripts/perf-measure.mjs --only s2 --label before-phaseC`. **Run it twice.** One run
    is not a measurement: on 2026-09-20 two runs of one build gave 5 and 22 frames over 33 ms.
-4. Use `--display bloom=0`, `--display bloom=0,shadows=0` to split the render block whenever a change is supposed to
+5. Use `--display bloom=0`, `--display bloom=0,shadows=0` to split the render block whenever a change is supposed to
    touch it. That split is what turned the ranking over — and in Phase A it is what showed the 6.0 ms target to be
    arithmetically impossible.
-5. **If the render block is picked up again**, fix the measurement first (see the banner), then look at the terrain's
+6. **If the render block is picked up again**, fix the measurement first (see the banner), then look at the terrain's
    346k triangles and at resolution scale — [Still open after Phase A2](#still-open-after-phase-a2).
 
 ---
@@ -187,10 +193,10 @@ decision. **The next phase to run is B.**)*
 | # | Finding | Measured | Verdict |
 |---|---|---|---|
 | A1 | Pools never pre-warmed (`parts/Pool.ts`, `Enemy.ts`, `models/BugModel.ts`) | cold 4.9 ms vs warm 3.9 ms for 8 bodies → **0.12 ms/body** | **struck** |
-| A2 | Shared geometry baked lazily on a type's first appearance | not isolated; a 16.9 ms `EnemySystem.update` fires once per raid | **open** → Phase B |
+| A2 | Shared geometry baked lazily on a type's first appearance | Phase B could not reproduce it on demand (burrows · five fresh types · corpses: nothing over 2.4 ms), but **one S2 run of five** still gave a single 18.8 ms `u:enemies` | **still open, still unreproduced** → Phase C |
 | A3 | Placement search raycasts per living player per candidate | patrol tick 0.0–0.1 ms total | **struck** |
 | A4 | `ensureCapacity` rescans; `despawn` uses `indexOf` | never above the noise floor | **struck** |
-| A5 | `burrow_emerge` synthesises ~15 sources per bug | 0.27 ms/frame over 5 600 calls; **one 16.3 ms call** | **one-off only** → Phase B |
+| A5 | `burrow_emerge` synthesises ~15 sources per bug | 0.27 ms/frame over 5 600 calls; the 16.3 ms call **never came back** — worst 0.90–1.30 ms across five 2026-09-20 runs | **struck** (Phase B) |
 | A6 | One `ee spawn` JSON send per body | solo only, not measured | **open, needs S5** → Phase D |
 | A7 | First-draw material init per cloned material | no compile spike seen | **struck** |
 
@@ -200,12 +206,12 @@ decision. **The next phase to run is B.**)*
 |---|---|---|---|
 | B1 | **Draw calls** — bug 17–18 meshes, soldier ≈ 130, no batching / instancing / LOD | **cut 31 % on 2026-09-20 with no change in the render block** | **refuted as a cost driver; the cut is done and kept** |
 | **NEW-1** | **GPU frame, not CPU submission**: the render block scales with triangles (1.0 M in S2) and pixels | the `--display` split above; then Phase A bought **0.6 ms for 6.7 % of the triangles** | **confirmed and acted on — Phase A.** Refinement: bloom is free here, the shadow pass is 1.07 ms, and what is left belongs to the **world** |
-| **NEW-2** | **Layout flush** 1.04–1.07 ms/frame is **one** layout of a HUD dirtied by per-body text and per-body nodes — not read/write thrash | unchanged by removing all twelve per-frame reads | **confirmed — #3** |
-| B2 | Android combat AI per ally per frame | 0.055 ms/frame for 3; **one 10.0–11.7 ms first-contact call** | **struck** except the one-off → Phase B |
+| **NEW-2** | **Layout flush** 1.04–1.07 ms/frame is one layout of a HUD dirtied by **per-body text and per-body nodes** | Phase B counted both: **14 text writes in 836 frames**, and the rendered box count goes 1 085 → 1 116 (+3 %) when 60 bugs arrive | **the 「per-body」 half is refuted.** What was real, and is fixed, is `ChatLog` forcing a layout **per chat line** (8.3 ms in one frame) — Phase B |
+| B2 | Android combat AI per ally per frame | 0.055 ms/frame for 3; the 10.0–11.7 ms first-contact call was **`ui/hud/ChatLog`, not `allies`** — world queries were 0.4 ms of it and `getObstaclesNear` ran zero times | **struck entirely; the one-off is fixed in `ui`** (Phase B) |
 | B3 | `LightBudget.update` walks the whole visible scene every frame | 0.10 idle → 0.27–0.30 at 160 bodies (worst 1.7) | **small, real** → Phase C |
 | B4 | Enemy AI has no distance LOD or time slicing | 0.19 at 44 bodies → 0.41 at 99 → **1.0–1.3 at 160**; worst call 4.9 ms | **confirmed, #2 of the CPU costs** |
 | B5 | Bug footsteps scan all active enemies before the range gate | inside `u:enemies`; `x:audioPlay` 0.27 ms/frame | **small** → Phase C |
-| B6 | Recurring garbage | 18–55 MB/s, 2.4 GC drops/s, **no spike attributable** | **low** |
+| B6 | Recurring garbage | 18–65 MB/s, ~3 GC drops/s. S2 allocates 63–65 MB/s against 40–45 in S3a · S4, and S2 is the scenario whose spike frames have **everything** slow at once | **raised: the best remaining suspect for the S2 spikes** → Phase C |
 
 **C. Multiplayer / squadmate-specific** — C1 (`SoldierPool.acquire`), C3 (`ally state` encoding) were never reached
 without S5; C2 (a `SoldierModel` per corpse) never fired; C4 (`snapshotFace`) is ship-only and out of scope.
@@ -305,20 +311,139 @@ Built, from the user's answers (`docs/DECISIONS.md`):
   changes, no phase after this one can claim a frame-time result. That is the first thing to fix if the render
   block is picked up again.
 
-### Phase B — the one-off ≥ 10 ms calls · `enemies`, `audio`, `allies`, `ui`
+### Phase B — the one-off ≥ 10 ms calls · done 2026-09-20 · `ui`
 
-Four calls, each losing 1–3 frames, each firing once or twice per raid. **Find the cause before writing a fix** —
-the autopsy names the mark, not the line, so this starts with a DevTools trace of that one frame.
+Four calls were listed here, each losing 1–3 frames, each firing once or twice per raid. **Three of them did not
+reproduce**, and the one that did had a different owner than this file predicted.
 
-- `EnemySystem.update` 16.9 ms, once per raid, not on a spawn frame — suspect **A2**, a type's geometry baked on
-  first appearance, or a nest refill. Reproduce by killing a type off and letting a patrol bring it back.
-- `AudioSystem.play` 16.3 ms once — suspect the first build of a procedural buffer. If so, pre-build on
-  `world:ready`, which is behind the load hold and therefore free.
-- `AllySystem.update` 10.0–11.7 ms on the frame androids first make contact — suspect `pickCoverSpot` /
-  `getObstaclesNear` on the transition (0.055 ms/frame at rest, so only the transition is worth touching).
-- **NEW (2026-09-20): `h:detection` 18.4 ms**, seen twice in S2 — the light pillars on corpses
-  (`ui/hud/Detection.ts`) are built on the frame the first corpses come into range.
-- **Done when** `perf-measure --only s2,s3a,s4` reports no spike frame over one vsync, twice per scenario.
+#### What reproduced, and what it actually was
+
+`--only s2,s3a,s4`, two runs per side. The only mark over one vsync that repeated was S4's **`u:allies` 9.10 ms and
+9.30 ms, both on frame 37** — the frame twelve bugs are pulled and the androids first see them.
+
+This file suspected `pickCoverSpot` / `getObstaclesNear`. **It is not.** Wrapping the world and enemy query surface
+on the live page accounted for **0.4 ms of the 10.0**, and `getObstaclesNear` was called **zero times** on that frame.
+Wrapping `EventBus.emit` instead named it at once:
+
+| inside that one `AllySystem.update` | calls | ms |
+|---|---|---|
+| `bus:ally:ping` (contains the line below) | 3 | 9.30 |
+| `bus:ally:chat` → `ChatLog.add` | 3 | 7.70 |
+| …→ `ChatLog.measure` → `getBoundingClientRect` | 3 | **6.90** |
+| world queries (`raycast` · `getSurfaceY` · `resolveCollision` · `queryNear` · 658 × `getHeightAt`) | 862 | 0.40 |
+
+Then the deterministic version of the same question — every layout-forcing accessor patched on its prototype and
+counted while `Engine.frame` is on the stack: **in the whole 637-frame S4 window there were 7 forced layouts, all of
+them in `ChatLog`, all on one frame**, costing 8.3 ms of that frame's js. p50 and p95 per frame were **0**.
+
+So the HUD's per-frame path was already clean (Phase 2 did that) and the entire one-off was one widget breaking
+CLAUDE.md §4.2 「no layout read inside a frame」, once per chat line, for a year.
+
+#### The second half: a first layout costs several times a later one
+
+Removing the forced reads was **not enough on its own**, and the first after-run said so: the cost moved from
+`u:allies` to `l:hud` and frame 37 still overran. Measured with one forced layout at the end of a frame that had
+fired one kind of event (4 repeats per case, same build):
+
+| fired inside one frame | 1st | 2nd | 3rd | 4th |
+|---|---|---|---|---|
+| nothing (control) | 0.1 | 0.1 | 0.1 | 0.0 |
+| 3 × `ally:chat` | **5.3** | 0.5 | 0.5 | 0.5 |
+| 3 × `ally:ping` | 1.8 | 0.9 | 0.9 | 0.9 |
+| 3 × `ui:notify` | 0.7 | 0.5 | 0.7 | 0.6 |
+
+The first row of the page costs ~10× the rest — selectors never matched, Korean glyphs never shaped. That is the
+same shape as the other three Phase B suspects (a pool built on first use), and the same cure: **pay it before
+anyone is watching.**
+
+#### Built
+
+1. **`ui/hud/ChatLog` reads no layout at all.** The closed height was measured from a real row (`--chat-closed-h`);
+   it is `3.5 × font-size × line-height + 3 gaps`, so `base.css` computes it with `calc()` — and the measurement was
+   wrong anyway on a **wrapped** row (it made the closed box 3.5 × *that*). The bottom was pinned by
+   `scrollTop = scrollHeight`; `.chat-lines` is now `column-reverse` around one `.chat-lines-inner`, so its scroll
+   origin **is** the bottom edge and it re-pins itself through open / close, a font swap and a resize — the three
+   cases the old `stick()` + `ResizeObserver` + `document.fonts.ready` existed for. Rows keep their oldest→newest
+   document order (`history()`, the smokes and `querySelectorAll('.chat-line')` read it).
+2. **The remove → `void offsetWidth` → add animation idiom is gone**, at 14 sites, replaced by `ui/dom.restartAnim`
+   (rewind the running animation — style, not layout). Five of those run inside a frame: the hit marker (**every
+   hit**), the damage flash, the magazine tick, the stamina pulse and the implant ready flash.
+3. **First layouts are paid early.** `ChatLog` draws and drops one throwaway row on a timer at `bind` (the title
+   screen is up, and it is off the frame so the guard stays at 0) — 3 × `ally:chat` went **5.3 → 1.4 ms**.
+   `hud/Detection` and `hud/ScanReveal` build their pillar pools on **`world:ready`** instead of on the first corpse:
+   that is inside the raid-entry hold, and it has to be `world:ready` rather than `game:newMission` because `world/`
+   generates inside its own handler and `ui` is registered after it (docs/ARCHITECTURE.md gotcha).
+4. **The rule is now counted, not commented**: `scripts/smoke-layout-reads.mjs` patches every layout-forcing accessor
+   and fails if one is touched while `Engine.frame` is on the stack. It caught `hud/DamageOverlay` the first time it
+   ran, which is how the 14-site sweep started.
+
+#### Result
+
+Two runs per side, same machine state, `--only s2,s3a,s4`.
+
+| | before 1 | before 2 | after 1 | after 2 |
+|---|---|---|---|---|
+| **S4 spike frames** (js over one vsync) | 1 | 1 | **0** | **0** |
+| S4 js/frame max | 17.9 | 17.2 | **15.5** | **14.1** |
+| S4 `u:allies` worst call | 9.10 | 9.30 | **2.80** | **3.10** |
+| S4 `l:hud` worst call | 1.10 | 0.90 | 4.50 | 3.60 |
+| S3a spike frames | 0 | 0 | 1 | 0 |
+| S2 spike frames | 15 | 2 | 3 | 3 |
+
+- **S4 is the honest win**: the first-contact frame no longer overruns a vsync, in both runs, and `u:allies`' worst
+  call fell by a factor of three. `l:hud`'s worst rose because the one layout the chat used to force three times is
+  now paid once by the HUD's own flush — the frame total still fell.
+- **S2 and S3a are not Phase B's to close.** Every remaining spike there is led by `x:rendererRender` (10–26 ms on
+  those frames), which is the GPU block, not a one-off js call. Note the before pair again: 15 and 2 on the same
+  build — the banner's warning, in this table.
+- **Phase B's original 「done when」 (no spike frame over one vsync in s2 · s3a · s4, twice) is met for S4 and is not
+  reachable for the other two from this folder.** It was written before the A/B showed the render block to be GPU
+  time; it is restated here as **no one-off ≥ 10 ms js call**, which is met.
+
+#### The three that did not reproduce
+
+Driven through one raid with four burrow spawns, five bug types appearing for the first time, and ten corpses killed
+7 m from the player — the exact conditions each was suspected under. **Nothing anywhere went over 2.4 ms**
+(`u:enemies` 2.40 · `x:enemySpawn` 1.60 · `x:audioPlay` 0.90 · `h:detection` 0.20).
+
+| # | Was | Now |
+|---|---|---|
+| A2 | `EnemySystem.update` 16.9 ms once per raid | **not reproduced** — but see below |
+| A5 | `AudioSystem.play` 16.3 ms once (the `burrow_emerge` graph) | **struck**: worst 0.90–1.30 ms across five runs |
+| — | `h:detection` 18.4 ms (the corpse light pillars) | **struck** as a spike; the pool is pre-built anyway (Built §3) |
+| B2 | `AllySystem.update` 10.0–11.7 ms at first contact | **fixed — and it was `ui`, not `allies`** |
+
+**A2 stays open.** One S2 run out of five today produced a single **`u:enemies` 18.80 ms** call (`after-phaseB-1`,
+frame 742, a 29.9 ms frame). It fired once, in one run, and no targeted scenario brought it back. Whoever picks it
+up: it is not a spawn frame, so the lead is still 「a type's shared geometry baked on first appearance」 — reproduce by
+killing a type off and letting a patrol bring it back, and **count something** (geometry builds, material creations)
+rather than timing `u:enemies`.
+
+#### What the S2 spike frames are not
+
+The user asked for S2's `l:hud` 3.6–4.2 ms spike frames as part of this phase, on the standing hypothesis **NEW-2**
+(「per-body text writes and per-body DOM nodes dirty the layout」). **Counters refute it**, the same way they refuted
+B1:
+
+- **Per-body text writes: 14 in 836 frames.** Patching `textContent` · `innerHTML` · `className` · `hidden` ·
+  `setAttribute` · `classList.*` · `appendChild` by call site, the only per-frame writer is
+  `Detection.placeArrows`' `classList.toggle('scanned', …)` (~10/frame) — and `toggle` with an unchanged value
+  mutates nothing, so it invalidates nothing. Nothing writes text per body.
+- **The DOM does not grow with the crowd**: `#ui-root` holds 4 346 elements of which **1 085 are in layout** while a
+  raid is idle and **1 116** with 60 bugs alive (+3 %). A layout is O(rendered boxes), and that number barely moves.
+- **A normal frame's layout is 0.1 ms**, measured at the end of the frame body. The 1.0 ms `x:layoutFlush` in the
+  harness is a *different* point (top of `HudSystem.lateUpdate`, after `HudSystem.update` dirtied the HUD).
+- On the S2 spike frames `x:rendererRender` **and** `x:layoutFlush` are both ~3× their own average **at the same
+  time**. Everything on the frame is slow at once, which is the signature of a whole-frame stall, not of a HUD owner.
+  S2 also allocates the most of any scenario (63–65 MB/s vs 40–45 in S3a · S4, ~3 GC drops/s) — **B6 (garbage) is
+  the honest next suspect there, and it was rated 「low」 on one run's evidence.**
+
+What is left that is countable, and was not taken because no `ms` effect could be demonstrated for it: **1 085
+rendered boxes for a screen that is showing the raid HUD.** `.hud.housing` (116 boxes — `hud/ShipManage`, a
+ship-only screen) is laid out during every raid frame because it hides with `visibility: hidden`, and four `.menu`
+screens (death · complete · title · pause, ~120 boxes) are in layout too because `.hidden` fades with opacity.
+Taking them out of layout is a real cut of a deterministic counter; proving it moves a frame is not possible on this
+machine at this noise floor.
 
 ### Phase C — the sustained CPU costs · `enemies`, `ui`, `core`, `audio`
 
@@ -327,8 +452,14 @@ Only worth doing after Phase A, and only as far as the numbers justify.
 - **B4, the biggest of them: enemy AI is 1.0–1.3 ms at 160 bodies and scales super-linearly.** Distance LOD or time
   slicing, the same shape the animation LOD just got (`EnemySystem.poseSkip` is the template, and the constants
   belong next to `ENEMY_ANIM_LOD_*` in `data/constants.csv`).
-- **NEW-2, the layout**: cut what dirties it — a per-body nameplate / marker that writes text every frame, and the
-  DOM node count itself. Measure with the harness's `x:layoutFlush`, which is exactly this cost.
+- **NEW-2 is mostly closed and partly refuted** (Phase B): nothing writes text per body, the rendered box count does
+  not follow the crowd, and the one real offender (`ChatLog`, a forced layout per chat line) is fixed and guarded.
+  What is left is a **flat** cut, not a per-body one: 1 085 of `#ui-root`'s 4 346 elements are in layout during a
+  raid, including `hud/ShipManage` (116, ship-only, `visibility: hidden`) and four faded-out `.menu` screens (~120).
+  Take them out of layout if the counter is worth it — no `ms` effect is demonstrable at this machine's noise floor.
+- **B6, the S2 spikes**: on those frames `x:rendererRender` *and* `x:layoutFlush` are both ~3× their own average at
+  the same time, which is a whole-frame stall rather than any one owner. S2 also allocates the most (63–65 MB/s).
+  Measure allocation by owner before writing anything.
 - `LightBudget` (B3): recount on a flag from the light-pool owners or at a csv interval. The invariant "the shader
   always sees `SCENE_POINT_LIGHT_BUDGET`" must hold on the frame a light appears — read `core/LightBudget.ts`'s
   header first. `smoke-lights` **must stay green**.

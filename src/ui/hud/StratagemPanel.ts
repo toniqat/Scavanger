@@ -1,6 +1,6 @@
 import type { GameContext, StratagemId } from '@/shared';
 import { Keys, RESCUE_DROPS_PER_RAID, STRATAGEM_ORDER, createKeycap, onKeybindsChanged, paintKeycap } from '@/shared';
-import { el, setText, toggleClass } from '../dom';
+import { el, restartAnim, setText, toggleClass } from '../dom';
 import { STRATAGEM_COLOR, STRATAGEM_GLYPH } from './stratagemGlyphs';
 import '../styles/shipCall.css';
 
@@ -113,18 +113,15 @@ export class StratagemPanel {
     this.render();
   }
 
-  /** Restart the one-shot arm animation (remove → reflow → add is the only reliable way). */
+  /** Replay the one-shot arm animation (`ui/dom.restartAnim` — no forced layout). */
   private flash(): void {
-    this.root.classList.remove('pulse');
-    void this.root.offsetWidth;
-    this.root.classList.add('pulse');
+    restartAnim(this.root, 'pulse');
   }
 
   /** 2026-09-12: the ready moment — `major` when the cooldown ran out, `minor` when a refusal gave it back. */
   private flashReady(major: boolean): void {
-    this.root.classList.remove('rdy-major', 'rdy-minor');
-    void this.root.offsetWidth;
-    this.root.classList.add(major ? 'rdy-major' : 'rdy-minor');
+    this.root.classList.remove(major ? 'rdy-minor' : 'rdy-major');
+    restartAnim(this.root, major ? 'rdy-major' : 'rdy-minor');
     this.lastFlash = major ? 'major' : 'minor';
     this.flashCount++;
   }

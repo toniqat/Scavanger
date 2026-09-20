@@ -1053,3 +1053,36 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
   instance totals per prop kind identical before and after (509 boulders · 1 712 pebbles · …), which is the proof
   that the colour pass is untouched. *Rejected*: tuning the harness until the ms looks stable (the machine, not the
   harness, is what moves); calling A2 a regression and reverting it (the deterministic counters all improved).
+
+## 2026-09-20 — 프레임 안의 강제 레이아웃 · Forced layout inside a frame (PERF_PLAN Phase B)
+
+- **범위: 재현된 것 + 지연 생성 예방 + S2 스파이크까지** (user chose the widest of three). The measurement came first
+  and it moved the scope by itself: of the four one-offs the plan listed, only the android first-contact frame
+  reproduced (9.10 · 9.30 ms in two runs), and **its owner was `ui`, not `allies`** — `hud/ChatLog` forcing a full UI
+  layout once per chat line, from inside `AllySystem.update`. *Rejected*: fixing only what reproduced and striking the
+  rest (the user asked for the lazy-build shape to be closed as well, and it was the right call — the chat's real
+  cost turned out to be exactly that shape).
+- **`hud/ChatLog`: CSS 로 바꿔 측정 자체를 없앤다** — not 「defer the read to the next frame」, not 「batch to one read per
+  frame」. The closed height is `3.5 × font-size × line-height + 3 gaps`, so `base.css` computes it with `calc()`
+  instead of measuring a live row; the scroller is `column-reverse` around one inner list, so its scroll origin **is**
+  the bottom edge and it re-pins itself. Both reads are gone rather than cheaper, and two long-standing bugs go with
+  them: the measurement was wrong on a **wrapped** row (closed box 3.5 × the doubled height), and a reader scrolled up
+  no longer gets yanked to the bottom by an arriving line. *Rejected*: deferring `measure`/`stick` into the existing
+  rAF (one forced layout survives); batching to one read per frame (same).
+- **한 프레임 안에서 레이아웃을 읽지 않는다 — 주석이 아니라 스모크로** (user chose the guard over a note in
+  `scripts/README.md`). `scripts/smoke-layout-reads.mjs` patches every layout-forcing accessor on its prototype and
+  counts calls made **while `Engine.frame` is on the stack**, so a widget written next year is covered and a read from
+  a pointer handler or a resize is not. The bar is 0 and a failure prints file + function. It paid for itself
+  immediately: it failed on `hud/DamageOverlay` the first time it ran, which is what turned the fix into a 14-site
+  sweep of the `remove → void offsetWidth → add` animation idiom (`ui/dom.restartAnim`). *Rejected*: recording the
+  gap in `scripts/README.md` and moving on (the rule had lived in comments alone and was broken for a year).
+- **`ms` 는 여전히 근거가 아니다 — 세는 것으로 판정한다.** What actually cracked this phase was a counter, not a timer:
+  7 forced layouts in a 637-frame window, all in one file, all on one frame. The same method refuted the standing
+  NEW-2 hypothesis in passing (per-body text writes: **14 in 836 frames**; rendered boxes 1 085 → 1 116 when 60 bugs
+  arrive). *Rejected*: chasing S2's `l:hud` spike frames as a HUD problem — on those frames the render block and the
+  layout are both ~3× at once, which is a whole-frame stall; garbage (B6) is the honest next suspect and S2 allocates
+  the most of any scenario.
+- **What is knowingly left**: `#ui-root` lays out 1 085 boxes during a raid, including a ship-only screen
+  (`hud/ShipManage`, `visibility: hidden`) and four faded-out `.menu` screens. Taking them out of layout is a real cut
+  of a deterministic counter, but no frame-time effect can be demonstrated at this machine's noise floor, so it is
+  recorded rather than built.

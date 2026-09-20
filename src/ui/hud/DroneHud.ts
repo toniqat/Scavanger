@@ -4,7 +4,7 @@ import {
   DRONE_SCAN_RANGE,
   Keys, createKeycap, onKeybindsChanged, paintKeycap,
 } from '@/shared';
-import { el, setText, toggleClass, clamp01 } from '../dom';
+import { clamp01, el, restartAnim, setText, toggleClass } from '../dom';
 /* appended (2026-09-12): world labels for drone scan results — this widget holds them and projects in `lateUpdate` */
 import { DroneScanLabels } from './DroneScanLabels';
 import '../styles/drone.css';
@@ -375,9 +375,7 @@ export class DroneHud {
   }
 
   private flashHit(): void {
-    this.hpRoot.classList.remove('hit');
-    void this.hpRoot.offsetWidth; // restart the animation
-    this.hpRoot.classList.add('hit');
+    restartAnim(this.hpRoot, 'hit');
     toggleClass(this.view, 'hit', true);
     this.hitT = HIT_FLASH_S;
   }
@@ -463,9 +461,7 @@ export class DroneHud {
     const text = reason ? ALERT_TEXT[reason] : undefined;
     if (!text) return; // manual · reset = silently
     setText(this.alertEl, text);
-    this.alertEl.classList.remove('show');
-    void this.alertEl.offsetWidth; // restart the animation
-    this.alertEl.classList.add('show');
+    restartAnim(this.alertEl, 'show');
     this.alertT = ALERT_S;
     if (reason === 'range') this.burst(BURST_RANGE_S, 1);
   }

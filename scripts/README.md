@@ -80,6 +80,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-ladder.mjs` | player, net | Ladder grab/climb/leave, step smoothing, world ceiling clamp, remote `CLIMBING` |
 | `smoke-library.mjs` | housing, items, hub, inventory | Library series share formula, one-per-kind shelving, storages, game-disc stand |
 | `smoke-library-consumers.mjs` | inventory, meta, game, console, ui | "Not shelved" band, library effects at consumers, item aliases (uses `window.__imp`) |
+| `smoke-layout-reads.mjs` | ui | **No layout read inside a frame** (CLAUDE.md §4.2), as a count: every layout-forcing accessor (`offsetWidth` · `scrollHeight` · `getBoundingClientRect` · `getComputedStyle` …) is patched on its prototype and counted **only while `Engine.frame` is on the stack**, so a new widget is covered the day it is written and a read from a pointer handler or a resize is not. Ship frames · a 60-bug raid · and the chat / ping / notify / damage / hit-marker / animation-restart events fired **from inside a frame**; the bar is 0 and a failure names the file and function. `hud/ChatLog` broke the rule per chat line for a year (`docs/PERF_PLAN.md` Phase B) |
 | `smoke-lights.mjs` | extraction, player, game, hub, world, core | Visible point-light count never changes across a full session; budget, prebuilt arrival ship |
 | `smoke-loadout.mjs` | inventory | Loadout persistence, corp-shop access methods, container events |
 | `smoke-map-quests.mjs` | ui, meta | Map quest panels, legend placement, quest toasts |

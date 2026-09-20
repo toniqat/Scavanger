@@ -65,7 +65,9 @@ export class ScanReveal {
       b.on('scan:cast', ({ targets, duration }) => this.add(targets, duration)),
       b.on('detect:clear', () => this.clear()),
       b.on('game:abort', () => this.teardown()),
-      b.on('game:newMission', () => this.teardown()),
+      // `world:ready`, not `game:newMission`, and the pool is built here instead of on the first reveal — the reason
+      // is the same as `hud/Detection`'s (ordering gotcha + `docs/PERF_PLAN.md` Phase B); read it there.
+      b.on('world:ready', () => { this.teardown(); this.ensureScene(); }),
       b.on('player:died', () => this.clear()),
     );
   }

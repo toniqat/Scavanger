@@ -4,7 +4,7 @@ import {
   ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT, UI_HOLD_CONFIRM_S, purposeGeneratorLevel,
   WORKBENCH_ICON, buildFacilityChip, buildItemChip, createHoldButtonCap, isCockpitOnlyFurniture, isUtilityFurniture, slotKey,
 } from '@/shared';
-import { el, setText, toggleClass } from '../dom';
+import { el, restartAnim, setText, toggleClass } from '../dom';
 /* 2026-09-14 (user's decision): the hover card of a 필요 아이템 row goes to the top-left of the cursor — the source of that opt-in attribute is `ItemTip` alone. */
 import { TIP_ANCHOR_ATTR } from './ItemTip';
 
@@ -885,7 +885,7 @@ export class ShipManage {
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
       this.ctx.bus.emit('ui:notify', { text: blocked, kind: 'warning' });
       const row = this.purposesEl.querySelector<HTMLElement>(`.sm-purpose[data-purpose="${purpose}"]`);
-      if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
+      if (row) restartAnim(row, 'flash');
       return;
     }
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
@@ -1155,7 +1155,7 @@ export class ShipManage {
     if (!this.active) return;
     setText(this.toastEl, text);
     this.toastEl.hidden = false;
-    this.toastEl.classList.remove('flash'); void this.toastEl.offsetWidth; this.toastEl.classList.add('flash');
+    restartAnim(this.toastEl, 'flash');
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => this.hideToast(), TOAST_MS);
   }

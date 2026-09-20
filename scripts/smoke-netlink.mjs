@@ -3,8 +3,8 @@
 // `ctx.net.link` 를 실제 소켓으로 끝까지 몬다. 설정 오버라이드(`localStorage['scav.relay']`)를 **죽은 포트**로 두고 시작해
 //   1. 타이틀: 아무도 접속을 시도하지 않았다 → `idle`, 배지 없음
 //   2. 함선 진입(`tryResume`) → `connecting` → 거절 → `unreachable` (6 s 안) · 배지 `오프라인 · 서버 찾는 중 (n초 뒤)`
-//   3. 접속 타임아웃: 받기만 하고 대답하지 않는 TCP 서버(8886) → `ensureConnected()` 가 `NET_CONNECT_TIMEOUT_MS` 로 끝난다
-//   4. 스모크가 그 포트(8885)에 릴레이를 직접 띄운다 → 백오프 안에 **익명** 프로브가 찾고 자동 접속 + `서버에 연결되었습니다`
+//   3. 접속 타임아웃: 받기만 하고 대답하지 않는 TCP 서버(9886) → `ensureConnected()` 가 `NET_CONNECT_TIMEOUT_MS` 로 끝난다
+//   4. 스모크가 그 포트(9885)에 릴레이를 직접 띄운다 → 백오프 안에 **익명** 프로브가 찾고 자동 접속 + `서버에 연결되었습니다`
 //   5. 릴레이를 죽인다 → `reconnecting` + `서버 연결이 끊겼습니다 — 다시 찾는 중` → 로비 없는 재접속 포기가 조용하지 않고
 //      `unreachable` 로 넘어간다 → 다시 띄우면 `서버에 다시 연결되었습니다`
 //   6. 레이드 중에는 찾아도 **접속하지 않고** `found: true` 만 (배지도 숨김) → 함선으로 돌아오면 그때 접속
@@ -14,7 +14,10 @@
 //   9. 데스크톱 셸 흉내(`window.__scavDesktop` + `/__scav/relay` 응답 가짜): 셸의 목표(이 PC 의 start-server.bat 서버)도
 //      프로브한다 — 2026-09-15 빌드에서 서버를 뺐으므로 옛 `embedded: true` 응답도 더 이상 프로브를 끄지 않는다
 //
-// 릴레이 포트는 **8885**(죽은 포트 → 스모크가 띄우는 릴레이), 8886(대답 없는 TCP) — 공용 릴레이(8787)는 건드리지 않는다.
+// 릴레이 포트는 **9885**(죽은 포트 → 스모크가 띄우는 릴레이), 9886(대답 없는 TCP) — 공용 릴레이(8787)는 건드리지 않는다.
+// ⚠ 2026-09-20: 원래 8885 · 8886 이었는데 이 개발 PC 의 WinNAT 이 **8800–8899** 를 통째로 예약해 bind 가 EACCES 로 죽고,
+// 스모크가 「포트가 비어 있어야 한다」로 오진단해 항상 실패했다 (`netsh interface ipv4 show excludedportrange protocol=tcp`).
+// 9885 · 9886 은 그 범위 밖이고 다른 스모크 어느 것도 안 쓴다. 다른 기계에서 또 막히면 예약 범위부터 확인할 것.
 // Usage: node scripts/smoke-netlink.mjs [http://localhost:5273]   (needs a running vite; the relay it needs it starts itself)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -28,8 +31,8 @@ import { fileURLToPath } from 'node:url';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const RELAY_PORT = 8885;
-const HANG_PORT = 8886;
+const RELAY_PORT = 9885;
+const HANG_PORT = 9886;
 const RELAY_URL = `ws://127.0.0.1:${RELAY_PORT}/ws`;
 const HANG_URL = `ws://127.0.0.1:${HANG_PORT}/ws`;
 const CHROME = [

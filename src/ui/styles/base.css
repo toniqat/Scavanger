@@ -1143,15 +1143,28 @@ input { font: inherit; color: inherit; }
   width: 100%;
   display: flex; flex-direction: column; gap: 6px;
 }
-/* Closed: exactly 3.5 line pitches (`--chat-closed-h` is measured from a real line by hud/ChatLog; the fallback is
-   12px × 1.35 × 3.5 + 3 gaps). The fourth-oldest visible line is cut in half at the top, under the fade mask. */
+/* Closed: exactly 3.5 line pitches — 3 full lines + 3 gaps + the fourth cut in half at the top, under the fade mask.
+   Until 2026-09-20 hud/ChatLog measured a real line for this and wrote `--chat-closed-h`; a line pitch is
+   `font-size × line-height` and both are numbers this file owns, so it is arithmetic and `calc()` does it. (The
+   measurement was also wrong on a wrapped line — a two-row line made the closed box 3.5 × *that*.)
+
+   **The scroller pins its own bottom** (PERF_PLAN Phase B): it is `column-reverse` with exactly one child, so its
+   flex-start edge — and therefore its scroll origin — is the **bottom**, and a taller `.chat-lines-inner` overflows
+   upward with the newest line still in view. That survives open / close, a font swap and a resize, which is what
+   `ChatLog.stick()`'s `scrollTop = scrollHeight` used to do from inside the frame at the cost of a full UI layout.
+   The reversal lives here and not in the DOM on purpose: `.chat-line` elements stay in oldest→newest document
+   order, which is what `history()`, the smokes and anyone reading `querySelectorAll('.chat-line')` expect. */
 .chat-lines {
-  display: flex; flex-direction: column; gap: 2px;
-  max-height: var(--chat-closed-h, 62.7px); overflow-y: auto;
+  --chat-fs: 12px;
+  --chat-lh: 1.35;
+  --chat-gap: 2px;
+  display: flex; flex-direction: column-reverse;
+  max-height: calc(3.5 * var(--chat-fs) * var(--chat-lh) + 3 * var(--chat-gap)); overflow-y: auto;
   scrollbar-width: none;
   -webkit-mask-image: linear-gradient(180deg, transparent, #000 14px);
   mask-image: linear-gradient(180deg, transparent, #000 14px);
 }
+.chat-lines-inner { display: flex; flex-direction: column; gap: var(--chat-gap); }
 .chat-lines::-webkit-scrollbar { display: none; }
 /* 2026-09-09: the closed log showed a scrollbar anyway. The global `#ui-root *` scroller rule (above) sets
    `scrollbar-width: thin` at id specificity, which beats the class rule's `none` — and once `scrollbar-width` is not
@@ -1163,7 +1176,8 @@ input { font: inherit; color: inherit; }
 .chat.open .chat-lines::-webkit-scrollbar-thumb { background: var(--sb-thumb); }
 .chat-line {
   display: flex; gap: 6px; align-items: baseline;
-  font-size: 12px; line-height: 1.35;
+  /* the closed `max-height` above is computed from these two — change them there, not here */
+  font-size: var(--chat-fs, 12px); line-height: var(--chat-lh, 1.35);
   color: var(--c-text);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.6);
   transition: opacity 600ms var(--ease);

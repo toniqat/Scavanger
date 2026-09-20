@@ -1,6 +1,6 @@
 import type { GameContext } from '@/shared';
 import { ROOM_PURPOSE_LABEL_KO } from '@/shared';
-import { el, setText, toggleClass } from '../dom';
+import { el, restartAnim, setText, toggleClass } from '../dom';
 
 /** How long the label stays fully visible after entering a room (s, simulation time) before the CSS fade. */
 const HOLD_TIME = 1.5;
@@ -33,9 +33,7 @@ export class RoomLabel {
         setText(this.purposeEl, purpose ? (ROOM_PURPOSE_LABEL_KO[purpose] ?? purpose) : ROOM_PURPOSE_LABEL_KO.empty);
         this.hideAt = ctx.time + HOLD_TIME;
         // Re-trigger the slide-in when the label is already up.
-        this.root.classList.remove('show');
-        void this.root.offsetWidth;
-        this.root.classList.add('show');
+        restartAnim(this.root, 'show');
       }),
       b.on('game:newMission', () => this.hide()),
       b.on('game:abort', () => this.hide()),

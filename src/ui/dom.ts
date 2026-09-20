@@ -31,6 +31,24 @@ export function setVisible(e: HTMLElement, visible: boolean, hiddenClass = 'hidd
   toggleClass(e, hiddenClass, !visible);
 }
 
+/**
+ * **Replay `cls`'s CSS animation from the start** (2026-09-20, `docs/PERF_PLAN.md` Phase B).
+ *
+ * The idiom this replaces is `classList.remove(cls); void el.offsetWidth; classList.add(cls);` — a remove and an add
+ * inside one task cancel out, so the animation does not restart, and the `offsetWidth` read in the middle exists
+ * purely to make the browser commit the removal. That read is a **forced synchronous layout of the whole UI**, and
+ * on a path that runs inside `Engine.frame` (a hit marker, a damage flash, a magazine tick) it lands right after
+ * `HudSystem.update` has dirtied the HUD, where it costs milliseconds. CLAUDE.md §4.2: no layout read inside a frame.
+ *
+ * `getAnimations()` needs up-to-date **style**, not layout, and rewinding a running animation restarts it with no DOM
+ * churn at all. The first play needs neither: adding the class starts the animation by itself.
+ * `scripts/smoke-layout-reads.mjs` fails the build if the old idiom comes back.
+ */
+export function restartAnim(e: HTMLElement, cls: string): void {
+  if (!e.classList.contains(cls)) { e.classList.add(cls); return; }
+  for (const a of e.getAnimations()) a.currentTime = 0;
+}
+
 /** MM:SS */
 export function fmtTime(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/shared';
-import { el, setText, toggleClass } from '../dom';
+import { el, restartAnim, setText, toggleClass } from '../dom';
 import '../styles/named.css';
 import { hudViewport } from './viewport';
 
@@ -120,9 +120,7 @@ export class NamedScanWarning {
     this.total = t;
     this.drawBanner();
     if (rose && c > 0) {
-      toggleClass(this.pipsEl, 'bump', false);
-      void this.pipsEl.offsetWidth;   // restart the animation
-      toggleClass(this.pipsEl, 'bump', true);
+      restartAnim(this.pipsEl, 'bump');
     }
   }
 
@@ -147,9 +145,7 @@ export class NamedScanWarning {
   }
 
   private sweepOnce(): void {
-    toggleClass(this.sweep, 'go', false);
-    void this.sweep.offsetWidth;   // the same animation again from the start
-    toggleClass(this.sweep, 'go', true);
+    restartAnim(this.sweep, 'go');
   }
 
   /* ── Scope glint ────────────────────────────────────────────────────────── */

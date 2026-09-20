@@ -280,7 +280,7 @@ const SMOKES = {
      hit 요청 DPS 상한을 잰다. 공용 릴레이를 쓰지만 자기 로비라 exclusive 가 아니다. */
   'smoke-trust':        { file: 'scripts/smoke-trust.mjs',        folders: ['stratagems', 'weapons', 'implants', 'gadgets', 'meta', 'enemies'] },
   /* 2026-09-11 (B-1): 링크 상태 · 익명 배경 프로브 · 연결 배지 · 거절 뒤 프로브 없음 · 셸 목표도 프로브(2026-09-15). 공용 릴레이(8787)는
-     쓰지 않고 8885(스스로 띄우고 죽이는 릴레이) · 8886(대답 없는 TCP)을 쓴다 — 그래서 exclusive 가 아니다. */
+     쓰지 않고 9885(스스로 띄우고 죽이는 릴레이) · 9886(대답 없는 TCP)을 쓴다 — 그래서 exclusive 가 아니다. */
   'smoke-netlink':      { file: 'scripts/smoke-netlink.mjs',      folders: ['net', 'ui', 'hub'] },
   /* 2026-09-11 (E-3): 데스크톱 셸을 **진짜 Electron** 으로 (`--hidden --user-data=<임시>`, 창 8820 · 두 번째 창 8822 ·
      스모크 릴레이 8823 · 디버깅 9340 · 메인 인스펙터 9341; 2026-09-15 셸에 서버가 없다 — 번들 · asar · 포트로 확인).
@@ -297,6 +297,11 @@ const SMOKES = {
      봇이 사람 행으로 안 그려진다) · 이름표 · 나침반 눈금 · 지도 범례 · `ally:ping` 마커 / 콜아웃 / `ping:placedV3` ·
      `ally:chat` 이 relay 되지 않음 · 토스트 7종 · 로딩 게이지(암전 위 · squad 진행도 · dt 0 에서도 돈다 · 사라짐). */
   'smoke-ally-ui':      { file: 'scripts/smoke-ally-ui.mjs',      folders: ['ui', 'allies'] },
+  /* 2026-09-20 (PERF_PLAN Phase B): 「프레임 안에서 레이아웃을 읽지 않는다」(CLAUDE.md §4.2) 를 **세어서** 막는다 —
+     레이아웃을 강제하는 접근자를 전부 패치해 `Engine.frame` 안에서 불린 횟수를 세고, 0 이 아니면 파일 · 함수를 찍고
+     실패한다. 함선 프레임 · 벌레 60 마리 레이드 프레임 · 그리고 프레임 **안에서** 쏜 채팅/핑/알림/피해/히트마커/
+     애니메이션 재시작. `hud/ChatLog` 가 줄마다 8.3 ms 짜리 강제 레이아웃을 내던 것이 이 스모크가 없어서 남아 있었다. */
+  'smoke-layout-reads': { file: 'scripts/smoke-layout-reads.mjs', folders: ['ui'] },
   'smoke-desktop':      { file: 'scripts/smoke-desktop.mjs',      folders: [], standalone: true, exclusive: true },
   'e2e-mp':             { file: 'scripts/e2e-multiplayer.mjs',    folders: ['net', 'server', 'game', 'extraction', 'hub', 'pickups', 'player', 'enemies'], exclusive: true, freshRelay: true },
 };

@@ -10,7 +10,7 @@ import { WEAPON_CLASS_LABEL_KO, weaponClassOf } from '@/items';
 export function weaponTypeLabel(def: WeaponDef): string {
   return def.unique ? UNIQUE_WEAPON_LABEL_KO[def.unique] : WEAPON_CLASS_LABEL_KO[weaponClassOf(def)];
 }
-import { el, setText, toggleClass } from '../dom';
+import { el, restartAnim, setText, toggleClass } from '../dom';
 import '../styles/raidHud.css';
 
 /** Durability ratio at/below which the bar turns amber (`.worn`). */
@@ -174,9 +174,7 @@ export class WeaponPanel {
       }),
       // 2026-09-10: the swap timer is the crosshair ring (`hud/ReloadGauge`), and the new weapon's thumbnail · ammo are swapped in by the `weapon:equipped` that follows.
       b.on('weapon:dryFire', () => {
-        this.magEl.classList.remove('flash');
-        void this.magEl.offsetWidth;
-        this.magEl.classList.add('flash');
+        restartAnim(this.magEl, 'flash');
       }),
       b.on('loadout:changed', ({ primary, primary2 }) => {
         this.loadout.primary = primary;
@@ -368,9 +366,7 @@ export class WeaponPanel {
     toggleClass(this.duraEl, 'broken', broken);
     toggleClass(this.root, 'broken', broken);
     if (flash) {
-      this.root.classList.remove('broken-flash');
-      void this.root.offsetWidth;
-      this.root.classList.add('broken-flash');
+      restartAnim(this.root, 'broken-flash');
     }
   }
 

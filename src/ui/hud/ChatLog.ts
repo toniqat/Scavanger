@@ -12,8 +12,6 @@ const FADE_CHECK = 0.25;      // seconds between fade sweeps
 const MAX_TEXT = SOCIAL_WHISPER_MAX;
 /** `/r <텍스트>` — reply to the last 개인 대화 partner. `/ㄱ` is the same keys on a Korean layout. */
 const REPLY_RE = /^\/[rRㄱ](?:\s+([\s\S]*))?$/;
-/** Closed-state log height in line pitches: three full lines + the fourth cut in half at the top (2026-09-09). */
-const CLOSED_LINES = 3.5;
 
 interface Line { el: HTMLElement; time: number; faded: boolean }
 
@@ -34,9 +32,9 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  *     the target first, exactly as before. A `.chat-hint` chip (`<Tab 키캡> 키로 닫기`, live `keyLabel`) sits flush
  *     right of the single-line input; the input is `flex:1; min-width:0` so long text scrolls inside it and never
  *     runs under the hint.
- *   • **Closed state shows 3.5 lines**: the log's closed `max-height` is measured from a real line
- *     (`--chat-closed-h` = 3.5 × line height + 3 gaps) so the fourth-oldest visible line is cut in half at the top
- *     under the fade mask. Open keeps its 300 px panel.
+ *   • **Closed state shows 3.5 lines**: the log's closed `max-height` is 3.5 × line pitch + 3 gaps, computed in CSS
+ *     from `--chat-fs` · `--chat-lh` · `--chat-gap` (`base.css`), so the fourth-oldest visible line is cut in half at
+ *     the top under the fade mask. Open keeps its 300 px panel.
  *   • **Korean IME Enter** (2026-09-09, later): the Enter that commits a composing syllable fires `keydown` with
  *     `isComposing` (legacy `keyCode 229`) *before* `compositionend`; sending on it cleared the field and the IME then
  *     re-inserted the last syllable on its own. The capture handler now ignores Enter / Esc while `e.isComposing`,
@@ -46,9 +44,21 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  *   • **Bottom-of-log bug**: the scroll container's height changes after `scrollTop` was set — `close()` shrinks it
  *     from 300 px back to the closed height (a scroll box keeps its `scrollTop`, not its bottom edge, when it shrinks,
  *     so the newest ~130 px slid out of view), and the web font swapping in after the first lines grew every line
- *     under a scroll position computed for the fallback font. `stick()` now re-pins the bottom synchronously **and**
- *     on the next frame, and is called on add / open / close / `document.fonts.ready` / container resize
- *     (`ResizeObserver`).
+ *     under a scroll position computed for the fallback font. Both were re-pinned by a `stick()` that wrote
+ *     `scrollTop = scrollHeight`; **since 2026-09-20 the box pins itself** — see `.chat-lines` below.
+ *
+ * **2026-09-20 (`docs/PERF_PLAN.md` Phase B) — this widget reads no layout, ever.** It used to force a full
+ * synchronous layout of the whole UI **per line**: `measure()` asked a fresh row for its
+ * `getBoundingClientRect().height` and `stick()` read `scrollHeight`, both from inside the frame, right after
+ * `HudSystem.update` had dirtied the HUD. Three android callouts landing in one frame cost **8.3 ms** of that
+ * frame — the largest one-off the perf plan found, and a breach of CLAUDE.md §4.2 「no layout read inside a frame」.
+ * Neither read is needed:
+ *   • the closed height is arithmetic on CSS numbers, so `base.css` computes it with `calc()`;
+ *   • the scroller `.chat-lines` is `column-reverse` around one `.chat-lines-inner`, so its scroll origin **is** the
+ *     bottom edge and the newest line stays in view by itself — through open / close, a font swap and a resize.
+ *     The reversal is CSS only: `.chat-line` elements keep their oldest→newest document order.
+ * A reader who has scrolled up now **stays** where they are when a line arrives (`stick` used to yank them down).
+ * Anything added here must keep the count at zero: `scripts/smoke-layout-reads.mjs` fails the build otherwise.
  *
  * Feeds: `chat:post` (own line, sent as `ChatMessage` to 'others' while in a lobby), `net:chat`, and system lines for
  * `net:peerJoined/peerLeft`, `pickup:taken` (remote), `hub:slotChanged`, `hub:launchCountdown`, and (Phase 7)
@@ -91,10 +101,6 @@ export class ChatLog {
   /** 2026-09-11 (B-4): my whisper rows still able to change state, by `line.nonce`. */
   private whisperRows = new Map<number, HTMLElement>();
   private unsubs: Array<() => void> = [];
-  /** Last measured line height (px) the closed `max-height` was derived from; 0 = not measured yet. */
-  private lineH = 0;
-  private stickRaf = 0;
-  private resizeObs: ResizeObserver | null = null;
 
   /** True between `compositionstart` and `compositionend` on the input (Korean IME assembling a syllable). */
   private composing = false;
@@ -143,7 +149,10 @@ export class ChatLog {
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'chat', parent });
-    this.list = el('div', { cls: 'chat-lines', parent: this.root });
+    // `.chat-lines` is the scroller (`column-reverse`, one child) and `.chat-lines-inner` holds the rows in normal
+    // order — see the 2026-09-20 note above and `base.css`.
+    const scroller = el('div', { cls: 'chat-lines', parent: this.root });
+    this.list = el('div', { cls: 'chat-lines-inner', parent: scroller });
     this.inputRow = el('div', { cls: 'chat-input-row', parent: this.root });
     this.inputRow.hidden = true;
     this.targetChip = el('span', { cls: 'chat-target', parent: this.inputRow });
@@ -177,19 +186,15 @@ export class ChatLog {
     });
     this.input.addEventListener('blur', () => { if (this._open) this.input.focus(); });
     this.root.addEventListener('wheel', (e) => { if (this._open) e.stopPropagation(); }, { passive: true });
-    // The scroll box changes height on open / close (and with the column's width): re-pin the newest line.
-    if (typeof ResizeObserver !== 'undefined') {
-      this.resizeObs = new ResizeObserver(() => this.stick());
-      this.resizeObs.observe(this.list);
-    }
-    // Web fonts arriving after the first lines change every line's height under an already-set scroll position.
-    document.fonts?.ready.then(() => { this.lineH = 0; this.measure(); this.stick(); });
+    // No `ResizeObserver` and no `document.fonts.ready` hook: both existed only to re-pin the newest line after the
+    // box changed height, and `column-reverse` pins it for free (the header's 2026-09-20 note).
   }
 
   get isOpen(): boolean { return this._open; }
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
+    this.warmUpSoon();
     const b = ctx.bus;
     this.unsubs.push(
       b.on('input:bindingsChanged', () => paintKeycap(this.closeKey, Keys.INVENTORY)),
@@ -307,7 +312,6 @@ export class ChatLog {
     const st = whisperStateText(line);
     if (tag) { setText(tag, st); tag.hidden = !st; }
     if (line.state !== 'pending') { this.whisperRows.delete(line.nonce); delete row.dataset.nonce; }
-    this.stick();
   }
 
   /** B-4: whether squad-mate `id`'s 아이디 is on my 차단 목록 (shared with `hud/TypingBubbles` — `socialSource`). */
@@ -344,6 +348,34 @@ export class ChatLog {
     return net?.getLobbyPlayer(id)?.name ?? net?.getRemotePlayer(id)?.name ?? '분대원';
   }
 
+  /**
+   * **Pay a chat row's first layout at boot** (2026-09-20, `docs/PERF_PLAN.md` Phase B).
+   *
+   * Removing the per-line `getBoundingClientRect` was only half of it: the browser still lays the row out once, and
+   * the *first* row of the page costs far more than the rest — the `.chat-line` rules have never been matched, and
+   * the Korean glyphs have never been shaped. Measured on the reference machine: three rows in one frame cost
+   * **5.3 ms** of layout the first time and **0.5 ms** every time after. In the android first-contact frame that one
+   * lump was most of the lost frame.
+   *
+   * So one throwaway row is drawn and removed on a timer right after `bind` — **outside `Engine.frame`** (the title
+   * screen is up, nothing is waiting on it), which is both why it is free and why it does not trip
+   * `scripts/smoke-layout-reads.mjs`. It must stay off the frame: moving this read into a `world:ready` handler
+   * would put a forced layout back inside a frame.
+   *
+   * The row carries the classes and the text shape a real line has (`ping` + `ally` are the callout's), so what gets
+   * resolved here is what an android callout needs. Nothing else in the widget knows about it.
+   */
+  private warmUpSoon(): void {
+    window.setTimeout(() => {
+      const row = el('div', { cls: 'chat-line ping ally', parent: this.list });
+      el('span', { cls: 'ts ui-mono', text: '[00:00]', parent: row });
+      el('span', { cls: 'who', text: '안드로이드:', parent: row });
+      el('span', { cls: 'txt', text: '적 발견', parent: row });
+      void row.offsetHeight;      // the one layout this costs, paid here instead of mid-fight
+      row.remove();
+    }, 0);
+  }
+
   private add(id: PeerId | null, name: string, text: string, kind: ChatKind, local: boolean, mod = ''): HTMLElement {
     const d = new Date();
     const hh = d.getHours().toString().padStart(2, '0'), mm = d.getMinutes().toString().padStart(2, '0');
@@ -358,37 +390,8 @@ export class ChatLog {
       if (old.el.dataset.nonce) this.whisperRows.delete(Number(old.el.dataset.nonce));
       old.el.remove();
     }
-    this.measure(line);
-    this.stick();
     this.ctx.bus.emit('chat:message', { id, name, text, kind, local });
     return line;
-  }
-
-  /**
-   * Derive the closed `max-height` (`--chat-closed-h` on `.chat`) from a real line so it is exactly `CLOSED_LINES`
-   * pitches whatever the font metrics: 3 full lines + 3 gaps + half a line. Re-measured only when the line height
-   * actually changes (first line, font swap).
-   */
-  private measure(line: HTMLElement | null = this.lines[this.lines.length - 1]?.el ?? null): void {
-    if (!line) return;
-    const h = line.getBoundingClientRect().height;
-    if (!(h > 0) || Math.abs(h - this.lineH) < 0.01) return;
-    this.lineH = h;
-    const gap = parseFloat(getComputedStyle(this.list).rowGap) || 0;
-    const full = Math.floor(CLOSED_LINES);
-    const px = full * h + full * gap + (CLOSED_LINES - full) * h;
-    this.root.style.setProperty('--chat-closed-h', `${px.toFixed(2)}px`);
-  }
-
-  /** Pin the newest line to the bottom edge — now, and again after the next layout. */
-  private stick(): void {
-    const list = this.list;
-    list.scrollTop = list.scrollHeight;
-    if (this.stickRaf) return;
-    this.stickRaf = requestAnimationFrame(() => {
-      this.stickRaf = 0;
-      list.scrollTop = list.scrollHeight;
-    });
   }
 
   /* ── input ─────────────────────────────────────────────────────────────── */
@@ -407,7 +410,6 @@ export class ChatLog {
     this.composing = false;
     this.sendAfterCompose = false;
     this.input.focus();
-    this.stick();
     ctx.bus.emit('ui:chatToggled', { open: true });
   }
 
@@ -428,8 +430,6 @@ export class ChatLog {
     const now = performance.now() / 1000;
     for (const l of this.lines) l.time = Math.max(l.time, now - LINE_FADE_AFTER + 3);
     this.acc = FADE_CHECK;
-    // The box just shrank back to the closed height — a scroll container keeps its scrollTop, not its bottom edge.
-    this.stick();
     ctx.bus.emit('ui:chatToggled', { open: false });
   }
 
@@ -474,8 +474,6 @@ export class ChatLog {
   dispose(): void {
     for (const u of this.unsubs) u();
     window.removeEventListener('keydown', this.keyHandler, true);
-    this.resizeObs?.disconnect();
-    if (this.stickRaf) cancelAnimationFrame(this.stickRaf);
     if (this._open) { this._open = false; this.ctx?.uiBlockers.delete(BLOCKER); this.ctx?.input.setCursorMode(false, BLOCKER); }
     this.root.remove();
   }
