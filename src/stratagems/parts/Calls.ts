@@ -1,8 +1,9 @@
 /**
- * src/stratagems/parts/Calls.ts — **호출된 함선 지원이 실제로 하는 일**.
+ * src/stratagems/parts/Calls.ts — **what a called ship call actually does**.
  *
- * 궤도 레이저(10초 지속 피해) · 항공 폭탄 · 보급품 상자(티어 5) · 파괴 가능 엄폐 구조물(트라이포드). 구조선은 `parts/Rescue`.
- * 시각 효과는 전부 절차 생성이고 조명은 쓰지 않는다.
+ * Orbital laser (10 s of sustained damage) · airstrike · supply crate (tier 5) · destructible cover structures
+ * (tripods). The rescue drop is `parts/Rescue`.
+ * Every visual effect is procedural and no lights are used.
  */
 import * as THREE from 'three';
 import {
@@ -26,9 +27,10 @@ import type { StratagemSystem } from '../StratagemSystem';
 import type { PlayerDamageSource } from '@/shared';
 
 /**
- * 2026-09-15 (결과 창 개편): 함선 호출 착탄(궤도 레이저 · 항공 폭탄 · 보급품 · 트라이포드 낙하)이 로컬 플레이어에게 준 피해의
- * 출처. 계약(`DamageCauseKind`)이 「함선 호출 낙하물」을 `explosion` 으로 적어 두었으므로 부른 사람이 나든 분대원이든 같다 —
- * 결과 창의 원인은 「누가 불렀나」가 아니라 「무엇에 맞았나」다.
+ * 2026-09-15 (the results screen rework): the source of the damage a ship-call impact (orbital laser · airstrike ·
+ * supply · tripod landing) did to the local player. The contract (`DamageCauseKind`) writes 「a ship call's falling
+ * object」 down as `explosion`, so it is the same whether I or a squadmate called it — the results screen's cause
+ * is not 「who called it」 but 「what hit me」.
  */
 const STRATAGEM_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'explosion' });
 
@@ -67,7 +69,8 @@ export function ended(sys: StratagemSystem, call: Call): void {
 
 /**
  * Radial damage of an impact: enemies only on the caller's client, the local player everywhere.
- * 2026-09-15 (사용자 결정): 감쇠는 공용 2단 계단 (`shared/explosion`) — 예전에는 `1 − d / radius` 선형이었다.
+ * 2026-09-15 (user's decision): the falloff is the shared two-step stair (`shared/explosion`) — it used to be the
+ * linear `1 − d / radius`.
  */
 export function impactDamage(sys: StratagemSystem, call: Call, center: THREE.Vector3, radius: number, damage: number): void {
   const ctx = sys.ctx;
@@ -77,7 +80,7 @@ export function impactDamage(sys: StratagemSystem, call: Call, center: THREE.Vec
   if (p && !p.isDead) {
     _a.copy(p.position); _a.y += 0.9;
     const d = _a.distanceTo(center);
-    // 2026-09-18 (사용자 결정): 지붕 · 벽 너머의 낙하 충격은 맞지 않는다 (몸 3점)
+    // 2026-09-18 (user's decision): the falling impact does not land beyond a roof · wall (the three body points)
     if (d < radius && blastReachesBody(ctx.world, center, p.position.x, p.position.y, p.position.z, PLAYER_HEIGHT)) {
       const dmg = explosionDamage(damage, d, radius);
       if (dmg > 1) p.takeDamage(dmg, center.clone(), STRATAGEM_DAMAGE_SOURCE);
@@ -115,7 +118,7 @@ export function updateCalls(sys: StratagemSystem, dt: number): void {
       case 'airstrike': sys.updateAirstrike(c, t); break;
       case 'supply_drop': sys.updateSupply(c, t); break;
       case 'structure_drop': sys.updateStructures(c, t); break;
-      /* 2026-09-09: 구조선 — 포드 메시는 player/ 가 그리므로 여기서는 마커 · 착륙 FX · 이벤트만 */
+      /* 2026-09-09: the rescue drop — player/ draws the pod mesh, so here only the marker · landing FX · events */
       case 'rescue_drop': sys.updateRescue(c, t); break;
     }
   }
@@ -321,8 +324,9 @@ export function destroyStructure(sys: StratagemSystem, s: Structure): void {
   }
 
 /**
- * Radial damage to standing structures (grenades). 1.3 m = 구조물 몸 반지름 — 거리는 표면까지 잰다.
- * 2026-09-15 (사용자 결정): 감쇠는 공용 2단 계단 (`shared/explosion`).
+ * Radial damage to standing structures (grenades). 1.3 m = a structure's body radius — the distance is measured
+ * to the surface.
+ * 2026-09-15 (user's decision): the falloff is the shared two-step stair (`shared/explosion`).
  */
 export function splashStructures(sys: StratagemSystem, center: THREE.Vector3, radius: number, damage: number): void {
   for (const c of sys.calls) for (const s of c.structures) {
@@ -363,9 +367,9 @@ export function removeCall(sys: StratagemSystem, c: Call): void {
 export function clearAll(sys: StratagemSystem): void {
   sys.putAway();
   sys.gHeld = false;
-  // 2026-09-09: 분대 공용 구조선 횟수는 레이드마다 새로 채워진다
+  // 2026-09-09: the squad-wide rescue-drop count is refilled every raid
   Rescue.resetRescue(sys);
-  // 2026-09-11 (E-4): 호스트가 들고 있던 호출자별 쿨타임도 레이드마다 비운다
+  // 2026-09-11 (E-4): the per-caller cooldowns the host held are cleared every raid too
   sys.callerReadyAt.clear();
   for (let i = sys.calls.length - 1; i >= 0; i--) sys.removeCall(sys.calls[i]);
   for (const b of sys.bursts) { sys.group.remove(b.points); b.dispose(); }

@@ -1,8 +1,8 @@
 /**
- * src/stratagems/parts/Targeting.ts — **G 휠과 조준**.
+ * src/stratagems/parts/Targeting.ts — **the G wheel and targeting**.
  *
- * G 를 탭하면 바로, 홀드하면 4방향 휠에서 고른다. 고른 뒤에는 지면 링으로 조준하거나
- * 좌클릭 3초 충전으로 **상단 시점**에 들어가 지면 커서를 놓는다. 우클릭 / Esc 로 취소.
+ * A G tap arms straight away, a hold picks from the 4-way wheel. Once picked, aiming is either the ground ring
+ * or, after a 3 s left-click charge, the **top view** with a cursor on the ground. Right click / Esc cancels.
  */
 import * as THREE from 'three';
 import {
@@ -37,10 +37,11 @@ export function updateInput(sys: StratagemSystem, dt: number): void {
   }
 
   /*
-   * 2026-09-11 드론 조종: 입력은 드론 것이다 — G 를 무시하고, 열려 있던 휠 · 충전 · 상단 시점은 닫는다 (무장한 호출은
-   * 그대로 둔다; 지면 링은 끈다). `canUseWeapons()` 도 false 라 아래 경로는 어차피 막히지만, 휠 열기는 그 전에 G 를 읽는다.
+   * 2026-09-11 drone control: the input belongs to the drone — G is ignored and an open wheel · charge · top view
+   * is closed (the armed call is left alone; the ground ring is turned off). `canUseWeapons()` is false too, so
+   * the paths below are blocked anyway, but opening the wheel reads G before that.
    */
-  // 2026-09-13: 탐사 차량 안(`roverRide`)도 같다 — 몸이 선체 안이라 호출할 수 없다
+  // 2026-09-13: inside the rover (`roverRide`) is the same — the body is inside the hull, so nothing can be called
   if (ctx.player?.droneControl || ctx.player?.roverRide) {
     if (sys.topview || sys.wheelOpen || sys.charge >= 0) sys.cancelTargeting();
     sys.setGroundTargeting(false);
@@ -65,9 +66,10 @@ export function updateInput(sys: StratagemSystem, dt: number): void {
       sys.gHoldT += dt;
       if (!sys.wheelOpen && sys.gHoldT >= STRATAGEM_WHEEL_HOLD && host.canUseWeapons()) {
         /*
-         * 2026-09-10 (사용자 결정): **쿨타임 중에는 휠이 아예 열리지 않는다.** 네 호출이 하나의 쿨타임을
-         * 공유하므로 열어 봐야 고를 수 있는 칸이 하나도 없다 — 거부음 + 토스트로 끝내고, 홀드를 여기서
-         * 끊어(`gHeld = false`) 손을 뗄 때 `arm` 이 같은 토스트를 한 번 더 띄우지 않게 한다.
+         * 2026-09-10 (user's decision): **the wheel does not open at all while the cooldown runs.** All four calls
+         * share the one cooldown, so opening it would show no armable sector — it ends with the deny sound + a
+         * toast, and the hold is cut here (`gHeld = false`) so `arm` does not raise the same toast again on
+         * release.
          */
         if (sys._cooldown > 0) { sys.gHeld = false; denyCooldown(sys); return; }
         sys.wheelOpen = true; sys.wheelDX = 0; sys.wheelDY = 0; sys.wheelHover = null;
@@ -89,8 +91,8 @@ export function updateInput(sys: StratagemSystem, dt: number): void {
 
   if (def.targeting === 'ground') {
     /*
-     * 2026-09-09 구조선: 지면 조준 **전에** 분대원 선택 화면이 먼저다. 그 화면은 blocker 를 들고 있으므로
-     * 보통은 여기까지 오지 않지만, 화면이 아직 뜨지 않은 프레임에도 링이 깜빡이지 않도록 못을 박아 둔다.
+     * 2026-09-09 rescue drop: the squadmate picker comes **before** ground targeting. That screen holds a blocker,
+     * so this normally never runs, but the pin is here so the ring cannot flicker on a frame where it is not up yet.
      */
     if (armed === 'rescue_drop' && sys._rescueTarget === null) {
       sys.setGroundTargeting(false);
@@ -143,7 +145,7 @@ export function closeWheel(sys: StratagemSystem, host: Host): void {
   sys.ctx.bus.emit('stratagem:wheelChanged', { open: false, hover: null });
   }
 
-/** 공유 쿨타임이 도는 동안의 거부 — 휠 열기와 무장이 같은 소리 · 같은 문구를 쓴다. */
+/** The refusal while the shared cooldown runs — opening the wheel and arming use the same sound · same text. */
 function denyCooldown(sys: StratagemSystem): void {
   sys.audio('ui_deny', undefined, 0.6);
   sys.ctx.bus.emit('ui:notify', { text: `함선 지원 재충전 중 (${Math.ceil(sys._cooldown)}초)`, kind: 'warning', duration: 1.5 });
@@ -151,7 +153,10 @@ function denyCooldown(sys: StratagemSystem): void {
 
 export function arm(sys: StratagemSystem, id: StratagemId): void {
   if (sys._cooldown > 0) { denyCooldown(sys); return; }
-  /* 2026-09-09: 호스트 전용 호출(궤도 폭격 · 항공 폭탄)과 구조선의 게이트 — 같은 규칙을 휠이 회색으로 그린다. */
+  /*
+   * 2026-09-09: the gate for the host-only calls (`궤도 폭격` · `항공 폭탄`) and for the rescue drop — the wheel
+   * greys out on the same rule.
+   */
   const blocked = Rescue.armBlockReason(sys, id);
   if (blocked) {
     sys.audio('ui_deny', undefined, 0.6);
@@ -296,8 +301,8 @@ export function confirm(sys: StratagemSystem, def: StratagemDef): void {
   sys._armed = null;
   sys.ctx.bus.emit('stratagem:armed', { id: null });
   /*
-   * 2026-09-09 구조선은 여기서 호출을 만들지 않는다 — 분대 공용 횟수를 든 **호스트**가 승인해야 하고,
-   * 그 `rescue grant` 가 돌아와야 비로소 호출이 선다 (싱글은 그 자리에서 자기가 승인한다).
+   * 2026-09-09: the rescue drop does not create the call here — the **host**, who holds the squad-wide count, has
+   * to grant it, and the call only stands once that `rescue grant` comes back (single-player grants it on the spot).
    */
   if (def.id === 'rescue_drop') {
     const who = sys._rescueTarget;
@@ -309,10 +314,11 @@ export function confirm(sys: StratagemSystem, def: StratagemDef): void {
   sys.audio('ui_click', undefined, 0.6);
   const net = sys.ctx.net;
   /*
-   * 2026-09-11 (E-4) **호스트 경유**: 분대원은 호출을 여기서 세우지 않고 `stratq call` 을 호스트에게 보낸다. 호스트가
-   * 종류 · 호스트 전용 · 호출자별 쿨타임 · 맵 안 · 사거리를 보고 `strat call {by}` 로 재방송하면, 그 메시지가 나에게도
-   * 돌아와(`by === 나` → `local`) 그때 호출이 선다 — 호출에는 원래 수 초의 `delay` 가 있어 한 홉은 느껴지지 않는다.
-   * 거절되면 아무 데서도 서지 않는다 (쿨타임은 이미 돌았다 — 잃어버린 프레임과 같다).
+   * 2026-09-11 (E-4) **relayed by the host**: a squadmate does not stand the call up here but sends `stratq call`
+   * to the host. The host checks kind · host-only · that caller's cooldown · inside the map · range and
+   * re-broadcasts `strat call {by}`; that message comes back to me too (`by === me` → `local`) and the call stands
+   * then — a call already carries a `delay` of several seconds, so the one hop is not felt. A refusal stands it up
+   * nowhere (the cooldown already started — the same as a lost frame).
    */
   if (sys.ctx.isMultiplayer && net && !net.isHost) {
     const callId = `${net.localId ?? 'sp'}-${++sys.seq}`;

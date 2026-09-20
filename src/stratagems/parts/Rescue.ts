@@ -1,16 +1,17 @@
 /**
- * src/stratagems/parts/Rescue.ts — **구조선 투하**: 죽은 분대원을 다시 세우는 함선 호출.
+ * src/stratagems/parts/Rescue.ts — **the rescue drop**: the ship call that stands a dead squadmate back up.
  *
- * 흐름은 다른 호출과 다르다. 무장하면 곧바로 지면 조준으로 가지 않고 **분대원 4칸 선택 화면**
- * (`ui/hud/RescuePicker`)이 먼저 뜬다 — 그 화면이 blocker 를 들고 있는 동안 조준은 멈춰 있고,
- * `rescue:selectTarget` 으로 대상이 정해지면 그때부터 평소의 지면 링이 돌아온다.
+ * Its flow differs from every other call. Arming does not go straight to ground targeting — the **four-cell
+ * squadmate picker** (`ui/hud/RescuePicker`) comes up first, and while that screen holds a blocker the targeting
+ * stands still; once `rescue:selectTarget` names a target the usual ground ring comes back.
  *
- * **잔여 횟수는 호스트가 들고 있다** (분대 공용 `RESCUE_DROPS_PER_RAID`회). 아무나 `rescue req` 를 보내고
- * 호스트가 `grant`(횟수 −1 + `world.scatterPoints` 로 착륙 지점 확정) 또는 `deny` 로 답한다. 차감은 **grant
- * 시점**이고 이후 무슨 일이 있어도 환불하지 않는다. 싱글 플레이는 자기가 호스트인 셈 치고 그대로 처리한다.
+ * **The host holds the count left** (squad-wide, `RESCUE_DROPS_PER_RAID` of them). Anyone sends `rescue req` and
+ * the host answers with `grant` (one charge spent + the landing point picked with `world.scatterPoints`) or
+ * `deny`. The charge goes at the **moment of the grant** and is never refunded afterwards, whatever happens.
+ * Single-player treats itself as the host and runs the same path.
  *
- * 여기서 **헬포드는 그리지 않는다**. 원격에서 보이는 강하 포드는 `player/` 가 `pod drop` 으로 그리는 것이
- * 유일한 원본이라, 이 파일은 표적 마커 · 이벤트(`rescue:called` / `rescue:landed`)까지만 낸다.
+ * **No hellpod is drawn here.** The drop pod seen remotely is drawn by `player/` from `pod drop` and that is the
+ * only source, so this file raises nothing past the target marker · the events (`rescue:called` / `rescue:landed`).
  */
 import * as THREE from 'three';
 import {
@@ -30,11 +31,12 @@ export function selfId(sys: StratagemSystem): string {
   return sys.ctx.net?.localId ?? SOLO_ID;
 }
 
-/* ─────────────────────────── 후보 목록 ─────────────────────────── */
+/* ─────────────────────────── candidates ─────────────────────────── */
 /**
- * 분대원 칸. 로비가 있으면 로비 멤버가 원본(이름 · 슬롯이 확실하다), 없으면 로컬 + 원격 참조.
- * 죽었는지는 `RemotePlayerRef.isDead && !isDowned` 로 보고, `ctx.corpses` 가 이미 있다면 그 시체를 보조 근거로
- * 쓴다 (`ctx.corpses` 는 다른 폴더가 게시하므로 없을 수 있다).
+ * The squadmate cells. With a lobby the lobby members are the source (name · slot are certain), without one the
+ * local player + the remote refs. Death is read from `RemotePlayerRef.isDead && !isDowned`, and a corpse already
+ * in `ctx.corpses` is used as a second piece of evidence (`ctx.corpses` is published by another folder, so it can
+ * be missing).
  */
 export function getRescueCandidates(sys: StratagemSystem): readonly RescueCandidate[] {
   const ctx = sys.ctx;
@@ -55,9 +57,11 @@ export function getRescueCandidates(sys: StratagemSystem): readonly RescueCandid
   const members = net?.lobby?.players ?? null;
   if (members && members.length > 0) {
     for (const m of members) {
-      // 2026-09-15 (사용자 결정): 안드로이드는 **구조 드롭 대상이 아니다** — 쓰러지면 사람이 일으키고, 죽으면 그걸로 끝이다
+      // 2026-09-15 (user's decision): an android is **never a rescue-drop target** — a person gets it up when it
+      //   goes down, and when it dies that is the end of it
       if (isBotPlayer(m)) continue;
-      // 2026-09-15 (타이틀 레이드 포기): **표류**한 분대원은 구조선으로 되살릴 수 없다 — 후보 목록에서 아예 빠진다 (사용자 결정)
+      // 2026-09-15 (abandoning the raid from the title): a **drifted** squadmate cannot be revived by a rescue
+      //   drop — they are left out of the candidate list entirely (user's decision)
       if (m.drifted) continue;
       if (m.id === me) { pushLocal(m.name || '나', m.slot); continue; }
       const ref = net?.getRemotePlayer(m.id) ?? null;
@@ -77,7 +81,7 @@ export function getRescueCandidates(sys: StratagemSystem): readonly RescueCandid
   return out;
 }
 
-/** 남은 횟수 > 0 이고 죽어 있는 분대원이 하나라도 있다. */
+/** The count left > 0 and at least one squadmate is dead. */
 export function rescueAvailable(sys: StratagemSystem): boolean {
   if (sys._rescueLeft <= 0) return false;
   for (const c of getRescueCandidates(sys)) if (c.selectable) return true;
@@ -85,8 +89,8 @@ export function rescueAvailable(sys: StratagemSystem): boolean {
 }
 
 /**
- * 무장 거부 사유 (없으면 null). 호스트 전용 호출과 구조선의 두 게이트를 한자리에 모았다 —
- * 휠에서 회색으로 그리는 판단과 실제 거부가 같은 규칙을 봐야 하기 때문이다.
+ * The arming refusal reason (null with none). The host-only gate and the rescue-drop gate are gathered in one
+ * place — because what the wheel greys out and what is actually refused have to read the same rule.
  */
 export function armBlockReason(sys: StratagemSystem, id: StratagemId): string | null {
   if (hostLocked(sys, id)) return '분대장만 쓸 수 있습니다';
@@ -97,7 +101,7 @@ export function armBlockReason(sys: StratagemSystem, id: StratagemId): string | 
   return null;
 }
 
-/** 멀티에서 호스트가 아닌데 호스트 전용 호출인가 (싱글 플레이는 항상 false). */
+/** A host-only call while not the host in multiplayer (always false in single-player). */
 export function hostLocked(sys: StratagemSystem, id: StratagemId): boolean {
   const ctx = sys.ctx;
   if (!ctx.isMultiplayer) return false;
@@ -106,8 +110,8 @@ export function hostLocked(sys: StratagemSystem, id: StratagemId): boolean {
   return STRATAGEM_HOST_ONLY.includes(id) && !net.isHost;
 }
 
-/* ─────────────────────────── 선택 ─────────────────────────── */
-/** `rescue:selectTarget` — 선택 화면이 고른 분대원 (null = 선택 해제 → 호출 자체를 내려놓는다). */
+/* ─────────────────────────── selection ─────────────────────────── */
+/** `rescue:selectTarget` — the squadmate the picker chose (null = cleared → the call itself is put away). */
 export function selectTarget(sys: StratagemSystem, peerId: string | null): void {
   if (sys._armed !== 'rescue_drop') { sys._rescueTarget = null; return; }
   if (peerId === null) { sys._rescueTarget = null; sys.disarm(); return; }
@@ -121,10 +125,11 @@ export function selectTarget(sys: StratagemSystem, peerId: string | null): void 
   sys.audio('ui_click', undefined, 0.6);
 }
 
-/* ─────────────────────────── 확정 → 요청 ─────────────────────────── */
+/* ─────────────────────────── confirm → request ─────────────────────────── */
 /**
- * 지면 조준이 끝난 뒤의 확정. 호스트(또는 싱글)면 그 자리에서 승인하고, 아니면 `rescue req` 를 호스트에게 보낸다.
- * 쿨다운은 다른 호출과 똑같이 여기서 시작한다 — 잔여 횟수만 호스트의 승인 시점에 깎인다.
+ * The confirm after ground targeting ends. The host (or single-player) grants it on the spot, anyone else sends
+ * `rescue req` to the host. The cooldown starts here exactly as for any other call — only the count left is taken
+ * at the host's grant.
  */
 export function confirmRescue(sys: StratagemSystem, target: string, position: THREE.Vector3): void {
   const ctx = sys.ctx;
@@ -135,13 +140,15 @@ export function confirmRescue(sys: StratagemSystem, target: string, position: TH
 }
 
 /**
- * 호스트 권한: 횟수를 깎고 착륙 지점을 확정한 뒤 모두에게 `rescue grant` 를 뿌린다.
- * 착륙 지점은 `world.scatterPoints` 로 뽑는다 — 그 함수가 아직 없는 트리에서는 지정 지점을 그대로 쓴다.
+ * Host authority: spends one charge, picks the landing point and broadcasts `rescue grant` to everyone.
+ * The landing point comes from `world.scatterPoints` — in a tree where that function does not exist yet the
+ * aimed point is used as it is.
  */
 export function grant(sys: StratagemSystem, target: string, position: THREE.Vector3, by: string): void {
   const ctx = sys.ctx;
   if (sys._rescueLeft <= 0) { deny(sys, by, 'empty'); return; }
-  // 2026-09-15 (사용자 결정): 안드로이드는 구조 드롭 대상이 아니다 — 후보 목록에도 없지만 위조된 요청까지 여기서 막는다
+  // 2026-09-15 (user's decision): an android is never a rescue-drop target — it is not in the candidate list
+  //   either, but a forged request is stopped here too
   if (isAndroidId(target)) { deny(sys, by, 'alive'); return; }
   const cand = getRescueCandidates(sys).find((c) => c.peerId === target);
   if (cand && !cand.selectable) { deny(sys, by, 'alive'); return; }
@@ -150,7 +157,8 @@ export function grant(sys: StratagemSystem, target: string, position: THREE.Vect
   const seed = (Math.random() * 0xffffffff) >>> 0;
   const pos = scatterOne(sys, position, seed);
   const callId = `${selfId(sys)}-r${++sys.seq}`;
-  // 2026-09-11 (E-4): 분대원의 구조선도 공유 쿨타임을 탄다 — 호스트가 그 사람의 다음 호출 시각을 적어 둔다
+  // 2026-09-11 (E-4): a squadmate's rescue drop rides the shared cooldown too — the host notes when that person
+  //   may call next
   if (ctx.isMultiplayer && ctx.net?.isHost && by !== selfId(sys)) sys.callerReadyAt.set(by as PeerId, wallSeconds() + def.cooldown);
   setRescueLeft(sys, sys._rescueLeft - 1, true);
   applyGrant(sys, callId, target, by, pos, def.delay);
@@ -160,7 +168,7 @@ export function grant(sys: StratagemSystem, target: string, position: THREE.Vect
   }
 }
 
-/** 포드가 서로 겹치지 않게 한 지점을 고른다 (`scatterPoints` 가 없으면 지정 지점 그대로). */
+/** Picks one point so the pods never overlap (without `scatterPoints`, the aimed point as it is). */
 function scatterOne(sys: StratagemSystem, center: THREE.Vector3, seed: number): THREE.Vector3 {
   const w = sys.world();
   if (w && typeof w.scatterPoints === 'function') {
@@ -174,7 +182,7 @@ function scatterOne(sys: StratagemSystem, center: THREE.Vector3, seed: number): 
   return p;
 }
 
-/** 호스트 → 요청자: 거절. 요청자가 우리 자신이면 그냥 알림만 띄운다. */
+/** Host → requester: the deny. When the requester is us, it only raises the notification. */
 export function deny(sys: StratagemSystem, to: string, reason: 'empty' | 'alive' | 'busy'): void {
   const ctx = sys.ctx;
   const net = ctx.net;
@@ -189,9 +197,10 @@ const DENY_KO: Readonly<Record<'empty' | 'alive' | 'busy', string>> = {
 };
 
 /**
- * 요청자에게 보이는 구조선 거절 (`empty` · `alive` — 이 둘은 `strat deny` 의 사유 목록에 없는 구조선만의 사정이라
- * 옛 `rescue deny` 와이어에 그대로 남아 있다). 2026-09-11 (E-8 c): 거절이면 **여기서도 쿨타임을 전액 환불한다** —
- * 확정 때 이미 돌아 버린 값이고, 호출이 아예 서지 않았다는 뜻은 `strat deny` 와 똑같다.
+ * The rescue-drop deny as the requester sees it (`empty` · `alive` — these two are rescue-drop-only circumstances
+ * missing from the `strat deny` reason list, so they stay on the old `rescue deny` wire). 2026-09-11 (E-8 c): a
+ * deny **refunds the cooldown in full here too** — it already started at the confirm, and "the call never stood
+ * at all" means exactly what it means for `strat deny`.
  */
 export function showDeny(sys: StratagemSystem, reason: 'empty' | 'alive' | 'busy'): void {
   sys.refundCooldown();
@@ -199,7 +208,7 @@ export function showDeny(sys: StratagemSystem, reason: 'empty' | 'alive' | 'busy
   sys.ctx.bus.emit('ui:notify', { text: DENY_KO[reason], kind: 'warning', duration: 2 });
 }
 
-/** 승인된 호출을 이 클라이언트에 세운다 (호스트 자신도 같은 경로를 탄다). */
+/** Stands the granted call up on this client (the host itself rides the same path). */
 export function applyGrant(sys: StratagemSystem, callId: string, target: string, by: string, pos: THREE.Vector3, eta: number): void {
   if (sys.byId.has(callId)) return;
   const local = by === selfId(sys);
@@ -210,12 +219,13 @@ export function applyGrant(sys: StratagemSystem, callId: string, target: string,
   sys.ctx.bus.emit('rescue:called', { callId, target, targetName: name, by, position: call.position, eta });
 }
 
-/* ─────────────────────────── 강하 ─────────────────────────── */
+/* ─────────────────────────── the drop ─────────────────────────── */
 /**
- * 착륙 한 프레임. 포드 메시는 없다 (player/ 가 그린다) — 마커를 걷고 `rescue:landed` 를 낸다. 부활 자체는 그 이벤트를
- * 듣는 쪽(player / game)이 한다.
- * 2026-09-17: 여기서 먼지 · 흔들림 · 폭발음을 내지 않는다 — 이 순간부터 부활자의 헬포드가 떨어지기 시작하므로, 빈 자리에서 한 번
- *   「쾅」 하고 포드가 닿을 때 또 「쾅」 하던 이중 충격이었다. 착지 연출은 헬포드(`player/Hellpod` · `RemotePods`)의 것 하나뿐이다.
+ * The one landing frame. There is no pod mesh (player/ draws it) — it takes the marker down and raises
+ * `rescue:landed`. The revival itself is done by whoever listens to that event (player / game).
+ * 2026-09-17: no dust · shake · explosion sound here — the revived player's hellpod starts falling from this
+ *   moment, so it was a double impact: one 「bang」 over an empty spot and another when the pod touched down.
+ *   The landing FX is the hellpod's alone (`player/Hellpod` · `RemotePods`).
  */
 export function updateRescue(sys: StratagemSystem, c: Call, t: number): void {
   if (c.stage !== 'incoming') return;
@@ -227,8 +237,8 @@ export function updateRescue(sys: StratagemSystem, c: Call, t: number): void {
   sys.ended(c);
 }
 
-/* ─────────────────────────── 잔여 횟수 ─────────────────────────── */
-/** 값을 세우고 `rescue:countChanged` 를 낸다. `broadcast` 면 호스트가 `rescue count` 로 분대에 뿌린다. */
+/* ─────────────────────────── the count left ─────────────────────────── */
+/** Sets the value and raises `rescue:countChanged`. With `broadcast` the host pushes `rescue count` to the squad. */
 export function setRescueLeft(sys: StratagemSystem, left: number, broadcast: boolean): void {
   const v = Math.max(0, Math.min(RESCUE_DROPS_PER_RAID, Math.round(left)));
   const changed = v !== sys._rescueLeft;
@@ -240,15 +250,15 @@ export function setRescueLeft(sys: StratagemSystem, left: number, broadcast: boo
   }
 }
 
-/** 미션 리셋: 분대 공용 횟수를 되돌린다. */
+/** Mission reset: the squad-wide count is put back. */
 export function resetRescue(sys: StratagemSystem): void {
   sys._rescueTarget = null;
   sys._rescueLeft = RESCUE_DROPS_PER_RAID;
   sys.ctx.bus.emit('rescue:countChanged', { left: RESCUE_DROPS_PER_RAID, total: RESCUE_DROPS_PER_RAID });
 }
 
-/* ─────────────────────────── 네트워크 ─────────────────────────── */
-/** `rescue` 메시지 하나. 호스트만 `req` 에 답하고, 나머지는 `grant` / `deny` / `count` 를 받는다. */
+/* ─────────────────────────── net ─────────────────────────── */
+/** One `rescue` message. Only the host answers `req`; everyone else receives `grant` / `deny` / `count`. */
 export function onRescueMessage(sys: StratagemSystem, msg: RescueMessage, from: PeerId): void {
   const net = sys.ctx.net;
   if (msg.ev === 'req') {
@@ -260,10 +270,11 @@ export function onRescueMessage(sys: StratagemSystem, msg: RescueMessage, from: 
      * forged request and is dropped silently. The target must be a lobby member.
      */
     /*
-     * 2026-09-11 (E-8 c): 예전에는 `cooldown` 하나만 `rescue deny busy` 로 알리고 나머지 사유는 조용히 버렸다 —
-     * 요청자는 확정 때 이미 공유 쿨타임을 돌렸으므로(`Targeting.confirm`) 사유와 **환불**이 필요하다. 이제 전부
-     * `strat deny` 한 경로로 답한다(구조선 요청에는 `callId` 가 없어 `rescueDenyId` 가 요청자 소유의 id 를 만든다).
-     * 기존 `rescue deny` 와이어는 그대로 남아 `grant` 의 `empty` · `alive` 가 쓴다 — 계약은 추가만 한다.
+     * 2026-09-11 (E-8 c): it used to answer `cooldown` alone with `rescue deny busy` and drop every other reason
+     * silently — the requester already started the shared cooldown at the confirm (`Targeting.confirm`), so it
+     * needs the reason and the **refund**. Now everything answers through the one `strat deny` path (a rescue
+     * request has no `callId`, so `rescueDenyId` builds one the requester owns). The old `rescue deny` wire stays
+     * as it is and `grant`'s `empty` · `alive` use it — the contract is add-only.
      */
     const why = callRefusal(sys, from, msg.p);
     if (why) {
@@ -272,14 +283,15 @@ export function onRescueMessage(sys: StratagemSystem, msg: RescueMessage, from: 
       return;
     }
     if (typeof msg.target !== 'string' || !net.lobby?.players.some((m) => m.id === msg.target)) {
-      // 대상이 그 사이 로비를 떠났을 수 있다 — 요청자는 이미 쿨타임을 돌렸으므로 `member` 로 환불시킨다.
+      // The target may have left the lobby meanwhile — the requester already started the cooldown, so `member`
+      //   gives it back.
       sys.lastCallRefusal = 'rescue:target';
       sendCallDeny(sys, from, rescueDenyId(from), 'member');
       return;
     }
     grant(sys, msg.target, new THREE.Vector3(msg.p[0], msg.p[1], msg.p[2]), from);
   } else if (net && !fromHost(net, from)) {
-    // 2026-09-11 (E-4): grant · deny · count 는 호스트만 보낸다
+    // 2026-09-11 (E-4): only the host sends grant · deny · count
     return;
   } else if (msg.ev === 'grant') {
     if (!Array.isArray(msg.p) || msg.p.length !== 3) return;

@@ -9,9 +9,9 @@ import {
   type GameContext, type GameSystem, type StratagemsRef, type StratagemId, type StratagemCall, type StratagemStage, type StratagemDef,
   type PlayerRef, type PlayerWeaponHost, type Interactable, type Obstacle, type DestructibleRef, type WorldRef, type Vec3Tuple, type PeerId,
   type StratagemCallWire,
-  /* 2026-09-09: 구조선 투하 */
+  /* 2026-09-09: the rescue drop */
   RESCUE_DROPS_PER_RAID, type RescueCandidate,
-  /* 2026-09-11 (E-8 c): 거절 통보 */
+  /* 2026-09-11 (E-8 c): the deny notice */
   type StratagemDenyReason,
 } from '@/shared';
 import {
@@ -19,7 +19,7 @@ import {
 } from './Visuals';
 
 import { AIRSTRIKE_FX_TIME, Call, GRENADE_STRUCTURE_DAMAGE, type Host, LASER_TICK, SHAKE_RANGE, STRUCTURE_DROP_HEIGHT, STRUCTURE_MIN_GAP, STRUCTURE_STAGGER, SUPPLY_DROP_HEIGHT, Structure, TARGET_EMIT_EPS, WHEEL_DRAG_PX, _a, _b, _dir, defOf, toTuple } from './model';
-/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+/** The folder vocabulary (constants · types · scratch) lives in `model.ts`; re-exported for the old import paths. */
 export * from './model';
 import * as Aim from './parts/Targeting';
 import * as Calls from './parts/Calls';
@@ -52,8 +52,9 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   /** Last reason a `stratq call` / `rescue req` was refused on this host (debug · smoke-trust). */
   lastCallRefusal: string | null = null;
   /**
-   * 2026-09-11 (E-8 c) debug · smoke-trust. **호스트 쪽**: 마지막 거절에 대해 실제로 `strat deny` 를 보냈는가
-   * (보냈으면 사유, 답장하지 않기로 한 위조 `callId` 면 null). **호출자 쪽**: 마지막으로 받아들인 `strat deny` 의 사유.
+   * 2026-09-11 (E-8 c) debug · smoke-trust. **On the host**: whether a `strat deny` really went out for the last
+   * refusal (its reason if so, null for a forged `callId` deliberately not answered). **On the caller**: the reason
+   * of the last `strat deny` accepted.
    */
   lastDenySent: StratagemDenyReason | null = null;
   lastCallDeny: StratagemDenyReason | null = null;
@@ -79,10 +80,10 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   groundTargeting = false;
   readonly lastEmitted = new THREE.Vector3(NaN, NaN, NaN);
   targetValid = false;
-  /* ── 구조선 (2026-09-09) ── */
-  /** 분대 공용 잔여 횟수. 호스트가 원본이고 `rescue count` 로 방송된다. */
+  /* ── rescue drop (2026-09-09) ── */
+  /** The squad-wide count left. The host is the source and broadcasts it with `rescue count`. */
   _rescueLeft = RESCUE_DROPS_PER_RAID;
-  /** 선택 화면에서 고른 분대원 (null = 아직 고르지 않음 → 지면 조준이 시작되지 않는다). */
+  /** The squadmate the picker chose (null = not picked yet → ground targeting never starts). */
   _rescueTarget: string | null = null;
 
   get armed(): StratagemId | null { return this._armed; }
@@ -96,12 +97,15 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
     return n;
   }
 
-  /* ── StratagemsRef: 구조선 (2026-09-09) ── */
+  /* ── StratagemsRef: rescue drop (2026-09-09) ── */
   get rescueLeft(): number { return this._rescueLeft; }
   get rescueAvailable(): boolean { return Rescue.rescueAvailable(this); }
   getRescueCandidates(): readonly RescueCandidate[] { return Rescue.getRescueCandidates(this); }
   get rescueTarget(): string | null { return this._rescueTarget; }
-  /** 무장 거부 사유 (호스트 전용 · 구조선 게이트), 없으면 null. UI 는 같은 규칙을 `@/shared` 로 스스로 계산한다. */
+  /**
+   * The arming refusal reason (the host-only gate and the rescue-drop gate), null with none. The UI computes the
+   * same rule itself from `@/shared`.
+   */
   armBlockReason(id: StratagemId): string | null { return Rescue.armBlockReason(this, id); }
 
   /* ─────────────────────────── GameSystem ─────────────────────────── */
@@ -130,11 +134,11 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
         const net = ctx.net;
         if (ctx.isMultiplayer && net && !net.isHost) net.send({ t: 'stratq', ev: 'sync' }, 'host');
       }),
-      /* 2026-09-09 구조선: 선택 화면(ui/hud/RescuePicker)이 고른 대상 */
+      /* 2026-09-09 rescue drop: the target the picker (ui/hud/RescuePicker) chose */
       b.on('rescue:selectTarget', ({ peerId }) => this.selectRescueTarget(peerId)),
       /*
-       * 2026-09-09 분대장 이관: 잠금 상태가 즉시 갱신되어야 한다. 새로 잠긴 호출을 손에 들고 있었다면
-       * (호스트 자리를 잃었다) 그대로 내려놓는다 — 조준만 해 놓고 쏠 수 없는 상태를 남기지 않는다.
+       * 2026-09-09 host transfer: the locked state has to refresh at once. A call that just became locked while it
+       * was in hand (the host seat was lost) is put away — no aiming at something that can no longer be fired.
        */
       b.on('net:hostChanged', () => {
         const armed = this._armed;
@@ -244,11 +248,12 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   }
 
   /**
-   * 2026-09-11 (E-8 c): 호스트가 내 호출(`stratq call` · `rescue req`)을 거절했다 — `Targeting.confirm` 이 요청을
-   * 보내기 **전에** 낙관적으로 돌린 공유 쿨타임을 **전액** 되돌린다. 거절은 "호출이 아예 서지 않았다" 는 뜻이라
-   * 부분 환불에는 근거가 없다 (사용자 결정). `debugCooldownReset` 과 같은 모양이되 `_cooldownTotal` 까지 내린다 —
-   * 남겨 두면 HUD 썸네일(`ui/hud/StratagemPanel`)이 다 찬 테두리를 그대로 들고 있는다.
-   * 남이 내 쿨타임을 되돌리지 못하게 하는 관문은 `parts/Wire.onCallDenied` 하나다 (호스트 + 내 `callId`).
+   * 2026-09-11 (E-8 c): the host refused my call (`stratq call` · `rescue req`) — the shared cooldown that
+   * `Targeting.confirm` started optimistically **before** sending the request is given back **in full**. A refusal
+   * means "the call never stood at all", so a partial refund has no ground (user's decision). The same shape as
+   * `debugCooldownReset`, but it drops `_cooldownTotal` too — left standing, the HUD thumbnail
+   * (`ui/hud/StratagemPanel`) keeps drawing a full border. The one gate that stops anyone else giving my cooldown
+   * back is `parts/Wire.onCallDenied` (the host + my own `callId`).
    */
   refundCooldown(): void {
     const wasRunning = this._cooldown > 0;
@@ -309,7 +314,10 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   landed(call: Call): void { return Calls.landed(this, call); }
   ended(call: Call): void { return Calls.ended(this, call); }
 
-  /** Radial damage of an impact: enemies only on the caller's client, the local player everywhere (`shared/explosion` 2단 계단 감쇠). */
+  /**
+   * Radial damage of an impact: enemies only on the caller's client, the local player everywhere
+   * (the `shared/explosion` two-step falloff).
+   */
   impactDamage(call: Call, center: THREE.Vector3, radius: number, damage: number): void { return Calls.impactDamage(this, call, center, radius, damage); }
 
   private updateCalls(dt: number): void { return Calls.updateCalls(this, dt); }
@@ -345,17 +353,17 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
 
   disposeStructure(s: Structure): void { return Calls.disposeStructure(this, s); }
 
-  /* ─────────────────────────── 구조선 (2026-09-09) ─────────────────────────── */
-  /** `rescue:selectTarget` — 선택 화면이 고른 분대원 (null = 해제 → 호출을 내려놓는다). */
+  /* ─────────────────────────── rescue drop (2026-09-09) ─────────────────────────── */
+  /** `rescue:selectTarget` — the squadmate the picker chose (null = cleared → the call is put away). */
   selectRescueTarget(peerId: string | null): void { return Rescue.selectTarget(this, peerId); }
 
-  /** 지면 조준 확정 → 호스트에게 `rescue req` (호스트 · 싱글은 그 자리에서 승인). */
+  /** Ground targeting confirmed → `rescue req` to the host (the host · single-player grants it on the spot). */
   confirmRescue(target: string, position: THREE.Vector3): void { return Rescue.confirmRescue(this, target, position); }
 
-  /** 호스트 권한: 횟수 −1 + 착륙 지점 확정 + `rescue grant` 방송. */
+  /** Host authority: one charge spent + the landing point picked + `rescue grant` broadcast. */
   grantRescue(target: string, position: THREE.Vector3, by: string): void { return Rescue.grant(this, target, position, by); }
 
-  /** 잔여 횟수를 세우고 `rescue:countChanged` (호스트면 `rescue count` 방송). */
+  /** Sets the count left and raises `rescue:countChanged` (the host broadcasts `rescue count`). */
   setRescueLeft(left: number, broadcast: boolean): void { return Rescue.setRescueLeft(this, left, broadcast); }
 
   updateRescue(c: Call, t: number): void { return Rescue.updateRescue(this, c, t); }

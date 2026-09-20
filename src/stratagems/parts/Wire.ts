@@ -1,9 +1,9 @@
 /**
- * src/stratagems/parts/Wire.ts — **`strat` / `stratq` 네트워크 경로**.
+ * src/stratagems/parts/Wire.ts — **the `strat` / `stratq` network path**.
  *
- * 늦게 합류한 클라이언트는 진행 중인 호출 목록을 받아 재구성한다(`applySync`). 이미 떨어졌어야 할
- * 호출은 조용히 **빨리감기**해서(`fastForward`) 장애물과 보급 상자가 바로 존재하게 한다.
- * 쿨다운은 공유하지 않는다 — 개인 값이다.
+ * A late-joining client receives the list of live calls and rebuilds them (`applySync`). A call that should
+ * already have landed is silently **fast-forwarded** (`fastForward`) so its obstacles and supply crate exist
+ * at once. The cooldown is not shared — it is a personal value.
  */
 import * as THREE from 'three';
 import {
@@ -40,7 +40,7 @@ export function ensureNetHooks(sys: StratagemSystem): void {
         /*
          * 2026-09-11 (E-4): a ship call is only real when **the host** says so — a non-host's `strat call` is dropped
          * (theirs goes through `stratq call` first). `by` names the caller; our own echoed call is the effect owner.
-         * Kind whitelist here too (never a 구조선 — that one only exists through `rescue grant`).
+         * Kind whitelist here too (never a rescue drop — that one only exists through `rescue grant`).
          */
         if (!fromHost(net, from)) return;
         if (typeof msg.callId !== 'string' || sys.byId.has(msg.callId) || !isCallKind(msg.kind) || !isTuple(msg.p)) return;
@@ -57,7 +57,7 @@ export function ensureNetHooks(sys: StratagemSystem): void {
         if (!fromHost(net, from)) return;
         if (Array.isArray(msg.calls)) sys.applySync(msg.calls);
       } else if (msg.ev === 'deny') {
-        // 2026-09-11 (E-8 c): 호스트가 내 호출을 거절했다 — 낙관적으로 돌던 공유 쿨타임을 되돌린다
+        // 2026-09-11 (E-8 c): the host refused my call — the optimistically started shared cooldown is given back
         onCallDenied(sys, msg.callId, msg.reason, from);
       }
     }),
@@ -70,12 +70,12 @@ export function ensureNetHooks(sys: StratagemSystem): void {
     net.onMessage('flow', (msg, from) => {
       if (msg.ev === 'rejoined' && net.isHost) sys.sendSync(from);
     }),
-    /* 2026-09-09: 구조선 — 요청 · 승인 · 거절 · 잔여 횟수 (권한은 전부 호스트) */
+    /* 2026-09-09: the rescue drop — request · grant · deny · count left (the host holds every authority) */
     net.onMessage('rescue', (msg, from) => Rescue.onRescueMessage(sys, msg, from)),
   );
   }
 
-/* ─────────────────────────── E-4: 호스트 경유 호출 (2026-09-11) ─────────────────────────── */
+/* ─────────────────────────── E-4: calls relayed by the host (2026-09-11) ─────────────────────────── */
 
 /**
  * The message came from the lobby host. Without a lobby (single-player harness, smoke-stratagems' synthetic `HOST`)
@@ -86,7 +86,7 @@ export function fromHost(net: NetRef, from: PeerId): boolean {
   return !hostId || from === hostId;
 }
 
-/** A kind a `strat call` may carry: a known def, never the 구조선 (that one only exists through `rescue grant`). */
+/** A kind a `strat call` may carry: a known def, never the rescue drop (it only exists through `rescue grant`). */
 export function isCallKind(kind: unknown): kind is StratagemId {
   return typeof kind === 'string' && kind !== 'rescue_drop' && STRATAGEM_DEFS.some((d) => d.id === kind);
 }
@@ -123,17 +123,18 @@ export function callRefusal(sys: StratagemSystem, from: PeerId, p: unknown): Str
 }
 
 /**
- * `stratq call` on the host. Kind must be on the wheel (`STRATAGEM_ORDER`, not the 구조선), not host-only, the callId
- * must be the caller's own (`<from>-…`) and unused. The host rewrites `eta` from the csv `delay`, starts the caller's
- * cooldown, creates the call as remote (`local = false` — enemy damage stays on the caller's client) and broadcasts
- * `strat call {…, by}` to everyone else, the caller included. A refusal is silent.
+ * `stratq call` on the host. Kind must be on the wheel (`STRATAGEM_ORDER`, not the rescue drop), not host-only,
+ * the callId must be the caller's own (`<from>-…`) and unused. The host rewrites `eta` from the csv `delay`,
+ * starts the caller's cooldown, creates the call as remote (`local = false` — enemy damage stays on the caller's
+ * client) and broadcasts `strat call {…, by}` to everyone else, the caller included. A refusal is silent.
  */
 export function onCallRequest(sys: StratagemSystem, msg: Extract<StratagemRequest, { ev: 'call' }>, from: PeerId): void {
   const net = sys.ctx.net;
   if (!net || !net.isHost) return;
   /*
-   * 2026-09-11 (E-8 c): 거절은 더 이상 조용하지 않다 — 호출자는 요청을 보내기 **전에** 공유 쿨타임을 이미 돌렸으므로
-   * (`Targeting.confirm`) 되돌리라는 말을 들어야 한다. `sendDeny` 가 `strat deny` 를 그 사람에게만 보낸다.
+   * 2026-09-11 (E-8 c): a refusal is no longer silent — the caller already started the shared cooldown **before**
+   * sending the request (`Targeting.confirm`), so it has to be told to give it back. `sendDeny` sends `strat deny`
+   * to that one person.
    */
   const refuse = (why: StratagemDenyReason, callId?: string): void => {
     sys.lastCallRefusal = why;
@@ -141,11 +142,12 @@ export function onCallRequest(sys: StratagemSystem, msg: Extract<StratagemReques
     if (callId !== undefined) sendCallDeny(sys, from, callId, why);
   };
   /*
-   * `callId` 의 모양 · 소유 검사만은 **답장하지 않는다** (판단 근거): `deny` 는 `callId` 로 주소를 삼고 받는 쪽은
-   * 자기 id 로 시작하는 것만 받아들이므로(`onCallDenied`), `from` 의 것이 아닌 id 를 돌려줘도 어차피 아무도
-   * 받아들일 수 없다 — 위조한 쪽에 그 문자열을 그대로 되울려 주는 것 말고는 얻는 것이 없다. 같은 이유로
-   * 문자열이 아니거나 64자를 넘는 id 도 답장 대상이 아니다. **중복 id 는 다르다** — 그 id 는 확실히 `from` 의
-   * 것이고 재전송 · id 충돌은 정상 클라이언트에서도 날 수 있으므로 답장한다.
+   * The `callId` shape · ownership checks alone **get no answer** (the reasoning): `deny` is addressed by `callId`
+   * and the receiving side accepts only one starting with its own id (`onCallDenied`), so returning an id that is
+   * not `from`'s could not be accepted by anyone anyway — nothing is gained beyond echoing that string straight
+   * back to whoever forged it. For the same reason an id that is not a string, or longer than 64 characters, is
+   * not answered either. **A duplicate id is different** — that id is certainly `from`'s, and a resend · an id
+   * collision can happen on a normal client too, so it is answered.
    */
   if (typeof msg.callId !== 'string' || msg.callId.length > 64 || !msg.callId.startsWith(`${from}-`)) { refuse('callId'); return; }
   if (sys.byId.has(msg.callId)) { refuse('callId', msg.callId); return; }
@@ -166,12 +168,13 @@ export function onCallRequest(sys: StratagemSystem, msg: Extract<StratagemReques
   net.send({ t: 'strat', ev: 'call', callId: msg.callId, kind, p: toTuple(pos), eta: def.delay, seed, by: from }, 'others');
 }
 
-/* ─────────────────────────── E-8 (c): 거절 통보 · 쿨타임 환불 (2026-09-11) ─────────────────────────── */
+/* ─────────────────────────── E-8 (c): the deny notice · cooldown refund (2026-09-11) ─────────────────────────── */
 
 /**
- * 사유별 한국어 문구. **계약이 아니다** — `Rescue.DENY_KO` 와 같이 이 폴더가 갖는다(`shared` 에는 코드만 있다).
- * 플레이어가 손쓸 수 있는 사유만 구체적으로 적고, 나머지(위조 · 프로토콜 문제 — `callId` · `kind` · `not_host` ·
- * `self` · `point`)는 공통 문구로 접는다. 정상 클라이언트에서는 그 다섯이 나올 일이 없다.
+ * The Korean text per reason. **Not a contract** — like `Rescue.DENY_KO` this folder owns it (`shared` holds only
+ * the code). Only the reasons a player can do something about are spelled out; the rest (forged · protocol trouble
+ * — `callId` · `kind` · `not_host` · `self` · `point`) fold into one common line. On a normal client those five
+ * never come up.
  */
 const CALL_DENY_KO: Readonly<Partial<Record<StratagemDenyReason, string>>> = {
   host_only: '분대장만 쓸 수 있습니다',
@@ -185,12 +188,12 @@ const CALL_DENY_KO: Readonly<Partial<Record<StratagemDenyReason, string>>> = {
 const CALL_DENY_FALLBACK = '분대장이 호출을 거절했습니다';
 
 /**
- * 구조선 요청(`rescue req`)에는 `callId` 가 없다 — 거절을 주소로 삼을 id 를 요청자 것으로 만든다.
- * `<요청자>-` 접두어라 받는 쪽의 소유 검사(`onCallDenied`)를 그대로 통과한다.
+ * A rescue request (`rescue req`) carries no `callId` — the id a deny is addressed by is made the requester's own.
+ * The `<requester>-` prefix passes the receiving side's ownership check (`onCallDenied`) unchanged.
  */
 export function rescueDenyId(to: PeerId): string { return `${to}-rescue`; }
 
-/** 호스트 → 거절당한 한 사람. 보낸 사유를 `lastDenySent` 에 남긴다 (디버그 · 스모크). */
+/** Host → the one person refused. Leaves the reason sent in `lastDenySent` (debug · smoke). */
 export function sendCallDeny(sys: StratagemSystem, to: PeerId, callId: string, reason: StratagemDenyReason): void {
   const net = sys.ctx.net;
   if (!net || !sys.ctx.isMultiplayer) return;
@@ -199,9 +202,9 @@ export function sendCallDeny(sys: StratagemSystem, to: PeerId, callId: string, r
 }
 
 /**
- * `strat deny` 수신. 받아들이는 조건은 **둘 다** 여야 한다 — ① 로비 호스트가 보냈다(`fromHost`),
- * ② `callId` 가 내가 보낸 것이다(`<나>-…`, 호스트의 `onCallRequest` 가 쓰는 바로 그 소유 규약).
- * 그래서 남이 내 쿨타임을 되돌릴 수 없다. 통과하면 **전액 환불** + 거부음 + 사유 토스트.
+ * Receiving `strat deny`. **Both** conditions have to hold — ① the lobby host sent it (`fromHost`), ② the
+ * `callId` is one I sent (`<me>-…`, exactly the ownership convention the host's `onCallRequest` uses). So nobody
+ * else can give my cooldown back. Passing means a **full refund** + the deny sound + a reason toast.
  */
 export function onCallDenied(sys: StratagemSystem, callId: unknown, reason: unknown, from: PeerId): void {
   const net = sys.ctx.net;
@@ -214,7 +217,7 @@ export function onCallDenied(sys: StratagemSystem, callId: unknown, reason: unkn
   showCallDeny(sys, why);
 }
 
-/** 거부음 + 사유 토스트 하나 (`Rescue.showDeny` 와 같은 꼴). */
+/** The deny sound + one reason toast (the same shape as `Rescue.showDeny`). */
 export function showCallDeny(sys: StratagemSystem, reason: StratagemDenyReason): void {
   sys.audio('ui_deny', undefined, 0.6);
   sys.ctx.bus.emit('ui:notify', { text: CALL_DENY_KO[reason] ?? CALL_DENY_FALLBACK, kind: 'warning', duration: 2 });
@@ -225,7 +228,8 @@ export function syncWire(sys: StratagemSystem): StratagemCallWire[] {
   const now = sys.ctx.time;
   const out: StratagemCallWire[] = [];
   for (const c of sys.calls) {
-    // 2026-09-09: 구조선은 4초짜리 일회성 호출이고, 늦게 받은 쪽이 다시 `rescue:landed` 를 내면 안 되므로 싣지 않는다.
+    // 2026-09-09: the rescue drop is a 4 s one-shot call, and a late receiver must not raise `rescue:landed`
+    //   again, so it is not carried.
     if (c.kind === 'rescue_drop') continue;
     if (c.kind === 'orbital_laser' || c.kind === 'airstrike') { if (c.stage === 'done') continue; }
     else if (c.kind === 'structure_drop' && c.structures.length > 0 && c.structures.every((s) => s.destroyed)) continue;
@@ -245,7 +249,8 @@ export function sendSync(sys: StratagemSystem, to: PeerId): void {
   const net = sys.ctx.net;
   if (!net || !sys.ctx.isMultiplayer) return;
   net.send({ t: 'strat', ev: 'sync', calls: sys.syncWire() }, to);
-  // 2026-09-09: 분대 공용 구조선 잔여 횟수도 late-join 경로에 태운다 (`StratagemCallWire` 에는 자리가 없다).
+  // 2026-09-09: the squad-wide rescue-drop count left rides the late-join path too
+  //   (`StratagemCallWire` has no slot for it).
   net.send({ t: 'rescue', ev: 'count', left: sys._rescueLeft }, to);
   }
 

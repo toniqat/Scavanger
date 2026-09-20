@@ -1,9 +1,9 @@
 /**
- * src/stratagems/model.ts — 함선 호출 폴더의 공용 어휘.
+ * src/stratagems/model.ts — the shared vocabulary of the ship-call folder.
  *
- * `StratagemSystem` 에서 떼어낸 상수 · 타입(그리고 상태 없는 보조 클래스)만 있다. 클래스를 참조하지 않으므로
- * `parts/*` 모듈이 `StratagemSystem.ts` 를 되돌아 import 하지 않고 쓸 수 있다(순환 import 방지).
- * `StratagemSystem.ts` 가 `export *` 로 재수출하므로 기존 import 경로는 전부 유지된다.
+ * Only the constants · types (and the stateless helper classes) taken out of `StratagemSystem`. It references no
+ * class, so a `parts/*` module can use it without importing `StratagemSystem.ts` back (no circular import).
+ * `StratagemSystem.ts` re-exports it with `export *`, so every existing import path keeps working.
  */
 import * as THREE from 'three';
 import {
@@ -36,7 +36,7 @@ export const SUPPLY_DROP_HEIGHT = 120;
 export const STRUCTURE_DROP_HEIGHT = 60;
 export const STRUCTURE_STAGGER = 0.15;
 export const STRUCTURE_MIN_GAP = 2.4;
-/** Grenade splash damage against structures (centre value; falloff = `shared/explosion` 2단 계단). */
+/** Grenade splash damage against structures (centre value; falloff = the `shared/explosion` two-step stair). */
 export const GRENADE_STRUCTURE_DAMAGE = 250;
 /** `camera:shake` reach (m). */
 export const SHAKE_RANGE = 60;
@@ -91,7 +91,7 @@ export class Call implements StratagemCall {
   structures: Structure[] = [];
   landedCount = 0;
   audioStarted = false;
-  /* 구조선 (2026-09-09): 이 호출이 되살리는 분대원과 호출한 사람. 다른 종류에서는 null. */
+  /* Rescue drop (2026-09-09): the squadmate this call revives and who called it. null for every other kind. */
   rescueTarget: string | null = null;
   rescueBy: string | null = null;
   constructor(
