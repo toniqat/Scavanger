@@ -1,6 +1,8 @@
 # Performance plan — frame hitches with many bodies
 
-**Status:** **Phase 0 measured (2026-09-19) · Phases 1 · 2 · A · A2 · B · C built (2026-09-20). Only Phase D is left.**
+**Status:** **Every phase is done.** Phase 0 measured 2026-09-19; Phases 1 · 2 · A · A2 · B · C built and Phase D
+measured 2026-09-20. **Nothing in this plan is outstanding** — what is left is written up below as 「what this
+machine cannot answer」, not as work.
 
 > ### ⚠ Read this before any number below: `ms` in this plan is not evidence
 > On 2026-09-20 the **same committed build** measured `x:rendererRender` **6.842 ms and 5.112 ms** back to back
@@ -15,8 +17,9 @@ Phases A and A2 cut what is drawn; neither has a demonstrated `ms` effect on thi
 「below 6.0 ms」 target was dropped as unreachable with shadows on. **Phase B is done** — and it is the first phase
 with a result that repeats: S4's android first-contact frame stopped overrunning a vsync, twice, and the owner it
 found was not the one this file predicted. **Phase C is done too** — `u:enemies` −15 %, and its own census explains
-why that is the ceiling: S2 is 60 bodies inside the full-rate band and 100 beyond 140 m. **Phase D is next.**
-The 2026-09-20
+why that is the ceiling: S2 is 60 bodies inside the full-rate band and 100 beyond 140 m. **Phase D is done and
+built nothing**: S5 finally measured a squad, and all three multiplayer findings (A6 · C1 · C3) were struck by
+counters — a remote player costs **a body to draw**, not a network. The 2026-09-20
 A/B (same machine state, back to back, `--only s2` twice per side) **refutes the central finding of Phase 0**: the
 work removed 31 % of the draw calls and 36 % of the scene nodes and `x:rendererRender` did not move. The render
 block is not paid per draw call on this machine — it is the GPU. The ranking below is rewritten around that.
@@ -25,45 +28,56 @@ block is not paid per draw call on this machine — it is the GPU. The ranking b
 human players, or the 3 android squadmates — and (b) when many bugs are alive, worst of all at the moment a new
 group spawns.
 
-**One-line diagnosis, after three rounds of measuring:** **a raid is GPU-bound on this machine, `x:rendererRender`
+**One-line diagnosis, after four rounds of measuring:** **a raid is GPU-bound on this machine, `x:rendererRender`
 is mostly the CPU waiting for it, and that wait is too noisy to attribute** (±1.7 ms on one build). What repeats is
 that the render block does **not** track draw calls or scene nodes, so the work is triangles and pixels. Nothing in
-S1–S4 sustains a drop on an RTX 4080 SUPER — every scenario sits on the 60 Hz vsync — so what the user feels is
+S1–S5 sustains a drop on an RTX 4080 SUPER — every scenario sits on the 60 Hz vsync — so what the user feels is
 individual frames. Phase B took those and **S4's no longer overruns**; the ones left in S2 · S3a are led by the
 render block, i.e. the same GPU question, not by any one-off.
+
+**Symptom (a) is now measured and did not reproduce.** A two-human raid through the relay, with and without two
+androids, runs at 16.7 / 16.8 ms with **zero** frames over 33 ms on both clients (Phase D, S5a · S5c, two runs each).
+A squadmate adds one `SoldierModel` to the scene — 73 visible + 32 shadow draws, the same as the local soldier — and
+23–29 KB/s of wire that costs a replica 0.08 ms a frame, outside the frame at that. **Whatever the user feels with
+other bodies present, it is not the wire and it is not the squadmate's simulation; it is one more body drawn**, which
+is the same GPU question as (b). If it is still felt after Phases 1 · A · A2, the next thing to measure is the
+**pixel** cost (resolution scale), not the network.
 
 ---
 
 ## Next session starts here
 
+**There is no next phase.** Every phase in this file is built or struck, and Phase D (the last one) built nothing
+because nothing in the counters justified it. What a later session needs from this file is the method and the four
+things this machine could not answer:
+
 1. **Read the banner above, then [What the 2026-09-20 A/B says](#what-the-2026-09-20-ab-says)** before planning
    anything — between them they strike 「draw calls」 as a cost and strike every `ms` figure in this file as a
    verdict.
-2. **Phases B and C are done.** B's lesson ([what it found](#phase-b--the-one-off--10-ms-calls--done-2026-09-20--ui)):
-   **the autopsy names a mark, and the mark was not the owner** — the 10 ms `u:allies` was `ui/hud/ChatLog` forcing a
-   layout from inside `AllySystem.update`, not `pickCoverSpot`. C's ([what it found](#phase-c--the-sustained-cpu-costs--done-2026-09-20--enemies-core-data-scripts)):
-   **measure the shape of the list before choosing the shape of the fix** — the AI LOD works, and its own census says
-   it could never have been large, because S2's cost is 60 bodies *inside* the full-rate band. Do not write a fix
-   against a mark name — instrument until a **counter** names the line.
-3. **Counters beat traces here.** What cracked Phase B was patching the layout-forcing accessors on their prototypes
-   and counting them per frame: 7 reads in a 637-frame window, all of them in one file, on one frame. That technique
-   is now a smoke (`scripts/smoke-layout-reads.mjs`) and the same shape — *count the thing, don't time it* — is what
-   the banner above is asking for everywhere else.
-4. **Take a fresh `before`** — the logs are git-ignored and the tree moves:
-   `npm run dev`, then `node scripts/perf-measure.mjs --only s2 --label before-phaseD`. **Run it twice.** One run
-   is not a measurement: on 2026-09-20 two runs of one build gave 5 and 22 frames over 33 ms. Judge by the rows that
-   repeat: a **mark average** over ~1 300 frames does (`x:lightBudget` 0.156 vs 0.157 on one build), a `js/frame p50`
-   or a spike count does not.
+2. **The method that worked, three phases running: count the thing, do not time it.** Phase B found its owner by
+   patching the layout-forcing accessors and counting calls per frame (7 in 637 frames, all in one file). Phase C
+   bounded its own fix with a census (60 bodies inside the full-rate band). Phase D struck three findings with
+   byte counts and a build counter, and never needed a `ms` at all. **Do not write a fix against a mark name** —
+   instrument until a **counter** names the line.
+3. **What is still open, and why it is not work:**
+   - **Pixels.** Resolution scale is untouched; `--display scale=0.75` has never been run.
+   - **Terrain: 346k visible triangles**, 37 % of the scene, untouched because collision, `getSurfaceY` and the
+     silhouette all hang off that mesh.
+   - **The flat DOM cut** (`hud/ShipManage`'s 116 boxes + four faded `.menu` screens, ~120, of `#ui-root`'s 1 085
+     laid-out boxes) — a real cut of a deterministic counter with no demonstrable frame effect here.
+   - **The `ms` methodology itself.** Until `x:rendererRender` can be measured with a spread below what a change
+     moves, no phase can claim a frame-time result on this machine.
+   - **A2 alone survives unreproduced** — one 18.8 ms `u:enemies` in one run of five, never seen again.
+4. **Re-measuring** — the logs are git-ignored and the tree moves, so always take a fresh `before`:
+   `npm run dev` (or `npm run dev:all` for S5), then `node scripts/perf-measure.mjs --only s2 --label before-x`.
+   **Run it twice.** One run is not a measurement: on 2026-09-20 two runs of one build gave 5 and 22 frames over
+   33 ms. Judge by the rows that repeat: a **mark average** over ~1 300 frames does (`x:lightBudget` 0.156 vs 0.157
+   on one build), a `js/frame p50` or a spike count does not.
 5. **Garbage has been counted and has no owner** — see [B6](#b6--allocation-by-owner-three-counters-two-of-which-lie-the-same-way).
-   Two of the three instruments lie the same way; a CDP sampling heap profile keeps only what survives and so cannot
-   see churn at all. If allocation comes up again, start from the `--alloc` mark table, not from a profiler.
-6. Use `--display bloom=0`, `--display bloom=0,shadows=0` to split the render block whenever a change is supposed to
-   touch it. That split is what turned the ranking over — and in Phase A it is what showed the 6.0 ms target to be
-   arithmetically impossible.
-7. **If the render block is picked up again**, fix the measurement first (see the banner), then look at the terrain's
-   346k triangles and at resolution scale — [Still open after Phase A2](#still-open-after-phase-a2).
-
----
+   If allocation comes up again, start from the `--alloc` mark table, not from a profiler.
+6. **A squad has been measured and is not the problem** — see [Phase D](#phase-d--s5-and-the-multiplayer-findings--done-2026-09-20--scripts-harness-only).
+   The one thing S5 could **not** answer is a replica's frame time, because both clients shared one GPU; that needs
+   a second machine.
 
 ## How to work this plan
 
@@ -98,8 +112,8 @@ bloom **on**, shadows **on** (`Engine.perfGuard` never fired). Planet `tundra` (
 
 **Logs are local only** (`scripts/logs/perf/`, git-ignored). Everything worth keeping is transcribed here.
 
-**S5 (relay, two humans) was not run.** Nothing here measures a replica, which is why symptom (a) is still
-unreproduced and A6 · C1 · C3 are still open.
+**S5 (relay, two humans) was not run in Phase 0** — nothing in the table above measures a replica, which is why
+symptom (a) stayed unreproduced and A6 · C1 · C3 stayed open until **Phase D** ran S5 on 2026-09-20.
 
 ### Results (2026-09-19, before any change)
 
@@ -195,9 +209,9 @@ Same machine state, back to back, `--only s2`, two runs per side (`git stash pus
   after: 22 · 24; after with bloom off: 14. Never conclude from one run.
 
 **So the honest ranking is now: pixel and vertex work first, then the one-off spikes, then the multiplayer path.**
-*(Phase A took the body-side vertex work and A2 the world's; the pixel work is still untouched and needs a decision.
-Phase B took the one-off spikes and C the sustained CPU costs. **What is left is D** — and the pixel question, which
-needs the measurement fixed first.)*
+*(Phase A took the body-side vertex work and A2 the world's; Phase B took the one-off spikes, C the sustained CPU
+costs and D the multiplayer path — which turned out not to be one. **The pixel question is the only thing left
+untouched**, and it needs the measurement fixed first.)*
 
 ---
 
@@ -212,7 +226,7 @@ needs the measurement fixed first.)*
 | A3 | Placement search raycasts per living player per candidate | patrol tick 0.0–0.1 ms total | **struck** |
 | A4 | `ensureCapacity` rescans; `despawn` uses `indexOf` | never above the noise floor | **struck** |
 | A5 | `burrow_emerge` synthesises ~15 sources per bug | 0.27 ms/frame over 5 600 calls; the 16.3 ms call **never came back** — worst 0.90–1.30 ms across five 2026-09-20 runs | **struck** (Phase B) |
-| A6 | One `ee spawn` JSON send per body | solo only, not measured | **open, needs S5** → Phase D |
+| A6 | One `ee spawn` JSON send per body | 60 spawns in one frame = 60 messages × **121 B = 7.3 KB**; on the replica that is never the worst inbound frame (an `es` **keyframe** is, 8.6-14.3 KB, every 2 s) and the burst never cost a frame — `worst rAF delta after` is 16.7-16.8 ms in all four runs, solo and squad | **struck** (Phase D) |
 | A7 | First-draw material init per cloned material | no compile spike seen | **struck** |
 
 **B. Sustained per-body cost**
@@ -228,9 +242,14 @@ needs the measurement fixed first.)*
 | B5 | Bug footsteps scan all active enemies before the range gate | the crowd scan was already behind the gate; what was in front of it was a `getWorldPosition` per call | **done (Phase C)**, folded into `EnemyHost.camPos`. Too small to separate from B4 in the same window |
 | B6 | Recurring garbage | counted three ways (Phase C): 63 MB/s is real, but **no owner owns it** — `x:rendererRender` 15.1 · `u:world` 7.9 · `u:enemies` 6.5 · `l:hud` 4.2 MB/s, the largest being three.js's own render path | **struck as a lead.** There is no hot spot to remove; and a CDP sampling heap profile cannot see churn at all (it keeps only surviving samples) |
 
-**C. Multiplayer / squadmate-specific** — C1 (`SoldierPool.acquire`), C3 (`ally state` encoding) were never reached
-without S5; C2 (a `SoldierModel` per corpse) never fired; C4 (`snapshotFace`) is ship-only and out of scope.
-**All four stay open; S5 (Phase D) is what would close them.**
+**C. Multiplayer / squadmate-specific** — measured by S5 (Phase D), two runs per side:
+
+| # | Finding | Measured | Verdict |
+|---|---|---|---|
+| C1 | `SoldierPool.acquire` builds a body on first appearance | one raid entry acquires **8** bodies and builds **4** (6 with androids); worst single build **0.30-0.50 ms**, and it happens inside the raid-entry hold. Zero builds in any window | **struck** |
+| C3 | `ally state` encoding | **one message for the whole android roster** at 10 Hz — 507-519 B for two androids (~255 B each), **4.9-5.0 KB/s**: a quarter of the `es` stream beside it, a tenth of the host's S5b upload. `u:allies` 0.027-0.028 ms/frame | **struck** |
+| C2 | a `SoldierModel` per corpse | never fired in any scenario (nobody died in a measured window) | **still unfired, not measured** |
+| C4 | `snapshotFace` | ship-only | **out of scope** |
 
 ---
 
@@ -629,17 +648,104 @@ block. The instrument stays (`--alloc`) because the next person to suspect garba
   was not in this one's scope.
 - **The flat DOM cut** (`hud/ShipManage` 116 boxes + four faded `.menu` screens ≈ 120, of `#ui-root`'s 1 085 laid-out
   boxes) — still recorded, still unbuilt, still not demonstrable at this machine's noise floor.
-- **Phase D is what is left**: S5 and the multiplayer findings A6 · C1 · C3.
+- **Phase D took the rest** — S5 and the multiplayer findings A6 · C1 · C3 — and struck all three.
 
-### Phase D — S5 and the multiplayer findings (A6, C1, C3) · `net`, `player`, `allies`
+### Phase D — S5 and the multiplayer findings · done 2026-09-20 · `scripts` (harness only)
 
-**Next, and the only phase left.** Everything the user reported about *other players* is still unmeasured. A remote body costs what an android does —
-which Phase 1 has now cut to ~70 draws, but the wire and the pool are untouched. Extend the harness to two clients
-through the relay (`scripts/e2e-multiplayer.mjs` is the launch template; the probe is page-local, so it installs on
-both), measure the **replica** as well as the host, then decide on `SoldierPool` pre-fill (C1), the `ally state`
-encoding (C3) and the `ee spawn` burst (A6).
+**The one phase that changed no game code, because none of its three findings survived being counted.** Everything
+the user reported about *other players* was unmeasured until here.
 
-- **Done when** the Results table has a `Replica p95 ms` column for S3 and S5 and C1 · C3 · A6 each have a verdict.
+#### What was built — the harness, not the game
+
+`scripts/perf-measure.mjs` gained `--only s5a` (two humans idle) · `s5b` (+ the same 60-bug ring S2 uses) · `s5c`
+(two humans + androids, idle), and three counters. Nothing in `src/` was touched.
+
+- **Two clients, one machine.** The host is the same headful 1280×720 page S1–S4 run in, so its rows stay comparable
+  with theirs; the peer is a second browser, headless 960×540 on the same GPU (`--peer-headful` to watch it). The
+  probe is page-local, so it installs on both, and one `record` call starts and stops them together — hence the
+  **`Replica p95 ms`** column.
+- **The squad is made by code**: `createLobby` (docked) + `joinLobby(code)` + `setReady` on both + `startGame`. The
+  relay's rule is host + everyone ready + a 목표 행성; the pod is only the hub's way of setting `ready`, and driving
+  its hold gauge would measure the harness. A join **by code** also cannot be hijacked by a stale public lobby, which
+  quick match can. S5c recruits the cockpit bays first (`setAndroidBay`) and so needs a raid of its own — the relay
+  caps the squad at `NET_MAX_PLAYERS` 4, humans first, so two humans leave room for two of the three bays.
+- **The wire census**: every message that crossed the socket, keyed by `t` + `ev`, with bytes/s, bytes per message,
+  and the single **worst inbound frame** with its own breakdown. Outbound is `WebSocket.prototype.send`; inbound is
+  the prototype's `onmessage` accessor, because `net/NetClient.ts` assigns the property rather than adding a listener.
+- **`o:wireIn`** — time spent inside `onmessage`. It is the one mark in this harness that is **not** inside
+  `Engine.frame`: inbound handling is a task of its own, so its cost can never appear in `js/frame`, only as a late
+  rAF. That is exactly the shape a spawn burst would have on a replica, which is why it needed its own prefix.
+- **The `SoldierPool` counter** (C1): acquires, **builds** (a pop shrinks the pool, a build does not) and releases,
+  counted for the page's whole life as well as per window — a remote body is built at **raid entry**, which is on the
+  far side of the settle and outside every window. That is why the first S5 run reported `0 acquired` and told us
+  nothing.
+
+#### How to read these rows
+
+The peer is a second Chrome **on the same GPU**, in a different window size. So the render block is contaminated on
+both sides, the replica's frame time is not comparable with the host's, and every `ms` below is a hint (the banner at
+the top applies twice over). **The three verdicts rest on counts only** — bytes, messages, builds.
+
+#### Results — two runs per side, same machine state
+
+| | S5a host | S5a replica | S5b host | S5b replica | S5c host | S5c replica |
+|---|---|---|---|---|---|---|
+| bodies | 98 · 102 | — | 158 · 162 | — | 101 · 102 + 2 androids | — |
+| frame p50 / p95 | 16.7 / 16.8 | 16.7 / 16.8 | 16.7 / **33.3 · 33.2** | 16.7 / 33.4 | 16.7 / 16.8 | 16.7 / 16.8 |
+| frames > 33 ms | **0 · 0** | **0 · 0** | 32 · 12 | 80 · 63 | **0 · 0** | **0 · 0** |
+| js/frame p50 | 6.1 · 6.5 | 6.6 · 7.1 | 12.1 · 11.7 | 13.8 · 13.9 | 6.3 · 6.7 | 7.1 · 7.5 |
+| draw calls | 984 · 1 014 | 1 099 · 1 125 | 1 270 · 1 305 | 1 455 · 1 487 | 1 062 · 1 093 | 1 271 · 1 325 |
+| **wire out** | **22.9 · 25.4 KB/s** | 5.0 · 4.9 | **53.5 · 56.1** | 4.6 · 4.7 | **29.5 · 29.3** | 4.9 · 4.9 |
+| **wire in** | 5.0 · 5.0 | **23.0 · 25.5** | 4.6 · 4.7 | **53.7 · 56.3** | 5.0 · 5.0 | **29.7 · 29.5** |
+| worst inbound frame | 0.3 KB | **8.6 · 8.9 KB** (`es` keyframe) | 0.3 KB | **13.7 · 14.3 KB** (`es` keyframe) | 0.3 KB | **9.1 · 8.9 KB** (`es` keyframe) |
+| `o:wireIn` | — | — | — | **0.083 · 0.080 ms/frame** (worst call 1.30 · 1.30) | — | — |
+
+Solo `S2` on the same machine state, for the subtraction: js/frame p50 **9.2 · 9.3**, 1 294 · 1 326 draws,
+727 · 739k triangles, `x:rendererRender` 6.615, `ring60` job **3.50 · 4.50 ms**, 2 · 2 spike frames.
+
+#### The three verdicts, each from a count
+
+- **A6 — one `ee spawn` JSON send per body: struck.** `enemies/parts/Pool.spawn` does one `net.send` per body, inside
+  the spawning frame, so `ring60` is 60 messages. Measured: **121 B each, 7.3 KB in one frame.** On the replica that
+  burst **never became the worst inbound frame** — that is always an `es` **keyframe** (8.6–14.3 KB), which arrives
+  every `NET_ENEMY_KEYFRAME_S` = 2 s regardless. And it never cost a frame: `worst rAF delta after` the `ring60` job
+  is **16.7–16.8 ms in all four runs**, solo and squad alike. The host's `ring60` frame is 6.9 · 8.6 ms against
+  solo's 3.5 · 4.5 — a second Chrome on the same machine is inside that difference — and both stay under one vsync.
+  Batching the spawns would remove a burst smaller than what the same link carries routinely.
+- **C1 — `SoldierPool` pre-fill: struck.** One raid entry acquires **8** bodies and **builds 4** (6 when two androids
+  come along — they use the same pool); the worst single build is **0.30–0.50 ms**, and every one of them happens at
+  raid entry, inside the load gate. Zero builds occurred in any measured window. A pre-fill would move ~1.5 ms once,
+  off-frame.
+- **C3 — the `ally state` encoding: struck.** `allies/parts/Sync.update` sends **one message for the whole roster**
+  every `ALLY_NET_INTERVAL_S` (10 Hz), to `'others'`. Measured: **507–519 B for two androids** (~255 B each),
+  **4.9–5.0 KB/s** — a quarter of the `es` stream beside it in the same window (19.0–19.2 KB/s) and a tenth of what
+  the host uploads in S5b. Host-side `u:allies` is **0.027–0.028 ms/frame**. There is nothing to encode away.
+
+#### NEW-3 — what a squadmate actually costs: a body to draw, not a network
+
+- **The body is the cost, and it is the cost Phase 1 already cut.** The draw-call census shows
+  `RemoteSoldier:<id>` at **73 visible + 32 shadow** draws — the same numbers as the local `Soldier` group, because
+  the remote avatar is a `SoldierModel` like any other. An android in S5c is the same body from the same pool.
+- **The wire is small and does not scale with the squad.** The host uploads 23–25 KB/s idle and 54–56 KB/s with 158
+  bodies, **85 % of it `es`** (10 Hz, ~30 B per body per snapshot). Every one of those is a single
+  `net.send(msg, 'others')` that the **relay** fans out, so a four-player squad costs the host the same upload as a
+  two-player one. `ps` is a flat 4.6–5.0 KB/s each way per person.
+- **A replica's inbound handling is 0.08 ms/frame**, worst single `onmessage` 1.3 ms, and it is outside the frame
+  entirely. Nothing about being a replica showed up as a frame cost.
+- **Every S5b spike frame, on both sides, is led by `x:rendererRender`** (10–34 ms) — the same GPU block that leads
+  solo S2's. There is no multiplayer-specific spike in this data.
+- **An idle two-person raid is free**: S5a and S5c are 16.7 / 16.8 with **zero** frames over 33 ms on both sides, in
+  every run. What moves when a squadmate arrives is one more body in the scene.
+
+#### What Phase D leaves
+
+- **A replica's frame time is still unmeasured**, and cannot be measured this way: both clients shared one GPU, and
+  the peer drew *more* than the host (1 455–1 487 against 1 270–1 305 — a different camera, not a replica cost). A
+  second machine is the only clean answer.
+- **A full squad was not run.** `NET_MAX_PLAYERS` is 4, so S5c is two humans + two androids; four humans, and three
+  androids with one human, were not measured.
+- **Nothing here touched a real link.** Every byte crossed 127.0.0.1 at 0–1 ms rtt. The number that would matter on a
+  WAN is `es`: 47 KB/s with 162 bodies, and it is the host's upload alone that carries it.
 
 ### Struck by measurement
 
@@ -656,6 +762,11 @@ Struck by Phase B on top of those: **A5** (the `burrow_emerge` audio graph — t
 runs), **`h:detection`** (the corpse pillars — 0.20 ms worst, and the pool is pre-built now anyway), and the
 **per-body half of NEW-2**. **B6 moved the other way** — it was rated 「low」 on one run and is now the best remaining
 explanation for the S2 spikes. **A2 alone survives unreproduced**, which is why it is still listed.
+
+Struck by Phase D, last of all: **A6** (the `ee spawn` burst is 7.3 KB, smaller than the `es` keyframe that arrives
+every 2 s anyway, and it never dropped a frame), **C1** (4 body builds per raid entry at 0.3–0.5 ms each, inside the
+load gate) and **C3** (`ally state` is one 511 B message at 10 Hz for the whole roster). Phase D **built nothing** —
+by the user's own scope, 「measure first, fix only what a counter justifies」, and no counter justified anything.
 
 ---
 

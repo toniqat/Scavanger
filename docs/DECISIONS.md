@@ -1133,3 +1133,26 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
   `performance.memory` read **around each wrapped mark**. The answer: nothing owns it — `x:rendererRender` 15 MB/s
   (three.js's own render path, not ours), `u:world` 7.9, `u:enemies` 6.5, `l:hud` 4.2, `x:audioPlay` 2.8, everything
   else under 1. No fix follows from that, which is why the measurement was the whole scope.
+
+## 2026-09-20 — 멀티플레이 측정 · Measuring the squad (PERF_PLAN Phase D)
+
+- **두 클라이언트를 한 대에서: 호스트만 headful, 피어는 headless d3d11** (user chose it over both headful side by
+  side, and over a swiftshader peer). The host keeps exactly the conditions S1–S4 ran under, so its rows stay
+  comparable with them; the peer renders on the same GPU, which contaminates the **render block on both sides** and
+  is why only counters are quoted as results. *Rejected*: both headful (two windows sharing one vsync — the frame
+  cadence itself stops being comparable with every earlier scenario); a swiftshader peer (no GPU contention, but a
+  peer running at a few fps sends far fewer snapshots, so the host's replica cost would be **under**-measured — the
+  one error that cannot be spotted afterwards).
+- **범위: 측정 먼저, 카운터가 정당화하는 것만 수정** (user chose it over 「측정만 하고 다음 세션」 and over 「세 건
+  모두 선제적으로 구현」). The third option is the shape this plan was wrong in twice (B1 「draw calls are the frame」,
+  NEW-2 「per-body writes dirty the layout」), so it was declined on the file's own evidence.
+- **시나리오: S5a 2인 대기 + S5b 2인 + 벌레 60** (user chose it over S5b alone). S5a mirrors S1 and S5b mirrors S2, so
+  「what does one remote body and its wire add」 is a subtraction, not an estimate — and S5b's `ring60` frame **is**
+  the `ee spawn` burst A6 asks about, arriving at a replica.
+- **하네스: `perf-measure.mjs` 에 `--only s5`** (user chose it over a separate `perf-measure-mp.mjs`). One probe, one
+  report format, one table — the Replica column is a column, not a second file to reconcile by hand.
+- **C3 는 S5c 를 추가해 측정으로 닫는다** (asked after S5a · S5b came back: the two scenarios hold no androids, so
+  `ally state` never reached the wire). *Rejected*: closing it by arithmetic from the contract (`AllyWire` field set ×
+  `ALLY_NET_INTERVAL_S`) — a calculation is what this file keeps having to retract; and leaving C3 open, which would
+  keep PERF_PLAN alive for one unanswered row.
+
