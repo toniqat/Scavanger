@@ -11,7 +11,8 @@
  * The ship has no wire (`parts/Hub`) — it only sends during a raid session.
  */
 import {
-  ALLY_FLAGS, ALLY_MODES, ALLY_NET_INTERVAL_S, ALLY_POSES, ALLY_STATES, NET_INTERP_DELAY, isAndroidId,
+  ALLY_FLAGS, ALLY_MODES, ALLY_NET_INTERVAL_S, ALLY_POSES, ALLY_STATES, BUFF_RANGE_SLACK, HEAL_ALLY_RANGE_HOLD,
+  NET_INTERP_DELAY, isAndroidId,
 } from '@/shared';
 import type * as THREE from 'three';
 import type { AllyId, AllyWire, GameMessage, ItemInstance, PeerId, PingKind, Vec3Tuple } from '@/shared';
@@ -119,6 +120,23 @@ export function sendPodDrop(sys: AllySystem, a: Ally): void {
 export function sendReviveRequest(sys: AllySystem, id: AllyId, defib: boolean): boolean {
   if (!live(sys)) return false;
   sys.ctx.net?.send(defib ? { t: 'allyq', ev: 'revive', id, defib: 1 } : { t: 'allyq', ev: 'revive', id }, 'host');
+  return true;
+}
+
+/**
+ * appended (2026-09-21, 회복 아이템을 아군에게): a squadmate used a 회복 소모품 on an android → the host checks the
+ * distance and the state again, exactly as it does for a revive. The reply is the ordinary `ally state` snapshot.
+ */
+export function sendHealRequest(sys: AllySystem, id: AllyId, hp: number): boolean {
+  if (!live(sys)) return false;
+  sys.ctx.net?.send({ t: 'allyq', ev: 'heal', id, hp }, 'host');
+  return true;
+}
+
+/** appended (2026-09-21): the same for a 실드 충전기 (`amount` -1 = fill it up). */
+export function sendShieldRequest(sys: AllySystem, id: AllyId, amount: number): boolean {
+  if (!live(sys)) return false;
+  sys.ctx.net?.send({ t: 'allyq', ev: 'shield', id, amount }, 'host');
   return true;
 }
 
@@ -234,6 +252,24 @@ function onAllyq(sys: AllySystem, msg: Extract<GameMessage, { t: 'allyq' }>, fro
       // The host looks at the distance again — a request sent from far away is dropped.
       if (rp && rp.position.distanceTo(a.position) > sys.reviveRange) break;
       Vitals.revive(sys, a, from);
+      break;
+    }
+    /* appended (2026-09-21, 회복 아이템을 아군에게): the same shape → sender → distance guard as `revive`. The range is
+     * the ally use's hold range plus the snapshot slack — the sender could legally have been that far when it fired. */
+    case 'heal': {
+      const a = sys.byId.get(msg.id);
+      if (!a) break;
+      const rp = sys.ctx.net?.getRemotePlayer(from);
+      if (rp && rp.position.distanceTo(a.position) > HEAL_ALLY_RANGE_HOLD + BUFF_RANGE_SLACK) break;
+      Vitals.applyHeal(a, msg.hp);
+      break;
+    }
+    case 'shield': {
+      const a = sys.byId.get(msg.id);
+      if (!a) break;
+      const rp = sys.ctx.net?.getRemotePlayer(from);
+      if (rp && rp.position.distanceTo(a.position) > HEAL_ALLY_RANGE_HOLD + BUFF_RANGE_SLACK) break;
+      Vitals.applyShield(a, msg.amount);
       break;
     }
     case 'item':

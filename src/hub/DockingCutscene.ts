@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/shared';
+import { shipModelOf } from '@/shared';
 import { Starfield } from './interiors/Starfield';
 import { buildPersonalExterior, buildSharedExterior, type ExteriorModel } from './interiors/ExteriorShips';
 
@@ -47,7 +48,10 @@ export class DockingCutscene {
     this.big = buildSharedExterior();
     this.big.group.rotation.y = 0.35;
     this.root.add(this.big.group);
-    this.small = buildPersonalExterior();
+    // 2026-09-21: the ship flying into the bay is **our own** — the same model `shared/shipModel.ts` parks in the
+    // hangar and lands on an extraction pad, with its ramp shut for the flight.
+    this.small = buildPersonalExterior(shipModelOf(ctx.progression?.profile));
+    this.small.setRampOpen?.(false);
     this.root.add(this.small.group);
     this.big.setThrust(0.4);
     ctx.scene.add(this.root);

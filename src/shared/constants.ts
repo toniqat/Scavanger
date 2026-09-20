@@ -2000,9 +2000,8 @@ export const ROVER_HALF_WIDTH = K.num('ROVER_HALF_WIDTH');
 export const ROVER_HEIGHT = K.num('ROVER_HEIGHT');
 export const ROVER_HULL_H = K.num('ROVER_HULL_H');
 /** The turret: range (m) · damage per shot · interval (s) · retarget (s) · turn rate (rad/s) · firing cone (rad). */
-export const ROVER_TURRET_RANGE = K.num('ROVER_TURRET_RANGE');
-export const ROVER_TURRET_DAMAGE = K.num('ROVER_TURRET_DAMAGE');
-export const ROVER_TURRET_INTERVAL_S = K.num('ROVER_TURRET_INTERVAL_S');
+/* 2026-09-21: the one turret became two (`ROVER_TURRET_FRONT_*` · `_REAR_*`), so the shared range / damage /
+ * interval are gone — the front is a common SMG and the rear a common AR, and they share no number. */
 export const ROVER_TURRET_RETARGET_S = K.num('ROVER_TURRET_RETARGET_S');
 export const ROVER_TURRET_TURN_RATE = K.num('ROVER_TURRET_TURN_RATE');
 export const ROVER_TURRET_AIM_CONE = K.num('ROVER_TURRET_AIM_CONE');
@@ -2367,3 +2366,112 @@ export const PROP_PEBBLE_DETAIL = K.num('PROP_PEBBLE_DETAIL');
  * reads it only to keep `PROP_SHADOW_DIST_M` above it — a prop inside the box must never be in the far set.
  */
 export const SUN_SHADOW_HALF_M = K.num('SUN_SHADOW_HALF_M');
+
+/* ── 2026-09-21 healing an ally with a consumable (owner: weapons — `weapons/parts/Healing.ts`) ── */
+/**
+ * Right-clicking a 회복 소모품 held in hand uses it on the ally under the crosshair instead of on yourself.
+ * This is the distance (m) at which the use may **start**; with nobody aimed inside it the right button is dead
+ * (the prompt greys out) rather than silently doing nothing.
+ */
+export const HEAL_ALLY_RANGE_START = K.num('HEAL_ALLY_RANGE_START');
+/**
+ * The distance (m) the channel **survives** once it has started — deliberately longer than the start range so the
+ * target may shuffle a step without losing the item. Past it the channel cancels and nothing is consumed.
+ */
+export const HEAL_ALLY_RANGE_HOLD = K.num('HEAL_ALLY_RANGE_HOLD');
+/**
+ * Half-angle (°) off the crosshair within which an ally counts as aimed at. Wider than `DEFIB_AIM_CONE_DEG`
+ * because that one picks one body lying still while this one picks a squadmate who is on their feet and moving.
+ */
+export const HEAL_ALLY_AIM_CONE_DEG = K.num('HEAL_ALLY_AIM_CONE_DEG');
+
+/* ── 2026-09-21 rover part damage · hostility · wreck crates (owner: world/rover) ── */
+/**
+ * Cumulative damage from the player side that turns the rover hostile (10 % of `ROVER_HP`). Hostility lasts the
+ * rest of the raid: the attacker **and their squadmates** become turret targets and boarding is refused. Damage
+ * from enemies and hazards does not count toward it.
+ */
+export const ROVER_AGGRO_DAMAGE = K.num('ROVER_AGGRO_DAMAGE');
+/** Hp of one wheel. One destroyed → `ROVER_WHEEL_SPEED_MUL_1`; a second → the car cannot move (still a platform). */
+export const ROVER_WHEEL_HP = K.num('ROVER_WHEEL_HP');
+/** Hp of one turret. Destroyed = that turret can no longer fire; the front and the rear are separate. */
+export const ROVER_TURRET_HP = K.num('ROVER_TURRET_HP');
+/** Fraction of part damage that also comes off the hull — 1 = in full, so shooting parts still kills the car. */
+export const ROVER_PART_HULL_MUL = K.num('ROVER_PART_HULL_MUL');
+/** Speed multiplier with exactly one wheel destroyed (user's spec 「30 % slower」). */
+export const ROVER_WHEEL_SPEED_MUL_1 = K.num('ROVER_WHEEL_SPEED_MUL_1');
+/** Front turret = a common-grade SMG (`weapons.csv` `smg`): damage per shot. */
+export const ROVER_TURRET_FRONT_DAMAGE = K.num('ROVER_TURRET_FRONT_DAMAGE');
+/** Front turret fire interval (s) — 14 rounds per second, the SMG's rate. */
+export const ROVER_TURRET_FRONT_INTERVAL_S = K.num('ROVER_TURRET_FRONT_INTERVAL_S');
+/** Front turret range (m) — the SMG's, with the SMG's steep falloff. */
+export const ROVER_TURRET_FRONT_RANGE = K.num('ROVER_TURRET_FRONT_RANGE');
+/** Rear turret = a common-grade assault rifle (`weapons.csv` `ar`): damage per shot. */
+export const ROVER_TURRET_REAR_DAMAGE = K.num('ROVER_TURRET_REAR_DAMAGE');
+/** Rear turret fire interval (s) — 10 rounds per second, the AR's rate. */
+export const ROVER_TURRET_REAR_INTERVAL_S = K.num('ROVER_TURRET_REAR_INTERVAL_S');
+/** Rear turret range (m) — the AR's, with the AR's falloff. */
+export const ROVER_TURRET_REAR_RANGE = K.num('ROVER_TURRET_REAR_RANGE');
+/**
+ * Hit-chance multiplier when a turret fires at a player-side body (a player or an android) — user's spec
+ * 「−50 % accuracy against a PC」. A miss scatters visibly instead of vanishing. Enemies are unaffected.
+ */
+export const ROVER_TURRET_PC_ACCURACY = K.num('ROVER_TURRET_PC_ACCURACY');
+/** Cube supply crates dropped by a destroyed rover: the low end of the count. */
+export const ROVER_WRECK_CRATE_MIN = K.num('ROVER_WRECK_CRATE_MIN');
+/** …and the high end. Seed-deterministic. */
+export const ROVER_WRECK_CRATE_MAX = K.num('ROVER_WRECK_CRATE_MAX');
+/** Minimum spacing (m) between those crates, so they never overlap around the wreck. */
+export const ROVER_WRECK_CRATE_GAP_M = K.num('ROVER_WRECK_CRATE_GAP_M');
+/**
+ * The `loot_tiers.csv` tier a wreck crate rolls on, by planet threat. Same level as an outpost basement, and like
+ * the locked room it is **exempt from the epic+ gate** (user's decision 2026-09-21: a rover raid pays what a
+ * basement pays).
+ */
+export const ROVER_WRECK_TIER_T1 = K.num('ROVER_WRECK_TIER_T1');
+export const ROVER_WRECK_TIER_T2 = K.num('ROVER_WRECK_TIER_T2');
+export const ROVER_WRECK_TIER_T3 = K.num('ROVER_WRECK_TIER_T3');
+
+/* ── 2026-09-21 ceiling turret in a locked room / basement (owner: world/structures) ── */
+/**
+ * Damage per shot. The turret hangs inside the outpost basement and the lab's locked room and is **indestructible**
+ * (user's decision): opening the door with the matching key is what switches it off, so it only ever fires on
+ * someone who came in another way (the crawl vent).
+ */
+export const CEIL_TURRET_DAMAGE = K.num('CEIL_TURRET_DAMAGE');
+/** Fire interval (s) — 24 dps, enough that nobody loots the room through it, not enough to kill on one mistake. */
+export const CEIL_TURRET_INTERVAL_S = K.num('CEIL_TURRET_INTERVAL_S');
+/** Range (m). It covers the one room and does not follow anyone out of the door. */
+export const CEIL_TURRET_RANGE_M = K.num('CEIL_TURRET_RANGE_M');
+/** Seconds between acquiring an intruder and the first shot — the alarm and the aiming laser run in that window. */
+export const CEIL_TURRET_WARMUP_S = K.num('CEIL_TURRET_WARMUP_S');
+/** How fast it turns onto a target (rad/s). */
+export const CEIL_TURRET_TURN_RATE = K.num('CEIL_TURRET_TURN_RATE');
+
+/* ── 2026-09-21 ship airlock automatic doors (owner: hub) ── */
+/** Approach distance (m) that opens an airlock door — for the local player and for a squadmate alike. */
+export const SHIP_AIRLOCK_DOOR_RANGE_M = K.num('SHIP_AIRLOCK_DOOR_RANGE_M');
+/** Seconds a door takes to open or close in full. */
+export const SHIP_AIRLOCK_DOOR_OPEN_S = K.num('SHIP_AIRLOCK_DOOR_OPEN_S');
+
+/* ── 2026-09-21 dropped item spacing · indoor brightness (owner: pickups · core) ── */
+/**
+ * Minimum spacing (m) between items lying on the ground. A new drop **looks for a free spot at spawn**
+ * (user's decision) instead of items pushing each other apart every frame, so this costs nothing on a hot path.
+ */
+export const PICKUP_SEPARATION_M = K.num('PICKUP_SEPARATION_M');
+/** How many spiral rings that search walks before giving up and dropping on the original spot — never lost. */
+export const PICKUP_SPOT_RINGS = K.num('PICKUP_SPOT_RINGS');
+/** How far out (m) one ring of that spiral steps. */
+export const PICKUP_SPOT_STEP_M = K.num('PICKUP_SPOT_STEP_M');
+/** A roof or floor collider within this distance (m) above the head counts as **indoors**. Local only, no wire. */
+export const INDOOR_PROBE_UP_M = K.num('INDOOR_PROBE_UP_M');
+/**
+ * Multiplier applied to hemisphere / ambient intensity while indoors. The **light count never changes** — the raid
+ * budget has zero spare and one more point light recompiles every material (CLAUDE.md §4.5).
+ */
+export const INDOOR_LIGHT_AMBIENT_MUL = K.num('INDOOR_LIGHT_AMBIENT_MUL');
+/** Multiplier applied to fog density while indoors — fog reaching inside is half of why interiors read as dark. */
+export const INDOOR_FOG_MUL = K.num('INDOOR_FOG_MUL');
+/** Seconds those two corrections take to cross over, so a doorway does not flicker. */
+export const INDOOR_LIGHT_FADE_S = K.num('INDOOR_LIGHT_FADE_S');

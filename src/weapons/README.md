@@ -18,7 +18,8 @@ presentation only (`RemoteWeapons`); enemy damage from other clients goes throug
 | `parts/AimLine.ts` | `ShotResolver` — which line a shot follows (hybrid crosshair / muzzle resolution, below); `updateAimBlock` drives the red marker and `weapon:aimBlocked` |
 | `parts/QuickUse.ts` | T tap / hold wheel, equip / leave / drop the item in hand, `useGadget`, remote-mine detonation and the detonator hand, `carryGate` |
 | `parts/Healing.ts` | Hold-to-use consumables (heal, shield charger, combat boosts, timed gadgets), heal spray channel, `item:channelChanged`, consumable slow |
-| `parts/Defib.ts` | Defibrillator: charge, aim at a downed ally, fire on release (`gadget:defibAim`) |
+| `parts/Defib.ts` | Defibrillator: charge, aim at a downed ally, fire on release (`gadget:defibAim`); a **shouldered** body is aimed through its carrier (`carrierPositionOf`) |
+| `parts/AllyHeal.ts` | Right-button use of a heal item / 실드 충전기 **on a squadmate or an android**: what it gives (`allyGiftOf`), aim pick (`pickAllyTarget`), the hold, `buff heal` / `shield` or `AlliesRef.heal` / `chargeShield`, `heal:allyTargetChanged` / `allyHoldChanged` |
 | `parts/Throwing.ts` | Grenade hold / cook (R) / overhand or underhand throw, in-hand explosion, `grenade:countChanged` |
 | `parts/Services.ts` | `UniqueServices` object — the only way `unique/` reaches the world (mag, drain, hitscan, aim, recoil, feed …) |
 | `AimSway.ts` | Per-class sway amplitude / frequency from `data/aim_sway.csv`, handed to `PlayerWeaponHost.setAimSway` (the rig does the motion) |
@@ -51,6 +52,17 @@ presentation only (`RemoteWeapons`); enemy damage from other clients goes throug
 - **Ammo**: magazine = `inst.ammoInMag`; reserve = `inventory.countWhere` of ammo items with the weapon's `ammoType`;
   reload consumes rounds at the end of `reloadTime`. `ammoInMag` / `durability` are written on every shot, reload end,
   swap-out, holster and abort.
+- **The reload is held, not thrown away** (2026-09-21, user's decision). A momentary action that leaves the gun in
+  the hands **freezes** the reload where it stood and it continues from that point — the V **roll** (polled every
+  frame as `PlayerWeaponHost.isDiving`, so a cancelled roll releases it too) and the 갈고리 wire being out
+  (`implant:grappleFired` … `implant:grappleReleased`). `WeaponSystem.reloadPauses` is the reason set,
+  `parts/Firing.setReloadPause` the only way in, and `weapon:reloadPaused` / `weapon:reloadResumed` tell the
+  crosshair ring apart from a real `weapon:reloadCancelled`. 대시 needs nothing: it is a one-frame teleport, so the
+  reload simply runs through it. **Cancels** stay cancels — weapon swap, a consumable taken into the hand, melee,
+  loadout change, a wielded 배리어 (`blocksWeapons` → holster) and an 오버차지 channel starting
+  (`implant:activated {id:'overcharge'}` — the rising edge, not `implant:overcharge`, which is re-sent on every
+  beam target change). **Intended**: drone control and a rover seat neither hold nor cancel it — the reload runs
+  on, which is what they always did.
 - **Holster**: phases `hub` / `docking` / `menu`, a wielded implant (`ctx.implants.blocksWeapons`) or being downed hide the
   model and force an unarmed pose. A weapon key while an implant is wielded calls `ctx.implants.stow()` then swaps.
 - **Input gates** (`usable`): gameplay active + pointer lock + `canUseWeapons()` + not diving + no armed / targeting
@@ -82,7 +94,22 @@ shells, barriers / deployables), pellets merged into one hitmarker per pool step
 - **Heal spray**: channel with a durability gauge, heals self + allies in radius (batched `buff heal`, line-of-sight
   checked); an empty can is never consumed. `item:channelChanged` always ends with `active:false`.
 - **Defibrillator** (`parts/Defib`): charge → keep holding → aim a downed ally (`GADGET_DEFIB_RANGE`, `DEFIB_AIM_CONE_DEG`)
-  → release revives through `ctx.gadgets.use('defib')`; releasing without a target consumes nothing.
+  → release revives through `ctx.gadgets.use('defib')`; releasing without a target consumes nothing. 2026-09-21: a
+  **shouldered** body counts — its own snapshot position is stale, so the carrier's stands in, and one on *our* own
+  shoulder is aimed outright (`carrierPositionOf`, the twin of gadgets' `findDownedAlly.carrierPositionOf`).
+- **Ally heal** (`parts/AllyHeal`, 2026-09-21): with `붕대` · `약초 붕대` · `회복주사` or one of the three
+  `실드 충전기` in hand **LMB = on myself** and **RMB = on the squadmate on the crosshair** — smallest angle off the
+  aim ray inside `HEAL_ALLY_AIM_CONE_DEG`, start inside `HEAL_ALLY_RANGE_START`, the running hold survives to
+  `HEAL_ALLY_RANGE_HOLD` (and past it cancels, consuming nothing). **No `CONSUMABLE_SLOW_MUL`** on the ally use.
+  `allyGiftOf` says what the item gives (`'heal'` hp / `'shield'` points, **−1 = fill the pool up**, the same −1 the
+  wire and `AlliesRef.chargeShield` use), and a body the gift could do nothing for is not a target at all.
+  **Two apply paths**: a person gets one `buff` (`heal` / `shield`) cleared by the receiver's guard
+  (`shared/buffRules`, `shield` has its own token bucket) and applied by `implants/parts/Wire.onBuff`; an
+  **android** goes through `AlliesRef.heal` / `chargeShield`, which are called **before** `consumeQuick` because
+  they return false when there is nothing to do and a refusal must leave the item in the bag. A **downed** body is
+  not a target either way (that is the defibrillator's job). With nothing valid on the crosshair the button is
+  *shown* unavailable (`heal:allyTargetChanged {name, inHand, kind}` → `ui/hud/HealGauge`'s `.heal-ally` chip),
+  never silent; the chip hides entirely only when there is no squadmate and no android at all.
 - **Gadgets**: LMB = `ctx.gadgets.use`; RMB toggles throw mode, detonates remote mines (C4) or does nothing for drone
   controllers. Placing the last C4 turns the hand into a detonator (`remoteState.detonator`). Drone items stay in hand.
 - **Carry gate**: any weapon input while carrying a squadmate calls `ctx.player.dropCarried('action')` and ends the frame.
@@ -110,19 +137,23 @@ players.
 - **`ctx.weapons`**: `getGrenades()` (HUD indicators), `remoteState` (held item, throwing / cooking / charging /
   spraying / heavy, attachment ids; mutated in place, read by net's snapshot builder).
 - **Emits**: `weapon:equipped`, `ammoChanged`, `fired`, `dryFire`, `reloadStarted`, `reloadFinished`,
-  `reloadCancelled`, `hit`, `scopeChanged`, `durabilityChanged`, `broken`, `swapStarted`, `chargeChanged`,
+  `reloadCancelled`, `reloadPaused`, `reloadResumed`, `hit`, `scopeChanged`, `durabilityChanged`, `broken`,
+  `swapStarted`, `chargeChanged`,
   `beamChanged`, `altFired`, `aimBlocked`; `quick:wheelChanged` / `equipped` / `used`; `grenade:holdChanged` /
-  `thrown` / `exploded` / `countChanged`; `heal:holdChanged`; `item:channelChanged`; `gadget:defibAim`;
+  `thrown` / `exploded` / `countChanged`; `heal:holdChanged`, `heal:allyTargetChanged`, `heal:allyHoldChanged`;
+  `item:channelChanged`; `gadget:defibAim`;
   `gadget:throwModeChanged`; `melee:hit`; `player:slashed`; `player:blastJump`; `ui:hitmarker`; `camera:shake`;
   `audio:play`; `ui:notify`.
 - **Consumes**: `loadout:changed`, `inventory:itemUpdated` / `socketChanged` / `changed` / `quickSlotsChanged`,
   `world:ready`, `game:abort`, `game:newMission`, `hub:entered`, `game:phaseChanged`, `player:died`, `player:downed`,
-  `melee:swing`, `net:remoteFired` / `remoteReloaded` / `remoteGrenade` / `remotePlayerRemoved`.
+  `melee:swing`, `net:remoteFired` / `remoteReloaded` / `remoteGrenade` / `remotePlayerRemoved`,
+  `implant:grappleFired` / `grappleReleased` / `activated` (the reload hold · the 오버차지 cancel).
 - **Calls**: `ctx.enemies.reportShot` once per trigger pull (projectiles report their own impact; replays report
   nothing); `ctx.implants.damageBarrier` (via `damageBarrierAt`); `ctx.gadgets.blocksProjectile` (via `raycastAll`).
 - **Wire** (`src/shared/net.ts`): sends `fire {w, o, d, m?, c?}` (one per trigger pull; uniques add mode / charge),
-  `reload {w}`, `grenade {p, v, fuse, fire?}`, `melee`, `buff heal` (spray). Receives raw `fire` (unique replay) and
-  `melee`.
+  `reload {w}`, `grenade {p, v, fuse, fire?}`, `melee`, `buff heal` (the spray, and the right-button ally use),
+  `buff shield` (a 실드 충전기 given to a squadmate; `amount` −1 = fill up). Receives raw `fire` (unique replay)
+  and `melee`.
 
 ## Rules
 
@@ -138,6 +169,7 @@ players.
 - Remote weapon models are keyed on the avatar's socket object; a changed socket means rebuild (pooled bodies get a fresh socket per avatar). — `RemoteWeapons.ts`
 - Grenades are not hold-to-use items: `useTimeOf` returns 0 for `ItemDef.grenade` (hold = cook). — `model.ts`
 - `parts/*` import only types from `WeaponSystem.ts`; shared values go in `model.ts`.
+- A reload hold is not a cancel: hold it through `parts/Firing.setReloadPause` (progress kept, `weapon:reloadPaused`), throw it away with `cancelReload` (`weapon:reloadCancelled`). Mixing the two makes the crosshair ring lie. — `parts/Firing.ts`
 - **Intended**: shot tracking reports the aim line, not the pellets — a shotgun sends one `reportShot` per trigger pull
   (the rule above), so the host sees one shot. A projectile still in flight when the mission ends never reports its
   impact. — `Projectile.ts`
@@ -145,8 +177,8 @@ players.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/weapons`.
+- 2026-09-21 — A reload is **held**, not cancelled, by the roll and the 갈고리 (`reloadPauses` · `setReloadPause` · `weapon:reloadPaused` / `Resumed`); an 오버차지 channel starting cancels it. Right-click gives a heal item or a 실드 충전기 to the squadmate — person or android — on the crosshair (`parts/AllyHeal`, no movement penalty; `buff heal` / `shield` or `AlliesRef.heal` / `chargeShield`). The defibrillator reaches a shouldered body.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-20 — One shot-sound table (B-63): `WeaponKind` · `kindOf` · `shotSoundId` moved to `shared/shotSounds.ts` and are delegates here, so player/ plays the same ids for android guns (a legendary no longer sounds like a rifle there).
 - 2026-09-18 — Melee does not hit through walls/roofs/floors (`meleeReachesBody` from the eye to the enemy's 3 body points; deployables `lineClear`); a grenade behind geometry does not hurt the local player (`blastReachesBody`).
 - 2026-09-17 — Player damage cut to 1/3 (data only: `weapons.csv`, unique / melee constants; AR −15 % and range 210 first); shotguns: ADS no longer tightens spread (`adsTightensSpread`; hip spread = old ADS 3.5°).
-- 2026-09-17 — Grenades: the wall push is queried with the body lowered by `PROP_TOP_MARGIN − BODY_R` (the 7 cm top band of walls/fences no longer lets them through) and they bounce off walls (`BOUNCE_RESTITUTION` 0.4, same as the floor).

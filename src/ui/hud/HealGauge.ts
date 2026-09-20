@@ -1,5 +1,5 @@
 import type { GameContext } from '@/shared';
-import { HEAL_HOLD_S } from '@/shared';
+import { HEAL_HOLD_S, renderKeyText } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
 const SIZE = 120;
@@ -16,6 +16,13 @@ const NEAR = 0.75;   // ring turns green past this point ("almost injected")
  * Driven entirely by `heal:holdChanged {holding, t}` (weapons owns the timing, `t` = 0..1 progress; `t < 0` /
  * `holding: false` is a cancel). Taking damage does **not** cancel the hold (`HEAL_HOLD_CANCEL_ON_DAMAGE` is false), so
  * the gauge only closes on release, on the injection itself, and on death / downed / mission reset.
+ *
+ * **Ally use (2026-09-21, user's decision).** The same items are given to a squadmate with the **right** button
+ * (`weapons/parts/AllyHeal`), and that hold rides the same ring through `heal:allyHoldChanged` with its own label
+ * (`아군 회복`). Above it sits the **chip** (`.heal-ally`, its own element so it lives outside the ring's `.show`):
+ * while such an item is in hand it names the squadmate the right button would treat, and with nobody valid on the
+ * crosshair it goes dim and reads `아군 없음` — the decision asks for the button to *look* unavailable rather than
+ * do nothing. Weapons decides both (`heal:allyTargetChanged {name}`); the UI never repeats the range / cone test.
  */
 export class HealGauge {
   readonly root: HTMLElement;
@@ -24,6 +31,10 @@ export class HealGauge {
   private circumference: number;
   private lastT = -1;
   private lastLabel = '';
+  /** The right-button chip above the crosshair (a sibling of the ring, shown whenever the item allows the use). */
+  private allyChip: HTMLElement;
+  private allyText: HTMLElement;
+  private lastAllyName: string | undefined = undefined;
   private unsubs: Array<() => void> = [];
 
   constructor(parent: HTMLElement) {
@@ -45,6 +56,8 @@ export class HealGauge {
     this.root.appendChild(svg);
     const text = el('div', { cls: 'text', parent: this.root });
     this.label = el('div', { cls: 'lbl ui-mono', text: '회복약', parent: text });
+    this.allyChip = el('div', { cls: 'heal-ally', parent });
+    this.allyText = el('span', { cls: 'ha-txt', parent: this.allyChip });
   }
 
   bind(ctx: GameContext): void {
@@ -61,12 +74,45 @@ export class HealGauge {
         const label = spray ? `스프레이 ${Math.round(c * 100)} %` : `회복 ${Math.max(0, (1 - c) * (dur ?? HEAL_HOLD_S)).toFixed(1)} s`;
         if (label !== this.lastLabel) { this.lastLabel = label; setText(this.label, label); }
       }),
-      b.on('player:died', () => this.hide()),
-      b.on('player:downed', () => this.hide()),
-      b.on('game:newMission', () => this.hide()),
-      b.on('game:abort', () => this.hide()),
+      /* 2026-09-21: the right-button ally hold — the same ring, its own label, and **no** movement penalty behind
+       * it (that is `parts/AllyHeal`'s decision, not the HUD's). It never reaches `near` / `ready`: the item is
+       * given the moment it fills, so a 「거의 다 됐다」 colour would only ever flash. */
+      b.on('heal:allyHoldChanged', ({ holding, t, dur, name, kind }) => {
+        if (!holding || t < 0) { this.hide(); return; }
+        const c = Math.min(1, Math.max(0, t));
+        toggleClass(this.root, 'show', true);
+        toggleClass(this.root, 'near', false);
+        toggleClass(this.root, 'ready', false);
+        this.setFill(c);
+        const what = kind === 'shield' ? '실드 충전' : '회복';
+        const label = `${name ?? '아군'} ${what} ${Math.max(0, (1 - c) * (dur || HEAL_HOLD_S)).toFixed(1)} s`;
+        if (label !== this.lastLabel) { this.lastLabel = label; setText(this.label, label); }
+      }),
+      b.on('heal:allyTargetChanged', ({ name, inHand, kind }) => this.setAllyChip(name, inHand, kind)),
+      b.on('player:died', () => { this.hide(); this.setAllyChip(null, false, null); }),
+      b.on('player:downed', () => { this.hide(); this.setAllyChip(null, false, null); }),
+      b.on('game:newMission', () => { this.hide(); this.setAllyChip(null, false, null); }),
+      b.on('game:abort', () => { this.hide(); this.setAllyChip(null, false, null); }),
     );
   }
+
+  /**
+   * The right-button chip. `inHand` false = nothing givable is in hand, so the chip is gone entirely; `inHand`
+   * true with `name` null = it can be given but nobody is valid (dim, `아군 없음`); otherwise it names them and
+   * what they would get (`kind`), because a 실드 충전기 reading 「회복」 would be a lie.
+   */
+  private setAllyChip(name: string | null, inHand: boolean, kind: 'heal' | 'shield' | null): void {
+    const key = inHand ? `${kind ?? ''}:${name ?? ''}` : undefined;
+    if (this.lastAllyName === key) return;
+    this.lastAllyName = key;
+    if (!inHand) { this.allyChip.classList.remove('show', 'off'); return; }
+    toggleClass(this.allyChip, 'show', true);
+    toggleClass(this.allyChip, 'off', name === null);
+    renderKeyText(this.allyText, name === null ? '{AIM} 아군 없음' : `{AIM} ${name} ${kind === 'shield' ? '실드 충전' : '회복'}`);
+  }
+
+  /** The chip's current state (debug / smoke): `"<kind>:<name>"`, `"<kind>:"` = unavailable, `undefined` = hidden. */
+  get allyTarget(): string | undefined { return this.lastAllyName; }
 
   /** Whether the hold ring is showing (debug / smoke). */
   get isShowing(): boolean { return this.root.classList.contains('show'); }

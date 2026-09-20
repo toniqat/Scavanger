@@ -2199,9 +2199,13 @@ export interface Obstacle {
 /* ── abandoned structures (owner: world/Structures) ─────────────────────────────────────────────── */
 /**
  * An **enterable** derelict building placed at random in every planet sector. Interactable containers are packed inside.
- * 2026-09-12 (user's decision): there are two locked spaces — the **basement** of an `outpost` (key `key_basement`) and the
- * **locked upper-floor room** of a `lab` that rolled a second floor (keycard `keycard_lab`). Both open with a **consumable skeleton key**
- * (of the matching kind, in any building · using it spends one), and no building is guaranteed a key — they come rarely from crates · structure containers · rogue corpses · the nomad shop.
+ * 2026-09-12 (user's decision): there are two locked spaces — the **basement** of an `outpost` and the **locked
+ * upper-floor room** of a `lab` that rolled a second floor. Both open with a **consumable key** of the matching kind,
+ * and no building is guaranteed one — they come rarely from crates · structure containers · rogue corpses · the nomad shop.
+ * 2026-09-21 (user's decision): a key is **planet-bound** — `key_basement_<planet>` · `keycard_lab_<planet>`, one pair
+ * per `data/planets.csv` row. It opens any building of its kind **on its own planet** and nothing anywhere else, and the
+ * planet it drops on is unrelated to the planet it fits, so a key found here is an invitation to go there. Inside both
+ * rooms hangs an indestructible ceiling turret that only the matching key switches off (`world/structures/parts/Turret`).
  * The item a door demands is `unlockDefId`, and low in the wall beside the door is a vent only a ground drone fits through.
  */
 export type StructureKind = 'outpost' | 'lab' | 'wreck';
@@ -3070,8 +3074,9 @@ export interface StructureDef {
   /** Position of the locked room's door (the centre of the door's bottom edge). Absent = null/undefined. */
   lockedRoomDoor?: THREE.Vector3 | null;
   /**
-   * The def id of the item that opens this structure's locked door (basement · locked room — at most one per structure):
-   * `key_basement` the basement key · `keycard_lab` the lab keycard. Null/undefined when there is no locked door.
+   * The def id of the item that opens this structure's locked door (basement · locked room — at most one per structure).
+   * Since 2026-09-21 it is planet-bound and built as `<family>_<mission planet>`: `key_basement_amber` the basement key
+   * of 아켈론 II · `keycard_lab_crimson` the lab keycard of 카민 I, and so on. Null/undefined when there is no locked door.
    * One of the opener's is consumed. `unlocked` is the state of that single door.
    */
   unlockDefId?: string | null;
@@ -3789,3 +3794,29 @@ export interface CorpsesRef {
   spawnAllyCorpse?(allyId: string, name: string, slot: number, position: THREE.Vector3, yaw: number, items: readonly ItemInstance[]): string | null;
 }
 /* ══ end 2026-09-15 android squadmates ══ */
+
+/* ══ appended 2026-09-21: reload hold · ally healing (owner: weapons · gadgets · implants · player · ui) ══ */
+
+/**
+ * Why a running reload is **held** instead of thrown away (2026-09-21, user's decision). A reload used to die on
+ * every interruption (`WeaponSystem.cancelReload`); an action that is over in a moment and leaves the gun in the
+ * hands now freezes it where it stood and it continues from that point:
+ *   - `'roll'`     — the V roll (`PlayerController.rolling`, read through `PlayerWeaponHost.isDiving`).
+ *   - `'grapple'`  — the 갈고리 wire is out (`implant:grappleFired` … `implant:grappleReleased`).
+ * 대시 is **also** an instant implant, but it is a single-frame teleport — there is no window to hold, so it has no
+ * reason of its own; the reload simply runs on through it. Taking 배리어 or 오버차지 in hand still **cancels**.
+ */
+export type ReloadPauseReason = 'roll' | 'grapple';
+
+/* ══ appended 2026-09-21: rover parts · hostility · wreck crates (owner: world/rover) ══ */
+
+export interface RoverRef {
+  /**
+   * appended (2026-09-21): has the vehicle turned hostile (the player side dealt `ROVER_AGGRO_DAMAGE` cumulative
+   * damage). Host-decided, true for the rest of the raid, and it refuses boarding — a client only reads it.
+   */
+  readonly hostile?: boolean;
+}
+
+
+

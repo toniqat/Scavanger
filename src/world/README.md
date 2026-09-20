@@ -42,19 +42,21 @@ through `ctx.world` (only `main.ts` imports `WorldSystem`).
 | `hazard/parts/Zones.ts` | Plan + `missionTime` → zone shapes (`buildZones`, `progressAt`, `stormEyeStartRadius`, `zoneDepth`); allocation-free. |
 | `hazard/parts/Grove.ts` | Giant mushroom groves (stems are the only colliders). |
 | `hazard/parts/Visuals.ts` | Walls (shader clip + spore union), particles ramped by progress, `warm(shaders)`. |
-| `Structures.ts` | Abandoned structures: build, doors / keys, roof scanner, ladders, windows, containers, light pool, `struct` / `structq`, rogue-drop zone record, `previewContainerItems`, `debugNav`. |
+| `Structures.ts` | Abandoned structures: build, doors / planet-bound keys, roof scanner, ladders, windows, containers, ceiling turrets, light pool, `struct` / `structq`, rogue-drop zone record, `previewContainerItems`, `debugNav`, `isTurretArmed`. |
 | `structures/` | Vocabulary + parts for buildings — see [`structures/README.md`](structures/README.md). |
 | `Rails.ts` | Rail centreline, tram state machine, cab + platform call consoles, `tram` / `tramq`. No geometry. |
 | `rails/model.ts` | `RailPath` math, rail / tram dimensions and colours, `RailBuild`, `TramInst`. Axis convention lives here. |
 | `rails/parts/Track.ts` | Ties, rails, piers, walkable deck boxes every `RAIL_DECK_STEP`. |
 | `rails/parts/Platform.ts` | Platform deck, stairs (`buildStairFlight`), railings, containers, call console (returns its spot). |
 | `rails/parts/Tram.ts` | Tram body (length along travel), walk-in cab, console desk, colliders sharing one `velocity`, `placeTram`, `updateTramHit`. |
-| `rover/model.ts` | `RoverPlan`, closed-loop path math, `shortestTrip`, `roverFareFor` (the only fare formula). |
+| `rover/model.ts` | `RoverPlan`, closed-loop path math, `shortestTrip`, `roverFareFor` (the only fare formula), the hit-zone vocabulary (`ROVER_PART_ORDER`, `roverWheelZoneOf`, `roverSpeedMulFor`) and the `RoverHitRequest` wire shape. |
 | `rover/RoadPlan.ts` | `planRoverRoute` (polar loop, 4–5 stations, avoids rail corridor), `roverRouteDistance`, `minTurnRadius`. No THREE. |
 | `rover/RoverRoad.ts` | Resamples the plan into `RoverRouteDef`, builds road + station poles and their colliders. |
 | `rover/RoadMesh.ts`, `rover/StationMesh.ts` | Road ribbon on terrain; station poles / beacons / signs (no lights). |
-| `rover/Rover.ts` | Vehicle lifecycle, state machine, boarding, fares, hazard damage, `RoverRef`, `rover` / `roverq`, `cheat:rover`. |
-| `rover/parts/Body.ts`, `Turret.ts`, `Impact.ts`, `Exits.ts`, `Fx.ts` | Hull model + one box collider (no `velocity`); turret targeting / fire; ram impacts; exit spots; tracers / wreck FX. |
+| `rover/Rover.ts` | Vehicle lifecycle, state machine, boarding, fares, hazard damage, player-side hits (hull `destructible` → hit zones · `roverq hit`), hostility, wreck crates, `RoverRef`, `rover` / `roverq`, `cheat:rover`. |
+| `rover/parts/Body.ts`, `Turret.ts`, `Impact.ts`, `Exits.ts`, `Fx.ts` | Hull model + one box collider (no `velocity`) + **two** gun mounts and the blown-wheel / dead-gun looks; turret targeting / fire (two profiles, people when hostile); ram impacts; exit spots; tracers / wreck FX. |
+| `rover/parts/Parts.ts` | Hit-zone state: part hp, `resolveRoverPart(body, worldPoint)`, the hull share (`ROVER_PART_HULL_MUL`), the wheel speed rule, the aggro counter, `RoverWire.pt` / `.ho` pack / apply, part looks. |
+| `rover/parts/Wreck.ts` | The cube supply crates a destroyed rover drops — the ring around the wreck and the basement-level tier (`lockedRoom` exempt), built into an `adopted` `ContainerSet`. |
 | `TrainingArena.ts` | Simulation training range (`TrainingRef`): deck, invisible walls, pop-up targets, target modes, consoles. |
 | `tutorial/model.ts` | Tutorial planet shape: levels, corridor profile, deck pieces, chasm, checkpoints, fall rules, enemy spots (per-spot `sense` / `weapon`), corpse spots, ship pose, crawl slab, barrier, pit + walls + north rim, fence stair cuts (`fenceColumns`), ship hill + slope, wall descent, `lowerTilingErrors`. |
 | `tutorial/TutorialWorld.ts` | `TutorialWorldRef` + tutorial queries (`heightAt`, `raycastGround`, `isInside`, `clampInside`, `surfaceMaterial`), checkpoint tracking, safe-ground respawn, ship placement. |
@@ -217,6 +219,22 @@ Box math is used only when `o.box` is set; cylinder code paths are separate.
   crate per nest) is gone and every other ring refuses a spot within `NEST_CRATE_CLEAR_M` (`data/tuning.csv`, 24 m — mounds
   reach 18.1 m from the pad) of a nest pad. A raid therefore has ~4–6 fewer crates, all tier 3; nothing was raised to
   compensate. — `Crates.ts`
+- **The ceiling turret rides the locked door's wire, and only the authority hurts anyone (2026-09-21).** Its
+  「powered down」 state **is** `StructureDef.unlocked` — host-decided, spread by `struct unlocked` and replayed to a
+  late joiner in `struct sync.unlocked`, so `Structures.applyUnlock` calling `CeilingTurretSet.disableFor` covers
+  every path and the turret needs no message of its own. **Damage is applied on `ctx.isAuthority` only** — the
+  local player through `PlayerRef.takeDamage` with source `explosion` (「physical damage that is nobody's body」,
+  the same cause a tram collision carries), a squadmate through the existing `dmg` message, an android through
+  `AlliesRef.damage`. The **look** (turning, laser, alarm, tracer) is stepped on every client from state everyone
+  already has — the unlocked flag plus the 20 Hz positions — so the victim sees the warning on their own screen;
+  a disagreement can only paint the beam at the wrong body for a frame, never hurt anyone. Its line of fire is one
+  `WorldRef.raycast` from the muzzle, which is also 「it must not shoot through the closed door」 (the panel is a
+  `door` collider until it opens), and a body outside the room's OBB is never a target, which is 「it does not
+  follow anyone out」. — `structures/parts/Turret.ts`
+- **The turret adds no light and almost no draw.** A point light would recompile every material and the raid budget
+  has zero spare slots, so the warning is the laser · the alarm · an emissive LED. Every mount plate merges into one
+  static mesh; a turret owns one head (~24 triangles, no shadow) and one LED quad, the heads share the structure
+  material and the LEDs one emissive material; the laser and the shot go through the shared `TracerPool`. — `parts/Turret.ts`
 - Point lights: structures use a `LightPool` of `STRUCTURE_POINT_LIGHTS` real lights moved between room spots, built even
   on maps without structures, so the raid light count is constant (`SCENE_POINT_LIGHT_BUDGET` has zero spare in raids).
   Everything else in world (beacons, consoles, arena, tutorial, rover, scan wave) is emissive only.
@@ -251,22 +269,35 @@ are open-topped, no scanner.
 
 - Ground floor is one `floorPlate` covering footprint + `FLOOR_OVERHANG`; its collider top is exactly floor height and
   its underside is the basement ceiling (two layers of different width create a trench at the door).
-- Locked doors take consumable master keys; one locked door per building at most:
+- Locked doors take consumable keys; one locked door per building at most:
 
-| Door | Key (`structures.csv` `key`) | Where |
+| Door | Key kind (`structures.csv` `key`) | Where |
 |---|---|---|
 | Outpost basement (stair corridor → standing sliding door) | `key_basement` | pit under the building |
 | Lab 2nd-floor locked room | `keycard_lab` | corner room on 2-floor labs only (`basementChance` 0) |
 
-  Any key of the right kind opens any building's door; the opener's key is consumed after host confirm (`struct unlocked.by`).
-  Without a key the hold time is 0 and the press gives `keycard_deny` + a toast (`DOOR_TEXT`). Keys are never guaranteed:
-  ground containers roll `keyChance` as a separate bonus roll. Locked-room containers use the `structureLocks` fork and carry
+  **The csv cell is the kind, not the id (2026-09-21, user's decision).** `StructureDef.unlockDefId` is
+  `<kind>_<this raid's planet>` (`key_basement_amber` …, `data/items.csv` has the ten), so a door opens only with
+  **this planet's** key — any building on that planet, no building on another. The prompt and the deny toast name
+  the planet the door wants (`DOOR_TEXT`, `planetLabel`), because the whole point is to send the player there.
+  The opener's key is consumed after host confirm (`struct unlocked.by`).
+  Without the right key the hold time is 0 and the press gives `keycard_deny` + a toast. Keys are never guaranteed:
+  ground containers roll `keyChance` as a separate bonus roll whose **kind** comes from the building and whose
+  **planet is drawn uniformly per container** (a fork of the `structureLocks` stream, baked into the `ContainerSpec`
+  so preview ≡ open). Locked-room containers use the `structureLocks` fork and carry
   `lockedRoom: true`, which exempts their contents from the epic+ gate (`planet_loot.csv` `epicPlusMul`; user decision 2026-09-16).
   Basement containers can carry a second per-kind bonus (`structures.csv` `basementBonus` / `basementBonusChance` /
   `basementBonusPlanets`, e.g. the outpost's `gad_thumper` 5 % on `amber`): `Structures.ts` sets `bonusDefId` / `bonusChance`
   on the basement spec only when `missionPlanet` is listed, and `ContainerSet` rolls it with its own seeded rng (preview ≡ open).
 - Drone vents: a `VENT_W` × `VENT_H` gap beside each locked door; people are stopped by the lintel box (head clearance),
   not by width. Rays pass.
+- **Ceiling turret (2026-09-21, user's decision 「무적 방어장치」)** — `structures/parts/Turret.ts`, one per locked
+  space (basement · lab locked room), built only where the building really has a locked door. It is
+  **indestructible**: no hp, no collider, not an enemy, so nothing can target it. Its loop is acquire a player or
+  android inside the room's world OBB within `CEIL_TURRET_RANGE_M` with a clear line → turn at
+  `CEIL_TURRET_TURN_RATE` while an alarm and an aiming laser run for `CEIL_TURRET_WARMUP_S` → `CEIL_TURRET_DAMAGE`
+  every `CEIL_TURRET_INTERVAL_S`. **The only off switch is opening that room's door with the matching planet's
+  key**, and it is permanent. See Rules for the authority split and the budgets it keeps.
 - Windows: `GlassSet`; broken by bullets (`destructible`), grenades / thrown gadgets (`shared/fragile.breakFragileAlong`);
   broken panes keep colliders with `passRays` + `passSmall` (people cannot climb through). Unbroken glass blocks sight.
   **Blast / melee occlusion ignores `passRays` for glass** (2026-09-18) — `WorldSystem.raycastBlast`, see Rules.
@@ -320,10 +351,34 @@ are flattened; road mesh sits on terrain while the vehicle follows the smoothed 
 - States (`ROVER_STATES`, host-authoritative): `stopped` (`ROVER_DWELL_S`, paused while riders are aboard) → `patrol` to the
   next station; a rider's paid trip → `departing` (`ROVER_DEPART_GRACE_S`) → `trip` (shorter way round, skips stops) → all
   riders ejected at arrival (`parts/Exits`); HP 0 → `destroyed` (wreck collider stays, no refund).
-- Damage only from enemies (`RoverRef.damage`, host) and hazards (`HAZARD_DPS × damageMul × ROVER_HAZARD_DAMAGE_MUL`,
-  even empty). Player weapons never call it. Riders are immune (enforced by `player/`).
-- Turret fires only while moving, authority only, damage source `ROVER_DAMAGE_SOURCE` (no kill credit). Ramming: enemies
-  take damage + knockback, players only knockback, riders excluded.
+- Damage comes in by **three separate doors**, and which door it used is the whole point: enemies call `RoverRef.damage`
+  (host), hazards are ticked by world itself (`HAZARD_DPS × damageMul × ROVER_HAZARD_DAMAGE_MUL`, even empty), and the
+  **player side** arrives as `Obstacle.destructible.onDamage(amount, point)` on the hull collider — the path
+  `weapons/parts/Firing` · `weapons/Projectile` already take for destructible cover. Only the third one counts toward
+  hostility. Riders are immune (enforced by `player/`).
+- Hit zones (2026-09-21, `parts/Parts.ts`): 4 wheel zones · front turret · rear turret · hull. Still **one** box
+  collider — the zones are a damage-resolution layer resolved from the impact point, because the box is what walking,
+  `shared/ride.ts` and the enemy hit test all stand on. A part takes its own hp **and** passes
+  `ROVER_PART_HULL_MUL` (1 = all) of the same damage to the hull, so shooting only the parts still kills the car.
+  One wheel zone gone = `ROVER_WHEEL_SPEED_MUL_1`; two = it cannot move (still a rideable platform, and then it counts
+  as standing for boarding and getting off, or a stranded car would lock its riders in). A dead turret stops firing.
+- Hostility (2026-09-21): player-side damage past `ROVER_AGGRO_DAMAGE` turns the vehicle hostile **for the rest of the
+  raid** — no timeout. It keeps running its route (no chase, never leaves the road), refuses boarding
+  (`적대 상태 — 탑승 거부`) and adds people to the turrets' target list. One flag on the wire, not a list of attackers:
+  hostility covers the attacker and their squad, and a raid's squad is the lobby.
+- Two turrets, both authority-only and both firing only while moving. Front = a common-grade **SMG**
+  (`ROVER_TURRET_FRONT_*`), rear = a common-grade **assault rifle** (`ROVER_TURRET_REAR_*`); the falloff is the gun's
+  own, read from `weapons.csv` through `LootRef.getEffectiveStats('smg' | 'ar')` (the multiplier itself is
+  `@/items damageFalloffStats` — one formula, the same import `allies/parts/Combat` makes). Enemies take
+  `ROVER_DAMAGE_SOURCE` (no kill credit); a person (player · squadmate · android) takes `explosion`, the tram's
+  convention for a vehicle, and only with probability `ROVER_TURRET_PC_ACCURACY` — a miss is **still fired**, wide, so
+  the tracer visibly goes past. Ramming: enemies take damage + knockback, players only knockback, riders excluded.
+- Destroyed, it drops `ROVER_WRECK_CRATE_MIN`…`MAX` cube supply crates (container style 3) around the wreck, at least
+  `ROVER_WRECK_CRATE_GAP_M` apart on clear ground. They roll the **outpost-basement tier for the planet's threat**
+  (`ROVER_WRECK_TIER_T1/2/3`) and are **exempt from the epic+ gate** like the lab's locked room — user's decision
+  「a rover raid pays what entering the basement pays」. Every client lays them (seed-deterministic, and destruction is
+  already on the wire), and they are an ordinary `ContainerSet`, so `crate:open` · the preview · `crate opened` all work
+  unchanged. The first one opened raises one `structure:investigated` with kind `wreck`.
 - Fare: `roverFareFor`; only the payer sends `credits:tx` with reason `rover:<from>:<to>`; the host recomputes the fare.
   Stations swallowed by a hazard refuse boarding / destination.
 
@@ -443,8 +498,8 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world`.
+- 2026-09-21 — The rover gets hit zones · two guns · hostility · wreck crates (사용자 결정): 4 wheel zones + a front SMG and a rear AR turret resolved from the impact point (`rover/parts/Parts.ts`, hull collider `destructible`), part damage also coming off the hull; `ROVER_AGGRO_DAMAGE` of player-side damage turns the car hostile for the raid (refuses boarding, shoots people at `ROVER_TURRET_PC_ACCURACY`, keeps its route); destruction drops basement-tier cube crates (`rover/parts/Wreck.ts`). `ContainerSet` gained style 3 and a map-wide by-id index so a set built mid-raid is reachable.
+- 2026-09-21 — Planet-bound keys · the ceiling turret (사용자 결정): `structures.csv` `key` is now the **kind** and `StructureDef.unlockDefId` is `<kind>_<raid planet>`, the prompt · deny toast name that planet, a container's bonus key draws its planet uniformly, and an **indestructible** `CeilingTurretSet` (`structures/parts/Turret.ts`) guards the basement and the lab's locked room until that door is opened.
 - 2026-09-21 — The rover turret hands its target to the shot (B-73): `updateTurretLogic`'s `fire` callback takes `targetId` and both `rover:fired` emits carry it (`null` on a replica, which only receives the impact point). `smoke-rover`'s turret check stands on the event instead of reaching into the turret's `private` state.
 - 2026-09-20 — `docs/DECISIONS.md` perf Phase A2 (world render cost): scattered props cast only within `PROP_SHADOW_DIST_M` (near / far `InstancedMesh` pair per casting variant, re-split every `PROP_SHADOW_REPACK_M` of eye movement — `Props.repackShadowLod`); crates, containers and debris stopped casting; pebbles dropped to `PROP_PEBBLE_DETAIL` (80 → 20 triangles each, 137k → 34k in S2). `SUN_SHADOW_HALF_M` moved to csv so `core/Atmosphere` and `Props` read one number. `WorldSystem.update` now computes `eyeFor` once and shares it.
 - 2026-09-19 — Comment corrections found while translating (B-20): 광맥 `kind` is `'mineral'` (`Gather.ts` + rule 4 here — no `addSkillXp` exception), `Fog.ts` toast list, the `BARRIER` / `PIT_WALL_H` / `PIT_NORTH_RIM_H` / slat checks re-derived from `fenceHeight` 2.025, retired `BACKSTOP` wording, `pollSafeGround` count, `Containers.markOpened` doc retargeted, tram `consolePos`. The unread `vein` flags on `Gather`'s `Spot` / `Node` went with it — nothing read them.
-- 2026-09-19 — Dead code removed (B-21): `Hazard.debugPlanFor` uses `HAZARD_FORK` instead of the literal, `Platform.buildStairs`'s unused `total`, `updateTramHit`'s unused `dt` parameter, `BASEMENT_KEY_DEF` (constant + `index.ts` re-export — nothing imported it; the id lives in `structures.csv`).
-- 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels kept verbatim in backticks, no string literal touched.

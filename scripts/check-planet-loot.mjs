@@ -270,7 +270,14 @@ check(ur(3).t4 < ur(5).t4, `티어4 상자 유니크도 순번에 따라 오른�
 console.log('');
 console.log('열쇠 (key_basement · keycard_lab) — 희귀 드롭');
 {
-  const KEYS = ['key_basement', 'keycard_lab'];
+  /* 2026-09-21: 열쇠 · 키카드는 **행성 귀속**이라 종류마다 행성 수만큼(현재 5) 아이템이 있다
+   * (`key_basement_amber` …). 그래서 id 를 박아 두지 않고 앞자리(종류)로 모은다 — 행성이 늘어도 이 파일은
+   * 그대로다. 총 드롭률은 종류 단위로 봐야 의미가 있으므로 「열쇠가 나온 굴림」은 두 종류를 합쳐 센다. */
+  const KEY_FAMILIES = ['key_basement', 'keycard_lab'];
+  const familyOf = (id) => KEY_FAMILIES.find((f) => id === f || id.startsWith(`${f}_`)) ?? null;
+  const KEYS = [...ITEM_DEF_MAP.keys()].filter((id) => familyOf(id));
+  check(KEYS.length === KEY_FAMILIES.length * PLANET_IDS.length,
+    `열쇠 아이템 수 = 종류 ${KEY_FAMILIES.length} × 행성 ${PLANET_IDS.length} — ${KEYS.length}개 (${KEYS.join(', ') || '없음'})`);
   for (const id of KEYS) {
     const def = ITEM_DEF_MAP.get(id);
     check(!!def && def.category === 'key' && def.rarity === 'epic' && def.stackMax === 1 && def.width === 1 && def.height === 1,
@@ -284,7 +291,8 @@ console.log('열쇠 (key_basement · keycard_lab) — 희귀 드롭');
     for (let i = 0; i < N; i++) {
       let got = false;
       for (const it of loot.rollCrate(tier, new Random((i * 22695477 + tier) >>> 0))) {
-        if (KEYS.includes(it.defId)) { got = true; seenIds.add(it.defId); }
+        const fam = familyOf(it.defId);
+        if (fam) { got = true; seenIds.add(fam); }
       }
       if (got) crates++;
     }
@@ -294,12 +302,12 @@ console.log('열쇠 (key_basement · keycard_lab) — 희귀 드롭');
   check(crateRate[1] === 0 && crateRate[2] === 0 && crateRate[5] === 0, `티어 1 · 2 · 5 상자에는 열쇠가 없다`);
   check(crateRate[3] > 0 && crateRate[3] < 0.015, `티어 3 상자: 0 초과 · 1.5 % 미만 — ${pct(crateRate[3]).trim()}`);
   check(crateRate[4] > 0 && crateRate[4] < 0.03, `티어 4 상자: 0 초과 · 3 % 미만 — ${pct(crateRate[4]).trim()}`);
-  check(KEYS.every((k) => seenIds.has(k)), `두 열쇠가 모두 상자에서 나온다 — ${[...seenIds].join(', ') || '(없음)'}`);
+  check(KEY_FAMILIES.every((k) => seenIds.has(k)), `두 열쇠가 모두 상자에서 나온다 — ${[...seenIds].join(', ') || '(없음)'}`);
   const corpseRate = {};
   for (const type of ['warrior', 'behemoth', 'rogue', 'rogue_boss']) {
     let n = 0;
     for (let i = 0; i < 5000; i++) {
-      for (const it of loot.rollCorpse(type, new Random((i * 69069 + 1) >>> 0), 'ar')) if (KEYS.includes(it.defId)) { n++; break; }
+      for (const it of loot.rollCorpse(type, new Random((i * 69069 + 1) >>> 0), 'ar')) if (familyOf(it.defId)) { n++; break; }
     }
     corpseRate[type] = n / 5000;
   }

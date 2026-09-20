@@ -12,11 +12,11 @@
  * all refused — looking around only.
  */
 import type {
-  GameContext, HubShipBay, PeerId, PlacedBook, PlacedFurniture, Rarity, RoomPurpose, ShipVisitWire,
+  GameContext, HubShipBay, PeerId, PlacedBook, PlacedFurniture, Rarity, RoomPurpose, ShipModelId, ShipVisitWire,
 } from '@/shared';
 import {
   BOOKS_PER_SHELF, FURNITURE_DEF_MAP, NET_MAX_PLAYERS, SHELF_SLOTS, SHIP_ROOM_COUNT, SHIP_VISIT_COOLDOWN_S, SHIP_VISIT_MAX_FURNITURE,
-  SHIP_VISIT_MIN_INTERVAL_S, SHIP_VISIT_WAIT_S, isBotPlayer, shelfMediumOfInteraction,
+  SHIP_VISIT_MIN_INTERVAL_S, SHIP_VISIT_WAIT_S, isBotPlayer, shelfMediumOfInteraction, shipModelOf,
 } from '@/shared';
 import type { FurnitureSource } from '../interiors/Furniture';
 import type { HubSystem } from '../HubSystem';
@@ -213,12 +213,23 @@ export function furnitureSource(ctx: GameContext, wire: ShipVisitWire): Furnitur
  * 2026-09-15 (android squadmates): a bot member has no personal ship — that slot's bay stays **empty**
  * (`비어 있는 정박 구역`), no ship is parked in it and no `ship state` is ever asked for.
  */
-function occupantOf(sys: HubSystem, slot: number): { id: PeerId; name: string } | null {
+function occupantOf(sys: HubSystem, slot: number): { id: PeerId; name: string; model: ShipModelId } | null {
   const net = sys.ctx.net;
   const lobby = sys.squadLobby();
-  if (!lobby) return slot === 0 ? { id: net?.localId ?? 'local', name: '내 함선' } : null;
+  const mine = myShipModel(sys);
+  if (!lobby) return slot === 0 ? { id: net?.localId ?? 'local', name: '내 함선', model: mine } : null;
   const p = lobby.players.find((q) => q.slot === slot) ?? null;
-  return p && !isBotPlayer(p) ? { id: p.id, name: p.name } : null;
+  if (!p || isBotPlayer(p)) return null;
+  // 2026-09-21 (the ship-purchase hook): each bay parks **its owner's** ship. Our own model comes from our profile;
+  // a squadmate's rides `LobbyPlayer` — `shipModelOf` reads the field by shape, so a relay that does not send it yet
+  // simply parks the default ship instead of failing to compile.
+  const isMe = p.id === (net?.localId ?? 'local');
+  return { id: p.id, name: p.name, model: isMe ? mine : shipModelOf(p) };
+  }
+
+/** The local character's ship model (`PlayerProfile.shipModel`), defaulting when progression is absent. */
+function myShipModel(sys: HubSystem): ShipModelId {
+  return shipModelOf(sys.ctx.progression?.profile);
   }
 
 /** The hangar's four bays with their current occupants (empty outside the shared ship). */
@@ -287,8 +298,13 @@ export function refreshBays(sys: HubSystem): void {
   const interior = sys.interior;
   if (!interior || typeof interior.setBayOccupants !== 'function') return;
   const names: (string | null)[] = [];
-  for (let i = 0; i < NET_MAX_PLAYERS; i++) names.push(occupantOf(sys, i)?.name ?? null);
-  interior.setBayOccupants(names);
+  const models: (ShipModelId | null)[] = [];
+  for (let i = 0; i < NET_MAX_PLAYERS; i++) {
+    const occ = occupantOf(sys, i);
+    names.push(occ?.name ?? null);
+    models.push(occ?.model ?? null);
+  }
+  interior.setBayOccupants(names, models);
   }
 
 /* ── entering / leaving a parked ship ──────────────────────────────────── */

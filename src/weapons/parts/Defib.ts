@@ -18,7 +18,7 @@
  * the two never disagree.
  */
 import * as THREE from 'three';
-import { DEFIB_AIM_CONE_DEG, GADGET_DEFIB_RANGE, MouseButtons, type GadgetId, type ItemDef } from '@/shared';
+import { DEFIB_AIM_CONE_DEG, GADGET_DEFIB_RANGE, MouseButtons, type GadgetId, type GameContext, type ItemDef, type PeerId } from '@/shared';
 import type { Host, QuickHand } from '../model';
 import type { WeaponSystem } from '../WeaponSystem';
 
@@ -74,7 +74,13 @@ function hasAimedAlly(sys: WeaponSystem, host: Host): boolean {
   };
   for (const r of ctx.net?.getRemotePlayers() ?? []) {
     if (!r.isDowned || r.stale) continue;
-    if (aimed(r.position)) return true;
+    /* 2026-09-21 (user's decision — the defibrillator works on a **shouldered** body). A carried body's own
+     * `position` is a stale snapshot (`RemotePlayerRef.isCarried`), so the carrier's stands in for it; a body on
+     * our **own** shoulder cannot be aimed at, so it counts as aimed outright. Must stay identical to gadgets'
+     * `findDownedAlly.carrierPositionOf` — that one decides *which* body, this one only 「it fires on release」. */
+    const carrier = carrierPositionOf(ctx, r.id);
+    if (carrier?.mine) { if (me.position.distanceToSquared(carrier.position) <= rangeSq) return true; continue; }
+    if (aimed(carrier ? carrier.position : r.position)) return true;
   }
   /* 2026-09-15 (android squadmates): a downed **android** is the same kind of target — this is the gate for
    * 「it fires on release」 (`releaseDefib`'s `fire = armed && target`), so it has to look at the **same range**
@@ -84,6 +90,30 @@ function hasAimedAlly(sys: WeaponSystem, host: Host): boolean {
     if (aimed(b.position)) return true;
   }
   return false;
+}
+
+/**
+ * Who is carrying `id` and where they stand (2026-09-21), or null when nobody is. `mine` = **our** shoulder.
+ * The twin of gadgets' `parts/Deploy.carrierPositionOf` — the two files already duplicate the chest height and the
+ * cone test on purpose (the target and the 「fires on release」 gate must never disagree); change one, change both.
+ */
+function carrierPositionOf(ctx: GameContext, id: PeerId): Carrier | null {
+  const me = ctx.player;
+  if (me && (me.carrying ?? null) === id) return carrier(me.position, true);
+  for (const r of ctx.net?.getRemotePlayers() ?? []) {
+    if (r.id === id) { if (r.carriedBy) { const c = ctx.net?.getRemotePlayer(r.carriedBy); if (c) return carrier(c.position, false); } continue; }
+    if (r.carrying === id) return carrier(r.position, false);
+  }
+  const android = ctx.allies?.carrierOf?.(id) ?? null;
+  return android ? carrier(android.position, false) : null;
+}
+
+/** Reused result — `hasAimedAlly` runs every frame per downed peer, so the lookup allocates nothing. */
+interface Carrier { position: THREE.Vector3; mine: boolean }
+const _carrier: Carrier = { position: new THREE.Vector3(), mine: false };
+function carrier(position: THREE.Vector3, mine: boolean): Carrier {
+  _carrier.position = position; _carrier.mine = mine;
+  return _carrier;
 }
 
 /** `gadget:defibAim` (throttled). `force` = start · armed · a target change · the end. */

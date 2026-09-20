@@ -225,6 +225,8 @@ export class AllySystem implements GameSystem, AlliesRef {
     Vitals.damage(this, id, amount, source, from);
   }
   requestRevive(id: AllyId, opts?: { defib?: boolean }): boolean { return Vitals.requestRevive(this, id, opts); }
+  heal(id: AllyId, hp: number): boolean { return Vitals.requestHeal(this, id, hp); }
+  chargeShield(id: AllyId, amount: number): boolean { return Vitals.requestShield(this, id, amount); }
   carrierOf(peer: PeerId): AllyBodyView | null {
     for (const a of this.bodies) if (a.carrying === peer) return a;
     return null;
@@ -239,6 +241,8 @@ export class AllySystem implements GameSystem, AlliesRef {
   sendFire(a: Ally, from: THREE.Vector3, to: THREE.Vector3): void { Sync.sendFire(this, a, from, to); }
   sendPodDrop(a: Ally): void { Sync.sendPodDrop(this, a); }
   sendReviveRequest(id: AllyId, defib: boolean): boolean { return Sync.sendReviveRequest(this, id, defib); }
+  sendHealRequest(id: AllyId, hp: number): boolean { return Sync.sendHealRequest(this, id, hp); }
+  sendShieldRequest(id: AllyId, amount: number): boolean { return Sync.sendShieldRequest(this, id, amount); }
   revivePlayer(a: Ally, target: PeerId, defib: boolean): void { Sync.revivePlayer(this, a, target, defib); }
   depositToLeader(a: Ally, items: readonly ItemInstance[]): void { Sync.depositToLeader(this, a, items); }
   offerToLeader(a: Ally, item: ItemInstance): void { Support.offerToLeader(this, a, item); }

@@ -172,7 +172,7 @@ IMPLANT_DASH_SWEEP_STEP,0.15,"2026-09-14: 대시 경로를 몸으로 훑는 한 
 IMPLANT_DASH_SLIDE_MIN,0.5,"2026-09-14: 한 걸음을 밀어낸 뒤 진행 방향으로 이 비율(걸음 대비) 이상 나아갔으면 벽을 스치며 미끄러진 것으로 보고 계속 간다. 못 미치면 막힌 것 — 그 앞 걸음에서 멈춘다 (벽에 45° 보다 깊게 박히면 멈춘다)."
 IMPLANT_DASH_MAX_SLOPE_DEG,50,"2026-09-14: 지형(발이 지형 위일 때만) 경사가 이 각도보다 가파른 오르막이면 대시가 거기서 멈춘다. player/PlayerController 의 걷기 경사 한계(STEEP_COS 50°)와 같은 값이어야 걸어서 못 가는 비탈을 대시로 오르지 않는다."
 IMPLANT_DASH_COOLDOWN,5,per charge
-IMPLANT_BARRIER_HP,2000,
+IMPLANT_BARRIER_HP,800,
 IMPLANT_BARRIER_WIDTH,7,
 IMPLANT_BARRIER_HEIGHT,3.2,
 IMPLANT_BARRIER_REGEN,120,Shield hp regenerated per second while it is stowed.
@@ -490,7 +490,7 @@ HEAL_HOLD_CANCEL_ON_DAMAGE,false,Taking damage does not cancel the hold (moving 
 CONSUMABLE_SLOW_MUL,0.5,Movement speed multiplier while a consumable is being used / channelled (`PlayerRef.setSpeedModifier`).
 DEFIB_USE_TIME_S,1,Seconds LMB must be held with a 제세동기 in hand before the revive fires.
 HEAL_SPRAY_GAUGE,200,2026-09-08: 100 → 200; an empty can stays at 0 (repairable in the ship) instead of vanishing
-HEAL_SPRAY_RADIUS,8,
+HEAL_SPRAY_RADIUS,16,
 
 # ── 발사 준비 패널 (owner: hub, portraits from player/) ──
 HUB_READY_CELLS,4,Cells in the READY panel. Kept separate from the lobby size so the panel never resizes.
@@ -1063,9 +1063,7 @@ ROVER_HALF_LENGTH,3.75,"차체 반길이(m, 전방 축). 콜라이더 · 적 타
 ROVER_HALF_WIDTH,1.5,"차체 반폭(m)."
 ROVER_HEIGHT,2.8,"포탑 포함 전체 높이(m) — 적 타격 판정 상자의 높이 (RoverRef.height)."
 ROVER_HULL_H,2.2,"차체 콜라이더 상자 높이(m). 포탑은 그림뿐이다."
-ROVER_TURRET_RANGE,28,"포탑 사거리(m, 좁은 범위 — 사용자 명세 「근처(좁은 범위)의 적」). 달리는 중에만 쏜다."
-ROVER_TURRET_DAMAGE,10,"포탑 한 발 피해. 2026-09-17 (1/3 개편): 30 → 10."
-ROVER_TURRET_INTERVAL_S,0.2,"포탑 사격 간격(초) — 초당 50 피해."
+# 2026-09-21: ROVER_TURRET_RANGE · _DAMAGE · _INTERVAL_S 는 앞뒤 포탑이 따로 생기면서 사라졌다 (ROVER_TURRET_FRONT_* · _REAR_*).
 ROVER_TURRET_RETARGET_S,0.5,"포탑이 표적을 다시 고르는 간격(초)."
 ROVER_TURRET_TURN_RATE,3,"포탑 회전 속도(rad/s)."
 ROVER_TURRET_AIM_CONE,0.15,"표적이 포탑 정면에서 이 각(rad) 안이어야 쏜다."
@@ -1266,3 +1264,48 @@ SUN_SHADOW_HALF_M,60,"태양 그림자 상자의 반경(m). 플레이어를 따�
 
 # ── 카메라 기본 화각 (2026-09-20, 사용자 결정 「줌 배율로 LOD 거리 보정」, owner: player 카메라 · shared/viewZoom) ──
 CAMERA_BASE_FOV_DEG,70,"3인칭 기본 세로 화각(도). `CameraRig.baseFov` 이자, 「화면에서 얼마만 하게 보이는가」로 정한 모든 수치의 기준이다. 스코프(`attachments.csv` att_scope4/6/8)는 `camera.zoom` 이 아니라 camera.fov 를 이 값의 1/배율로 좁히므로, 화면 크기로 정한 값(적 애니메이션 LOD 거리 · 저격 섬광 크기)은 tan(fov/2) / tan(이 값/2) 로 보정한다 (`shared/viewZoom.ts` viewZoomK). 이 값을 바꾸면 보정도 함께 따라간다."
+
+# ── 2026-09-21 아군 회복 · 재장전 유지 (사용자 결정, owner: weapons) ──
+HEAL_ALLY_RANGE_START,3.5,"회복 소모품을 아군에게 쓰기 시작할 수 있는 거리(m). 이 안에 크로스헤어로 겨눈 아군이 없으면 우클릭 자체가 비활성이다."
+HEAL_ALLY_RANGE_HOLD,5,"우클릭을 누르고 있는 동안 시전이 유지되는 거리(m). 시작 거리보다 넉넉해서 대상이 조금 움직여도 끊기지 않는다 — 이 밖으로 벗어나면 취소되고 아이템은 소모되지 않는다."
+HEAL_ALLY_AIM_CONE_DEG,20,"아군을 「겨눴다」고 보는 크로스헤어 반각(°). 제세동기(DEFIB_AIM_CONE_DEG)보다 넓다 — 제세동기는 쓰러진 몸 하나를 고르지만 이쪽은 서서 움직이는 아군을 고른다."
+
+# ── 2026-09-21 탐사 차량 부위 파괴 · 적대화 · 잔해 (사용자 결정, owner: world/rover) ──
+ROVER_AGGRO_DAMAGE,200,"플레이어 쪽이 누적으로 이만큼 피해를 입히면 차량이 적대 상태가 된다 (차체 HP 2000 의 10 %). 적대는 그 레이드 동안 풀리지 않고, 가해자와 그 분대원 전원이 표적이 되며 탑승도 거부된다. 적·재해가 준 피해는 세지 않는다."
+ROVER_WHEEL_HP,250,"바퀴 한 짝의 체력. 하나 파괴되면 ROVER_WHEEL_SPEED_MUL_1 로 느려지고, 둘째가 파괴되면 움직이지 못한다 (발판 역할과 탑승자는 그대로)."
+ROVER_TURRET_HP,400,"포탑 하나의 체력. 파괴되면 그 포탑은 더 쏘지 못한다 — 앞뒤가 각각이다."
+ROVER_PART_HULL_MUL,1,"부위(바퀴 · 포탑)에 들어간 피해가 차체 HP 에도 반영되는 비율. 1 = 그대로 함께 깎인다 — 부위만 노려도 결국 차량이 파괴된다는 사용자 결정."
+ROVER_WHEEL_SPEED_MUL_1,0.7,"바퀴가 하나 파괴됐을 때의 속도 배수 (사용자 명세 「30 % 느려짐」). 순환 주행 · 결제 이동 모두에 걸린다."
+ROVER_TURRET_FRONT_DAMAGE,13,"전위 포탑 한 발 피해 — 일반 등급 기관단총(weapons.csv smg) 과 같은 값."
+ROVER_TURRET_FRONT_INTERVAL_S,0.0714,"전위 포탑 사격 간격(초) = 초당 14 발, 일반 기관단총의 연사력."
+ROVER_TURRET_FRONT_RANGE,120,"전위 포탑 사거리(m) — 일반 기관단총의 range. 감쇠도 기관단총 곡선을 따른다 (10 m 부터 35 m 까지 0.3 배로)."
+ROVER_TURRET_REAR_DAMAGE,17,"후위 포탑 한 발 피해 — 일반 등급 돌격소총(weapons.csv ar) 과 같은 값."
+ROVER_TURRET_REAR_INTERVAL_S,0.1,"후위 포탑 사격 간격(초) = 초당 10 발, 일반 돌격소총의 연사력."
+ROVER_TURRET_REAR_RANGE,210,"후위 포탑 사거리(m) — 일반 돌격소총의 range. 감쇠는 40 m 부터 160 m 까지 0.45 배로."
+ROVER_TURRET_PC_ACCURACY,0.5,"포탑이 사람 쪽 몸(플레이어 · 안드로이드)을 겨눌 때의 명중률 배수 (사용자 명세 「PC 대상 명중률 -50 %」). 빗나간 탄은 조용히 사라지지 않고 옆으로 흩어져 날아간다. 적을 겨눌 때는 걸리지 않는다."
+ROVER_WRECK_CRATE_MIN,2,"차량이 파괴될 때 떨어지는 정육면체 보급 상자 수의 하한."
+ROVER_WRECK_CRATE_MAX,3,"같은 값의 상한. 시드로 뽑는다."
+ROVER_WRECK_CRATE_GAP_M,2.2,"보급 상자끼리 떨어져 놓이는 최소 거리(m). 서로 겹쳐 보이지 않게 잔해 둘레에서 이 간격으로 자리를 찾는다."
+ROVER_WRECK_TIER_T1,2,"위험도 1 행성에서 보급 상자가 쓰는 loot_tiers.csv 등급. 전진기지 지하실과 같은 수준이며, 잠긴 방과 마찬가지로 epic+ 감쇠가 면제된다 (사용자 결정 「탐사차량 레이드 = 지하실 입장과 같은 보상」)."
+ROVER_WRECK_TIER_T2,3,"위험도 2 행성의 등급."
+ROVER_WRECK_TIER_T3,4,"위험도 3 행성의 등급."
+
+# ── 2026-09-21 천장형 터렛 (사용자 결정 「무적 방어장치」, owner: world/structures) ──
+CEIL_TURRET_DAMAGE,12,"천장형 터렛 한 발 피해. 지하실 · 연구소 잠긴 방 안에 달려 있고, 맞는 열쇠 · 키카드로 문을 열면 비활성화된다 — 통풍구로 몰래 들어온 사람만 맞는다."
+CEIL_TURRET_INTERVAL_S,0.5,"천장형 터렛 사격 간격(초). 초당 24 피해 — 버티면서 상자를 다 여는 것은 무리이되, 한 번 실수로 들어왔다고 즉사하지도 않는 속도."
+CEIL_TURRET_RANGE_M,14,"천장형 터렛 사거리(m). 방 하나를 덮는다 — 문 밖으로 나가면 더 쫓지 않는다."
+CEIL_TURRET_WARMUP_S,1,"침입자를 잡고 나서 첫 발까지의 예열 시간(초). 경보음과 조준 레이저가 이 동안 울린다 — 잘못 들어왔음을 알아채고 나갈 틈이다."
+CEIL_TURRET_TURN_RATE,3,"천장형 터렛이 표적으로 도는 속도(rad/s)."
+
+# ── 2026-09-21 함선 에어락 자동문 (사용자 결정, owner: hub) ──
+SHIP_AIRLOCK_DOOR_RANGE_M,3,"에어락 자동문이 열리는 접근 거리(m). 본인이든 다른 플레이어든 이 안에 들어오면 열린다."
+SHIP_AIRLOCK_DOOR_OPEN_S,0.7,"자동문이 완전히 열리고 닫히는 데 걸리는 시간(초)."
+
+# ── 2026-09-21 드롭 아이템 자리 · 실내 밝기 (사용자 결정, owner: pickups · core) ──
+PICKUP_SEPARATION_M,0.45,"바닥에 떨어진 아이템끼리 유지하는 최소 간격(m). 새로 떨어지는 아이템이 이 안에 이미 있는 것을 피해 자리를 잡는다 — 매 프레임 서로 밀어내는 계산은 하지 않는다 (사용자 결정 「생성 시 빈자리 탐색」)."
+PICKUP_SPOT_RINGS,3,"빈자리를 찾을 때 훑는 나선 고리의 수. 전부 찼으면 그냥 원래 자리에 놓는다 — 아이템이 사라지는 일은 없다."
+PICKUP_SPOT_STEP_M,0.5,"나선 고리 하나가 바깥으로 벌어지는 폭(m)."
+INDOOR_PROBE_UP_M,6,"머리 위로 이만큼(m) 안에 지붕 · 바닥 콜라이더가 있으면 「실내」로 본다. 내 클라이언트에서만 판정하며 와이어에 나가지 않는다."
+INDOOR_LIGHT_AMBIENT_MUL,1.6,"실내에 있는 동안 반구광 · 주변광 세기에 곱하는 값 (사용자 요청 「레이드 실내가 어둡다」). 광원 **개수**는 건드리지 않는다 — 레이드 광원 예산은 여유가 0 이고 광원을 하나 더 두면 모든 재질이 다시 컴파일된다 (CLAUDE.md §4.5)."
+INDOOR_FOG_MUL,0.5,"실내에 있는 동안 포그 농도에 곱하는 값. 실내에까지 낀 안개가 어둡게 보이는 원인의 절반이다."
+INDOOR_LIGHT_FADE_S,0.5,"실내 ↔ 실외가 바뀔 때 위 두 보정이 서서히 옮겨 가는 시간(초). 문턱에서 깜빡이지 않게 한다."

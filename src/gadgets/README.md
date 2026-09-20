@@ -45,7 +45,13 @@ appeared). Not recoverable (`recoverTime` 0, not in `RECOVERABLE_KINDS`), one us
 thumper inside its radius. Found only in **amber outpost basement** containers (`structures.csv` `basementBonus*` → `ContainerSpec.bonusDefId`).
 2026-09-15 — the defib also raises a **downed android** (`findDownedAlly` scans `ctx.allies.getBodies()` with the same
 range and the same aim-ray score as the human squad; `DefibTarget.ally` sends `AlliesRef.requestRevive(id, {defib:true})`
-instead of `buff revive`). The crosshair gate lives in `weapons/parts/Defib.hasAimedAlly` and scans the same set. The fire zone
+instead of `buff revive`). The crosshair gate lives in `weapons/parts/Defib.hasAimedAlly` and scans the same set.
+2026-09-21 — the defib also raises a **shouldered** body. A carried squadmate's own `RemotePlayerRef.position` is a stale
+snapshot (the contract says to ignore it while `isCarried`), so `findDownedAlly` stands the **carrier's** position in for it
+(`carrierPositionOf`: the local player · another peer · an android through `AlliesRef.carrierOf`), and a body on **our own**
+shoulder scores as aimed outright — nobody can put a crosshair on their own back. `useDefib` then puts it down with
+`PlayerRef.dropCarried('revived')` before the pulse, so the shoulder pose never flickers waiting for their snapshot.
+`weapons/parts/Defib.carrierPositionOf` is the same lookup and must move with this one. The fire zone
 (`incendiary`, kind `fire`) has no item: weapons lights it where an incendiary grenade explodes
 (`GadgetsRef.igniteGrenadeFire`). Numbers are `GADGET_*` / `GRENADE_INCENDIARY_*` / `DRONE_*` keys in `data/constants.csv`.
 
@@ -108,8 +114,8 @@ instead of `buff revive`). The crosshair gate lives in `weapons/parts/Defib.hasA
 ## Recent changes
 
 Last 5 only — older: `git log -- src/gadgets`.
+- 2026-09-21 — The defibrillator reaches a **shouldered** downed player: `findDownedAlly` reads the carrier's position for a carried body (`carrierPositionOf`) and treats one on our own shoulder as aimed; `useDefib` drops it with `dropCarried('revived')`.
 - 2026-09-19 — Audit B-55 · B-56 · B-57: comments matched to the code (fire merge · `-gf` · `burrowGroundOk` · `CENTER_Y` · mount ownership), `model.PLACE_DISTANCE` and the copied import blocks removed, the dead `setDroneMountId` setter deleted, `Queries` now reads `ENEMY_TARGET_KINDS` / `SOLID_KINDS`, `emitNoise` guards itself, the container scan preview rolls once with the spec id, `GroundDrone.raycast` got `AirDrone`'s `disposed` contract.
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-18 — `enemiesNear` / `enemyById` leave nest eggs out by default (`includeProps` opts back in): a turret no longer burns its ammo on a `bug_egg` and a mine laid at a nest is not tripped by one (`parts/Queries.ts`).
 - 2026-09-18 — Mine / remote mine / drone blast damage skips bodies behind walls, roofs and floors (`shared/explosion.blastReachesBody`); deployables are exempt (their body is the collider).
-- 2026-09-15 — Thumper (`thumper` / `gad_thumper`, `parts/Thumper.ts`): burrow-ground placement, 1 s strikes, 5th strike → `sandworm:summon`, destroyed by `sandworm:erupted`, wire `age`.

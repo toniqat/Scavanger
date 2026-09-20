@@ -1,4 +1,5 @@
 import type { ImplantId } from './implants';
+import type { ShipModelId } from './shipModel';
 import type { EmbeddedView, EnvKind, ItemInstance, WeaponClass } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -540,3 +541,11 @@ export interface DerivedStats {
   miningRarityBonus: number;
 }
 /* ══ end 2026-09-13 library series ══ */
+
+/* ══ appended (2026-09-21, 함선 구매 훅): the ship model this character owns ══
+ * The exterior the hangar parks and the drop-ship a raid extraction lands are the **same model registry**
+ * (`shared/shipModel.ts`), so buying a ship later only has to write this one field. Optional, so every save from
+ * before today reads as `DEFAULT_SHIP_MODEL` (`Profile.migrate` writes the resolved value back). */
+export interface PlayerProfile {
+  shipModel?: ShipModelId;
+}

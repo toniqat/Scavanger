@@ -9,7 +9,7 @@ local drops arrive via `inventory:itemDropped`.
 
 | File | Responsibility |
 |---|---|
-| `PickupSystem.ts` | `PickupsRef` impl, toss physics, one `Interactable` per pickup, host-authoritative `item` / `itemq` protocol, wire (de)serialisation (`wireOf` / `itemFromWire`) |
+| `PickupSystem.ts` | `PickupsRef` impl, toss physics, spawn-time free-spot search (`freeSpotFor`), one `Interactable` per pickup, host-authoritative `item` / `itemq` protocol, wire (de)serialisation (`wireOf` / `itemFromWire`) |
 | `PickupVisuals.ts` | `PickupVisualPool`: pooled procedural bodies per visual kind, tinted from `ItemDef.color`, emissive pulse + ground ring; `restHeightFor`, `BEAM_HEIGHT` |
 | `index.ts` | Barrel (`PickupSystem`) |
 
@@ -65,6 +65,19 @@ Host validation is existence only: an unknown / already-taken id is dropped sile
   `data/constants.csv`. Interact radius / cooldowns are file-local constants in `PickupSystem.ts`.
 - Landing and resting-spawn height use `world.getSurfaceY(x, z, bodyTop − PROP_STEP_UP_MAX)` + `restHeightFor`, not
   `getHeightAt` — otherwise items fall through upper floors. — `PickupSystem.ts`
+- **Dropped items do not pile up, and the search runs once — at spawn** (2026-09-21, user's decision
+  「생성 시 빈자리 탐색」). `freeSpotFor` rings out from the drop's guessed landing point (`landingGuess`, a plain
+  ballistic estimate), `PICKUP_SPOT_RINGS` rings × `PICKUP_SPOT_STEP_M`, and takes the first candidate that is
+  `PICKUP_SEPARATION_M` from every pickup's `restSpot`, in bounds, on a surface within `PROP_STEP_UP_MAX` of the
+  original one, and not inside a collider (`getSurfaceY` **before** `resolveCollision`, §4.4). The offset it finds is
+  applied to the **spawn** point, so the whole arc shifts and the physics is unchanged. Every ring taken → the
+  original spot: **an item is never lost.** There is deliberately **no per-frame separation pass** — the gain is
+  cosmetic and the cost would sit on a hot path.
+- The comparison is against `Pickup.restSpot` (the ballistic guess while airborne, the real spot from `settle`), never
+  `position`: a bagful is dropped in **one frame**, so every earlier body is still at the shared spawn point.
+- The search runs only where the drop **originates** — `spawn()` (authority) and the client branch of `onLocalDrop`.
+  Replicated spawns (`item drop` / `item sync` / the host's `itemq drop`) take the wire position verbatim, so the
+  chosen spot rides the existing message and every peer agrees. Never search in `spawnInternal`.
 - The prompt is available only while resting, not optimistic, and `ctx.isGameplayActive()`. — `makeInteractable`
 - Any new item field that must survive the network (like `raidFound`, `quality`) is added to `wireOf` and
   `itemFromWire`; omitted = default (no mark / quality 0). Received items are rebuilt with
@@ -80,10 +93,8 @@ Host validation is existence only: an unknown / already-taken id is dropped sile
 ## Recent changes
 
 Older: `git log -- src/pickups`.
+- 2026-09-21 — Dropped items no longer merge: `freeSpotFor` picks a free spot at spawn (spiral out from the guessed landing point, `Pickup.restSpot` claims it while airborne); no per-frame pass, no new message.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-15 — `takeBy(id, by)`: an android picks a ground item up on the authority (same broadcast as a peer's take).
 - 2026-09-15 — `ItemCategory 'grenade'` retired; visuals key on `VisualKind` (`def.grenade` → grenade silhouette).
 - 2026-09-13 — meal quality crosses the wire (`PickupWire.q`).
-- 2026-09-12 — `raidFound` mark crosses the wire (`PickupWire.rf`).
-- 2026-09-11 — `meal` / `pouch` / `key` silhouettes; `crop` / `soil` rest heights.
-- 2026-09-11 — locator pillar hidden; landing height uses `getSurfaceY`.

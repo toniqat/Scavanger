@@ -114,3 +114,11 @@ export * from './charBuffView';
 export * from './cutsceneHide';
 /* appended (2026-09-20, B-63): the shot sound id table — weapons/ and player/ (android squadmates) read the one table */
 export * from './shotSounds';
+
+
+
+
+/* ══ appended 2026-09-21: ship airlock · one exterior model · housing light (owner: hub · extraction) ══ */
+/* appended (2026-09-21): the one dropship mesh — the hangar, the docking cutscene and the raid ship build from it, plus the ship-model registry a player owns */
+export * from './shipModel';
+

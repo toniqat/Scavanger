@@ -56,8 +56,11 @@ export interface ContainerSpec {
   position: THREE.Vector3;
   yaw: number;
   tier: number;
-  /** 0 = wall cabinet, 1 = floor chest, 2 = reagent cabinet / shelf. */
-  style: 0 | 1 | 2;
+  /**
+   * 0 = wall cabinet, 1 = floor chest, 2 = reagent cabinet / shelf.
+   * appended (2026-09-21): **3 = a cube supply crate** — what a destroyed rover drops (`world/rover/parts/Wreck`).
+   */
+  style: ContainerStyle;
   /** The key that counts "once per zone" — a structure id or a platform id. */
   zoneId: string;
   zoneKind: StructureKind | 'platform';
@@ -96,17 +99,44 @@ interface Inst {
   interactable: Interactable;
 }
 
-const STYLE_H = [1.75, 0.85, 1.5];
-const STYLE_R = [0.5, 0.6, 0.55];
+/** Every container silhouette. `ContainerSpec.style` indexes these tables. */
+export type ContainerStyle = 0 | 1 | 2 | 3;
+const CONTAINER_STYLES: readonly ContainerStyle[] = [0, 1, 2, 3];
+const STYLE_H = [1.75, 0.85, 1.5, 0.9];
+const STYLE_R = [0.5, 0.6, 0.55, 0.5];
+/** Style 3's half-side (m) — it is a **cube**, so this is its half-width, half-depth and half its height alike. */
+const CUBE_HALF = 0.45;
+/**
+ * 2026-09-21 — the body's half-extents (local X · Z, m), split out of `STYLE_R` because they are no longer one
+ * proportion: styles 0–2 keep the cabinet shape they always had (`r × 0.9` wide by `r × 0.625` deep) and style 3 is
+ * square. The cap, the feet and the collider are all sized off these, so the shape and what you bump into can never
+ * drift apart.
+ */
+const STYLE_HX = STYLE_R.map((r, i) => (i === 3 ? CUBE_HALF : r * 0.9));
+const STYLE_HZ = STYLE_R.map((r, i) => (i === 3 ? CUBE_HALF : r * 0.625));
 const OPEN_S = 0.45;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 2026-09-21 — the map-wide container index.
+ *
+ * A container id is unique across a map, but the sets are owned by different builders and `WorldSystem`'s by-id
+ * chains name those owners one by one (`structures.…(id) ?? rails.…(id)`). A set built **after** world generation —
+ * the crates a destroyed rover drops, which only exist once the vehicle blows up — would never be reached by those
+ * chains, and `WorldSystem` is not this folder's to edit.
+ *
+ * So every live set registers here and a **by-id** query that misses this set's own containers falls through to the
+ * others. Only by-id queries do: `collect` is asked of every set in turn, so falling through there would count every
+ * container once per set. Instead a set flagged `adopted` (one nobody asks directly) is collected by the first
+ * non-adopted set, which keeps `WorldRef.getLootContainers` complete and duplicate-free.
+ * ──────────────────────────────────────────────────────────────────────────── */
+const LIVE_SETS = new Set<ContainerSet>();
 
 /**
  * 2026-09-14 — the **centre → corner** distance of the body collider (m, the largest of the three shapes). Whoever
  * picks the spots (the container spots in `parts/Build`) uses it to back off from a 「spot to keep clear」 by this much
- * plus a body's diameter. Changing the box size (`STYLE_R` · the `0.95r × 0.675r` in `addBox` below) carries the
- * back-off width along by itself.
+ * plus a body's diameter. Changing the box size (`STYLE_HX` · `STYLE_HZ`) carries the back-off width along by itself.
  */
-export const CONTAINER_REACH = Math.max(...STYLE_R.map((r) => Math.hypot(r * 0.95, r * 0.675)));
+export const CONTAINER_REACH = Math.max(...STYLE_HX.map((hx, i) => Math.hypot(hx + 0.025, STYLE_HZ[i] + 0.025)));
 
 /** A container set — one structure · one platform · one tram may each hold their own, or share one. */
 export class ContainerSet {
@@ -122,7 +152,24 @@ export class ContainerSet {
   /** Fired when a container door first opens on this client (world tells the squad with `crate opened`). */
   private onOpened: ((id: string) => void) | null = null;
 
-  constructor(name = 'StructureContainers') { this.group.name = name; }
+  /**
+   * `adopted` (2026-09-21) = a set `WorldSystem` does not know by name (the rover's wreck crates). It is reached
+   * through the index above instead: by-id queries fall through to it and the first ordinary set collects it for
+   * `getLootContainers`.
+   */
+  constructor(name = 'StructureContainers', readonly adopted = false) { this.group.name = name; }
+
+  /** The set that owns container `id` and its instance — this set first, then every other live set. */
+  private locate(id: string): { set: ContainerSet; inst: Inst } | null {
+    const own = this.byId.get(id);
+    if (own) return { set: this, inst: own };
+    for (const s of LIVE_SETS) {
+      if (s === this) continue;
+      const inst = s.byId.get(id);
+      if (inst) return { set: s, inst };
+    }
+    return null;
+  }
 
   get count(): number { return this.insts.length; }
 
@@ -130,10 +177,10 @@ export class ContainerSet {
   setOpenListener(cb: ((id: string) => void) | null): void { this.onOpened = cb; }
 
   /** 2026-09-11 (C-57): a container's position (inside a tram, the `Vector3` that follows it every frame). null with none. */
-  positionOf(id: string): THREE.Vector3 | null { return this.byId.get(id)?.spec.position ?? null; }
+  positionOf(id: string): THREE.Vector3 | null { return this.locate(id)?.inst.spec.position ?? null; }
 
   /** 2026-09-16: the roll rules of container `id` (`WorldRef.crateLootOpts`) — `{ lockedRoom: true }` for a locked room, else undefined. */
-  lootOpts(id: string): CrateLootOpts | undefined { return this.byId.get(id)?.spec.lockedRoom ? LOCKED_ROOM_LOOT : undefined; }
+  lootOpts(id: string): CrateLootOpts | undefined { return this.locate(id)?.inst.spec.lockedRoom ? LOCKED_ROOM_LOOT : undefined; }
 
   /**
    * 2026-09-11: puts a container a squadmate opened into its **opened look** (the door animation only, no event and
@@ -141,14 +188,14 @@ export class ContainerSet {
    * already searched this".
    */
   markOpened(id: string): boolean {
-    const inst = this.byId.get(id);
+    const inst = this.locate(id)?.inst;
     if (!inst) return false;
     if (!inst.opened) { inst.opened = true; inst.anim = 0; inst.lamp.visible = false; }
     return true;
   }
 
   /** Is it in its opened look (debug · smoke). */
-  isOpened(id: string): boolean { return this.byId.get(id)?.opened ?? false; }
+  isOpened(id: string): boolean { return this.locate(id)?.inst.opened ?? false; }
 
   /**
    * 2026-09-15 (android squadmates) — hands over this set's containers one by one (`WorldRef.getLootContainers`).
@@ -156,6 +203,16 @@ export class ContainerSet {
    * frame).
    */
   collect(push: (id: string, position: THREE.Vector3, tier: number, opened: boolean) => void): void {
+    this.pushOwn(push);
+    // 2026-09-21: the first ordinary set also hands over every `adopted` set (see the index comment above).
+    if (this.adopted) return;
+    for (const s of LIVE_SETS) {
+      if (!s.adopted) { if (s !== this) return; continue; }
+      s.pushOwn(push);
+    }
+  }
+
+  private pushOwn(push: (id: string, position: THREE.Vector3, tier: number, opened: boolean) => void): void {
     for (let i = 0; i < this.insts.length; i++) {
       const c = this.insts[i];
       push(c.spec.id, c.spec.position, c.spec.tier, c.opened);
@@ -169,8 +226,8 @@ export class ContainerSet {
     this.lampMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, emissive: new THREE.Color(0x6fd8ff), emissiveIntensity: 1.8 });
     this.mats.push(bodyMat, this.lampMat);
 
-    const bodies = [0, 1, 2].map((k) => this.makeBody(k as 0 | 1 | 2, rng));
-    const doors = [0, 1, 2].map((k) => this.makeDoor(k as 0 | 1 | 2, rng));
+    const bodies = CONTAINER_STYLES.map((k) => this.makeBody(k, rng));
+    const doors = CONTAINER_STYLES.map((k) => this.makeDoor(k, rng));
     const lampGeo = new THREE.BoxGeometry(0.1, 0.06, 0.05);
     this.geos.push(...bodies, ...doors, lampGeo);
 
@@ -217,12 +274,12 @@ export class ContainerSet {
         /* 2026-09-12: the collider is the box of the drawn body (cap width `1.9r × 1.35r`). The old radius-`r`
          * cylinder was an invisible wall over 20 cm out on the door side and the back (the indoor "invisible wall"
          * report). A low chest (0.85 m) is stepped on by the box rule. */
-        const r = STYLE_R[spec.style];
         ctx.hash.addBox(new THREE.Vector3(spec.position.x, spec.position.y, spec.position.z),
-          r * 0.95, r * 0.675, spec.yaw, STYLE_H[spec.style], 'container');
+          STYLE_HX[spec.style] + 0.025, STYLE_HZ[spec.style] + 0.025, spec.yaw, STYLE_H[spec.style], 'container');
       }
     }
     ctx.root.add(this.group);
+    LIVE_SETS.add(this);
   }
 
   private open(inst: Inst): void {
@@ -291,8 +348,8 @@ export class ContainerSet {
    * no `ctx.loot`.
    */
   preview(id: string): ItemInstance[] | null {
-    const inst = this.byId.get(id);
-    return inst ? this.contents(inst.spec)?.items ?? null : null;
+    const found = this.locate(id);
+    return found ? found.set.contents(found.inst.spec)?.items ?? null : null;
   }
 
   update(dt: number, time: number): void {
@@ -309,6 +366,7 @@ export class ContainerSet {
   }
 
   dispose(): void {
+    LIVE_SETS.delete(this);
     for (const c of this.insts) {
       this.game?.interactables.unregister(c.interactable.id);
       this.group.remove(c.root);
@@ -328,26 +386,27 @@ export class ContainerSet {
 
   /* ── Geometry ───────────────────────────────────────────────────────── */
 
-  private makeBody(style: 0 | 1 | 2, rng: Random): THREE.BufferGeometry {
-    const shell = new THREE.Color(style === 2 ? 0x3d4a54 : 0x4b4f52);
+  private makeBody(style: ContainerStyle, rng: Random): THREE.BufferGeometry {
+    // 2026-09-21: style 3 (the rover's supply crate) is military khaki, not the grey-blue of a station cabinet
+    const shell = new THREE.Color(style === 2 ? 0x3d4a54 : style === 3 ? 0x5e5b43 : 0x4b4f52);
     const dark = shell.clone().multiplyScalar(0.55);
-    const trim = new THREE.Color(style === 2 ? 0x6fd8ff : 0x8a6a3a);
+    const trim = new THREE.Color(style === 2 ? 0x6fd8ff : style === 3 ? 0xc0903c : 0x8a6a3a);
     const parts: THREE.BufferGeometry[] = [];
-    const h = STYLE_H[style], r = STYLE_R[style];
+    const h = STYLE_H[style], hx = STYLE_HX[style], hz = STYLE_HZ[style];
 
-    const box = new THREE.BoxGeometry(r * 1.8, h, r * 1.25);
+    const box = new THREE.BoxGeometry(hx * 2, h, hz * 2);
     xform(box, { x: 0, y: h / 2, z: 0 });
     paintGradient(box, dark, shell, 0, h);
     parts.push(box);
 
     // Feet · top rim
     for (const sx of [-1, 1]) {
-      const foot = new THREE.BoxGeometry(0.16, 0.1, r * 1.1);
-      xform(foot, { x: sx * (r * 0.75), y: 0.05, z: 0 });
+      const foot = new THREE.BoxGeometry(0.16, 0.1, hz * 1.76);
+      xform(foot, { x: sx * (hx * 0.83), y: 0.05, z: 0 });
       paint(foot, dark);
       parts.push(foot);
     }
-    const cap = new THREE.BoxGeometry(r * 1.9, 0.1, r * 1.35);
+    const cap = new THREE.BoxGeometry(hx * 2 + 0.05, 0.1, hz * 2 + 0.05);
     xform(cap, { x: 0, y: h + 0.04, z: 0 });
     paint(cap, dark, 0.06, rng);
     parts.push(cap);
@@ -356,31 +415,41 @@ export class ContainerSet {
       // Wall cabinet: three vertical grooves
       for (let i = 0; i < 3; i++) {
         const rib = new THREE.BoxGeometry(0.05, h - 0.3, 0.04);
-        xform(rib, { x: (i - 1) * r * 0.5, y: h / 2, z: r * 0.64 });
+        xform(rib, { x: (i - 1) * hx * 0.56, y: h / 2, z: hz + 0.02 });
         paint(rib, trim);
         parts.push(rib);
       }
     } else if (style === 1) {
       // Chest: two bands
       for (const y of [h * 0.35, h * 0.72]) {
-        const band = new THREE.BoxGeometry(r * 1.85, 0.07, r * 1.3);
+        const band = new THREE.BoxGeometry(hx * 2 + 0.03, 0.07, hz * 2 + 0.03);
         xform(band, { x: 0, y, z: 0 });
         paint(band, trim);
         parts.push(band);
       }
-    } else {
+    } else if (style === 2) {
       // Reagent cabinet: two glass shelves
       for (const y of [h * 0.4, h * 0.72]) {
-        const shelf = new THREE.BoxGeometry(r * 1.6, 0.05, r * 1.0);
+        const shelf = new THREE.BoxGeometry(hx * 1.78, 0.05, hz * 1.6);
         xform(shelf, { x: 0, y, z: 0 });
         paint(shelf, trim);
         parts.push(shelf);
+      }
+    } else {
+      // 2026-09-21 supply crate: a strap band top and bottom on both long faces — it reads as a crate in silhouette
+      for (const sz of [-1, 1]) {
+        for (const y of [h * 0.16, h * 0.84]) {
+          const band = new THREE.BoxGeometry(hx * 2 - 0.06, 0.07, 0.05);
+          xform(band, { x: 0, y, z: sz * (hz + 0.01) });
+          paint(band, trim);
+          parts.push(band);
+        }
       }
     }
     return merge(parts);
   }
 
-  private makeDoor(style: 0 | 1 | 2, rng: Random): THREE.BufferGeometry {
+  private makeDoor(style: ContainerStyle, rng: Random): THREE.BufferGeometry {
     const h = STYLE_H[style], r = STYLE_R[style];
     const shell = new THREE.Color(style === 2 ? 0x46545f : 0x55595c);
     const parts: THREE.BufferGeometry[] = [];

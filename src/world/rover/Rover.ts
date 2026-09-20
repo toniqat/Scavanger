@@ -35,17 +35,27 @@ import {
 import type { BuildCtx } from '../build';
 import type { SpatialHash } from '../SpatialHash';
 import type { Terrain } from '../Terrain';
+import { ContainerSet } from '../structures/parts/Containers';
 import {
   angleDelta, forwardDistance, makeRoverPath, roverFareFor, routeDelta, sampleRoute, shortestTrip, wrapAngle, wrapRouteS,
-  type RoverPath,
+  type RoverHitRequest, type RoverPath,
 } from './model';
 import {
-  applyRoverWreckLook, buildRoverBody, placeRoverBody, spinRoverWheels, tiltRoverBody, type RoverBody,
+  applyRoverWreckLook, buildRoverBody, placeRoverBody, spinRoverWheels, tiltRoverBody,
+  type RoverBody, type RoverTurretMount,
 } from './parts/Body';
 import { pickExitSpots } from './parts/Exits';
 import { RoverFx } from './parts/Fx';
 import { updateRoverImpacts } from './parts/Impact';
-import { applyRemoteShot, makeTurretState, updateTurretLogic, updateTurretVisual } from './parts/Turret';
+import {
+  ROVER_PART_HULL, addRoverAggro, applyRoverPartLooks, applyRoverPartsWire, damageRoverPart, makeRoverParts,
+  packRoverParts, resetRoverParts, resolveRoverPart, roverPartSpeedMul, roverTurretAlive, type RoverParts,
+} from './parts/Parts';
+import {
+  applyRemoteShot, makeTurretProfiles, makeTurretState, updateTurretLogic, updateTurretVisual,
+  type RoverTurretProfile, type TurretScope, type TurretState,
+} from './parts/Turret';
+import { buildRoverWreckCrates } from './parts/Wreck';
 
 /** The boarding interaction id — a constant, because there is one vehicle per raid. */
 const BOARD_ID = 'rover:board';
@@ -67,6 +77,14 @@ const LATE_SEND_S = 0.1;
 const RECONCILE_S = 1.5;
 /** After this long (seconds) with no answer to a fare request, it can be pressed again. */
 const TRIP_PENDING_S = 3;
+/**
+ * 2026-09-21 — the host's rate bucket for a client's `roverq hit`. **Derived from data, not a magic number**
+ * (CLAUDE.md §4.3 「limits derive from data」): no one sender may take more than a whole car's hp off per second.
+ * That is far above any real weapon and still bounds a forger to one destroyed vehicle a second instead of instantly.
+ */
+const HIT_BUDGET_PER_S = ROVER_HP;
+/** The refusal line shown when a hostile vehicle is asked for a ride. */
+const HOSTILE_BOARD_BLOCK = '적대 상태 — 탑승 거부';
 
 export class Rover {
   readonly group = new THREE.Group();
@@ -96,7 +114,17 @@ export class Rover {
   private riderNet: string[] = [];
   private revealed = false;
   private readonly hitUntil = new Map<string, number>();
-  private readonly turret = makeTurretState();
+  /** `[front, rear]` — one state per gun mount (2026-09-21). */
+  private readonly turrets: readonly [TurretState, TurretState] = [makeTurretState(), makeTurretState()];
+  private turretProfiles: readonly [RoverTurretProfile, RoverTurretProfile] | null = null;
+  /** Hit-zone hp · the player-side damage total · hostility (2026-09-21). */
+  private readonly parts: RoverParts = makeRoverParts();
+  /** The build context, kept so the wreck's crates can be built mid-raid at the spot the car died. */
+  private bctx: BuildCtx | null = null;
+  /** The supply crates the wreck drops — an `adopted` set, built once on destruction. */
+  private wreck: ContainerSet | null = null;
+  /** Host: per-sender `roverq hit` budget — `{ windowStart, damage }` keyed by PeerId. */
+  private readonly hitBudget = new Map<string, { at: number; sum: number }>();
   private netTimer = 0;
   private lastSend = -Infinity;
   private dirty = false;
@@ -124,6 +152,9 @@ export class Rover {
   private readonly sTan = new THREE.Vector3();
   private readonly tmp = new THREE.Vector3();
   private readonly muzzle = new THREE.Vector3();
+  private readonly tmp2 = new THREE.Vector3();
+  /** The world-space hit point of the `roverq hit` being judged — kept apart from `tmp`, which the hull test folds into body space. */
+  private readonly hitPt = new THREE.Vector3();
   private readonly fireFrom = new THREE.Vector3();
   private readonly fireTo = new THREE.Vector3();
 
@@ -151,6 +182,7 @@ export class Rover {
       tripBlock: (id) => self.tripBlock(self.indexOf(id)),
       requestTrip: (id) => self.requestTrip(self.indexOf(id)),
       get targetable(): boolean { return self.built && self.def.state !== 'destroyed'; },
+      get hostile(): boolean { return self.parts.hostile; },
       halfLength: ROVER_HALF_LENGTH,
       halfWidth: ROVER_HALF_WIDTH,
       height: ROVER_HEIGHT,
@@ -179,6 +211,7 @@ export class Rover {
     if (route.stations.length < 2 || route.points.length < 3) return;
     this.hash = bctx.hash;
     this.terrain = bctx.terrain;
+    this.bctx = bctx;
     this.route = route;
     const path = makeRoverPath(route.points.map((p) => p.clone()));
     this.path = path;
@@ -201,6 +234,11 @@ export class Rover {
     this.speed = 0;
     this.speedMul = 1;
     this.hitUntil.clear();
+    this.hitBudget.clear();
+    resetRoverParts(this.parts);
+    // Resolved on the first update, not here: the falloff comes out of `items/`, which may not have registered its
+    // defs when the world builds. One lazy read per raid, then it never changes.
+    this.turretProfiles = null;
     this.netTimer = 0;
     this.lastSend = -Infinity;
     this.dirty = false;
@@ -212,14 +250,30 @@ export class Rover {
     this.aboardSeenAt = -Infinity;
 
     this.body = buildRoverBody(bctx.hash, rng, this.geos, this.mats);
+    /* 2026-09-21 — this is what lets a **player's bullet** reach the vehicle at all. `weapons/parts/Firing` already
+     * hands every shot that stopped on an obstacle to `obstacle.destructible.onDamage(damage, point)`, so hanging
+     * one on the hull collider gives the hit zones a point to resolve against and keeps the enemy path
+     * (`RoverRef.damage`) and the hazard path exactly where they were — which is how 「player-side damage only」
+     * stays a clean split for the aggro counter. */
+    const vehicle = this.def;
+    this.body.hullEntry.destructible = {
+      id: 'rover',
+      get hp(): number { return vehicle.hp; },
+      get maxHp(): number { return vehicle.maxHp; },
+      onDamage: (amount, point) => this.playerSideHit(amount, point),
+    };
     this.group.add(this.body.root);
     this.fx = new RoverFx(this.group, this.geos, this.mats);
 
     sampleRoute(path, d.s, this.sPos, this.sTan);
     d.yaw = Math.atan2(this.sTan.z, this.sTan.x);
-    this.turret.worldYaw = d.yaw;
-    this.turret.targetId = null;
-    this.turret.aimUntil = -Infinity;
+    for (let i = 0; i < this.turrets.length; i++) {
+      const ts = this.turrets[i];
+      ts.worldYaw = wrapAngle(d.yaw + this.body.turrets[i].restYaw);
+      ts.targetKey = '';
+      ts.targetId = null;
+      ts.aimUntil = -Infinity;
+    }
     this.place(0, true);
     bctx.root.add(this.group);
     this.built = true;
@@ -234,6 +288,10 @@ export class Rover {
     if (this.built && this.boardedAt > -Infinity && game?.player?.roverRide) this.releaseLocal(null);
     game?.interactables.unregister(BOARD_ID);
     if (this.body && this.hash) this.hash.remove(this.body.hullEntry);
+    if (this.body) this.body.hullEntry.destructible = undefined;
+    this.wreck?.dispose();
+    this.wreck = null;
+    this.bctx = null;
     this.fx?.dispose();
     this.fx = null;
     this.body = null;
@@ -261,6 +319,7 @@ export class Rover {
     const game = this.game, body = this.body, fx = this.fx;
     if (!this.built || !game || !body || !fx || !this.path || !this.route) return;
     fx.update(dt);
+    this.wreck?.update(dt, game.time);
     if (this.def.state === 'destroyed') return;
     const host = this.isHost;
     if (host) this.hostTick(dt, game); else this.clientTick(dt);
@@ -269,9 +328,16 @@ export class Rover {
     this.motion(dt, host);
     this.place(dt, false);
     const now = game.time;
-    updateTurretVisual(this.turret, body, this.def.yaw, now, dt);
     const moving = this.def.state === 'patrol' || this.def.state === 'trip';
-    if (host && moving && game.isGameplayPhase()) updateTurretLogic(game, this.turret, body, dt, now, this.onFire);
+    if (!this.turretProfiles) this.turretProfiles = makeTurretProfiles(game);
+    const profiles = this.turretProfiles;
+    const scope: TurretScope = { hostile: this.parts.hostile, riders: this.riderNet, selfId: this.selfId };
+    for (let i = 0; i < this.turrets.length; i++) {
+      updateTurretVisual(this.turrets[i], body.turrets[i], this.def.yaw, now, dt);
+      // A dead gun keeps its drooped pose and never picks a target again; the other one carries on.
+      if (!host || !moving || !profiles || !game.isGameplayPhase() || !roverTurretAlive(this.parts, i)) continue;
+      updateTurretLogic(game, this.turrets[i], body.turrets[i], profiles[i], scope, dt, now, this.onFire);
+    }
     updateRoverImpacts(game, this.def, this.speed, this.hitUntil, this.def.riders);
 
     if (host) {
@@ -329,7 +395,10 @@ export class Rover {
 
     const targetS = route.stations[this.targetIdx].s;
     const remaining = d.dir > 0 ? forwardDistance(path, d.s, targetS) : forwardDistance(path, targetS, d.s);
-    const mul = this.speedMul;
+    // 2026-09-21: blown wheels scale the whole drive curve — two gone and `mul` is 0, so it stops where it stands
+    // and stays a rideable platform (`shared/ride.ts` never asks whether the car is moving).
+    const mul = this.speedMul * roverPartSpeedMul(this.parts);
+    if (mul <= 0) { this.speed = 0; return; }
     const vmax = (st === 'trip' ? ROVER_TRIP_SPEED : ROVER_PATROL_SPEED) * mul;
     const brakeV = Math.sqrt(2 * ROVER_BRAKE * mul * remaining);
     this.speed = Math.min(vmax, this.speed + ROVER_ACCEL * mul * dt, Math.max(ARRIVE_CREEP, brakeV));
@@ -443,6 +512,7 @@ export class Rover {
       fx.setWreckSmoke(d.position);
     }
     if (game) {
+      this.spawnWreckCrates(game);
       if (explode) game.bus.emit('rover:destroyed', { position: d.position.clone() });
       // A rider who missed the eject message does not stay inside the car either
       if (game.player?.roverRide && this.boardedAt > -Infinity) {
@@ -472,6 +542,13 @@ export class Rover {
   private get localAboard(): boolean { return this.riderNet.includes(this.selfId); }
 
   private get destroyed(): boolean { return this.def.state === 'destroyed'; }
+
+  /**
+   * 2026-09-21: two wheel zones gone = it cannot move. It then counts as **standing** for boarding and getting off,
+   * whatever `state` says — otherwise a car stranded mid-`patrol` would lock its riders in for the rest of the raid
+   * and never take another passenger.
+   */
+  private get immobile(): boolean { return roverPartSpeedMul(this.parts) <= 0; }
 
   private setRiders(list: string[], emit = true): void {
     const old = this.riderNet;
@@ -531,7 +608,8 @@ export class Rover {
     const d = this.def;
     if (!this.built) return '탐사 차량이 없습니다';
     if (d.state === 'destroyed') return '파괴된 차량';
-    if (d.state === 'patrol' || d.state === 'trip') return '이동 중에는 탈 수 없습니다';
+    if (this.parts.hostile) return HOSTILE_BOARD_BLOCK;
+    if ((d.state === 'patrol' || d.state === 'trip') && !this.immobile) return '이동 중에는 탈 수 없습니다';
     if (this.swallowed(this.stationIdx)) return '재해 지역 — 이용할 수 없습니다';
     if (this.riderNet.length >= ROVER_SEATS) return '만석';
     if (this.localAboard) return '이미 탑승 중입니다';
@@ -555,7 +633,8 @@ export class Rover {
   private hostBoard(id: string): string | null {
     const d = this.def;
     if (d.state === 'destroyed') return '파괴된 차량';
-    if (d.state !== 'stopped' && d.state !== 'departing') return '이동 중에는 탈 수 없습니다';
+    if (this.parts.hostile) return HOSTILE_BOARD_BLOCK;
+    if (d.state !== 'stopped' && d.state !== 'departing' && !this.immobile) return '이동 중에는 탈 수 없습니다';
     if (this.swallowed(this.stationIdx)) return '재해 지역 — 이용할 수 없습니다';
     if (this.riderNet.includes(id)) return null;
     if (this.riderNet.length >= ROVER_SEATS) return '만석';
@@ -590,7 +669,7 @@ export class Rover {
   }
 
   private exitAllowed(): boolean {
-    return this.built && (this.def.state === 'stopped' || this.def.state === 'departing');
+    return this.built && (this.def.state === 'stopped' || this.def.state === 'departing' || this.immobile);
   }
 
   private requestExit(): void {
@@ -768,6 +847,78 @@ export class Rover {
     this.applyDamage(amount, false);
   }
 
+  /**
+   * 2026-09-21 — one **player-side** hit on the hull collider (`Obstacle.destructible.onDamage`, i.e. a bullet).
+   * On the authority it resolves the hit zone from `point`, splits the damage into the part and the hull and counts
+   * it toward hostility; on a client it only asks the host (`roverq hit`) and changes nothing locally — hp and the
+   * part states are the host's alone (§4.3).
+   */
+  private playerSideHit(amount: number, point?: THREE.Vector3): void {
+    if (!this.built || this.def.state === 'destroyed' || !(amount > 0)) return;
+    if (this.isMpClient) { this.reportHit(amount, point); return; }
+    this.applyPlayerDamage(amount, point);
+  }
+
+  /** Authority: the whole player-side hit — the part, the hull share and the aggro counter. */
+  private applyPlayerDamage(amount: number, point?: THREE.Vector3): void {
+    const body = this.body;
+    const part = body && point ? resolveRoverPart(body, point) : ROVER_PART_HULL;
+    const hull = damageRoverPart(this.parts, part, amount);
+    if (part !== ROVER_PART_HULL && body) applyRoverPartLooks(body, this.parts);
+    if (addRoverAggro(this.parts, amount)) this.game?.bus.emit('rover:hostile', {});
+    this.dirty = true;
+    this.applyDamage(hull, false);
+  }
+
+  /** Client → host: 「my bullet hit the vehicle here」 (`RoverRequest` `hit` in `shared/net.ts`). */
+  private reportHit(amount: number, point?: THREE.Vector3): void {
+    const game = this.game;
+    if (!game?.net || !point) return;
+    const m: RoverHitRequest = { t: 'roverq', ev: 'hit', p: [point.x, point.y, point.z], a: amount };
+    game.net.send(m, 'host');
+  }
+
+  /**
+   * Host: is this sender allowed to take `amount` off the car right now? `shape → sender → the point → rate`
+   * (§4.3). The **distance** step is the point itself: a hit point that is not on this body is refused, which is a
+   * tighter test than the sender's distance would be — a sniper legitimately shoots from anywhere on the map.
+   */
+  private hitAllowed(from: PeerId, amount: number, point: THREE.Vector3): boolean {
+    const game = this.game, net = game?.net, body = this.body;
+    if (!game || !net || !body) return false;
+    if (!Number.isFinite(amount) || amount <= 0) return false;
+    const lobbyPlayer = net.getLobbyPlayer(from);
+    const r = net.getRemotePlayer(from);
+    if (!lobbyPlayer || !r || !r.inMission || r.isDead) return false;
+    if (resolveRoverPart(body, point) === ROVER_PART_HULL && !this.pointOnHull(point)) return false;
+    const now = game.time;
+    let b = this.hitBudget.get(from);
+    if (!b || now - b.at >= 1) { b = { at: now, sum: 0 }; this.hitBudget.set(from, b); }
+    if (b.sum + amount > HIT_BUDGET_PER_S) return false;
+    b.sum += amount;
+    return true;
+  }
+
+  /** Is `point` on (or just off) the body box? The turrets are judged by `resolveRoverPart`, which allows for the barrel. */
+  private pointOnHull(point: THREE.Vector3): boolean {
+    const body = this.body;
+    if (!body) return false;
+    const p = body.tilt.worldToLocal(this.tmp2.copy(point));
+    return Math.abs(p.x) <= ROVER_HALF_LENGTH + 0.6 && Math.abs(p.z) <= ROVER_HALF_WIDTH + 0.8
+      && p.y >= -0.6 && p.y <= ROVER_HEIGHT + 1.2;
+  }
+
+  /** Every client: lays the wreck's supply crates. Seed-deterministic, so a late joiner lays the same ones. */
+  private spawnWreckCrates(game: GameContext): void {
+    if (this.wreck || !this.bctx || game.missionMode !== 'raid') return;
+    const set = new ContainerSet('RoverWreckContainers', true);
+    // The set is `adopted`, so `WorldSystem` reaches it through the container index instead of by name; the opened
+    // look still goes out to the squad, through the same `crate opened` every other container uses.
+    set.setOpenListener((id) => { game.world?.markContainerOpened?.(id); });
+    buildRoverWreckCrates(game, this.bctx, set, this.def);
+    this.wreck = set.count > 0 ? set : (set.dispose(), null);
+  }
+
   private applyDamage(amount: number, hazard: boolean): void {
     const d = this.def;
     if (d.state === 'destroyed') return;
@@ -799,7 +950,7 @@ export class Rover {
   }
 
   /** Host: one turret shot — FX, event, broadcast. */
-  private readonly onFire = (from: THREE.Vector3, to: THREE.Vector3, targetId: number): void => {
+  private readonly onFire = (from: THREE.Vector3, to: THREE.Vector3, targetId: number | null): void => {
     const game = this.game;
     this.fx?.tracer(from, to);
     if (!game) return;
@@ -844,6 +995,8 @@ export class Rover {
     return {
       s: d.s, dir: d.dir, st: Math.max(0, ROVER_STATES.indexOf(d.state)), stn: this.stationIdx, tgt: this.targetIdx,
       tm: d.timer, hp: d.hp, rd: this.riderNet.slice(), rv: this.revealed ? 1 : 0,
+      // 2026-09-21: the hit zones and hostility ride the state message that was already going out.
+      pt: packRoverParts(this.parts), ho: this.parts.hostile ? 1 : 0,
     };
   }
 
@@ -876,6 +1029,11 @@ export class Rover {
     this.targetIdx = Number.isInteger(w.tgt) && w.tgt >= 0 && w.tgt < n ? w.tgt : -1;
     d.timer = Math.max(0, Number(w.tm) || 0);
     d.hp = Math.max(0, Math.min(d.maxHp, Number(w.hp) || 0));
+    // 2026-09-21 — the host owns the hit zones and hostility; a client only mirrors them and re-plays the look.
+    const applied = applyRoverPartsWire(this.parts, w.pt, w.ho);
+    if (applied.looks && this.body) applyRoverPartLooks(this.body, this.parts);
+    // The transition is announced where it is *seen*, so a replica's player is told too (`ui/` owns the toast).
+    if (applied.turnedHostile) this.game?.bus.emit('rover:hostile', {});
     this.targetS = wrapRouteS(path, Number(w.s) || 0);
     const moving = next === 'patrol' || next === 'trip';
     if (!wasSynced || !moving) d.s = this.targetS;
@@ -934,10 +1092,32 @@ export class Rover {
     const game = this.game, body = this.body;
     if (!game || !body || this.def.state === 'destroyed') return;
     this.tmp.set(p[0], p[1], p[2]);
-    applyRemoteShot(this.turret, body, this.tmp, game.time, this.muzzle);
+    const which = this.replicaMountFor(this.tmp);
+    applyRemoteShot(this.turrets[which], body.turrets[which], this.tmp, game.time, this.muzzle);
     this.fx?.tracer(this.muzzle, this.tmp);
     // A replica is sent the impact point only, so the shot arrives with no target (`rover:fired.targetId`).
     game.bus.emit('rover:fired', { from: this.fireFrom.copy(this.muzzle), to: this.fireTo.copy(this.tmp), targetId: null });
+  }
+
+  /**
+   * A replica is told the impact point only (`rover fire {p}`), never which gun fired, so it credits the shot to the
+   * **living** mount whose rest facing the target is nearest — the nose gun for something ahead, the tail gun for
+   * something behind. That is what the host's own aiming would have picked in all but a crossing shot.
+   */
+  private replicaMountFor(to: THREE.Vector3): 0 | 1 {
+    const body = this.body;
+    if (!body) return 0;
+    let best = Infinity;
+    let pick: 0 | 1 = 0;
+    for (let i = 0; i < body.turrets.length; i++) {
+      const mount: RoverTurretMount = body.turrets[i];
+      if (!roverTurretAlive(this.parts, i)) continue;
+      mount.group.getWorldPosition(this.tmp2);
+      const want = Math.atan2(to.z - this.tmp2.z, to.x - this.tmp2.x);
+      const off = Math.abs(angleDelta(this.def.yaw + mount.restYaw, want));
+      if (off < best) { best = off; pick = i as 0 | 1; }
+    }
+    return pick;
   }
 
   private handleRequest(m: RoverRequest, from: PeerId): void {
@@ -945,6 +1125,18 @@ export class Rover {
     const net = game?.net;
     if (!game || !net) return;
     if (m.ev === 'sync') { this.sendSyncTo(from); return; }
+    /* 2026-09-21 — a client's bullet. It answers nothing (a shot needs no reply; the next `rover state` carries the
+     * result), and everything it could forge is bounded by `hitAllowed`. */
+    if (m.ev === 'hit') {
+      const hit = m;
+      if (!this.built || this.def.state === 'destroyed' || !Array.isArray(hit.p) || hit.p.length !== 3) return;
+      if (!hit.p.every((n) => Number.isFinite(n))) return;
+      this.hitPt.set(hit.p[0], hit.p[1], hit.p[2]);
+      if (!this.hitAllowed(from, Number(hit.a), this.hitPt)) return;
+      this.applyPlayerDamage(Number(hit.a), this.hitPt);
+      this.sendState();
+      return;
+    }
     const rid = typeof m.rid === 'number' ? m.rid : 0;
     const reply = (ok: boolean, reason?: string, exit?: THREE.Vector3 | null): void => {
       net.send({

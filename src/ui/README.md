@@ -41,7 +41,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/GadgetHandHint.ts` | Under-crosshair hint for the held gadget: place / invalid reason, remote-mine detonate count, drone deploy / hold-to-control |
 | `hud/GameCursor.ts` | Procedural cursor art injected as CSS `cursor:` images under `body.cursor-ui` (the real OS cursor) |
 | `hud/HazardHud.ts` | Environmental hazard banner, safe-zone gauge, safe-direction arrow, inside-hazard warning + edge pulse |
-| `hud/HealGauge.ts` | Healing consumable hold / spray ring (`heal:holdChanged`) |
+| `hud/HealGauge.ts` | Healing consumable hold / spray ring (`heal:holdChanged`), the right-button ally hold (`heal:allyHoldChanged`) and its `.heal-ally` target chip (`heal:allyTargetChanged`) |
 | `hud/HoldGauge.ts` | Crosshair hold ring for interactables (`interact:promptChanged.holdProgress`) and the downed give-up hold |
 | `hud/HubDot.ts` | Ship centre dot (phase `hub`, no blocker, no cutscene) |
 | `hud/ImplantWidget.ts` | Tactical implant thumbnail, bottom centre: cooldown / charges / gauge display, ready flash + glow, refund text |
@@ -66,7 +66,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/QuickStrip.ts` | Quick-slot thumbnails with live keycap, stacked on the weapon panel |
 | `hud/QuickWheel.ts` | Quick-use wheel (`quick:wheelChanged`) |
 | `hud/RaidAlerts.ts` | DOM-less event → toast converter: landmark discovery, raider drop warning, rover trips/damage |
-| `hud/ReloadGauge.ts` | Reload / weapon-swap ring at the crosshair (ignores the bow) |
+| `hud/ReloadGauge.ts` | Reload / weapon-swap ring at the crosshair (ignores the bow); freezes dimmed on `weapon:reloadPaused` (a hold is not a cancel) |
 | `hud/RescuePicker.ts` (+ `rescuePicker.css`) | Full-screen rescue-drop target picker (`rescue:selectTarget`) |
 | `hud/Reticle.ts` | Crosshair: stance/aim gap + bloom, hitmarkers, consumable dot readout, grapple chip, blocked-muzzle colour, bow draw mode, defib circles; hidden during the intro wake, then fades in over `TUTORIAL_RETICLE_FADE_S` |
 | `hud/RoomLabel.ts` | `방 n · 용도` label on `hub:roomEntered` |
@@ -392,8 +392,8 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
+- 2026-09-21 — The crosshair reload ring freezes instead of lying while a reload is **held** (`weapon:reloadPaused` / `Resumed`, `.reload.paused`), and `hud/HealGauge` gained the right-button ally hold plus the `.heal-ally` chip that names the squadmate the button would treat (dim `아군 없음` when nobody is valid).
 - 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
 - 2026-09-20 — The animation-restart idiom (`remove → void offsetWidth → add`, 19 sites in 13 `hud/` files) is an **intended limit** now, not a to-do: the user declined the twin-`@keyframes` cure and accepted the extra flush on a flash frame (was `docs/TODO.md` B-68 · B-69; `## Rules`, `docs/DECISIONS.md`). No code change — the smoke's `KNOWN_IDIOM` ratchet stays.
 - 2026-09-20 — The toast stack stops forcing a layout inside the frame during the tutorial: `hud/Notifications` measured `.tut-controls` with `getBoundingClientRect` **every frame** while that panel was up (§4.2; counted at 180 reads in 180 frames). It now measures from a `ResizeObserver` on the panel plus the window `resize` — both run after layout, outside `Engine.frame` — and `update()` only re-finds the panel. `scripts/smoke-layout-reads.mjs` grew a fourth window (tutorial frames with the panel up) that fails on the old code and passes on the new.
 - 2026-09-20 — `docs/DECISIONS.md` perf Phase B: the HUD reads no layout inside a frame, and a smoke counts it. `hud/ChatLog` stopped measuring a row per line (a `column-reverse` scroller pins its own bottom, the closed height is a `calc()`), a chat row's first layout is paid at boot, and `hud/Detection` · `hud/ScanReveal` build their pillar pools on `world:ready` instead of on the first corpse. S4's android first-contact frame: js 17.9 → 15.5 ms, spike frames 1 → 0 (twice). The animation-restart `offsetWidth` idiom was swept into a `dom.restartAnim` helper in the same pass and **reverted the same day** — it cannot replay a finished or a descendant animation; it is a listed exception in the smoke instead (an intended limit — `## Rules` above).
-- 2026-09-20 — The HUD's screen size has one owner (`hud/viewport.ts` `hudViewport`, measured on `resize`): twelve per-frame `ctx.uiRoot.clientWidth` / `clientHeight` reads across eleven projecting widgets are gone. Measured effect on this machine: none (`x:layoutFlush` is **one** layout of a HUD already dirtied by `HudSystem.update`, not read/write thrash — `docs/DECISIONS.md` perf Phase 2), but the trap is closed.

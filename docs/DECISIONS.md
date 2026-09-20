@@ -1261,3 +1261,55 @@ boxes — a real cut of a deterministic counter with no demonstrable frame effec
 near band both need a **weaker** machine to show anything; a replica's own frame time needs a **second** machine
 (S5 ran both clients on one GPU); and **terrain's 346k visible triangles**, 37 % of the scene, stay untouched because
 collision, `getSurfaceY` and the silhouette all hang off that one mesh.
+
+## 2026-09-21 — 재장전 유지 · 아군 회복 · 탐사 차량 전투 · 행성 귀속 열쇠 · 함선 외형 통일 · Reload hold · ally healing · a fightable rover · planet-bound keys · one ship
+
+Nine requests settled in one interview. What was chosen, and what was not:
+
+**재장전 (reload).** An **instant** action pauses the reload and it resumes where it stopped (the roll, the grapple);
+a **wielded** implant cancels it (barrier, overcharge). Rejected: pausing for every "cannot shoot" state (the ladder,
+the rover seat), and keeping progress across a cancel to be re-triggered with R. The investigation found the premise
+wrong — only swap · consumable-in-hand · melee · loadout change · holster cancelled a reload before this, and the
+roll, the grapple, drone control and the rover seat never touched it. So drone control and the rover seat were left
+exactly as they were: they neither pause nor cancel.
+
+**아군 회복 (healing an ally).** The consumable is used with the item **in hand**: left click on yourself, right click
+on the ally under the crosshair — the defibrillator's aiming rule, because it is the one the player already knows.
+Rejected: a 「use on an ally」 row in the inventory menu (unusable mid-fight) and auto-picking the nearest ally with no
+aiming (mis-targets). The start range is short and the **hold** range longer, so a target who takes a step does not
+cost the item. Using one on somebody else carries **no move-speed penalty** — the penalty is there to make healing
+yourself a commitment, and holding someone else up is already a commitment. Targets are human squadmates **and**
+androids. A downed body is nobody's heal target (the defibrillator's job) — and the defibrillator now reaches a
+**carried** one, which is what makes 「carry them out and revive them」 a play.
+
+**탐사 차량 (the rover).** It can now be fought. Damage resolves against a hit zone (4 wheels · a front turret · a
+rear turret · the hull) and part damage **also** comes off the hull, so shooting parts still kills the car — rejected:
+parts on a pool of their own (disabling and destroying become unrelated strategies) and parts *instead of* hull hp.
+Hostility needs a **threshold** of cumulative player damage, not the first bullet (one stray shot must not cost the
+squad its transport), and once crossed it lasts **the rest of the raid** — rejected: a timeout that lets you wait it
+out. A hostile car keeps running its route and only its turrets engage; it does not chase, so leaving the road is
+the counterplay. The two turrets are a common SMG (front) and a common AR (rear), and against player-side bodies
+their accuracy is halved. Destroyed, it pays **exactly what an outpost basement pays** — the same tier table *and*
+the locked room's epic+ exemption — because the user's framing was 「a rover raid = entering the basement」.
+
+**열쇠 (keys).** A key is **planet-bound**: one pair of items per planet, and which planet's key drops is independent
+of where you are. That is the whole point — a key found on Acheron II for Carmine I is an invitation to go to Carmine I.
+Chosen over tagging one item instance with a planet (fewer csv rows, but every stack merge, save and shop path would
+have to learn about the tag). To stop the key being skipped, both locked rooms got an **indestructible** ceiling
+turret that only the matching key switches off — rejected: a destructible one (ammo and a minute become the price of
+the key) and a respawning one.
+
+**바닥 아이템 (dropped items).** Overlap is solved by looking for a free spot **at spawn**, never by items pushing each
+other apart every frame — a hot-path cost for a cosmetic problem was not worth it.
+
+**조명 (lighting).** Two questions the user asked as questions, both answered yes and why: lighting more rooms in ship
+management is **free** because the pool's light count never changes (only which fixtures own the slots), and raid
+interiors are brightened **on the local client only** by lifting hemisphere/ambient and thinning fog — never by adding
+a light, because the raid budget has zero spare and one more point light recompiles every material. The lift multiplies
+*on top of* a hazard's `atmo:override`, so a roof softens a storm instead of cancelling it.
+
+**함선 (the ship).** The airlock became its own room with automatic doors, and the hangar, the docking cutscene and the
+raid drop-ship now build from **one** model, so the ship parked in the shared hangar is the ship that lands. The
+purchase hook is plumbed through (profile → lobby → the extraction wire) with **no shop and one model in the registry**
+— a second hull is content, not plumbing. Ship interiors were deliberately *not* drawn to scale on the exterior: only
+the airlock end is modelled, because a real interior would make the exterior enormous.

@@ -281,6 +281,31 @@ export class HubSystem implements GameSystem, HubRef {
     const net = this.ctx?.net;
     return net && typeof net.getRemotePlayers === 'function' ? net.getRemotePlayers() : NO_REMOTES;
   }
+  /**
+   * 2026-09-21: everyone standing in **this** ship — the local player first, then every connected, non-stale
+   * squadmate whose `hubSite` matches ours (the same co-presence rule the leader handoff uses, `parts/Crew.ts`:
+   * someone touring another member's ship is not in this one). The airlock's automatic doors read it.
+   *
+   * A **reused** array of reused `Vector3`s: this runs every hub frame, so nothing is allocated (CLAUDE.md §4.1).
+   * The positions are the refs' own live vectors, which is exactly what a distance test wants.
+   */
+  private readonly occupants: THREE.Vector3[] = [];
+  private shipOccupants(): readonly THREE.Vector3[] {
+    const list = this.occupants;
+    list.length = 0;
+    const p = this.ctx.player?.position;
+    if (p) list.push(p);
+    const net = this.ctx.net;
+    if (!net || typeof net.getRemotePlayers !== 'function') return list;
+    const site = this.hubSite;
+    for (const ref of net.getRemotePlayers()) {
+      if (!ref.connected || ref.stale) continue;
+      if ((ref.hubSite ?? null) !== site) continue;
+      list.push(ref.position);
+    }
+    return list;
+  }
+
   /** PeerId of the ship being **visited** (someone else's), or null in our own ship / on the shared deck. */
   get visitingPeer(): PeerId | null { return this.visit?.peerId ?? null; }
   /** Inside someone else's ship: every console, bench, furniture piece and `시설 관리` is refused (looking around only). */
@@ -691,10 +716,14 @@ export class HubSystem implements GameSystem, HubRef {
     // drift — and now the streaks), the player keeps walking, and `tickTravel` runs at the tail of this frame.
 
     this.interior.update(dt, ctx.time);
-    // The room lights follow the player (the sliding doors that also rode this call were removed 2026-09-16)
+    // Room lights + the airlock's automatic doors follow whoever is aboard (2026-09-21)
     if (this.interior.updateNear) {
       const pp = ctx.player?.position;
-      this.interior.updateNear(dt, pp?.x ?? 0, pp?.z ?? 0);
+      this.interior.updateNear(dt, pp?.x ?? 0, pp?.z ?? 0, {
+        occupants: this.shipOccupants(),
+        // the room the ship-management camera is looking at gets pool lights too — see `PersonalShip.pickFocus`
+        focus: this.housingMode.active ? this.housingMode.room : null,
+      });
     }
     this.furniture?.update(ctx.time);
     for (const pod of this.pods) pod.update(dt, ctx.time);

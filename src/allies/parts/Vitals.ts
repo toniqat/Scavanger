@@ -138,6 +138,44 @@ export function requestRevive(sys: AllySystem, id: AllyId, opts?: { defib?: bool
   return true;
 }
 
+/**
+ * `AlliesRef.heal` (appended 2026-09-21, 회복 아이템을 아군에게) — at once on the authority, otherwise `allyq heal`.
+ * A **downed** android is refused on purpose: the receiving rule for a person is the same (`implants/parts/Wire.onBuff`
+ * turns a heal away while downed), and getting one up is the defibrillator's job, not a bandage's.
+ */
+export function requestHeal(sys: AllySystem, id: AllyId, hp: number): boolean {
+  const a = sys.byId.get(id);
+  if (!a || a.dead || a.downed || !(hp > 0) || a.hp >= a.maxHp) return false;
+  if (!sys.simulating) return sys.sendHealRequest(id, hp);
+  applyHeal(a, hp);
+  return true;
+}
+
+/** Actually puts the hp back (on the authority only). The next `ally state` carries it — no message of its own. */
+export function applyHeal(a: Ally, hp: number): void {
+  if (a.dead || a.downed || !(hp > 0)) return;
+  a.hp = Math.min(a.maxHp, a.hp + hp);
+}
+
+/**
+ * `AlliesRef.chargeShield` (appended 2026-09-21) — the 실드 충전기 counterpart. `amount` -1 = fill it up
+ * (`BuffMessage.amount`). Refused with no armor equipped (`maxShield` 0) or on a full pool, so the item is not eaten.
+ */
+export function requestShield(sys: AllySystem, id: AllyId, amount: number): boolean {
+  const a = sys.byId.get(id);
+  if (!a || a.dead || a.downed || a.maxShield <= 0 || a.shield >= a.maxShield) return false;
+  if (!(amount > 0) && amount !== -1) return false;
+  if (!sys.simulating) return sys.sendShieldRequest(id, amount);
+  applyShield(a, amount);
+  return true;
+}
+
+/** Actually charges the shield (on the authority only). */
+export function applyShield(a: Ally, amount: number): void {
+  if (a.dead || a.downed || a.maxShield <= 0) return;
+  a.shield = amount === -1 ? a.maxShield : Math.min(a.maxShield, a.shield + Math.max(0, amount));
+}
+
 /** Actually gets it up (on the authority only). */
 export function revive(sys: AllySystem, a: Ally, by: PeerId | null): void {
   if (!a.downed || a.dead) return;

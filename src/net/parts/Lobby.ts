@@ -18,6 +18,8 @@ import { resolveIntelEffects, sanitizeIntelPicks } from '@/shared';
 import { isDockedLobby } from '@/shared';
 /* 2026-09-15: android squadmates — a bot member is never treated as a person (`src/shared/net.ts`, last section) */
 import { ANDROID_BAY_COUNT, isBotPlayer } from '@/shared';
+/* 2026-09-21: the ship this character owns — the hangar parks each member's own (CLAUDE.md §4.8) */
+import { shipModelOf } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
@@ -353,6 +355,7 @@ export function applyLobby(sys: NetSystem, next: LobbyState): void {
     sys.prevHostId = null;
   }
   sys.syncRemoteIdentities();
+  pushShipModel(sys);
   bus.emit('net:lobbyUpdated', { lobby: next });
   /*
    * 2026-09-15 (squads · dock matching): the dock I asked for arrived. Cleared **after** the emit on purpose — hub/
@@ -439,3 +442,23 @@ export function endSession(sys: NetSystem): void {
     }
   }
   }
+
+/**
+ * 2026-09-21 (함선 구매 훅) — tells the relay which ship to park in my hangar berth (`lobby:look.shipModel`).
+ *
+ * It is driven off `lobby:state` rather than sent once on connect because the model can change **while connected**
+ * (a purchase, a slot switch) and because a fresh lobby row starts without the field: comparing my row against the
+ * profile makes the push happen exactly when the two disagree, and never again. The accent travels on the connect
+ * URL instead (`?a=`) — that one cannot change mid-session, so it needs no such loop.
+ *
+ * **This is the client's word.** It is honest today because nothing can be bought yet; when the shop lands the relay
+ * has to fill the field from its own profile store, the way `code` · `level` already are.
+ */
+export function pushShipModel(sys: NetSystem): void {
+  const me = sys.localId ? sys.getLobbyPlayer(sys.localId) : undefined;
+  if (!me || !sys.client.connected) return;
+  const mine = shipModelOf(sys.ctx.progression?.profile);
+  if (me.shipModel === mine) return;
+  me.shipModel = mine;   // optimistic; the relay's next `lobby:state` confirms it
+  sys.client.send({ t: 'lobby:look', shipModel: mine });
+}

@@ -104,7 +104,7 @@ One line per csv. "Loader" is the parsing module under `src/`; values usually ta
 | File | What it holds | Loader |
 |---|---|---|
 | `planets.csv` | Planets (row order = difficulty rank): `threat`, biome, sky/fog, bugs, gather nodes, soils, seeds, samples (**retired 2026-09-18: `sampleNodes` 0 and `samples` empty on every planet — the columns and their loader stay**), `env`, `hazards` | `shared/planetDefs.ts` (also `world/flora.ts`, `world/soil.ts`, `world/specimen.ts`, `items/LootTables.ts`) |
-| `structures.csv` | Abandoned structures, rail platforms, trams: counts, sizes, containers (**the `tram` row's `containers` is unread since 2026-09-18 — the tram has no cabin containers; `rail_platform` still reads the column**), basement/upper-floor chances, crate tiers, key and locked-room columns, `basementBonus*` (per-basement-container bonus item · chance · planets — the thumper) | `world/structures/model.ts` |
+| `structures.csv` | Abandoned structures, rail platforms, trams: counts, sizes, containers (**the `tram` row's `containers` is unread since 2026-09-18 — the tram has no cabin containers; `rail_platform` still reads the column**), basement/upper-floor chances, crate tiers, the `key` **kind** and locked-room columns (**2026-09-21: `key` is a prefix, not an item id — the door takes `<key>_<raid planet>`**), `basementBonus*` (per-basement-container bonus item · chance · planets — the thumper) | `world/structures/model.ts` |
 | `hazards.csv` | Environmental hazard visuals (fog color/multiplier, particles, walls). Rule numbers are `HAZARD_*`/`STORM_EYE_*`/`SPORE_*` in `constants.csv` | `world/hazard/model.ts` |
 | `stratagems.csv` | Ship calls; `cooldown` is the single cooldown shared by all calls after use | `shared/constants.ts` |
 | `room_purposes.csv` | Room purpose build cost and required `generator` level | `shared/housing.ts` |
@@ -187,6 +187,14 @@ Use a formula whenever the same number is also used by code, so that one edit mo
   those objectives get no `chain`, so progress accumulates across raids. Scope enemy conditions by `planet` (android = threat 1,
   raider-only = threat 3); `named` only in late quests without a planet condition. Quest dialogue is re-read from the csv, so
   editing a line also changes past conversations.
+- **Planet-bound keys (2026-09-21, 사용자 결정)**: `items.csv` holds **ten** keys, `<kind>_<planet id>`
+  (`key_basement_amber` … `keycard_lab_crimson`). A locked door takes only the raid planet's — `structures.csv`
+  `key` is the **kind** and `world/Structures.ts` appends the planet. **The loot tables still write the kind once**:
+  `loot_item_weights.csv` `key_basement` / `keycard_lab` spreads over all five variants, and a `loot_corpses.csv`
+  key row stays one row (one chance, one rng draw) whose planet `src/items/Loot.ts` re-rolls uniformly when it hits.
+  So a key's **planet is independent of where it dropped**, which is what sends a player to the planet it names.
+  Adding a planet to `planets.csv` therefore also means adding its two key rows to `items.csv`; renaming a kind
+  means moving `items.csv`, `structures.csv` and `item_aliases.csv` together.
 - **Loot draw order**: adding rows to a corpse/crate table shifts rng consumption for that table; seeded tests that count fixed
   rolls may change.
 - **Two loot axes plus a gate**: `planet_loot.csv` `g1..g5` shapes gun grades only; `loot_tiers.csv` rarity weights (scaled by

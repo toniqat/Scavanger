@@ -6,6 +6,8 @@ import {
   HEAL_HOLD_S, CONSUMABLE_SLOW_KEY, CONSUMABLE_SLOW_MUL, DEFIB_USE_TIME_S,
   type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
   type WeaponSlot, type EffectiveWeaponStats, type WeaponClass, type GadgetId, type WeaponRemoteState,
+  /* appended 2026-09-21 [W]: the reload hold · giving a healing consumable to a squadmate */
+  type ReloadPauseReason,
 } from '@/shared';
 import type { Obstacle as WorldObstacle, InterceptableRef, PeerId } from '@/shared';
 import { ARMOR_IMMUNE_AMMO } from '@/shared';
@@ -35,6 +37,8 @@ import * as Heal from './parts/Healing';
 import * as Throw from './parts/Throwing';
 /* 2026-09-15 (user's decision): the defibrillator alone fires 「on release」, so it gets its own file. */
 import * as Defib from './parts/Defib';
+/* 2026-09-21 (user's decision): the right-button use of a healing consumable on a squadmate gets its own file. */
+import * as AllyHeal from './parts/AllyHeal';
 import * as Svc from './parts/Services';
 import * as Aim from './parts/AimLine';
 
@@ -71,6 +75,13 @@ export class WeaponSystem implements GameSystem {
   phase: 'ready' | 'reloading' | 'swapping' = 'ready';
   reloadTimer = 0;
   reloadDuration = 1;
+  /**
+   * 2026-09-21 (user's decision): reasons the reload is **held**. Non-empty = `reloadTimer` does not advance and the
+   * hands keep their pose; the progress is kept, so when the last reason goes the reload continues from that exact
+   * point. Cancels (swap, consumable in hand, melee, a wielded implant, loadout change) still go through
+   * `cancelReload` and throw the progress away — see `parts/Firing.setReloadPause`.
+   */
+  readonly reloadPauses = new Set<ReloadPauseReason>();
   swapTimer = 0;
   swapDuration = WEAPON_SWAP_TIME_PRIMARY;
   swapTarget: WeaponSlot = 'primary';
@@ -160,6 +171,25 @@ export class WeaponSystem implements GameSystem {
   defibT = 0;
   defibTarget = false;
   defibEmitAt = -Infinity;
+  /**
+   * 2026-09-21 (user's decision — `parts/AllyHeal`): the **right-button** hold that gives the healing consumable in
+   * hand to a squadmate. `allyHealId` / `allyHealName` are the body picked when the hold started (the hold follows
+   * that one body out to `HEAL_ALLY_RANGE_HOLD`, so it does not jump to whoever is on the crosshair now), `allyHealT`
+   * the seconds held. Separate from `healHeld` because the two buttons mean two different uses of the same item, and
+   * because this one carries **no** movement penalty.
+   */
+  allyHealHeld = false;
+  allyHealT = 0;
+  allyHealEmitAt = -Infinity;
+  allyHealId: string | null = null;
+  allyHealName = '';
+  /** The held target is an **android** (`AllyId`, applied through `ctx.allies`), not a peer on the wire. */
+  allyHealIsAndroid = false;
+  /** What the held item gives — decides the ring's label (`아군 회복` vs `아군 실드`) and the `buff` kind. */
+  allyHealKind: 'heal' | 'shield' = 'heal';
+  /** Last `heal:allyTargetChanged` sent as `"<kind>:<name>"` (null = no givable item) — `undefined` = nothing yet. */
+  allyAimName: string | null | undefined = undefined;
+
 
   readonly camHit = makeHit();
   readonly gunHit = makeHit();
@@ -283,6 +313,19 @@ export class WeaponSystem implements GameSystem {
     // frame; these keep the HUD gauge honest even when another path clears the hand state first.
     ctx.bus.on('player:died', () => { this.cancelHeal(); this.cancelDefib(); });
     ctx.bus.on('player:downed', () => { this.cancelHeal(); this.cancelDefib(); });
+    /* 2026-09-21 (user's decision — the reload hold). 갈고리 is an **instant** implant: the gun stays in the hands
+     * and the wire is out for a moment, so the reload is frozen for exactly that moment and continues after
+     * (`parts/Firing.setReloadPause`). The release event also comes from every silent cut (death · phase change ·
+     * drone control), so the hold can never be left standing. 대시 needs no subscription — it is a single-frame
+     * teleport (`implant:dashed`), so there is no window to hold and the reload simply runs on through it. */
+    ctx.bus.on('implant:grappleFired', () => Fire.setReloadPause(this, 'grapple', true));
+    ctx.bus.on('implant:grappleReleased', () => Fire.setReloadPause(this, 'grapple', false));
+    /* 오버차지 is the other **wielded** implant in the user's classification (the beam occupies the hands even
+     * though `ImplantDef.mode` calls it `'hold'`), so starting the channel **cancels** the reload like 배리어 does
+     * through `blocksWeapons`. `implant:activated` is the rising edge of the channel — `implant:overcharge` is
+     * re-sent whenever the beam locks a different ally, which is not a new use and must not cancel anything.
+     * 갈고리 · 대시 · 정찰 pass through here too and are deliberately left alone: they are the instant implants. */
+    ctx.bus.on('implant:activated', ({ id }) => { if (id === 'overcharge' && this.phase === 'reloading') this.cancelReload(); });
     this.ensureNet();
   }
 
@@ -317,6 +360,11 @@ export class WeaponSystem implements GameSystem {
     this.ensureNet();
     const host = this.getHost();
     if (!host) { this.melee.cancel(); this.throwArc.hide(); this.setAimBlocked(false); return; }
+
+    // 2026-09-21 (user's decision): the V roll **holds** the reload instead of cancelling it. Polled rather than
+    // driven by `player:dived`, because the roll has no matching end event — `isDiving` is `PlayerController.rolling`,
+    // so the hold releases itself the frame the roll is over, cancelled rolls included.
+    Fire.setReloadPause(this, 'roll', host.isDiving === true);
 
     // ── holster outside gameplay (hub / docking / menu) or while a wielded implant is in the hands (tactical kit):
     //    model hidden, unarmed pose, neutral zoom. The implant case must NOT wipe grenades / projectiles.
@@ -416,6 +464,9 @@ export class WeaponSystem implements GameSystem {
         else if (!want || !this.slots[want]) ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
       }
     }
+    // 2026-09-21: a gun in the hands means the ally-heal chip has nothing to say (`updateQuickHand` owns it while
+    //   a consumable is held; with none it is never called, so the last name would stay up).
+    if (!this.quick) this.emitAllyAim(null, false, null);
     let uniqueUpdated = false;
     if (this.phase === 'swapping') this.updateSwap(dt);
     else if (this.phase === 'reloading') this.updateReload(dt);
@@ -684,6 +735,10 @@ export class WeaponSystem implements GameSystem {
    * gauge needs the explicit cancel, so `weapon:reloadCancelled` goes out whenever a reload was really in progress.
    */
   cancelReload(): void { return Fire.cancelReload(this); }
+  /** 2026-09-21: add / remove one reason the reload is **held** (the progress is kept) — `parts/Firing`. */
+  setReloadPause(reason: ReloadPauseReason, on: boolean): void { return Fire.setReloadPause(this, reason, on); }
+  /** True while the reload is frozen (debug / smoke). */
+  get reloadHeld(): boolean { return this.reloadPauses.size > 0; }
 
   /* ─────────────────────────── firing ─────────────────────────── */
   /** Trigger pulled on a weapon with 0 durability: click, event, throttled toast. Nothing fires. */
@@ -882,6 +937,24 @@ export class WeaponSystem implements GameSystem {
   /** Every path ending before the release (swap · death · phase · reset): closes the crosshair, consumes nothing. */
   cancelDefib(): void { return Defib.cancelDefib(this); }
 
+  /* ── giving a healing consumable to a squadmate (2026-09-21, parts/AllyHeal) ── */
+  /** Is the item in hand one the **right button** can give (heal item / 실드 충전기) — and is anybody there. */
+  isAllyHealHand(q: QuickHand): boolean { return AllyHeal.isAllyHealHand(this, q); }
+  /** What this item gives a squadmate (`'heal'` hp / `'shield'` points, −1 = fill up), null when nothing. */
+  allyGiftOf(def: ItemDef): AllyHeal.AllyGift | null { return AllyHeal.allyGiftOf(def); }
+  /** The squadmate (person or android) at the smallest angle off the crosshair inside `range`, null with none. */
+  pickAllyTarget(host: Host, range: number, gift: AllyHeal.AllyGift): AllyHeal.AllyHealTarget | null { return AllyHeal.pickAllyTarget(this, host, range, gift); }
+  /** `heal:allyTargetChanged` when the aimed squadmate (or its absence) changed. */
+  emitAllyAim(name: string | null, inHand: boolean, kind: AllyHeal.AllyGift['kind'] | null): void { return AllyHeal.emitAllyAim(this, name, inHand, kind); }
+  /** RMB pressed: start the ally hold (no movement penalty), or deny with nobody aimed at. */
+  beginAllyHeal(host: Host, q: QuickHand): void { return AllyHeal.beginAllyHeal(this, host, q); }
+  /** Every frame of the ally hold — release · target lost · out of `HEAL_ALLY_RANGE_HOLD` all cancel it. */
+  updateAllyHeal(dt: number, host: Host, q: QuickHand): void { return AllyHeal.updateAllyHeal(this, dt, host, q); }
+  /** Hold filled: consume one unit and send that squadmate a `buff heal`. */
+  finishAllyHeal(host: Host, q: QuickHand): void { return AllyHeal.finishAllyHeal(this, host, q); }
+  /** Ends the ally hold without consuming anything (folded into `cancelHeal`, so every cancel path covers it). */
+  cancelAllyHeal(): void { return AllyHeal.cancelAllyHeal(this); }
+
   /**
    * Take one unit of the consumable in hand out of the bag. Returns the stack left (0 = gone) or −1 when nothing
    * could be consumed. The echoed `inventory:quickSlotsChanged` is ignored (`quickBusy`) so the `quick:used` event
@@ -932,6 +1005,9 @@ export class WeaponSystem implements GameSystem {
     this.endHold(false);
     this.cancelHeal();
     this.cancelDefib();
+    // 2026-09-21: the reload hold is transient state too — a mission reset must not leave a stale reason behind,
+    // or the next reload would freeze with nothing holding it.
+    this.reloadPauses.clear();
     this.slots[this.active]?.model.setReload(-1);
     this.slots[this.active]?.model.setBolt(-1);
     this.applyAimZoom(null);

@@ -18,6 +18,8 @@ import { IMPLANT_BROKEN_DEFS } from './ImplantDefs';
 import { CORPSE_TABLE_MAP, DEFAULT_ROGUE_WEAPON_ID, getPlanetGradeCurve, getTierTable, planetRarityWeights, type PlanetGradeCurve, type TierTable } from './LootTables';
 /* appended (2026-09-13): a retired item is no candidate in a crate · supply draw (a pin separate from the csv) */
 import { isLootableDef } from './LootTables';
+/* appended (2026-09-21): planet-bound keys — a corpse row names the kind, the planet is drawn here */
+import { planetKeyVariantsOf } from './LootTables';
 /* appended (2026-09-11): the named rogue's guaranteed drop (`data/loot_named.csv`) */
 import { NAMED_LOOT_DURABILITY_MAX, NAMED_LOOT_DURABILITY_MIN } from '@/shared';
 import { NAMED_DROP_MAP, numberedArmorIdForTier, type NamedDrop } from './LootTables';
@@ -285,6 +287,11 @@ export class LootService implements LootRef {
        undefined and never enters the branches below. */
     const faction = FACTION_LOOT_MAP.get(type);
     const siteBonus = getFactionSiteBonus(type, opts?.site);
+    /* 2026-09-21 (planet-bound keys): a key row in `loot_corpses.csv` names the **kind**; which planet's key it is
+       is drawn here, uniformly. The draw runs on a **fork** (`Random.fork` never advances its parent), so a corpse
+       that drops a key consumes exactly the rng it always did and every other row lands identically. Lazily made,
+       so a corpse table without a key row creates nothing. */
+    let keyRng: Random | null = null;
 
     for (const drop of table.drops) {
       /* 2026-09-16: an epic+ item row (keys · alien artifact · air drone …) multiplies the gate into the chance
@@ -294,6 +301,12 @@ export class LootService implements LootRef {
       if (chance < 1 && !rng.chance(chance)) continue;
       if (!ITEM_DEF_MAP.has(drop.defId)) { console.warn(`[Loot] corpse table '${type}': unknown def '${drop.defId}'`); continue; }
       const qty = drop.qty[0] >= drop.qty[1] ? drop.qty[0] : rng.int(drop.qty[0], drop.qty[1]);
+      const variants = planetKeyVariantsOf(drop.defId);
+      if (variants) {
+        keyRng ??= rng.fork('corpseKeyPlanet');
+        out.push(this.createItem(keyRng.pick(variants), qty));
+        continue;
+      }
       out.push(this.createItem(drop.defId, qty));
     }
 

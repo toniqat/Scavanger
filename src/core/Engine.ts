@@ -3,7 +3,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { GameContext, getPlanet, type GameSystem } from '@/shared';
+import { GameContext, getPlanet, INDOOR_LIGHT_FADE_S, INDOOR_PROBE_UP_M, type GameSystem } from '@/shared';
 import { Atmosphere } from './Atmosphere';
 import { FxManager } from './fx/FxManager';
 import { LightBudget } from './LightBudget';
@@ -11,6 +11,16 @@ import { Outline } from './Outline';
 import { ShaderWarmup } from './ShaderWarmup';
 
 const MAX_DT = 0.05;
+
+/**
+ * 2026-09-21 (indoor brightness): how often the roof probe is cast, derived from the crossfade rather than picked —
+ * one probe per quarter of `INDOOR_LIGHT_FADE_S` means the state can never be more than a quarter of a fade late,
+ * which is below noticing, while the ray runs a handful of times a second instead of once per frame.
+ */
+const INDOOR_PROBE_INTERVAL_S = INDOOR_LIGHT_FADE_S / 4;
+/** Straight up — the probe direction, reused (no per-frame allocation). */
+const INDOOR_PROBE_DIR = new THREE.Vector3(0, 1, 0);
+const _indoorEye = new THREE.Vector3();
 
 /**
  * Renderer / scene / camera owner and the main loop.
@@ -47,6 +57,11 @@ export class Engine {
   private perfChecked = false;
   /** C-58: the guard has turned bloom off this boot (`render:autoAdjusted` went out — at most once). */
   private perfAutoOff = false;
+  // indoor brightness (2026-09-21) — a local view correction, see `stepIndoorLight`
+  private indoorProbeAt = -Infinity;
+  private indoorTarget = 0;
+  /** A cutscene owns the screen (`ui:cinematic`) — the correction stands aside while one runs. */
+  private cinematic = false;
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', stencil: false });
@@ -83,6 +98,7 @@ export class Engine {
 
     this.ctx.bus.on('world:ready', ({ seed, planet }) => {
       /* Phase 11: a selected planet names its own sky palette; without one the sky is still drawn from the seed. */
+      this.cinematic = false;   // 2026-09-21: a new world, so no cutscene is running — see `game:abort`
       const def = getPlanet(planet ?? this.ctx.missionPlanet);
       const p = def ? this.atmosphere.applyPlanet(def) : this.atmosphere.applySeed(seed);
       this.renderer.toneMappingExposure = p.exposure;
@@ -95,7 +111,17 @@ export class Engine {
        */
       void this.shaders.holdForScene();
     });
-    this.ctx.bus.on('game:abort', () => { this.fx.clear(); this.atmosphere.setOverride(1, null, 0); });
+    this.ctx.bus.on('game:abort', () => {
+      this.fx.clear();
+      this.atmosphere.setOverride(1, null, 0);
+      this.atmosphere.resetIndoor();   // 2026-09-21: the scene is gone, so is whatever roof was over it
+      this.indoorTarget = 0;
+      // a cutscene torn down with its scene never publishes its own `active:false` — never stay latched
+      this.cinematic = false;
+    });
+    /* 2026-09-21: a cutscene owns the screen (docking · window warp · liftoff) — the indoor lift must not bloom the
+     * inside of a dropship halfway through it. Extraction and the hub both publish this. */
+    this.ctx.bus.on('ui:cinematic', ({ active }) => { this.cinematic = active; });
     /* appended (2026-09-09): the only path by which a hazard narrows sight. Only the last value received stays. */
     this.ctx.bus.on('atmo:override', ({ fogMul, color, blend }) => this.atmosphere.setOverride(fogMul, color, blend));
     // freeze === false (multiplayer pause menu) keeps the simulation running; only the menu is shown.
@@ -247,6 +273,7 @@ export class Engine {
     }
 
     this.fx.update(sdt, this.camera);
+    this.stepIndoorLight(dt);
     this.atmosphere.update(ctx.time, this.camera, ctx.player ? ctx.player.position : null);
 
     this.shaders.update();         // resolve warm-ups whose programs finished linking
@@ -269,6 +296,45 @@ export class Engine {
 
     this.perfGuard(dt);
     ctx.input.endFrame();
+  }
+
+  /* ── indoor brightness (2026-09-21, user's request 「레이드 실내가 어둡다」) ─────────────────────────────────
+   *
+   * A **local view correction and nothing else**: the hemisphere fill that is already in the scene is turned up and
+   * the fog is thinned while the local player is under a roof. It adds **no light** — the raid light budget has zero
+   * spare and a new point light recompiles every material in the scene (CLAUDE.md §4.5, `LightBudget`) — and it
+   * sends nothing, so other clients' views are untouched.
+   *
+   * Excluded, in order: a frozen frame (`dt` 0), anything that is not a gameplay phase (the title, menus, results,
+   * `deploying`), the ship (`isHubPhase`, and `spaceMode` covers the hangar / docking look the hub sets directly),
+   * the `liftoff` phase and any `ui:cinematic` — a cutscene owns the screen and a dropship hull is a roof — and a
+   * world that is not ready. Everything else, raid and training range alike, gets the probe.
+   */
+  private stepIndoorLight(dt: number): void {
+    if (dt <= 0) return;
+    const ctx = this.ctx;
+    if (!this.indoorApplies()) this.indoorTarget = 0;
+    else if (ctx.time - this.indoorProbeAt >= INDOOR_PROBE_INTERVAL_S) {
+      this.indoorProbeAt = ctx.time;
+      this.indoorTarget = this.probeIndoor() ? 1 : 0;
+    }
+    this.atmosphere.stepIndoor(dt, this.indoorTarget);
+  }
+
+  private indoorApplies(): boolean {
+    const ctx = this.ctx;
+    if (this.cinematic || this.atmosphere.spaceMode) return false;
+    if (!ctx.isGameplayPhase() || ctx.phase === 'liftoff' || ctx.isHubPhase()) return false;
+    return !!ctx.player && !!ctx.world && ctx.world.ready;
+  }
+
+  /** One ray straight up from the eye: a roof / upper floor within `INDOOR_PROBE_UP_M` means indoors. */
+  private probeIndoor(): boolean {
+    const ctx = this.ctx;
+    const player = ctx.player, world = ctx.world;
+    if (!player || !world) return false;
+    player.getEyePosition(_indoorEye);
+    return world.raycast(_indoorEye, INDOOR_PROBE_DIR, INDOOR_PROBE_UP_M) !== null;
   }
 
   /**

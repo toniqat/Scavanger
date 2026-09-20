@@ -4,6 +4,7 @@ import {
   COCKPIT_ROOM_INDEX, HOUSING_CELL_SIZE, HUB_POINT_LIGHTS, HUB_TRAVEL_WARP_STRETCH, ROOM_GRID_COLS, ROOM_LIGHT_DISTANCE, ROOM_LIGHT_INTENSITY, ROOM_LIGHT_POOL,
   ROOM_STRIP_DIM, ROOM_STRIP_LIT, SHIP_ROOM_COUNT, roomCellBlocked, roomGridSize,
 } from '@/shared';
+import { AirlockDoors } from './AirlockDoors';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
 import { BoxInteriorCollider } from './InteriorCollider';
 import { Parts } from './parts';
@@ -12,8 +13,14 @@ import { Starfield, Planet } from './Starfield';
 import { ViewportWarp } from './WarpStreaks';
 import type { ShipStations } from './stations';
 import { TextPlane } from '../Labels';
-import { AIRLOCK, CEIL, COCKPIT, COCKPIT_ROOM_BOX, CORRIDOR, DOOR_HEIGHT, DOOR_WIDTH, ROOM_BOXES, ROOM_DEPTH, ROOM_GAP, ROOMS_PER_SIDE, SEGMENT, WALL, type RoomBox } from './RoomLayout';
-import type { EditAreaDef, PodSlotDef, RoomDef, ShipInterior, TerminalDef, WarpDestination } from './types';
+import {
+  AIRLOCK, AIRLOCK_DOOR_HALF, AIRLOCK_DOOR_HEIGHT, CEIL, COCKPIT, COCKPIT_ROOM_BOX, CORRIDOR, DOOR_HEIGHT, DOOR_WIDTH,
+  ROOM_BOXES, ROOM_DEPTH, ROOM_GAP, ROOMS_PER_SIDE, SEGMENT, WALL, roomAtWorld, roomBox, type RoomBox,
+} from './RoomLayout';
+import type { EditAreaDef, InteriorNearOpts, PodSlotDef, RoomDef, ShipInterior, TerminalDef, WarpDestination } from './types';
+
+/** Reused empty list — an interior with nobody in it still calls the doors every frame. */
+const NO_OCCUPANTS: readonly THREE.Vector3[] = [];
 
 /** 2026-09-13: how long the cockpit ceiling takes to fade out / back in around ship management (UI timing, not balance). */
 const COCKPIT_CEILING_FADE_S = 0.4;
@@ -52,6 +59,14 @@ function fadeMat(src: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
  * assigned one lit (`ROOM_STRIP_LIT`). 2026-09-16 (user's decision): the sliding doors (`ShipDoors`) are gone — every doorway
  * and the cockpit arch is an open, framed opening (they never had colliders, so walking is unchanged).
  *
+ * **2026-09-21 (user's decision) — the airlock is a room of its own.** The corridor used to run straight into an open
+ * alcove; the alcove is now a chamber closed by a two-leaf **automatic** pressure door at each end (`AirlockDoors`),
+ * which opens for the local player and for a visiting squadmate alike. The aft one is the ship's **rear hatch** — the
+ * door you would walk in through after calling this ship down on an extraction pad, which is why only this end of the
+ * ship is modelled that way and the raid ship does not grow an interior of its own. It starts **locked**: in the hub
+ * the ship is in flight and an automatic door onto the void would walk the player out (`setAirlockOuterLocked`).
+ * `AIRLOCK_DEPTH` went 2.5 → 3.6 m to fit two bulkheads and standing room between them.
+ *
  * Phase 9 UI pass (2026-09-07) — cockpit clean-up:
  *   • the console pedestal terminal is **gone**; the dashboard's centre monitor *is* `terminal.screen` (the 항법 /
  *     통신 side readouts were dropped with it), so nothing stands on the walk-in line any more;
@@ -67,8 +82,12 @@ export class PersonalShip implements ShipInterior {
   readonly collider = new BoxInteriorCollider();
   readonly spawn = new THREE.Vector3(0, 0, -1.8);
   readonly spawnYaw = 0;                       // facing −Z (the cockpit)
-  /** 1 m inside the airlock, on its centre line (was the literal 26.0 — the airlock moved with the longer corridor). */
-  readonly airlock = new THREE.Vector3(0, 0, AIRLOCK.minZ + 1.0);
+  /**
+   * Where a docking / bay arrival stands: the middle of the airlock chamber, on its centre line. 2026-09-21: it used
+   * to be 1 m in (the alcove was 2.5 m deep); with a bulkhead at each end the middle is the only spot that is clear
+   * of both door sweeps.
+   */
+  readonly airlock = new THREE.Vector3(0, 0, (AIRLOCK.minZ + AIRLOCK.maxZ) / 2);
   readonly airlockYaw = 0;
   readonly pods: PodSlotDef[] = [];
   readonly terminal: TerminalDef;
@@ -106,6 +125,12 @@ export class PersonalShip implements ShipInterior {
   /** The window warp (2026-09-09): streaks past the cockpit viewport, driven by the hub through `setWarp`. */
   private warp: ViewportWarp;
   private screens: TextPlane[] = [];
+  /**
+   * 2026-09-21 (user's decision): the airlock's two automatic doors — [0] the corridor bulkhead, [1] the ship's rear
+   * hatch. Driven from `updateNear` with everyone standing in this ship, so a squadmate opens a door as readily as
+   * the local player does.
+   */
+  private doors!: AirlockDoors;
   private beacon: THREE.Mesh;
   private beaconMat: THREE.MeshBasicMaterial;
   /** Per-room emissive strip materials (own instances so one room can be dimmed without touching the others). */
@@ -130,6 +155,9 @@ export class PersonalShip implements ShipInterior {
   private roomPick: number[] = [];
   private readonly roomPickNext: number[] = [];
   private readonly roomDist: number[] = new Array(SHIP_ROOM_COUNT).fill(0);
+  /** Ship-management focus the candidate list was last built for (−1 = the walking pick, `pickRooms`). */
+  private focusPick = -1;
+  private focusStanding = -1;
 
   constructor() {
     const r = this.root;
@@ -297,26 +325,79 @@ export class PersonalShip implements ShipInterior {
     grid.build(this.gridGroup, this.gridMeshes, false, true);
     this.root.add(this.gridGroup);
 
-    /* ── airlock ── */
-    const A = { minX: AIRLOCK.minX, maxX: AIRLOCK.maxX, minZ: AIRLOCK.minZ - 0.2, maxZ: AIRLOCK.maxZ };
-    b.plane(A.maxX - A.minX, A.maxZ - A.minZ, 0, 0, (A.minZ + A.maxZ) / 2, M.floor);
-    b.plane(A.maxX - A.minX, A.maxZ - A.minZ, 0, CEIL, (A.minZ + A.maxZ) / 2, M.hullDark, Math.PI / 2);
+    /*
+     * ── airlock ── (2026-09-21, user's decision: **its own room**, with an automatic door at each end)
+     *
+     * It used to be an open alcove the corridor simply ran into. It is now a chamber shut off forward by a bulkhead
+     * in the corridor plane (`AIRLOCK.minZ`) and aft by the ship's **rear hatch** (`AIRLOCK.maxZ`) — the door you
+     * would walk in through after calling this ship down on an extraction pad. Both are two-leaf pressure doors that
+     * open for anyone who comes within `SHIP_AIRLOCK_DOOR_RANGE_M` (`AirlockDoors`), and only the openings' trim is
+     * static: the leaves and their colliders belong to that class.
+     *
+     * The floor and ceiling still reach 0.2 m forward of the bulkhead so the doorway has plate under and over it
+     * instead of a hole — the same trick a room's floor plays at its corridor wall.
+     */
+    const A = { minX: AIRLOCK.minX, maxX: AIRLOCK.maxX, minZ: AIRLOCK.minZ, maxZ: AIRLOCK.maxZ };
+    // `Parts.walls` puts a wall slab **outside** the box it wraps, so the two bulkhead planes are these, not A's edges.
+    const bulkheadZ = A.minZ - WALL / 2, hatchZ = A.maxZ + WALL / 2;
+    const aFloorMinZ = A.minZ - 0.2;
+    b.plane(A.maxX - A.minX, A.maxZ - aFloorMinZ, 0, 0, (aFloorMinZ + A.maxZ) / 2, M.floor);
+    b.plane(A.maxX - A.minX, A.maxZ - aFloorMinZ, 0, CEIL, (aFloorMinZ + A.maxZ) / 2, M.hullDark, Math.PI / 2);
     b.box(1.8, 0.04, 0.18, 0, CEIL - 0.03, (A.minZ + A.maxZ) / 2, M.stripRed);
-    P.walls(A, WALL, { n: { lo: A.minX, hi: A.maxX, y0: 0, y1: CEIL } });
-    const aPropZ = AIRLOCK.minZ + 1.4;                  // was the literal 26.4 (AIRLOCK.minZ was 25)
+    const doorGap = { lo: -AIRLOCK_DOOR_HALF, hi: AIRLOCK_DOOR_HALF, y0: 0, y1: AIRLOCK_DOOR_HEIGHT };
+    P.walls(A, WALL, { n: doorGap, s: doorGap });
+    /*
+     * Opening trim on the chamber face of each bulkhead. The 2026-09-16 arch lesson applies twice over here: the
+     * posts' inner faces stand 2 cm **proud of the reveal** and the header's underside 2 cm below the soffit, and the
+     * whole casing sits 1 cm off the wall face in Z (`zf`, 6 cm deep against a `WALL / 2 + 0.04` offset) so it never
+     * shares a plane with the slab behind it either.
+     */
+    for (const [wz, face] of [[bulkheadZ, 1], [hatchZ, -1]] as Array<[number, number]>) {
+      const zf = wz + face * (WALL / 2 + 0.04);
+      for (const sx of [-1, 1]) b.box(0.12, AIRLOCK_DOOR_HEIGHT, 0.06, sx * (AIRLOCK_DOOR_HALF + 0.04), AIRLOCK_DOOR_HEIGHT / 2, zf, M.trim);
+      b.box(AIRLOCK_DOOR_HALF * 2 + 0.2, 0.12, 0.06, 0, AIRLOCK_DOOR_HEIGHT + 0.04, zf, M.trim);
+      b.box(AIRLOCK_DOOR_HALF * 2 - 0.1, 0.04, 0.05, 0, AIRLOCK_DOOR_HEIGHT + 0.14, zf, M.stripRed);
+      b.box(AIRLOCK_DOOR_HALF * 2 + 0.2, 0.02, 0.5, 0, 0.012, wz + face * 0.25, M.stripAmber);   // threshold
+    }
+    /*
+     * Corridor tail fill. The last room's aft wall ends at `ROOM_BOXES[…].maxZ` and the corridor runs on to
+     * `CORRIDOR.maxZ`; that half-metre used to be covered by the airlock's side walls, which reached 0.2 m forward
+     * into it. With the airlock shut off at `AIRLOCK.minZ` they no longer do, so the corridor gets its own piece —
+     * the same wall-fill the gaps between two rooms already use.
+     */
+    for (const side of [-1, 1] as const) {
+      const x = side < 0 ? CORRIDOR.minX - WALL / 2 : CORRIDOR.maxX + WALL / 2;
+      const z0 = ROOM_BOXES[ROOMS_PER_SIDE - 1].maxZ, z1 = A.minZ;
+      if (z1 - z0 > 0.01) {
+        b.box(WALL, CEIL, z1 - z0, x, CEIL / 2, (z0 + z1) / 2, M.hull);
+        col.addBlocker(x - WALL / 2, 0, z0, x + WALL / 2, CEIL, z1);
+      }
+    }
+    // Stowage hugs the chamber's side walls, clear of both door swings and of the leaves' pockets
+    // (a leaf parks in the wall between |x| = `AIRLOCK_DOOR_HALF` and 2 ×, so nothing may stand in front of it).
+    const aPropZ = (A.minZ + A.maxZ) / 2;
     P.lockers(A.minX + 0.27, aPropZ, 3, yawFromForward(1, 0));
     P.crates(A.maxX - 0.36, aPropZ, 3, Math.PI / 2);    // supply crates (moved out of the cockpit for the computer desk)
-    b.box(1.6, 2.6, 0.08, 0, 1.3, A.maxZ - 0.05, M.hullDark);
-    b.box(0.04, 2.4, 0.1, 0, 1.3, A.maxZ - 0.08, M.trim);
-    b.box(1.7, 0.1, 0.12, 0, 2.65, A.maxZ - 0.06, M.stripRed);
     const airSign = new TextPlane(1.2, 0.36, 256);
-    airSign.mesh.position.set(0, 2.85, A.maxZ - 0.14);
+    airSign.mesh.position.set(0, AIRLOCK_DOOR_HEIGHT + 0.5, A.maxZ - WALL / 2 - 0.08);
     airSign.mesh.rotation.y = Math.PI;
     airSign.set(['에어락'], '#ff8a7a', 'rgba(10,6,6,0.85)');
     r.add(airSign.mesh);
     this.screens.push(airSign);
 
     b.build(r, this.meshes);
+
+    /*
+     * The two automatic doors. Index 0 = the corridor bulkhead, index 1 = the ship's rear hatch.
+     *
+     * **The rear hatch starts locked** and this is a rule, not a stub: in the hub the ship is in flight, so a hatch
+     * that slid open for anyone who walked up to it would open onto the void. `setAirlockOuterLocked(false)` is the
+     * one switch a raid arrival flips.
+     */
+    this.doors = new AirlockDoors(r, col, [
+      { x: 0, z: bulkheadZ, halfWidth: AIRLOCK_DOOR_HALF, height: AIRLOCK_DOOR_HEIGHT, strip: M.stripCyan },
+      { x: 0, z: hatchZ, halfWidth: AIRLOCK_DOOR_HALF, height: AIRLOCK_DOOR_HEIGHT, strip: M.stripRed, locked: true },
+    ]);
 
     // rotating beacon over the airlock door
     this.beaconMat = new THREE.MeshBasicMaterial({ color: 0xff5a3a, transparent: true, opacity: 0.8 });
@@ -337,7 +418,8 @@ export class PersonalShip implements ShipInterior {
     for (let k = 0; k < ROOMS_PER_SIDE; k++) {
       for (const t of [0.25, 0.75]) this.staticFixtures.push(fx(0, CEIL - 0.25, CORRIDOR.minZ + (k + t) * SEGMENT, 0xeef2ff, 14, 8));
     }
-    this.staticFixtures.push(fx(0, 2.7, AIRLOCK.minZ + 1.3, 0xff6a4a, 8, 5));   // was the literal 26.3
+    // Airlock: one lamp in the middle of the chamber (2026-09-21 — it used to sit 1.3 m in, when the alcove was 2.5 m deep)
+    this.staticFixtures.push(fx(0, 2.7, (AIRLOCK.minZ + AIRLOCK.maxZ) / 2, 0xff6a4a, 8, 5));
     // Rooms: **two** places per room since 2026-09-12 — one ceiling lamp with `ROOM_LIGHT_DISTANCE` (7 m from
     // y 2.6) only reaches 6.5 m across the floor, and an 8 × 8 m room's corner is 5.7 m from its centre with the
     // walls in the way. The two sit at z ± ROOM_DEPTH/4 so each half of the room has one overhead.
@@ -518,25 +600,49 @@ export class PersonalShip implements ShipInterior {
   get lights(): LightPool { return this.lightPool; }
 
   /**
-   * Player-proximity animation: the light pool (the sliding doors were removed 2026-09-16). The light **count never changes** and no light is
-   * ever toggled — a light that must move to another fixture first ramps its intensity to 0, is repositioned, then
-   * ramps back up (`LightPool`). A lit room is a candidate only while it is one of the nearest `ROOM_LIGHT_POOL`.
+   * 2026-09-21 (user's decision): the rear hatch is locked while the ship is in space — an automatic door onto the
+   * void would walk the player out. A raid arrival is the one thing that may unlock it.
    */
-  updateNear(dt: number, px: number, pz: number): void {
-    this.pickRooms(px, pz);
+  setAirlockOuterLocked(locked: boolean): void { this.doors.setLocked(1, locked); }
+  /** How far airlock door `i` stands open, 0 … 1 — [0] corridor bulkhead, [1] rear hatch (debug / smoke). */
+  airlockDoorOpen(i: number): number { return this.doors.openness(i); }
+
+  /**
+   * Player-proximity animation: the airlock's automatic doors (2026-09-21) and the light pool. The light **count
+   * never changes** and no light is ever toggled — a light that must move to another fixture first ramps its
+   * intensity to 0, is repositioned, then ramps back up (`LightPool`). A lit room is a candidate only while it is
+   * one of the nearest `ROOM_LIGHT_POOL`.
+   *
+   * `opts.occupants` is everyone standing in this ship (the local player first, visiting squadmates after) — a door
+   * opens for any of them. `opts.focus` is the room the ship-management camera is looking at, which joins the
+   * player's own room at the head of the light pool's candidate list (`pickRooms`).
+   */
+  updateNear(dt: number, px: number, pz: number, opts?: InteriorNearOpts): void {
+    this.doors.update(dt, opts?.occupants ?? NO_OCCUPANTS);
+    const focus = opts?.focus ?? null;
+    if (focus !== null) this.pickFocus(focus, px, pz);
+    else this.pickRooms(px, pz);
     this.lightPool.update(dt, px, pz);
   }
 
-  /** Nearest `ROOM_LIGHT_POOL` lit rooms → the pool's candidate list (rewritten only when that set changes). */
+  /**
+   * Nearest `ROOM_LIGHT_POOL` lit rooms → the pool's candidate list (rewritten only when that set changes).
+   *
+   * 2026-09-21: **the room the PC stands in is always one of them**, lit or not. A room with no purpose reads dark
+   * by design (its wall strips stay at `ROOM_STRIP_DIM`), but standing inside one used to mean standing in the dark
+   * while three rooms elsewhere in the ship held the pool's lights.
+   */
   private pickRooms(px: number, pz: number): void {
+    this.focusPick = -1;                 // leaving ship management → the focus set is rebuilt next time
     const next = this.roomPickNext;
     next.length = 0;
+    const standing = roomAtWorld(px, pz);
     for (const rb of ROOM_BOXES) {
-      if (!this.roomLit[rb.index]) continue;
+      if (!this.roomLit[rb.index] && rb.index !== standing) continue;
       // nearest of the room's fixtures ranks the room (2026-09-12: a room owns two of them)
       let d = Infinity;
       for (const f of this.roomFixtures[rb.index]) d = Math.min(d, (f.x - px) * (f.x - px) + (f.z - pz) * (f.z - pz));
-      this.roomDist[rb.index] = d;
+      this.roomDist[rb.index] = rb.index === standing ? -1 : d;      // the room underfoot outranks every other
       next.push(rb.index);
     }
     next.sort((a, b) => this.roomDist[a] - this.roomDist[b]);
@@ -547,6 +653,43 @@ export class PersonalShip implements ShipInterior {
     this.roomPick = next.slice();
     const list: LightFixture[] = this.staticFixtures.slice();
     for (const i of this.roomPick) list.push(...this.roomFixtures[i]);
+    this.lightPool.setFixtures(list);
+  }
+
+  /**
+   * Ship management (2026-09-21, user's question 「can more rooms be lit without hurting performance?」 — they can,
+   * because **the light count never changes**: `LightPool` re-aims a fixed `HUB_POINT_LIGHTS` set, so choosing other
+   * places is free and recompiles nothing).
+   *
+   * While the camera hangs over a room the interesting places are two: the room being decorated and the room the PC
+   * is standing in. Distance from the player cannot pick them — the camera may be at the far end of the ship — so
+   * the candidate list is **cut down to at most `HUB_POINT_LIGHTS` entries** instead. Below the pool's size every
+   * candidate gets a light whatever its ranking (`LightPool.update`: `wanted = min(size, n)`), which turns the
+   * ranking off without touching `shared/lightPool.ts`.
+   *
+   * The focused room is lit **even with no purpose**: you cannot decorate a dark room, and its emissive wall strips
+   * still say it is empty (`setRoomLit` is untouched). Rebuilt only when the focus or the standing room changes.
+   */
+  private pickFocus(focus: number, px: number, pz: number): void {
+    const standing = roomAtWorld(px, pz) ?? -1;
+    if (this.focusPick === focus && this.focusStanding === standing) return;
+    this.focusPick = focus;
+    this.focusStanding = standing;
+    this.roomPick.length = 0;            // the walking pick must rebuild when the mode ends
+    const list: LightFixture[] = [];
+    for (const i of [focus, standing]) {
+      for (const f of this.roomFixtures[i] ?? []) if (!list.includes(f)) list.push(f);
+    }
+    // Fill the rest with the static places nearest the focused area, so the corridor outside its door — and the
+    // cockpit, which has no room fixtures of its own — are lit too.
+    const rb = roomBox(focus);
+    const cx = rb ? (rb.minX + rb.maxX) / 2 : px, cz = rb ? (rb.minZ + rb.maxZ) / 2 : pz;
+    const rest = this.staticFixtures.slice()
+      .sort((a, c) => ((a.x - cx) ** 2 + (a.z - cz) ** 2) - ((c.x - cx) ** 2 + (c.z - cz) ** 2));
+    for (const f of rest) {
+      if (list.length >= this.lightPool.size) break;
+      list.push(f);
+    }
     this.lightPool.setFixtures(list);
   }
 
@@ -578,6 +721,7 @@ export class PersonalShip implements ShipInterior {
     disposeMeshes(this.ceilMeshes);
     this.cockpitCeiling.removeFromParent();
     for (const m of Object.values(this.ceilMats)) m.dispose();   // own clones, not the shared palette
+    this.doors.dispose();
     disposeMeshes(this.gridMeshes);
     this.gridGroup.removeFromParent();
     this.cockpit.furnitureGroup.removeFromParent();

@@ -3,10 +3,17 @@
  *
  * Derelict buildings that can be entered. Interactable containers crowd inside; an outpost may come with a
  * **basement** and a lab that got a second floor with a floor-2 **locked room** — both are **always locked** and are
- * opened with a consumable master key (2026-09-12: the basement = `key_basement`, the basement key; the locked room =
- * `keycard_lab`, the lab keycard — the `key` column of `data/structures.csv`). The right kind opens any building, and
- * opening one consumes one of the opener's. A key is no longer guaranteed inside that building — each ground-floor
- * container holds one now and then at `keyChance`, and they also come out of crates · rogue corpses · the nomad shop.
+ * opened with a consumable key (2026-09-12: the basement = a basement key, the locked room = a lab keycard — the
+ * `key` column of `data/structures.csv`), and opening one consumes one of the opener's. A key is not guaranteed
+ * inside that building — each ground-floor container holds one now and then at `keyChance`, and they also come out
+ * of crates · rogue corpses · the nomad shop.
+ *
+ * **2026-09-21 (user's decision) — a key is planet-bound, and the room shoots back.** The csv `key` column is now
+ * only the **kind**; the id a door takes is `<kind>_<this raid's planet>` (`key_basement_amber` …, `data/items.csv`
+ * has all ten), so a door accepts only **this planet's** key and the prompt · deny toast name that planet. Finding
+ * one is still planet-independent: a container's bonus roll keeps the kind of the building it stands in and draws
+ * the **planet uniformly**. Inside both locked spaces hangs an **indestructible ceiling turret**
+ * (`structures/parts/Turret`) that fires on anyone in the room; opening that room's door is its only off switch.
  * At the bottom of the wall right beside a locked door is a **vent** only a ground drone passes (`parts/Build`). On
  * the **roof** of an outpost · lab stands a **map scanner** that clears the fog around it (once per structure).
  *
@@ -25,10 +32,10 @@
  */
 import * as THREE from 'three';
 import {
-  LADDER_GRAB_RANGE, Layers, LightPool, STRUCTURE_INTERACT_RANGE, STRUCTURE_LABEL_KO, STRUCTURE_POINT_LIGHTS,
-  STRUCTURE_SCAN_HOLD_S, STRUCTURE_SCAN_RADIUS, STRUCTURE_UNLOCK_HOLD_S,
-  type GameContext, type ItemInstance, type LadderDef, type LightFixture, type PeerId, type Random, type StructureDef,
-  type StructureKind, type StructureMessage, type StructureRequest,
+  LADDER_GRAB_RANGE, Layers, LightPool, PLANET_IDS, STRUCTURE_INTERACT_RANGE, STRUCTURE_LABEL_KO, STRUCTURE_POINT_LIGHTS,
+  STRUCTURE_SCAN_HOLD_S, STRUCTURE_SCAN_RADIUS, STRUCTURE_UNLOCK_HOLD_S, planetLabel,
+  type GameContext, type ItemInstance, type LadderDef, type LightFixture, type PeerId, type PlanetId, type Random,
+  type StructureDef, type StructureKind, type StructureMessage, type StructureRequest,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { type BuildCtx, merge, paint, paintGradient, xform } from './build';
@@ -39,6 +46,8 @@ import {
 import { ContainerSet, type ContainerSpec } from './structures/parts/Containers';
 import { GlassSet, type WindowSpec } from './structures/parts/Glass';
 import { ScanWave } from './structures/parts/ScanWave';
+/* appended (2026-09-21): the ceiling turret inside a locked space */
+import { CeilingTurretSet, type TurretSpec } from './structures/parts/Turret';
 import { pickTier, structureRow } from './structures/model';
 
 /* 2026-09-19: the `BASEMENT_KEY_DEF` constant is gone. Since 2026-09-12 the key id's source is the `key` column of
@@ -48,14 +57,26 @@ import { pickTier, structureRow } from './structures/model';
 
 /** The kind of locked door — it only splits the prompt · toast wording (the rules are the same). */
 type DoorKind = 'basement' | 'locked';
-const DOOR_TEXT: Readonly<Record<DoorKind, { open: string; locked: string; need: string; done: string }>> = {
+/**
+ * 2026-09-21 (planet-bound keys): `locked` · `need` **name the planet the door wants**. The key is no longer a
+ * skeleton key, so a player standing there holding 아켈론 II's key in front of 카민 I's door has to be told which
+ * planet the door is asking for — that is the whole point of the feature (it sends them to that planet).
+ * `planet` is the Korean planet label (`planetLabel`), never the id.
+ */
+const DOOR_TEXT: Readonly<Record<DoorKind, {
+  open: string; locked: (planet: string) => string; need: (planet: string) => string; done: string;
+}>> = {
   basement: {
-    open: '열쇠로 지하실 개방 (E)', locked: '지하실 잠김 — 열쇠 필요',
-    need: '지하실 열쇠가 필요하다', done: '지하실이 열렸다 (열쇠 소모)',
+    open: '열쇠로 지하실 개방 (E)',
+    locked: (planet) => `지하실 잠김 — ${planet} 열쇠 필요`,
+    need: (planet) => `${planet} 지하실 열쇠가 필요하다`,
+    done: '지하실이 열렸다 (열쇠 소모)',
   },
   locked: {
-    open: '키카드로 잠긴 방 개방 (E)', locked: '잠긴 방 — 키카드 필요',
-    need: '연구소 보안 키카드가 필요하다', done: '잠긴 방이 열렸다 (키카드 소모)',
+    open: '키카드로 잠긴 방 개방 (E)',
+    locked: (planet) => `잠긴 방 — ${planet} 키카드 필요`,
+    need: (planet) => `${planet} 연구소 보안 키카드가 필요하다`,
+    done: '잠긴 방이 열렸다 (키카드 소모)',
   },
 };
 
@@ -76,6 +97,8 @@ interface Inst {
   /** 2026-09-12: the kind of locked door (null with none) · the item def id that opens it. */
   doorKind: DoorKind | null;
   keyDefId: string | null;
+  /** 2026-09-21: the Korean label of the planet this door's key belongs to (the prompt · the deny toast). */
+  keyPlanetLabel: string;
 }
 
 /** One building nav row for debug · smokes. */
@@ -106,6 +129,8 @@ export class Structures {
    */
   private readonly roguedZones = new Set<string>();
   private readonly containers = new ContainerSet('StructureContainers');
+  /** 2026-09-21: the ceiling turrets of the locked spaces (`parts/Turret`). */
+  private turrets = new CeilingTurretSet();
   private glass = new GlassSet();
   private scanWave = new ScanWave();
   private lightPool: LightPool | null = null;
@@ -152,6 +177,8 @@ export class Structures {
   get lights(): LightPool | null { return this.lightPool; }
   /** Is a container in its opened look (debug · smoke). */
   isContainerOpened(id: string): boolean { return this.containers.isOpened(id); }
+  /** 2026-09-21: is that structure's ceiling turret still armed — true · false · null when it has none (debug · smoke). */
+  isTurretArmed(id: string): boolean | null { return this.turrets.isArmed(id); }
   /**
    * 2026-09-12: the nav of each building — outside / inside the front door · the room rectangles · the stair landing
    * and arrival spots · the basement door's interaction spot (`scripts/smoke-structure-reach.mjs` starts its flood
@@ -218,7 +245,16 @@ export class Structures {
     this.mats.push(this.structMat, this.glowMat);
 
     const specs: ContainerSpec[] = [];
+    const turretSpecs: TurretSpec[] = [];
     const glassSpecs: { structureId: string; index: number; spec: WindowSpec }[] = [];
+    /**
+     * 2026-09-21 (planet-bound keys, user's decision): the `key` column of `structures.csv` is only the **kind**
+     * (`key_basement` · `keycard_lab`) — the id a door really takes is that kind plus **this raid's planet**
+     * (`data/items.csv` holds the ten). Outside a planet raid (a mode with no `missionPlanet`) there are no
+     * structures at all, so the first planet is just a defined fallback, never a played case.
+     */
+    const missionPlanet: PlanetId = game.missionPlanet ?? PLANET_IDS[0];
+    const keyIdFor = (kind: string, planet: PlanetId): string => `${kind}_${planet}`;
     const fixtures: LightFixture[] = [];
     const counters: Partial<Record<StructureKind, number>> = {};
     for (const site of sites) {
@@ -267,12 +303,13 @@ export class Structures {
         basementDoor: out.door ? new THREE.Vector3(out.door.x, out.door.y, out.door.z) : null,
         hasLockedRoom: out.lockedDoor !== null,
         lockedRoomDoor: out.lockedDoor ? new THREE.Vector3(out.lockedDoor.x, out.lockedDoor.y, out.lockedDoor.z) : null,
-        unlockDefId: lockDoor ? row.key : null,
+        unlockDefId: lockDoor && row.key ? keyIdFor(row.key, missionPlanet) : null,
         unlocked: false, scanned: false, rogueDropUsed: false,
       };
       const inst: Inst = {
         def, doorEntry: null, doorMesh: null, doorBase: new THREE.Vector3(), doorSlide: new THREE.Vector3(), doorAnim: -1,
         scanMat: null, scanPos: null, doorKind, keyDefId: def.unlockDefId ?? null,
+        keyPlanetLabel: planetLabel(missionPlanet),
       };
 
       /* Containers: the ground levels (floors 1 · 2) + the basement (when there is one) + the floor-2 locked room
@@ -281,12 +318,19 @@ export class Structures {
        * container may hold that kind's key as a **bonus** at `keyChance` (never guaranteed), and `ContainerSet` rolls
        * it from the seed. */
       const ground = out.containers;
-      const bonusKey = row.key && row.keyChance > 0 ? row.key : undefined;
+      const bonusKind = row.key && row.keyChance > 0 ? row.key : undefined;
+      /* 2026-09-21 (planet-bound keys): the container decides the key's **kind** from the building, but its
+       * **planet uniformly at random** — any planet's key turns up on any planet, which is what sends a player
+       * to the planet a key names. The planet is drawn per container on a fork of the lock stream, so it moves
+       * neither the building's own rng nor the container's contents roll, and it is baked into the spec, so
+       * `previewContainerItems` still equals opening. */
+      const keyPlanetRng = bonusKind ? lockBase.fork(`${id}_keyPlanet`) : null;
       ground.forEach((s, i) => specs.push({
         id: `${id}_c${i}`, position: new THREE.Vector3(s.x, s.y, s.z), yaw: s.yaw,
         tier: pickTier(row.tiers, rng.next()), style: (i % 3) as 0 | 1 | 2,
         zoneId: id, zoneKind: site.kind,
-        bonusDefId: bonusKey, bonusChance: bonusKey ? row.keyChance : undefined,
+        bonusDefId: bonusKind && keyPlanetRng ? keyIdFor(bonusKind, keyPlanetRng.pick(PLANET_IDS)) : undefined,
+        bonusChance: bonusKind ? row.keyChance : undefined,
       }));
       const deepTiers = row.basementTiers.length > 0 ? row.basementTiers : row.tiers;
       /* 2026-09-15 (thumper, user's decision 「only in the 아켈론 II outpost basement」): a basement container gets the
@@ -312,6 +356,11 @@ export class Structures {
 
       if (out.console) this.buildConsole(ctx, game, rng, inst, out.console);
       if (lockDoor) this.buildDoor(ctx, game, rng, inst, lockDoor);
+      /* 2026-09-21: the ceiling turret only exists where there is really a locked door to skip — a building whose
+       * csv row has no `key` has no door either, so arming a room nobody can shut would just be a trap. */
+      if (lockDoor && inst.keyDefId) {
+        out.turrets.forEach((spot, i) => turretSpecs.push({ id: `${id}_t${i}`, structureId: id, spot }));
+      }
       out.ladders.forEach((l, i) => {
         const ladder: LadderDef = {
           id: `ladder_${id}_${i}`,
@@ -337,6 +386,7 @@ export class Structures {
     }
 
     this.containers.build(ctx, game, specs);
+    this.turrets.build(ctx, game, turretSpecs, this.structMat!);
     this.glass.build(ctx, glassSpecs, (sid, idx, point) => this.breakGlass(sid, idx, true, point));
     this.group.add(this.glass.group);
     this.lightPool.setFixtures(fixtures);
@@ -347,6 +397,7 @@ export class Structures {
   update(dt: number, time: number, eye: THREE.Vector3 | null): void {
     if (!this.built) return;
     this.containers.update(dt, time);
+    this.turrets.update(dt, time);
     if (this.glowMat) this.glowMat.emissiveIntensity = 1.35 + 0.15 * Math.sin(time * 1.7);
     for (const inst of this.insts) {
       if (inst.scanMat) inst.scanMat.emissiveIntensity = inst.def.scanned ? 0.3 : 1.1 + 0.7 * Math.sin(time * 3.1);
@@ -364,6 +415,8 @@ export class Structures {
   dispose(): void {
     const game = this.game;
     this.containers.dispose();
+    this.turrets.dispose();
+    this.turrets = new CeilingTurretSet();
     for (const inst of this.insts) {
       game?.interactables.unregister(`struct:${inst.def.id}:scan`);
       game?.interactables.unregister(`struct:${inst.def.id}:door`);
@@ -515,7 +568,7 @@ export class Structures {
       radius: STRUCTURE_INTERACT_RANGE,
       /* Hold 0 without the right key — pressing gives the deny sound at once. Better than being refused after filling the whole gauge. */
       get holdTime(): number { return self.hasKey(inst) ? STRUCTURE_UNLOCK_HOLD_S : 0; },
-      getPrompt: () => (inst.def.unlocked ? null : self.hasKey(inst) ? text.open : text.locked),
+      getPrompt: () => (inst.def.unlocked ? null : self.hasKey(inst) ? text.open : text.locked(inst.keyPlanetLabel)),
       canInteract: () => !inst.def.unlocked && !!this.game?.isGameplayActive(),
       interact: () => this.requestUnlock(inst),
     });
@@ -606,7 +659,7 @@ export class Structures {
     if (!ctx || inst.def.unlocked) return;
     if (!this.hasKey(inst)) {
       ctx.bus.emit('audio:play', { id: 'keycard_deny', position: this.doorPosOf(inst) });
-      ctx.bus.emit('ui:notify', { text: DOOR_TEXT[inst.doorKind ?? 'basement'].need, kind: 'warning', duration: 2.4 });
+      ctx.bus.emit('ui:notify', { text: DOOR_TEXT[inst.doorKind ?? 'basement'].need(inst.keyPlanetLabel), kind: 'warning', duration: 2.4 });
       return;
     }
     const net = ctx.net;
@@ -642,6 +695,10 @@ export class Structures {
     inst.def.unlocked = true;
     if (inst.doorEntry) { this.hash?.remove(inst.doorEntry); inst.doorEntry = null; }
     inst.doorAnim = 0;
+    /* 2026-09-21: opening the door with the right planet's key is the **only** off switch of that room's ceiling
+     * turret, and it is permanent. This runs on every path `unlocked` arrives by — the opener, `struct unlocked`
+     * from the host, and a late joiner's `struct sync.unlocked` — so the turret needs no wire of its own. */
+    this.turrets.disableFor(inst.def.id);
     const at = this.doorPosOf(inst);
     if (consume) {
       const key = inst.keyDefId;

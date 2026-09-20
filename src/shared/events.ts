@@ -1775,3 +1775,51 @@ export interface GameEvents {
   'progress:statPending': { total: number };
 }
 /* ── end [2026-09-16] the ship track tutorial's stat guidance ── */
+
+/* ══ appended 2026-09-21: reload hold · ally healing (owner: weapons · gadgets · implants · player · ui) ══ */
+
+/* ══ appended: 2026-09-21 [W] — the reload hold · using a healing consumable on an ally (owner: weapons; reader: ui) ══ */
+export interface GameEvents {
+  /**
+   * Fact (weapons): the running reload was **frozen** — its timer stopped where it was and no `weapon:reloadFinished`
+   * will come until `weapon:reloadResumed`. It is **not** a cancel: `weapon:reloadCancelled` still means the progress
+   * is gone. The crosshair ring must stop counting down on this one, because it runs its own local countdown off
+   * `weapon:reloadStarted {duration}` and would otherwise fill to 100 % while the gun stands still.
+   * Sent again with a different `reason` only after a resume — overlapping reasons are one hold.
+   */
+  'weapon:reloadPaused': { weaponId: string; reason: import('./types').ReloadPauseReason };
+  /** Fact (weapons): the hold ended and the reload runs on from where it stopped. `remaining` = seconds still to go. */
+  'weapon:reloadResumed': { weaponId: string; remaining: number };
+  /**
+   * Fact (weapons): which squadmate a **right-click** would use the healing consumable in hand on — the body at the
+   * smallest angle off the crosshair inside `HEAL_ALLY_AIM_CONE_DEG` and `HEAL_ALLY_RANGE_START`.
+   * `inHand` false = the thing in hand cannot be given to anybody (a gun, a grenade, a gadget), so the prompt has
+   * nothing to say at all and `kind` is null. `inHand` true with `name` null = it **can** be given but nobody is
+   * valid right now (none aimed at, out of range, behind a wall, downed, or the gift would do nothing for them) —
+   * the right button must then *look* unavailable rather than silently do nothing. Sent only when it changes.
+   */
+  'heal:allyTargetChanged': { name: string | null; inHand: boolean; kind: 'heal' | 'shield' | null };
+  /**
+   * Fact (weapons): the right-button hold that treats `name` (the same ring as `heal:holdChanged`, its own label —
+   * `kind` decides whether that reads 회복 or 실드 충전). `t` = 0..1 of the item's use time, `-1` /
+   * `holding: false` = cancelled or finished. There is **no movement penalty** on this hold —
+   * `CONSUMABLE_SLOW_MUL` is the self use only.
+   */
+  'heal:allyHoldChanged': { holding: boolean; t: number; dur: number; name: string | null; kind: 'heal' | 'shield' };
+}
+/* ── end [2026-09-21 W] the reload hold · using a healing consumable on an ally ── */
+
+/* ══ appended 2026-09-21: rover parts · hostility · wreck crates (owner: world/rover) ══ */
+
+export interface GameEvents {
+  /**
+   * Fact (every client): the vehicle has just turned **hostile** — the player side dealt more than
+   * `ROVER_AGGRO_DAMAGE` and it now shoots the attacker and their squad for the rest of the raid. It fires once,
+   * on the transition, on the authority and on a replica alike (a replica learns it from `rover state`), so the
+   * person who was not shooting still gets told why the turrets swung around. `ui/` owns the toast.
+   */
+  'rover:hostile': Record<string, never>;
+}
+
+
+

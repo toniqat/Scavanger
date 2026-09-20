@@ -319,8 +319,12 @@ function keyFlow() {
     if (!it || !doorPos) { rows.push({ id: s.id, missing: true }); continue; }
     const doorObs = () => w.getObstacles().some((o) => o.kind === 'door' && Math.hypot(o.position.x - doorPos.x, o.position.z - doorPos.z) < 0.25);
     const key = s.unlockDefId;
-    const other = key === 'key_basement' ? 'keycard_lab' : 'key_basement';
-    clear('key_basement'); clear('keycard_lab');
+    /* 2026-09-21: keys are planet-bound — the id is `<family>_<planet>` (`key_basement_amber` …). The 「wrong key」
+     * this test hands over is the **other family on the same planet**, so it stays a real, creatable item. */
+    const family = key.startsWith('keycard_lab') ? 'keycard_lab' : 'key_basement';
+    const planet = key.slice(family.length + 1);
+    const other = `${family === 'key_basement' ? 'keycard_lab' : 'key_basement'}_${planet}`;
+    clear(key); clear(other);
     const r = { id: s.id, kind: s.kind, key, basement: !!s.hasBasement, lockedRoom: !!s.hasLockedRoom, missing: false };
     r.promptNoKey = it.getPrompt();
     r.holdNoKey = it.holdTime ?? null;
@@ -355,7 +359,7 @@ function previewFlow() {
   };
   const ids = [];
   const all = ctx.interactables.all().filter((x) => x.id.startsWith('container:struct_')).map((x) => x.id.slice(10));
-  const keyed = all.filter((id) => (w.previewContainerItems(id) ?? []).some((it) => it.defId === 'key_basement' || it.defId === 'keycard_lab'));
+  const keyed = all.filter((id) => (w.previewContainerItems(id) ?? []).some((it) => it.defId.startsWith('key_basement') || it.defId.startsWith('keycard_lab')));
   ids.push(...keyed.slice(0, 3));
   for (const id of all.filter((x) => /_c\d+$/.test(x)).slice(0, 2)) if (!ids.includes(id)) ids.push(id);
   for (const id of all.filter((x) => /_l\d+$/.test(x)).slice(0, 1)) if (!ids.includes(id)) ids.push(id);
@@ -476,7 +480,7 @@ try {
       if (k.missing) { ok(false, `seed ${seed} ${k.id}: 잠긴 문 상호작용 · 위치가 있다`); continue; }
       const tag = `seed ${seed} ${k.id} (${k.kind}, ${k.key})`;
       const detail = JSON.stringify(k);
-      ok(k.kind === 'outpost' ? k.key === 'key_basement' && k.basement : k.key === 'keycard_lab' && k.lockedRoom,
+      ok(k.kind === 'outpost' ? k.key.startsWith('key_basement') && k.basement : k.key.startsWith('keycard_lab') && k.lockedRoom,
         `${tag}: 전진기지 지하실 = 열쇠 · 연구소 잠긴 방 = 키카드`, detail);
       ok(/필요/.test(k.promptNoKey ?? '') && k.holdNoKey === 0, `${tag}: 열쇠 없으면 「… 필요」 프롬프트 · 홀드 0 (${k.promptNoKey})`, detail);
       ok(k.denyKeepsLocked, `${tag}: 열쇠 없이 누르면 문이 그대로 잠겨 있다`, detail);

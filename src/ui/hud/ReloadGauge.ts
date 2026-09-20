@@ -19,6 +19,10 @@ const LABEL: Readonly<Record<'reload' | 'swap', string>> = { reload: '재장전'
  * melee swing / weapon swap that aborts the reload would leave the ring filling to 100 % and then sitting there.
  * `weapon:equipped` (the old panel's behaviour), death, downed and a mission reset hide it too.
  *
+ * 2026-09-08 … 2026-09-21 — **the hold**. A roll or a 갈고리 no longer throws a reload away, it freezes it
+ * (`weapon:reloadPaused` / `weapon:reloadResumed`, `weapons/parts/Firing.setReloadPause`). The local countdown has
+ * to stop with it or the ring lies; `.reload.paused` dims it so a frozen ring does not read as a stuck HUD.
+ *
  * 2026-09-08 — **the swap uses the same ring**. The swap used to be a 160 px hairline under the bottom-right weapon box, which
  * nobody looks at mid-fight; `weapon:swapStarted {duration}` now drives this ring with the `무기 교체` label. The two
  * states cannot overlap (a swap cancels a running reload), so one ring serves both — `mode` only decides which
@@ -33,6 +37,12 @@ export class ReloadGauge {
   private mode: 'reload' | 'swap' = 'reload';
   private total = 0;
   private left = 0;
+  /**
+   * 2026-09-21: the reload is **held** (roll · 갈고리) — the countdown stands still until `weapon:reloadResumed`.
+   * The ring runs its own local clock off `weapon:reloadStarted {duration}`, so without this it would fill to 100 %
+   * and sit there while the gun has not moved. A swap is never held, so it only ever applies to `mode === 'reload'`.
+   */
+  private paused = false;
   private lastT = -1;
   private lastLabel = '';
   private unsubs: Array<() => void> = [];
@@ -68,6 +78,9 @@ export class ReloadGauge {
       b.on('weapon:reloadFinished', () => this.hide()),
       // Phase 10: a cancel (melee, swap, death) used to be silent — the ring would keep filling without it.
       b.on('weapon:reloadCancelled', () => this.hide()),
+      // 2026-09-21: a hold is **not** a cancel — the ring stays up, frozen, and picks up where it stopped.
+      b.on('weapon:reloadPaused', () => this.setPaused(true)),
+      b.on('weapon:reloadResumed', () => this.setPaused(false)),
       // 2026-09-08: the weapon swap shares the ring; the swap owns it until the timer runs out.
       b.on('weapon:swapStarted', ({ duration }) => this.start(duration, 'swap')),
       // `weapon:equipped` lands mid-swap (the new gun is attached at 50 %) — it may only clear a reload.
@@ -81,7 +94,7 @@ export class ReloadGauge {
 
   /** Count the ring down; called every frame from `HudSystem` while the gameplay HUD is up. */
   update(dt: number): void {
-    if (this.left <= 0) return;
+    if (this.left <= 0 || this.paused) return;
     this.left -= dt;
     if (this.left <= 0) { this.hide(); return; }
     const t = 1 - this.left / this.total;
@@ -90,11 +103,22 @@ export class ReloadGauge {
     if (secs !== this.lastLabel) { this.lastLabel = secs; setText(this.label, `${LABEL[this.mode]} ${secs}`); }
   }
 
+  /** Freeze / unfreeze the countdown; `.paused` dims the ring so it does not read as a stuck HUD. */
+  private setPaused(on: boolean): void {
+    if (this.paused === on) return;
+    this.paused = on;
+    toggleClass(this.root, 'paused', on && this.mode === 'reload');
+  }
+
+  /** Whether the ring is frozen (debug / smoke). */
+  get isPaused(): boolean { return this.paused; }
+
   private start(duration: number, mode: 'reload' | 'swap'): void {
     this.mode = mode;
     this.total = Math.max(0.05, duration);
     this.left = this.total;
     this.lastLabel = '';
+    this.setPaused(false);
     toggleClass(this.root, 'show', true);
     toggleClass(this.root, 'swap', mode === 'swap');
     this.setFill(0);
@@ -102,9 +126,10 @@ export class ReloadGauge {
   }
 
   private hide(): void {
+    this.setPaused(false);
     if (this.left <= 0 && !this.root.classList.contains('show')) return;
     this.left = 0;
-    this.root.classList.remove('show');
+    this.root.classList.remove('show', 'paused');
     this.setFill(0);
     this.lastLabel = '';
   }

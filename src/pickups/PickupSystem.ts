@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   PROP_STEP_UP_MAX,
+  PICKUP_SEPARATION_M, PICKUP_SPOT_RINGS, PICKUP_SPOT_STEP_M,
   GRAVITY, PICKUP_LIFETIME, PICKUP_MAX, normalizeMealQuality,
   type GameContext, type GameSystem, type Interactable, type ItemDef, type ItemInstance, type PickupRef, type PickupsRef,
   type ItemMessage, type ItemRequest, type FlowMessage, type PickupWire, type PeerId, type Vec3Tuple, type ItemInstanceExtras,
@@ -22,6 +23,13 @@ class Pickup implements PickupRef {
   readonly position = new THREE.Vector3();
   readonly vel = new THREE.Vector3();
   readonly spin = new THREE.Vector3();
+  /**
+   * 2026-09-21: where this body is expected to come to rest — the ballistic guess while it is still flying, the real
+   * spot once it has settled. Only the free-spot search reads it, and it must: a whole bagful is dropped in **one
+   * frame**, so every earlier body is still sitting at the shared spawn point and comparing against `position` would
+   * find the ground clear for all of them.
+   */
+  readonly restSpot = new THREE.Vector3();
   resting = false;
   age = 0;
   /** Client: awaiting the host's echo of our own drop. */
@@ -34,6 +42,9 @@ class Pickup implements PickupRef {
 }
 
 const _n = new THREE.Vector3(), _tmp = new THREE.Vector3(), _v = new THREE.Vector3();
+// 2026-09-21 (free-spot search): own scratch objects — `_tmp` / `_v` are live across `onLocalDrop` (the bag-full re-drop
+// hands them straight in), so the search may not borrow them. No allocation on any path (CLAUDE.md §4.1).
+const _spot = new THREE.Vector3(), _land = new THREE.Vector3(), _probe = new THREE.Vector3();
 
 function toTuple(v: THREE.Vector3): Vec3Tuple {
   return [Math.round(v.x * 1000) / 1000, Math.round(v.y * 1000) / 1000, Math.round(v.z * 1000) / 1000];
@@ -84,7 +95,9 @@ export class PickupSystem implements GameSystem, PickupsRef {
   /** Local authority (solo / host) spawn. Assigns an id and replicates `item drop` to the others. */
   spawn(item: ItemInstance, position: THREE.Vector3, velocity?: THREE.Vector3): string {
     const id = this.nextId();
-    const p = this.spawnInternal(id, item, position, velocity ?? null, false);
+    // the free-spot search runs **here**, before `wireOf` reads the position, so the spot crosses the wire and
+    // every peer holds the same one (2026-09-21 — see `freeSpotFor`)
+    const p = this.spawnInternal(id, item, this.freeSpotFor(position, velocity ?? null), velocity ?? null, false);
     if (!p) return '';
     this.broadcast({ t: 'item', ev: 'drop', item: this.wireOf(p), v: velocity ? toTuple(velocity) : undefined }, 'others');
     return id;
@@ -203,9 +216,105 @@ export class PickupSystem implements GameSystem, PickupsRef {
 
   private settle(p: Pickup): void {
     p.resting = true;
+    p.restSpot.copy(p.position);   // the guess is now a fact
+
     const b = p.visual.body;
     b.rotation.set(0, Math.random() * Math.PI * 2, 0);
     b.position.set(0, 0, 0);
+  }
+
+  /* ─────────────────────────── free-spot search ───────────────────────────
+   *
+   * 2026-09-21, user's decision 「생성 시 빈자리 탐색」. Dropping a bagful at once (a bag swap, a corpse strip) emits one
+   * `inventory:itemDropped` per item in the same frame with the **same** position and the **same** velocity, so every
+   * body flew the identical arc and the models merged into one blob.
+   *
+   * The spot is chosen **once, at spawn**, and never again: a per-frame separation pass would put a loop over every
+   * resting pickup on a hot path for a purely cosmetic gain (CLAUDE.md §4.1). It is chosen on the peer that
+   * *originates* the drop (`spawn` = the authority, the client branch of `onLocalDrop` = a client's own drop), i.e.
+   * exactly where the pickup is decided today, and rides out on the position the existing `item drop` / `itemq drop`
+   * already carries — no new message, and no replicated spawn (`item drop|sync` echo, `itemq drop` on the host)
+   * searches again, because it must land on the position it was given.
+   */
+
+  /**
+   * The spawn position for a new drop, moved just far enough that its body does not merge with one already lying
+   * there. Rings out from the **guessed landing point** (`landingGuess`) — the offset that lands the item clear is
+   * then applied to the spawn point, so the whole arc is translated and the physics is untouched.
+   *
+   * `PICKUP_SPOT_RINGS` rings, `PICKUP_SPOT_STEP_M` apart; a candidate is kept when it is `PICKUP_SEPARATION_M` from
+   * every pickup, in bounds, on a surface within one step of the original one (so nothing is flicked off a balcony
+   * or onto another floor) and not inside a collider. Every ring taken → the original spot, unchanged: **an item is
+   * never lost.**
+   *
+   * The two csv numbers stay independent of each other: while `PICKUP_SPOT_STEP_M` is the shorter of the two, the
+   * first ring simply cannot clear a blocker sitting on the spot and is walked and rejected (five distance tests).
+   *
+   * Returns a shared scratch vector; `spawnInternal` copies it.
+   */
+  private freeSpotFor(position: THREE.Vector3, velocity: THREE.Vector3 | null): THREE.Vector3 {
+    _spot.copy(position);
+    if (this.pickups.length === 0) return _spot;
+    const world = this.ctx.world && this.ctx.world.ready ? this.ctx.world : null;
+    this.landingGuess(position, velocity, world, _land);
+    if (this.spotIsClear(_land.x, _land.z)) return _spot;
+    // §4.4: the surface is asked for **before** any collision resolve, and with the drop's own feet height
+    const baseY = world ? world.getSurfaceY(_land.x, _land.z, position.y) : 0;
+    for (let ring = 1; ring <= PICKUP_SPOT_RINGS; ring++) {
+      const r = ring * PICKUP_SPOT_STEP_M;
+      // one candidate per `PICKUP_SEPARATION_M` of arc: the ring is sampled exactly as finely as the gap it must keep
+      const n = Math.max(1, Math.round((2 * Math.PI * r) / PICKUP_SEPARATION_M));
+      // half a step of twist per ring turns concentric rings into a spiral (no spokes). It is arithmetic, not a
+      // random draw, so every peer that ever repeats this search walks the candidates in the same order.
+      const a0 = (Math.PI / n) * ring;
+      for (let i = 0; i < n; i++) {
+        const a = a0 + (Math.PI * 2 * i) / n;
+        const x = _land.x + Math.cos(a) * r, z = _land.z + Math.sin(a) * r;
+        if (!this.spotIsClear(x, z)) continue;
+        if (world && !this.spotIsGround(world, x, z, position.y, baseY)) continue;
+        _spot.set(position.x + (x - _land.x), position.y, position.z + (z - _land.z));
+        return _spot;
+      }
+    }
+    return _spot;
+  }
+
+  /**
+   * No pickup's resting spot within `PICKUP_SEPARATION_M` of `(x, z)`. Measured on the ground plane — the height is
+   * the arc's business — and against `restSpot`, not `position`, so a body still in the air already holds its place.
+   */
+  private spotIsClear(x: number, z: number): boolean {
+    const gapSq = PICKUP_SEPARATION_M * PICKUP_SEPARATION_M;
+    for (const p of this.pickups) {
+      const dx = p.restSpot.x - x, dz = p.restSpot.z - z;
+      if (dx * dx + dz * dz < gapSq) return false;
+    }
+    return true;
+  }
+
+  /** In bounds, on the same surface the original spot was on, and not standing inside an obstacle. */
+  private spotIsGround(world: NonNullable<GameContext['world']>, x: number, z: number, feetY: number, baseY: number): boolean {
+    if (!world.isInsideBounds(x, z)) return false;
+    const surface = world.getSurfaceY(x, z, feetY);
+    if (Math.abs(surface - baseY) > PROP_STEP_UP_MAX) return false;   // another floor, or over an edge
+    _probe.set(x, surface + BODY_R, z);
+    world.resolveCollision(_probe, BODY_R);
+    const dx = _probe.x - x, dz = _probe.z - z;
+    return dx * dx + dz * dz <= 1e-6;   // pushed aside = the spot is inside a collider
+  }
+
+  /**
+   * Where a toss will come down, guessed from the ballistic arc alone (no bounce, the surface under the thrower).
+   * It only picks *which* neighbours the search must dodge, so the guess being a few cm off costs nothing — the real
+   * landing is still resolved frame by frame in `simulate`. Without a velocity the spawn point **is** the landing point.
+   */
+  private landingGuess(position: THREE.Vector3, velocity: THREE.Vector3 | null, world: NonNullable<GameContext['world']> | null, out: THREE.Vector3): void {
+    out.copy(position);
+    if (!velocity) return;
+    const ground = world ? world.getSurfaceY(position.x, position.z, position.y) : position.y;
+    const fall = Math.max(0, position.y - ground);
+    const t = (velocity.y + Math.sqrt(Math.max(0, velocity.y * velocity.y + 2 * GRAVITY * fall))) / GRAVITY;
+    out.set(position.x + velocity.x * t, ground, position.z + velocity.z * t);
   }
 
   /* ─────────────────────────── spawn / remove ─────────────────────────── */
@@ -226,14 +335,16 @@ export class PickupSystem implements GameSystem, PickupsRef {
     const visual = this.visuals.acquire(def);
     const p = new Pickup(id, item, def, visual);
     p.position.copy(position);
+    const world = this.ctx.world && this.ctx.world.ready ? this.ctx.world : null;
     if (velocity) {
       p.vel.copy(velocity);
       p.spin.set(Math.random() * 8 - 4, Math.random() * 8 - 4, Math.random() * 8 - 4);
+      // 2026-09-21: claim the spot this arc is heading for, so the next drop in the same frame searches around it
+      this.landingGuess(p.position, velocity, world, p.restSpot);
     } else {
       p.vel.set(0, 0, 0);
       // resting spawn (sync / echo without velocity): snap onto the terrain
-      const world = this.ctx.world;
-      if (world && world.ready) p.position.y = world.getSurfaceY(position.x, position.z, position.y + 0.3 - PROP_STEP_UP_MAX) + restHeightFor(def.category);
+      if (world) p.position.y = world.getSurfaceY(position.x, position.z, position.y + 0.3 - PROP_STEP_UP_MAX) + restHeightFor(def.category);
       this.settle(p);
     }
     p.optimistic = optimistic;
@@ -296,8 +407,10 @@ export class PickupSystem implements GameSystem, PickupsRef {
     const net = ctx.net;
     if (ctx.isMultiplayer && net && !net.isHost) {
       // client: optimistic spawn under a proposed id; the host keeps the id and echoes `item drop`
+      // The free spot is picked here too — `wireOf` then carries it in `itemq drop`, the host spawns at that exact
+      // spot and echoes `m.item.p` back unchanged, so the optimistic body and every replica stand in one place.
       const id = this.nextId();
-      const p = this.spawnInternal(id, item, position, velocity, true);
+      const p = this.spawnInternal(id, item, this.freeSpotFor(position, velocity), velocity, true);
       if (!p) return;
       net.send({ t: 'itemq', ev: 'drop', item: this.wireOf(p), v: toTuple(velocity) }, 'host');
       return;

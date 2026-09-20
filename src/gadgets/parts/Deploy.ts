@@ -166,6 +166,10 @@ export function useDefib(sys: GadgetSystem, def: GadgetDef, target: DefibTarget)
     };
     net?.send(msg, target.id);
   }
+  /* 2026-09-21: raising a body we were carrying puts it down first — `validateCarry` would notice on its own once
+   * their snapshot says they are up, but that is a round trip away and the shoulder pose would flicker. `'revived'`
+   * is the existing reason for exactly this end, and it releases immediately (only `'manual'` plays the put-down). */
+  if (ctx.player && (ctx.player.carrying ?? null) === target.id) ctx.player.dropCarried('revived');
   sys.visuals.pulse(target.position, def.color, 0.4, 3.2, 0.6);
   ctx.bus.emit('audio:play', { id: 'gadget_defib', position: target.position, volume: 0.9 });
   ctx.bus.emit('ui:notify', { text: `${target.name} 부활`, kind: 'success', duration: 2 });
@@ -453,11 +457,13 @@ export function findDownedAlly(sys: GadgetSystem, radius: number): DefibTarget |
   let best: DefibTarget | null = null;
   let bestScore = Infinity;
   const r2 = radius * radius;
-  const consider = (id: PeerId, position: THREE.Vector3, name: string, ally: boolean): void => {
+  /** `onShoulder` = the body hangs on **our own** shoulder — it always wins (see the loop below). */
+  const consider = (id: PeerId, position: THREE.Vector3, name: string, ally: boolean, onShoulder = false): void => {
     const dist = position.distanceToSquared(p.position);
     if (dist > r2) return;
     let score = dist;
-    if (aimed) {
+    if (onShoulder) score = -Infinity;
+    else if (aimed) {
       _c.copy(position); _c.y += DEFIB_CHEST_Y; _c.sub(_a);
       const len = _c.length();
       score = len < 1e-3 ? -1 : -(_c.dot(_b) / len);   // smaller angle (bigger cosine) = smaller score
@@ -466,7 +472,14 @@ export function findDownedAlly(sys: GadgetSystem, radius: number): DefibTarget |
   };
   for (const r of ctx.net?.getRemotePlayers() ?? []) {
     if (!r.isDowned || r.stale) continue;
-    consider(r.id, r.position, r.name, false);
+    /* 2026-09-21 (user's decision — 「업힌 사람에게도 제세동기가 통해야 한다」). A shouldered body's own
+     * `position` is a stale snapshot (the contract: `RemotePlayerRef.isCarried` says to ignore it), so it used to
+     * sit wherever it was picked up — metres behind the carrier, out of the 5 m range and off the crosshair. The
+     * carrier's position stands in for it instead, exactly as `RemotePlayerSystem.syncRevive` does for the revive
+     * prompt. And a body on **our own** shoulder cannot be aimed at at all — nobody puts the crosshair on their
+     * own back — so it is treated as aimed outright (`onShoulder`); `useDefib` puts it down as it raises it. */
+    const carrier = carrierPositionOf(ctx, r.id);
+    consider(r.id, carrier ? carrier.position : r.position, r.name, false, carrier?.mine === true);
   }
   /* 2026-09-15 (android squadmates, the other direction of the user's decision 「제세동기가 있으면 안전상태가
    * 아니어도 시도한다」): a downed **android** is aimed at with the same range and the same aim score as a person.
@@ -481,6 +494,35 @@ export function findDownedAlly(sys: GadgetSystem, radius: number): DefibTarget |
 
 /** The 「chest」 height `findDownedAlly`'s aim test uses — the same value as `CHEST_Y` in `weapons/parts/Defib`. */
 const DEFIB_CHEST_Y = 1.15;
+
+/**
+ * Who is carrying `id` right now and where they stand (2026-09-21), or null when nobody is. `mine` = it is **our**
+ * shoulder. Three carriers are possible and all three expose a stable `position` vector, so this allocates nothing:
+ * the local player (`PlayerRef.carrying`), another peer (`RemotePlayerRef.carrying`, derived `carriedBy`) and an
+ * android (`AlliesRef.carrierOf`).
+ *
+ * `weapons/parts/Defib.hasAimedAlly` runs the same lookup — the two files already duplicate the chest height and
+ * the cone test on purpose (they must never disagree about the same body), and a shared home for it would mean a
+ * new `src/shared` module, which is a contract change nobody asked for. Change one, change the other.
+ */
+function carrierPositionOf(ctx: GameContext, id: PeerId): Carrier | null {
+  const me = ctx.player;
+  if (me && (me.carrying ?? null) === id) return carrier(me.position, true);
+  for (const r of ctx.net?.getRemotePlayers() ?? []) {
+    if (r.id === id) { if (r.carriedBy) { const c = ctx.net?.getRemotePlayer(r.carriedBy); if (c) return carrier(c.position, false); } continue; }
+    if (r.carrying === id) return carrier(r.position, false);
+  }
+  const android = ctx.allies?.carrierOf?.(id) ?? null;
+  return android ? carrier(android.position, false) : null;
+}
+
+/** Reused result — `findDownedAlly` is polled while the defibrillator is in hand, so the lookup allocates nothing. */
+interface Carrier { position: THREE.Vector3; mine: boolean }
+const _carrier: Carrier = { position: new THREE.Vector3(), mine: false };
+function carrier(position: THREE.Vector3, mine: boolean): Carrier {
+  _carrier.position = position; _carrier.mine = mine;
+  return _carrier;
+}
 
 export function deny(sys: GadgetSystem, text: string | null): false {
   if (text) {

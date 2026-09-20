@@ -58,6 +58,20 @@ export class BoxInteriorCollider implements InteriorCollider {
   }
 
   /**
+   * Move / resize a blocker **in place** (2026-09-21, the airlock's automatic doors): a sliding leaf's collider has to
+   * match the leaf wherever it has slid to, and a door that re-added its blocker every frame would allocate a
+   * `Blocker` per frame on a hot path. Nothing else changes — the index stays valid and `bounds` is not recomputed,
+   * because a leaf only ever travels inside the room it was added in.
+   */
+  setBlockerBox(index: number, minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): void {
+    const b = this.blockers[index];
+    if (!b) return;
+    b.minX = Math.min(minX, maxX); b.maxX = Math.max(minX, maxX);
+    b.minY = Math.min(minY, maxY); b.maxY = Math.max(minY, maxY);
+    b.minZ = Math.min(minZ, maxZ); b.maxZ = Math.max(minZ, maxZ);
+  }
+
+  /**
    * Remove a dynamic blocker (placed furniture). The slot is disabled and recycled by the next `addBlocker`, so
    * indices handed out earlier stay valid.
    */

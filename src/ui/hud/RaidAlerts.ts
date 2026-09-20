@@ -89,6 +89,12 @@ export class RaidAlerts {
       b.on('rover:destroyed', () => {
         b.emit('ui:notify', { text: '탐사 차량이 파괴되었습니다', kind: 'danger', duration: 4 });
       }),
+      /* 2026-09-21: the vehicle turned hostile. It fires once, for the whole squad — hostility covers the attacker
+       * *and* their squadmates, so the person who never shot it is the one who most needs telling. Longer than the
+       * usual warning because it decides whether you keep walking the road. */
+      b.on('rover:hostile', () => {
+        b.emit('ui:notify', { text: '탐사 차량이 적대 상태가 되었다 — 분대 전원을 노린다', kind: 'danger', duration: 5 });
+      }),
       b.on('rover:refused', ({ reason }) => {
         b.emit('ui:notify', { text: reason, kind: 'warning', duration: 2.6 });
       }),

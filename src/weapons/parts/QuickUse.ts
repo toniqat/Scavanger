@@ -13,6 +13,8 @@ import {
   IMPLANT_OVERCHARGE_FIRERATE_MUL,
   QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive, QUICK_WHEEL_HOLD, QUICK_WHEEL_DRAG_PX, GRENADE_FUSE, GRENADE_COOK_MAX, GRENADE_UNDERHAND_SPEED_MUL,
   HEAL_HOLD_S, CONSUMABLE_SLOW_KEY, CONSUMABLE_SLOW_MUL, DEFIB_USE_TIME_S,
+  /* appended 2026-09-21 [W]: the right-button ally use of a healing consumable */
+  HEAL_ALLY_RANGE_START,
   droneKindOfGadget,
   type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
   type WeaponSlot, type EffectiveWeaponStats, type WeaponClass, type GadgetId, type WeaponRemoteState,
@@ -372,6 +374,20 @@ export function onQuickSlotsChanged(sys: WeaponSystem, slots: readonly (ItemInst
 export function updateQuickHand(sys: WeaponSystem, dt: number, host: Host, usable: boolean, inputFree: boolean): void {
   const q = sys.quick!;
   const input = sys.ctx.input;
+  /* 2026-09-21 (user's decision): the crosshair chip for the **right** button — who the healing consumable in hand
+   * would be given to, null = the button is unavailable (`parts/AllyHeal`). It is computed here, above every early
+   * return, so a detonator / defibrillator / grenade hand clears the chip instead of leaving the last name up, and
+   * before the input gates so a quick-use cooldown does not blink it off. During a hold it shows the body being
+   * treated, which is the one the hold follows — not whoever is on the crosshair now. */
+  const allyHand = sys.isAllyHealHand(q) && !sys.holding;
+  const allyGift = allyHand ? sys.allyGiftOf(q.def) : null;
+  sys.emitAllyAim(
+    sys.allyHealHeld ? (sys.allyHealName || null)
+      : allyGift && usable ? sys.pickAllyTarget(host, HEAL_ALLY_RANGE_START, allyGift)?.name ?? null
+        : null,
+    allyHand,
+    sys.allyHealHeld ? sys.allyHealKind : allyGift?.kind ?? null,
+  );
   if (q.detonator) { sys.updateDetonator(dt, host, inputFree); return; }
   // 2026-09-15 (user's decision): the defibrillator fires **on release** — nothing happens once the charge is full
   // until the hand is let go, and meanwhile the crosshair picks up a target (`parts/Defib`). So it never takes the
@@ -384,12 +400,21 @@ export function updateQuickHand(sys: WeaponSystem, dt: number, host: Host, usabl
   }
   // Phase 10 / 2026-09-07: a consumable is used with an LMB hold. Death / downed / menu / a wielded implant clear
   //   `usable` → cancel.
+  // 2026-09-21 (user's decision): the **right** button gives the same item to a squadmate (`parts/AllyHeal`). It is
+  //   read before the self hold because the two are mutually exclusive and the ally hold has its own end conditions
+  //   (target lost · out of `HEAL_ALLY_RANGE_HOLD`), none of which consume the item.
+  if (sys.allyHealHeld) {
+    if (!usable) { sys.cancelAllyHeal(); if (sys.quick && !sys.quickSlotItem(q.index)) sys.returnToGun(); return; }
+    sys.updateAllyHeal(dt, host, q);
+    return;
+  }
   if (sys.healHeld) {
     if (!usable) { sys.cancelHeal(); if (sys.quick && !sys.quickSlotItem(q.index)) sys.returnToGun(); return; }
     sys.updateHeal(dt, host, q);
     return;
   }
   if (!inputFree || sys.quickCooldown > 0 || sys.quickHolsterT > 0) return;
+  if (allyHand && input.wasMousePressed(MouseButtons.AIM)) { sys.beginAllyHeal(host, q); return; }
   if (q.kind === 'gadget' && input.wasMousePressed(MouseButtons.AIM)) {
     // 2026-09-11: RMB detonates for a C4. A drone controller has nothing to do with RMB (the over / underhand
     //   toggle belongs to throwable gadgets). The drone controller's R is not read here either — it is neither a

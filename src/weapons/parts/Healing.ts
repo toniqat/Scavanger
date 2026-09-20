@@ -276,8 +276,13 @@ export function finishHeal(sys: WeaponSystem, host: Host, q: QuickHand): void {
   if (remaining <= 0) sys.returnToGun();
   }
 
-/** Button released, swap, implant wield, death / downed, phase change, world reset: the hold is thrown away. */
+/**
+ * Button released, swap, implant wield, death / downed, phase change, world reset: the hold is thrown away.
+ * 2026-09-21: the **right-button** ally hold (`parts/AllyHeal`) rides along here on purpose — every path that ends
+ * a self hold ends an ally hold too, and folding it in means no cancel site had to learn about the second button.
+ */
 export function cancelHeal(sys: WeaponSystem): void {
+  sys.cancelAllyHeal();
   if (!sys.healHeld) return;
   if (sys.healSpray) { sys.stopSpray(); return; }
   sys.healHeld = false; sys.healT = 0; sys.healSpray = false;

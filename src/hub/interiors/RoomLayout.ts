@@ -13,7 +13,8 @@ import {
  *             side −X (i < ROOMS_PER_SIDE): x = CORRIDOR.minX − WALL − ROOM_SIZE … CORRIDOR.minX − WALL
  *             side +X (the rest):          x = CORRIDOR.maxX + WALL … + ROOM_SIZE
  *             z  SEGMENT·(i mod ROOMS_PER_SIDE) + ROOM_GAP/2 … + ROOM_DEPTH, door (1.6 m) centred on the corridor wall
- *   airlock   x −1.5 … 1.5, z CORRIDOR.maxZ … + AIRLOCK_DEPTH   (decorative shared-ship entrance)
+ *   airlock   x −1.5 … 1.5, z CORRIDOR.maxZ … + AIRLOCK_DEPTH   (a room of its own since 2026-09-21: an automatic
+ *             pressure door at each end — the corridor bulkhead and the ship's rear hatch)
  *
  * **2026-09-12 — a room became 8 × 8 m.** `ROOM_GRID_COLS/ROWS` grew 8 → 16, so `ROOM_SIZE` · `ROOM_DEPTH` are
  * 4 → 8 m. `SEGMENT` used to be **hard-coded as 5**, which made `(SEGMENT − ROOM_DEPTH)/2 = −1.5` and overlapped the
@@ -50,11 +51,25 @@ export const ROOMS_PER_SIDE = SHIP_ROOM_COUNT / 2;
 export const ROOM_GAP = 1;
 /** One room pitch along the corridor. **Must be ≥ `ROOM_DEPTH`** or the room boxes overlap each other. */
 export const SEGMENT = ROOM_DEPTH + ROOM_GAP;
-export const AIRLOCK_DEPTH = 2.5;
+/**
+ * 2026-09-21 (user's decision — the airlock is its own room): 2.5 → 3.6 m. The alcove the corridor used to end in
+ * became a chamber shut off at **both** ends by an automatic pressure door (`AirlockDoors`), and two 0.3 m
+ * bulkheads plus standing room between them do not fit in 2.5 m. 1.1 m on a 45 m corridor; the ship's outline is
+ * otherwise untouched (what must not grow is the *raid* ship, which models only this end — see `PersonalShip`).
+ */
+export const AIRLOCK_DEPTH = 3.6;
 export const CORRIDOR = { minX: -1.5, maxX: 1.5, minZ: 0, maxZ: ROOMS_PER_SIDE * SEGMENT };
 export const AIRLOCK = { minX: -1.5, maxX: 1.5, minZ: CORRIDOR.maxZ, maxZ: CORRIDOR.maxZ + AIRLOCK_DEPTH };
 export const DOOR_WIDTH = 1.6;
 export const DOOR_HEIGHT = 2.4;
+/**
+ * Half-width of an **airlock** door's opening (2026-09-21). Narrower than a room's `DOOR_WIDTH`, and it has to be:
+ * each leaf slides one opening-half outward into the bulkhead beside it, so `2 × AIRLOCK_DOOR_HALF` must stay inside
+ * the chamber's half width (1.5 m) or an open leaf would stand in the room instead of vanishing into the wall.
+ */
+export const AIRLOCK_DOOR_HALF = 0.65;
+/** Clear height of an airlock opening (a pressure door is shorter than a room door). */
+export const AIRLOCK_DOOR_HEIGHT = 2.3;
 
 export interface RoomBox { index: number; side: -1 | 1; minX: number; maxX: number; minZ: number; maxZ: number; doorZ: number }
 

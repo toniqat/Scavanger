@@ -218,7 +218,7 @@ try {
     /* ── 5 ── */
     await page.evaluate(() => { window.__game.ctx.bus.emit('cheat:rover', { action: 'depart' }); });
     await waitFor(page, () => window.__game.ctx.world.rover.vehicle.state === 'patrol', 'patrol', 20000);
-    // The turret picks the **nearest** enemy inside its range (ROVER_TURRET_RANGE) and hits it directly
+    // The turret picks the **nearest** enemy inside its own range (ROVER_TURRET_FRONT_RANGE · _REAR_RANGE) and hits it directly
     // (src/world/rover/parts/Turret.ts). So reading 「it fired」 (the rover:fired count) and 「this enemy's hp went
     // down」 apart judges two different bodies — with a closer bug around it can fire 20 rounds and the enemy stood
     // here keeps its hp. The two conditions are tied to one body:

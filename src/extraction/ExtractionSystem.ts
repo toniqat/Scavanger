@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import type {
   GameContext, GameSystem, Interactable, ExtractionPointDef, PeerId, ExtractionMessage, ExtractionRequest, ExtractionSyncState,
-  ExtractionRef, ExtractionStage,
+  ExtractionRef, ExtractionStage, ShipModelId,
 } from '@/shared';
 import {
-  EXTRACTION_AUTO_DEPART_IDLE_S, EXTRACTION_COUNTDOWN, EXTRACTION_DEPART_GRACE_S, EXTRACTION_LIFTOFF_TO_COMPLETE_S, PlayerFlags,
+  DEFAULT_SHIP_MODEL, EXTRACTION_AUTO_DEPART_IDLE_S, EXTRACTION_COUNTDOWN, EXTRACTION_DEPART_GRACE_S,
+  EXTRACTION_LIFTOFF_TO_COMPLETE_S, PlayerFlags, resolveShipModelId, shipModelOf,
 } from '@/shared';
 import { ExtractionConsole } from './Console';
 import { BAY_HALF_W, BAY_Z_MAX, BAY_Z_MIN, Dropship, LIFTOFF_SPOOL_S } from './Ship';
@@ -321,6 +322,8 @@ export class ExtractionSystem implements GameSystem {
     this.counting = false;
     this.countdown = 0;
     this.shipCalled = true;
+    // 2026-09-21: the tutorial's abandoned ship is the player's own model too (the tutorial is always solo).
+    ship.setShipModel(shipModelOf(ctx.progression?.profile));
     if (!ship.forceLand(this.shipLandPos, this.shipYaw)) { this.shipCalled = false; return false; }
     this.preLanded = true;
     this.onShipLanded(true);
@@ -473,7 +476,7 @@ export class ExtractionSystem implements GameSystem {
       case 'activate': {
         if (this.ctx.phase !== 'playing' || this.activePad) return;
         const pad = this.pads.find((p) => p.def.id === msg.padId);
-        if (pad) this.activate(pad);
+        if (pad) this.activate(pad, from);
         break;
       }
       case 'board': {
@@ -597,7 +600,7 @@ export class ExtractionSystem implements GameSystem {
       case 'activated': {
         if (this.activePad) return;
         const pad = this.pads.find((p) => p.def.id === msg.padId);
-        if (pad) this.beginActivation(pad, msg.duration);
+        if (pad) this.beginActivation(pad, msg.duration, resolveShipModelId(msg.shipModel));
         break;
       }
       case 'tick':
@@ -731,14 +734,37 @@ export class ExtractionSystem implements GameSystem {
 
   /* ── Activation / countdown ──────────────────────────────────────────── */
   /** Authority path (single-player / host). */
-  private activate(pad: PadEntry): void {
+  /**
+   * `caller` (2026-09-21, the ship-purchase hook) = who pressed the console. **The ship that lands is that player's
+   * ship model** (`shared/shipModel.ts`), not a fixed one. Omitted / unknown peer = our own profile, which is right
+   * for a solo raid, for the host's own press and for an android's `requestActivate` (it flies the host's ship).
+   */
+  private activate(pad: PadEntry, caller?: PeerId): void {
     if (this.activePad) return;
-    this.beginActivation(pad, EXTRACTION_COUNTDOWN);
-    this.sendEx({ t: 'ex', ev: 'activated', padId: pad.def.id, duration: EXTRACTION_COUNTDOWN });
+    this.beginActivation(pad, EXTRACTION_COUNTDOWN, this.shipModelOfPeer(caller));
+    this.sendEx({ t: 'ex', ev: 'activated', padId: pad.def.id, duration: EXTRACTION_COUNTDOWN, shipModel: this.shipModelOfPeer(caller) });
+  }
+
+  /**
+   * The ship model a peer flies. Our own comes from the profile; a squadmate's rides `LobbyPlayer` — `shipModelOf`
+   * reads that field **by shape**; `src/net` / `server` fill it from `lobby:look` (2026-09-21), and a member who
+   * never pushed one simply gets the default ship rather than the wrong one.
+   */
+  private shipModelOfPeer(id?: PeerId): ShipModelId {
+    const net = this.ctx.net;
+    if (!id || !net || id === (net.localId ?? LOCAL_ID)) return shipModelOf(this.ctx.progression?.profile);
+    return shipModelOf(net.getLobbyPlayer?.(id));
   }
 
   /** Shared visuals/events for activation — host and client alike. */
-  private beginActivation(pad: PadEntry, duration: number): void {
+  private beginActivation(pad: PadEntry, duration: number, shipModel?: ShipModelId): void {
+    /*
+     * 2026-09-21: the hull is painted **before it is ever revealed** (`Dropship.setShipModel`) — the ship is still
+     * hidden at this point, so switching models costs nothing and recompiles nothing (see `shared/shipModel.ts`).
+     * No model given = mirroring the host's `ex activated`, which does not yet carry who called: solo that is our own
+     * ship, in a squad it is the default until `src/net` puts the caller's model on that message.
+     */
+    this.ship?.setShipModel(shipModel ?? (this.ctx.isMultiplayer ? DEFAULT_SHIP_MODEL : shipModelOf(this.ctx.progression?.profile)));
     this.activePad = pad;
     this.counting = true;
     this.countdown = duration;

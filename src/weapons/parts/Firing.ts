@@ -14,6 +14,8 @@ import {
   HEAL_HOLD_S, CONSUMABLE_SLOW_KEY, CONSUMABLE_SLOW_MUL, DEFIB_USE_TIME_S,
   type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
   type WeaponSlot, type EffectiveWeaponStats, type WeaponClass, type GadgetId, type WeaponRemoteState,
+  /* appended 2026-09-21 [W]: the reload hold */
+  type ReloadPauseReason,
 } from '@/shared';
 import type { Obstacle as WorldObstacle, InterceptableRef, PeerId } from '@/shared';
 import { ARMOR_IMMUNE_AMMO } from '@/shared';
@@ -94,11 +96,38 @@ export function tryReload(sys: WeaponSystem, w: WeaponInstance): void {
   sys.ctx.bus.emit('weapon:reloadStarted', { weaponId: w.stats.weaponId, duration: sys.reloadDuration });
   sys.ctx.bus.emit('audio:play', { id: 'reload', volume: 0.8 });
   if (sys.ctx.isMultiplayer && sys.ctx.net) sys.ctx.net.send({ t: 'reload', w: w.stats.weaponId });
+  // A reload started *inside* a hold (the 갈고리 wire is out — it blocks no input) is frozen from its first frame,
+  // so the ring has to learn that immediately or it would count down against a timer that never moves.
+  for (const reason of sys.reloadPauses) {
+    sys.ctx.bus.emit('weapon:reloadPaused', { weaponId: w.stats.weaponId, reason });
+    break;
+  }
+  }
+
+/**
+ * 2026-09-21 (user's decision — 「구르기·갈고리·대시는 재장전을 취소하지 말고 멈췄다 이어서」). Adds / removes one
+ * reason for the **hold**. While any reason stands `updateReload` does not advance the timer and does not move the
+ * hands, so the progress is exactly where it stopped; when the last one goes the reload runs on from that point.
+ *
+ * This is deliberately **not** `cancelReload`: a cancel throws the progress away, and the two are told apart on the
+ * wire to the HUD by `weapon:reloadPaused` / `weapon:reloadResumed` vs `weapon:reloadCancelled`. A reason recorded
+ * while nothing is reloading is kept (it costs nothing) — `tryReload` reads the set when the next reload starts.
+ */
+export function setReloadPause(sys: WeaponSystem, reason: ReloadPauseReason, on: boolean): void {
+  const was = sys.reloadPauses.size > 0;
+  if (on) sys.reloadPauses.add(reason); else sys.reloadPauses.delete(reason);
+  const now = sys.reloadPauses.size > 0;
+  if (was === now || sys.phase !== 'reloading') return;
+  const weaponId = sys.slots[sys.active]?.stats.weaponId ?? '';
+  if (now) sys.ctx.bus.emit('weapon:reloadPaused', { weaponId, reason });
+  else sys.ctx.bus.emit('weapon:reloadResumed', { weaponId, remaining: Math.max(0, sys.reloadDuration - sys.reloadTimer) });
   }
 
 export function updateReload(sys: WeaponSystem, dt: number): void {
   const w = sys.slots[sys.active];
   if (!w) { sys.phase = 'ready'; return; }
+  // Held (roll · grapple): the timer stands still and the reload animation keeps the frame it stopped on.
+  if (sys.reloadPauses.size > 0) return;
   sys.reloadTimer += dt;
   const t = Math.min(1, sys.reloadTimer / sys.reloadDuration);
   w.model.setReload(t);
@@ -128,6 +157,11 @@ export function updateReload(sys: WeaponSystem, dt: number): void {
  * Reload interrupted (swap, consumable in hand, melee, implant holster, loadout change). Phase 10: this used to be
  * silent — the bottom-right panel only closed its arc because `weapon:equipped` followed. The crosshair reload
  * gauge needs the explicit cancel, so `weapon:reloadCancelled` goes out whenever a reload was really in progress.
+ *
+ * 2026-09-21: this is no longer 「every interruption」. An action that is over in a moment and leaves the gun in the
+ * hands — the roll and the instant implants 갈고리 · 대시 — **holds** the reload instead (`setReloadPause`); only
+ * something that takes the gun away or replaces the action keeps cancelling. The two wielded/holstering implants
+ * (배리어 through `blocksWeapons`, 오버차지 through `implant:overcharge`) are cancels.
  */
 export function cancelReload(sys: WeaponSystem): void {
   const w = sys.slots[sys.active];

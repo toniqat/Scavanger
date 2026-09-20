@@ -61,7 +61,7 @@ import { RoomStore, type RoomOp } from './Rooms.ts';
 import { DEFAULT_DATA_DIR } from './Store.ts';
 import type { CryptoChartRange } from '../src/shared/cryptoMarket.ts';
 /* 2026-09-15: squad · dock matchmaking (`lobby:dock` · `lobby:look` · invite-only `같이 하기` · lonely-party prune) */
-import { NET_ACCENT_PARAM, sanitizeAccent } from '../src/shared/net.ts';
+import { NET_ACCENT_PARAM, sanitizeAccent, sanitizeShipModel } from '../src/shared/net.ts';
 /* 2026-09-15: android squadmates (`lobby:android` · `lobby:androidReturned` · bot members) — the last section
    of `src/shared/net.ts` */
 import { ANDROID_BAY_COUNT, isAndroidId, isBotPlayer } from '../src/shared/net.ts';
@@ -387,8 +387,14 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
        the handler (not refused). */
     case 'lobby:dock':
       return typeof m.isPublic === 'boolean' ? { t: 'lobby:dock', isPublic: m.isPublic } : null;
-    case 'lobby:look':
-      return typeof m.accent === 'string' && m.accent.length <= MAX_ACCENT_INPUT ? { t: 'lobby:look', accent: m.accent } : null;
+    case 'lobby:look': {
+      /* 2026-09-21: `shipModel` rides along and both fields are optional — a sender pushes whichever changed, so the
+         only message refused here is one carrying neither. */
+      const look: { t: 'lobby:look'; accent?: string; shipModel?: string } = { t: 'lobby:look' };
+      if (typeof m.accent === 'string' && m.accent.length <= MAX_ACCENT_INPUT) look.accent = m.accent;
+      if (typeof m.shipModel === 'string' && m.shipModel.length <= MAX_ACCENT_INPUT) look.shipModel = m.shipModel;
+      return look.accent === undefined && look.shipModel === undefined ? null : look;
+    }
     /* appended: 2026-09-15 — android squadmates. Shapes only: the bay's range · whether it already is in that
        state are answered `invalid` by the handler. */
     case 'lobby:android':
@@ -1321,10 +1327,18 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
          ignored (never refused). */
       case 'lobby:look': {
         const accent = sanitizeAccent(m.accent);
-        if (accent === null) return;
-        c.accent = accent;
+        /* 2026-09-21: the ship model comes through the same door. It stays an opaque shape-checked string — what an
+           id *means* lives in `shared/shipModel.ts`, which pulls three.js in and must never load here. Once ships
+           are bought this has to be filled from the profile store instead of taken from the client. */
+        const shipModel = sanitizeShipModel(m.shipModel);
+        if (accent === null && shipModel === null) return;
+        if (accent !== null) c.accent = accent;
         const lobby = lobbies.lobbyOf(c.id);
-        if (lobby && lobby.setAccent(c.id, accent)) broadcastState(lobby);
+        if (!lobby) return;
+        let changed = false;
+        if (accent !== null && lobby.setAccent(c.id, accent)) changed = true;
+        if (shipModel !== null && lobby.setShipModel(c.id, shipModel)) changed = true;
+        if (changed) broadcastState(lobby);
         return;
       }
 

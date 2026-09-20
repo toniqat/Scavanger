@@ -691,7 +691,12 @@ export interface InterceptRequest { t: 'intq'; sid: number; p: Vec3Tuple }
 
 /** Host → all: extraction flow. Owner: extraction. */
 export type ExtractionMessage =
-  | { t: 'ex'; ev: 'activated'; padId: string; duration: number }
+  /**
+   * `shipModel` appended (2026-09-21, 함선 구매 훅): the **caller's** ship (`LobbyPlayer.shipModel`, a plain string
+   * for the same reason it is one there). The ship that lands is the one the person who pressed the console owns,
+   * so it has to travel — a replica has no other way to know whose extraction this is. Omitted = the default.
+   */
+  | { t: 'ex'; ev: 'activated'; padId: string; duration: number; shipModel?: string }
   | { t: 'ex'; ev: 'tick'; remaining: number }
   | { t: 'ex'; ev: 'shipIncoming'; eta: number }
   | { t: 'ex'; ev: 'shipLanded' }
@@ -1383,8 +1388,12 @@ export type ImplantMessage =
  */
 export interface BuffMessage {
   t: 'buff';
-  kind: 'heal' | 'boost' | 'revive' | 'cloak';
-  /** hp restored for 'heal' / 'revive'; speed multiplier for 'boost'; unused for 'cloak'. */
+  kind: 'heal' | 'boost' | 'revive' | 'cloak' | 'shield';
+  /**
+   * hp restored for 'heal' / 'revive'; speed multiplier for 'boost'; unused for 'cloak'.
+   * appended (2026-09-21, 아군에게 실드 충전기): shield points for 'shield', and **-1 means「fill it up」**
+   * (`shield_charger_full`, whose `items.csv` `shieldHp` is -1) — the receiver clamps to its own max either way.
+   */
   amount: number;
   duration: number;
   /** Sender's display name for the kill / assist feed. */
@@ -2018,7 +2027,21 @@ export interface MealMessage {
  * The wire state of one vehicle. `st` = `ROVER_STATES` index · `stn`/`tgt` = station index (−1 = none) · `tm` =
  * `RoverVehicleDef.timer` · `rd` = the riders' PeerIds (the host's own id is a PeerId too) · `rv` = the stations are revealed.
  */
-export interface RoverWire { s: number; dir: 1 | -1; st: number; stn: number; tgt: number; tm: number; hp: number; rd: string[]; rv: 0 | 1 }
+export interface RoverWire {
+  s: number; dir: 1 | -1; st: number; stn: number; tgt: number; tm: number; hp: number; rd: string[]; rv: 0 | 1;
+  /**
+   * appended (2026-09-21, 부위 파괴): part hp in the fixed order of `world/rover/model.ts` `ROVER_PART_ORDER` —
+   * the 4 wheel zones, then the front and the rear turret. Whole hp (the wire never needs the fraction).
+   * Omitted = every part intact, which is what an older build sends.
+   */
+  pt?: number[];
+  /**
+   * appended (2026-09-21, 적대화): 1 = the vehicle has turned hostile for the rest of the raid (the player side dealt
+   * more than `ROVER_AGGRO_DAMAGE`). One flag, not a list of attackers: hostility covers the attacker **and their
+   * squad**, and a raid's squad is the lobby, so everyone who can read this message is a target. Omitted = 0.
+   */
+  ho?: 0 | 1;
+}
 export type RoverMessage =
   /** Host → everyone: every `ROVER_NET_INTERVAL` plus on every change of state · riders · hp. This is also the answer to a late joiner's `roverq sync`. */
   | { t: 'rover'; ev: 'state'; rover: RoverWire }
@@ -2035,7 +2058,13 @@ export type RoverRequest =
   | { t: 'roverq'; ev: 'exit'; rid: number }
   /** `to` = station index, `fare` = the fare the requester saw (the host recalculates it and refuses a mismatch). */
   | { t: 'roverq'; ev: 'trip'; rid: number; to: number; fare: number }
-  | { t: 'roverq'; ev: 'sync' };
+  | { t: 'roverq'; ev: 'sync' }
+  /**
+   * appended (2026-09-21, 부위 파괴): a non-host client's bullet landed on the car — `p` is the **impact point in
+   * world space** and `a` the damage. The host resolves which part was hit and whether it turns the car hostile, so
+   * the guard tests the point against the hull rather than the sender's distance (a sniper may legally be anywhere).
+   */
+  | { t: 'roverq'; ev: 'hit'; p: Vec3Tuple; a: number };
 /* ══ end 2026-09-13 the rover ══ */
 
 /* ══ appended: 2026-09-13 — crypto quotes (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 · owner: server/CryptoMarket · net/parts/Crypto) ══
@@ -2191,6 +2220,15 @@ export interface LobbyPlayer {
    * Only the 매칭 탭 portraits read it; in-raid avatars keep the slot colour.
    */
   accent?: string;
+  /**
+   * appended (2026-09-21, 함선 구매 훅): this member's ship model id (`shared/shipModel.ts` `ShipModelId`, kept as a
+   * plain string here because `net.ts` must stay free of three.js — the relay imports this file). The shared ship's
+   * **hangar** parks each member's own ship with it. Absent (anonymous · older client · nothing bought) = the
+   * default drop-ship, and an id the reader does not know resolves to the default too (`resolveShipModelId`).
+   * **When the ship shop lands this must come from the relay's profile store instead of the client**, the way
+   * `code` · `level` already do — a purchase is not the client's word to give.
+   */
+  shipModel?: string;
 }
 
 export interface LobbyState {
@@ -2211,11 +2249,27 @@ export type ClientToServerAppended2026_09_15dock =
    */
   | { t: 'lobby:dock'; isPublic: boolean }
   /** Update my `LobbyPlayer.accent` (the relay keeps it for later lobbies too; invalid per `sanitizeAccent` → ignored). */
-  | { t: 'lobby:look'; accent: string };
+  /**
+   * 2026-09-21: `shipModel` rides the same message, and both fields are optional — a sender pushes whichever of the
+   * two actually changed. The relay only sanitises the shape and re-broadcasts; the reader decides what an id means.
+   */
+  | { t: 'lobby:look'; accent?: string; shipModel?: string };
 
 /** Is this lobby's squad in the shared ship? null / undefined → false; `docked` absent (older server) → true. */
 export function isDockedLobby(lobby: LobbyState | null | undefined): boolean {
   return !!lobby && lobby.docked !== false;
+}
+
+/**
+ * appended (2026-09-21): a ship model id on the wire, or null. The one parser, relay and client alike — and it
+ * deliberately checks only the **shape** (`a–z 0–9 _`, at most 24), never the registry: `shared/shipModel.ts` pulls
+ * three.js in and the relay must never load it. An id that passes here but names no model resolves to the default
+ * drop-ship on the client (`resolveShipModelId`), so an unknown value can only ever under-deliver.
+ */
+export function sanitizeShipModel(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim().toLowerCase();
+  return /^[a-z0-9_]{1,24}$/.test(s) ? s : null;
 }
 
 /** `#rrggbb` (lower-cased) or null. The one parser for an accent on the wire — relay and client alike. */
@@ -2373,7 +2427,14 @@ export type AllyRequest =
   /** Squadmate → host: an inventory request (middle-click · the menu). `p` = the requester's position. */
   | { t: 'allyq'; ev: 'item'; kind: ItemRequestKind; defId?: string; ammoType?: string; p: Vec3Tuple }
   /** Squadmate → host: I opened this container — an android that was looting that crate stops. */
-  | { t: 'allyq'; ev: 'viewing'; containerId: string };
+  | { t: 'allyq'; ev: 'viewing'; containerId: string }
+  /**
+   * appended (2026-09-21, 회복 아이템을 아군에게): squadmate → host: I used a 회복 소모품 on this android.
+   * The host re-checks the distance and the state exactly as it does for `revive`, then applies it.
+   */
+  | { t: 'allyq'; ev: 'heal'; id: PeerId; hp: number }
+  /** appended (2026-09-21): the same for a 실드 충전기 — `amount` -1 = fill it up (`BuffMessage.amount`). */
+  | { t: 'allyq'; ev: 'shield'; id: PeerId; amount: number };
 
 export type LoadMessage =
   /** Each client → others: loading progress 0..1 for this seed (every `RAID_LOAD_REPORT_S`, 1 = done). */

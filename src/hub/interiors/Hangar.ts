@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { NET_MAX_PLAYERS, NET_SLOT_COLORS } from '@/shared';
-import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
+import { NET_MAX_PLAYERS, NET_SLOT_COLORS, SHIP_EXTERIOR_SCALE, SHIP_GEAR_BOTTOM_Y, SHIP_NOSE_Z, SHIP_RAMP_LEN, type ShipModelId } from '@/shared';
+import { GeoBatch, HUB_MATS as M, yawFromForward } from './GeoBatch';
 import type { BoxInteriorCollider } from './InteriorCollider';
 import { Parts } from './parts';
 import type { LightFixture } from './LightPool';
-import { buildPersonalExterior, type ExteriorModel } from './ExteriorShips';
+import { EXTERIOR_RAMP_END_Z, buildPersonalExterior, type ExteriorModel } from './ExteriorShips';
 import { TextPlane } from '../Labels';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -30,35 +30,28 @@ const BAY_HALF_X = 4.5;
 const BAY_HALF_Z = 6.0;
 /** Bay centres along X (evenly spread across the deck). */
 const BAY_X = [-16.5, -5.5, 5.5, 16.5];
-/** Parked ships stand this high on their landing struts (the exterior model's belly sits at local y −0.93). */
-const SHIP_Y = 1.45;
-/** Deck contact points of the three struts, in the ship's own (unrotated) local XZ. */
-const STRUTS: Array<[number, number]> = [[-2.4, 1.6], [2.4, 1.6], [0, -2.2]];
-/** Half the personal exterior's hull length — the ramp sits this far toward −Z of the ship's centre. */
-const SHIP_HALF_LEN = 4.4;
-
-/**
- * Landing gear + boarding ramp for a parked ship, parented to its bay group (local origin = the ship's centre on the
- * deck). Built per ship rather than merged into the deck: an empty bay must not show struts holding up nothing.
+/*
+ * 2026-09-21 (one exterior model): the parked ship **is** the raid dropship (`shared/shipModel.ts`), so it brings its
+ * own landing gear and its own rear ramp with it. The hand-built struts and the sloping plate that used to stand in
+ * for them (`buildGear`, `STRUTS`, `SHIP_Y` 1.45, `SHIP_HALF_LEN` 4.4) are gone — they were sized for the 9 m wedge
+ * this file used to park and would now hold up nothing.
  */
-function buildGear(parent: THREE.Object3D): THREE.Mesh[] {
-  const b = new GeoBatch();
-  for (const [sx, sz] of STRUTS) {
-    // ship-local −Z is its nose; the parked model is turned around, so mirror the strut anchors with it
-    const x = sx, z = -sz;
-    b.cyl(0.12, 0.16, SHIP_Y - 0.55, 8, x, (SHIP_Y - 0.55) / 2, z, M.gunmetal);
-    b.boxB(0.7, 0.12, 0.7, x, 0, z, M.hullDark);
-    b.box(0.5, 0.03, 0.5, x, 0.13, z, M.trimDark);
-  }
-  // rear ramp: a plate sloping from the tail down to the deck on the walkway side (local −Z after the turn)
-  const rampZ = -SHIP_HALF_LEN + 0.35;
-  b.box(2.2, 0.1, 2.6, 0, (SHIP_Y - 0.6) / 2, rampZ, M.hullLight, 0, -0.42);
-  b.box(2.3, 0.04, 0.1, 0, 0.03, rampZ - 1.15, M.stripAmber);
-  for (const sx of [-1, 1]) b.box(0.06, 0.5, 2.5, sx * 1.1, (SHIP_Y - 0.4) / 2, rampZ, M.trimDark, 0, -0.42);
-  const meshes: THREE.Mesh[] = [];
-  b.build(parent, meshes, false, true);
-  return meshes;
-}
+/** Deck height of a parked ship's origin: its gear pads (local `SHIP_GEAR_BOTTOM_Y`) rest on the deck. */
+const SHIP_Y = -SHIP_GEAR_BOTTOM_Y * SHIP_EXTERIOR_SCALE;
+/**
+ * Offset (along Z) from a bay's floor marking centre to the parked ship's **origin**. The hull runs from the nose
+ * (local `SHIP_NOSE_Z`) back to the ramp hinge at local z 0, so its middle is half a hull length forward of the
+ * origin; the ship is parked turned around (`rotation.y = π`), which flips that to +Z in world space. Subtracting it
+ * centres the **hull** on the marking instead of the origin, and leaves the open ramp reaching just past the
+ * marking's near edge onto the walkway.
+ */
+const SHIP_PARK_Z = (SHIP_NOSE_Z / 2) * SHIP_EXTERIOR_SCALE;
+/**
+ * Pitch of a parked ship's rear ramp. The hinge sits at the ship's deck plane, which stands `-SHIP_GEAR_BOTTOM_Y`
+ * above the hangar floor once the ship is on its gear, so "down" is the slope whose far edge reaches the floor —
+ * not flat, which would leave the ramp hanging in the air.
+ */
+const SHIP_RAMP_PITCH = Math.asin(Math.min(1, -SHIP_GEAR_BOTTOM_Y / SHIP_RAMP_LEN));
 
 /** One bay of the hangar, as the hub sees it. */
 export interface HangarBayDef {
@@ -86,9 +79,9 @@ export class Hangar {
   private signs: TextPlane[] = [];
   /** Parked ship models by slot (null = empty bay). Driven by `setOccupants`. */
   private parked: (ExteriorModel | null)[] = new Array(NET_MAX_PLAYERS).fill(null);
+  /** Ship model each parked ship was built with — a member who changed ships gets a rebuilt model, not a re-tint. */
+  private parkedModel: (ShipModelId | null)[] = new Array(NET_MAX_PLAYERS).fill(null);
   private bayGroups: THREE.Group[] = [];
-  /** Landing gear + boarding ramp per bay, built with the parked model and disposed with it. */
-  private gear: (THREE.Mesh[] | null)[] = new Array(NET_MAX_PLAYERS).fill(null);
   /** Per-bay marking strip material (own instance so an occupied bay can light up). */
   private bayStrips: THREE.MeshStandardMaterial[] = [];
   private beaconMat: THREE.MeshBasicMaterial;
@@ -196,11 +189,13 @@ export class Hangar {
       b.box(0.62, 0.06, 0.06, px, 2.9, pz - 0.32, strip);
       col.addBox(px, 0, pz, 0.6, 3.2, 0.6);
 
-      const shipZ = bz + 1.0;
+      // 2026-09-21: the ship origin is placed so the hull sits centred on the marking (`SHIP_PARK_Z`), and the
+      // boarding spot is a step back from where the open rear ramp meets the deck.
+      const shipZ = bz + SHIP_PARK_Z;
       this.bays.push({
         slot: i,
         position: new THREE.Vector3(bx, 0, bz),
-        entrance: new THREE.Vector3(bx, 0, shipZ - SHIP_HALF_LEN - 1.6),
+        entrance: new THREE.Vector3(bx, 0, shipZ - EXTERIOR_RAMP_END_Z - 1.2),
         yaw: yawFromForward(0, 1),
       });
 
@@ -257,28 +252,30 @@ export class Hangar {
   }
 
   /**
-   * Park (or clear) the ships. `names[i]` = the crew name standing in bay `i`, null = empty. Only the models and the
-   * signs change — the deck is merged static geometry and is never rebuilt.
+   * Park (or clear) the ships. `names[i]` = the crew name standing in bay `i`, null = empty; `models[i]` = that
+   * member's ship model (2026-09-21 — each bay shows **its owner's** ship, `shared/shipModel.ts`). Only the models
+   * and the signs change — the deck is merged static geometry and is never rebuilt.
    */
-  setOccupants(names: readonly (string | null)[]): void {
+  setOccupants(names: readonly (string | null)[], models: readonly (ShipModelId | null)[] = []): void {
     for (let i = 0; i < this.bayGroups.length; i++) {
       const name = names[i] ?? null;
       const want = name !== null;
-      if (want !== (this.parked[i] !== null)) {
+      const model = models[i] ?? null;
+      // A member who swapped ships keeps the bay but gets a **rebuilt** model: an `'exterior'` build shares its
+      // materials with every other ship of that model, so a re-tint would repaint the whole hangar.
+      const rebuild = want && this.parked[i] !== null && model !== null && model !== this.parkedModel[i];
+      if (want !== (this.parked[i] !== null) || rebuild) {
+        if (this.parked[i]) { this.parked[i]!.dispose(); this.parked[i] = null; this.parkedModel[i] = null; }
         if (want) {
-          const ship = buildPersonalExterior();
+          const ship = buildPersonalExterior(model ?? undefined);
           // the model's nose is −Z; the rear ramp must face the walkway, so the ship is parked turned around
           ship.group.rotation.y = Math.PI;
-          ship.group.position.y = SHIP_Y;
+          ship.group.position.set(0, SHIP_Y, 0);
           ship.setThrust(0);
+          ship.setRampPitch?.(SHIP_RAMP_PITCH);   // parked = ramp down onto the deck, the way a visitor walks aboard
           this.bayGroups[i].add(ship.group);
           this.parked[i] = ship;
-          this.gear[i] = buildGear(this.bayGroups[i]);
-        } else {
-          this.parked[i]?.dispose();
-          this.parked[i] = null;
-          disposeMeshes(this.gear[i] ?? []);
-          this.gear[i] = null;
+          this.parkedModel[i] = model;
         }
       }
       const colour = NET_SLOT_COLORS[i % NET_SLOT_COLORS.length];
@@ -299,8 +296,7 @@ export class Hangar {
   dispose(): void {
     for (const s of this.parked) s?.dispose();
     this.parked.fill(null);
-    for (const g of this.gear) disposeMeshes(g ?? []);
-    this.gear.fill(null);
+    this.parkedModel.fill(null);
     for (const g of this.bayGroups) g.removeFromParent();
     this.bayGroups.length = 0;
     for (const s of this.signs) s.dispose();

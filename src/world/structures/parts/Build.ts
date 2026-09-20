@@ -121,6 +121,19 @@ export interface DoorSpot {
 }
 
 /**
+ * 2026-09-21 — where a **ceiling turret** hangs, and the room it watches (`parts/Turret`). One per locked space:
+ * the outpost basement and the lab's floor-2 locked room. `room` is a world OBB — the turret never takes a target
+ * outside it, which is what 「it does not follow anyone out of the room」 means. The mount point is on the ceiling,
+ * so `y` is the ceiling's underside.
+ */
+export interface TurretSpot {
+  /** Ceiling mount point (world). */
+  x: number; y: number; z: number;
+  /** The watched room, as a world OBB (`yaw` = the math convention, the same as `Obstacle.box.yaw`). */
+  room: { x: number; z: number; halfX: number; halfZ: number; yaw: number; yBottom: number; yTop: number };
+}
+
+/**
  * 2026-09-12 — the building **nav**: only reach smokes · debug read it (world checks never look at it).
  * `[lx, lz]` is in building-local coordinates; in world it is `(cx + lx·cos − lz·sin, cz + lx·sin + lz·cos)`.
  */
@@ -157,6 +170,8 @@ export interface BuildingOut {
    * It never stands together with a basement door in one building. */
   lockedDoor: DoorSpot | null;
   lockedContainers: Spot[];
+  /** 2026-09-21: the ceiling turrets inside the locked spaces (empty when the building has none). */
+  turrets: TurretSpot[];
   /** The basement floor height (y0 with no basement). */
   basementY: number;
   ladders: LadderSpot[];
@@ -682,6 +697,12 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
    * `Structures`) · the vent · lighting · container spots ────────────────────────────────────────────── */
   let lockedDoor: DoorSpot | null = null;
   const lockedSpots: Spot[] = [];
+  const turrets: TurretSpot[] = [];
+  /** A local rectangle + a height band turned into the world OBB a ceiling turret watches. */
+  const watchRoom = (r: Rect, yBottom: number, yTop: number): TurretSpot['room'] => {
+    const [wx, wz] = rot((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
+    return { x: wx, z: wz, halfX: (r.x1 - r.x0) / 2, halfZ: (r.z1 - r.z0) / 2, yaw, yBottom, yTop };
+  };
   if (lock) {
     const L = LOCK_L, D = LOCK_D;
     const y1 = levelY(1);
@@ -747,6 +768,13 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
       xform(g, { x: wx, y: y1 + H - 0.04, z: wz }, new THREE.Euler(0, -yaw, 0));
       glow.push(g);
       fixtures.push({ x: wx, y: y1 + H - 0.4, z: wz, color: lightColor, intensity: LIGHT_INTENSITY * 0.8, distance: LIGHT_DISTANCE });
+    }
+    /* 2026-09-21: the ceiling turret. It hangs away from the light plate (which sits at the room's middle) and
+     * closer to the door wall, so the door · the vent · every container is in front of it. No light of its own —
+     * the raid's point-light count is fixed (`core/LightBudget`, CLAUDE.md §4.5). */
+    {
+      const [wx, wz] = rot(...lock.map(L / 2, D * 0.72));
+      turrets.push({ x: wx, y: y1 + H, z: wz, room: watchRoom(lock.interior, y1, y1 + H) });
     }
     // Container spots: backed onto the outer wall (b = 0) and facing the door wall — the same inset as the level's other containers
     {
@@ -905,6 +933,18 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
       const g = new THREE.BoxGeometry(0.12, 0.06, Math.abs(bDoorZ - bLowZ) + 0.6);
       xform(g, { x: wx, y: ceilY - 0.04, z: wz }, new THREE.Euler(0, -yaw, 0));
       glow.push(g);
+    }
+
+    /* 2026-09-21: the basement's ceiling turret — over the room past the door (`roomA`, the room the containers
+     * stand in), offset from that room's light plate. The watched volume is the **whole pit**, so a body that
+     * came down the stair corridor is a target too — while the door is shut its panel is a collider and blocks
+     * the line of fire, which is exactly the rule. No light of its own (CLAUDE.md §4.5). */
+    {
+      const [wx, wz] = rot(roomA.x + bSide * 0.9, roomA.z);
+      turrets.push({
+        x: wx, y: ceilY, z: wz,
+        room: watchRoom(rect(-pitInX, pitInX, -pitInZ, pitInZ), yB, ceilY),
+      });
     }
 
     /* The basement container spots (backed onto a wall, keeping the corridor · the space in front of the door clear) */
@@ -1109,7 +1149,7 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     parts, glow,
     containers: chosen.map((c) => c.spot),
     basementContainers: basementSpots,
-    console: consoleSpot, door, lockedDoor, lockedContainers: lockedSpots, basementY: pit ? yB : y0,
+    console: consoleSpot, door, lockedDoor, lockedContainers: lockedSpots, turrets, basementY: pit ? yB : y0,
     ladders, windows, fixtures, floors, roofY, nav,
   };
 }
@@ -1287,7 +1327,7 @@ export function buildWreck(ctx: BuildCtx, plan: BuildingPlan, rng: Random): Buil
 
   return {
     parts, glow, containers: spots.slice(0, Math.max(0, plan.containers)), basementContainers: [], console: null, door: null,
-    lockedDoor: null, lockedContainers: [],
+    lockedDoor: null, lockedContainers: [], turrets: [],
     basementY: y0, ladders: [], windows: [], fixtures, floors: 1, roofY: Number.NaN, nav,
   };
 }

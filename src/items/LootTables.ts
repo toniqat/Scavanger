@@ -2,6 +2,8 @@ import type { EnemyType, ItemCategory, ItemDef, Rarity, WeaponGrade } from '@/sh
 /* appended (2026-09-13): humanoid faction loot — spawn site bonuses · planet seed pools */
 import type { EnemySpawnSite, PlanetId } from '@/shared';
 import { UNIQUE_WEAPON_IDS, csvGroups, csvRows } from '@/shared';
+/* appended (2026-09-21): planet-bound keys — one key kind covers its per-planet variants */
+import { PLANET_IDS } from '@/shared';
 
 /*
  * The source of every loot number is `data/loot_*.csv` — the tier roll rules (`loot_tiers.csv`), category
@@ -41,7 +43,9 @@ const WEIGHT_GROUPS: Readonly<Record<string, () => readonly string[]>> = {
 const BROKEN_IMPLANT_PREFIX = '@broken_implants.';
 
 function expandWeightTarget(target: string): readonly string[] {
-  if (!target.startsWith('@')) return [target];
+  /* 2026-09-21: one key kind (`key_basement`) covers its five planet variants — see *planet-bound keys* below.
+     Without this the csv's tier 1 · 2 · 5 「0」 pins would leave four of the five variants at the default 1. */
+  if (!target.startsWith('@')) return PLANET_KEY_VARIANTS.get(target) ?? [target];
   const group = WEIGHT_GROUPS[target];
   if (group) return group();
   if (target.startsWith(BROKEN_IMPLANT_PREFIX)) {
@@ -107,6 +111,57 @@ export const LOOT_CATEGORIES: readonly LootCategory[] = [...ITEM_CATEGORIES, 'gr
 /** Which category this item counts as in the loot tables — only a grenade has an axis of its own. */
 export function lootCategoryOf(d: ItemDef): LootCategory {
   return d.grenade ? 'grenade' : d.category;
+}
+
+/* ── planet-bound keys (2026-09-21, user's decision) ─────────────────────────
+ * The two skeleton keys became **ten**: one per key kind × planet (`key_basement_amber` …
+ * `keycard_lab_crimson`, `data/items.csv`). A locked door takes only the raid planet's key
+ * (`world/Structures.ts` builds the id as `<structures.csv key>_<planet>`), but **finding one is planet-
+ * independent** — the point of the feature is to send a player to the planet the key names, so any planet may
+ * drop any planet's key.
+ *
+ * The tables therefore keep **one entry per kind**, not ten, and this block is what turns that entry into the
+ * ten ids:
+ *  - `loot_item_weights.csv` writes `key_basement` / `keycard_lab` once and `expandWeightTarget` spreads the
+ *    multiplier over all five variants — so the tier 3 · 4 「1」 and the tier 1 · 2 · 5 「0」 safety pins keep
+ *    covering every key, and the crate's `key` category pool is the ten ids at equal weight (= a uniform planet).
+ *  - `loot_corpses.csv` keeps **one row** per kind (so its chance and its rng draw are untouched) whose `defId`
+ *    resolves here to the first planet's variant; `Loot.rollCorpseWithMax` re-rolls the planet uniformly on a
+ *    forked rng when the row hits.
+ * The kinds are read from the item table itself (`category: 'key'` + an id ending in a planet id), so adding a
+ * planet or a key kind is a csv-only change. */
+const PLANET_KEY_VARIANTS: ReadonlyMap<string, readonly string[]> = (() => {
+  const map = new Map<string, string[]>();
+  for (const d of ITEM_DEFS) {
+    if (d.category !== 'key') continue;
+    const planet = PLANET_IDS.find((p) => d.id.endsWith(`_${p}`));
+    if (!planet) continue;
+    const base = d.id.slice(0, d.id.length - planet.length - 1);
+    const list = map.get(base) ?? [];
+    list.push(d.id);
+    map.set(base, list);
+  }
+  return map;
+})();
+
+/** The ten planet keys, by their id — the set `Loot` re-rolls the planet of. */
+const PLANET_KEY_BASE_OF: ReadonlyMap<string, string> = new Map(
+  [...PLANET_KEY_VARIANTS].flatMap(([base, ids]) => ids.map((id) => [id, base] as const)),
+);
+
+/**
+ * A loot table cell that names a key **kind** (`key_basement`) resolved to a real item id — the first planet's
+ * variant. A cell that already names a variant, or anything that is not a key, comes back unchanged, so
+ * `data:check`'s item cross-reference sees a def either way.
+ */
+export function resolvePlanetKeyRef(defId: string): string {
+  return PLANET_KEY_VARIANTS.get(defId)?.[0] ?? defId;
+}
+
+/** The other planets' variants of this key (itself included), or null when `defId` is not a planet key. */
+export function planetKeyVariantsOf(defId: string): readonly string[] | null {
+  const base = PLANET_KEY_BASE_OF.get(defId);
+  return base ? PLANET_KEY_VARIANTS.get(base) ?? null : null;
 }
 
 /** The categories filtered by planet — every other category is planet-independent. */
@@ -546,7 +601,9 @@ export const CORPSE_TABLES: readonly CorpseTable[] = [...new Set([...CORPSE_DROP
   .filter((type) => !!type)
   .map((type) => {
     const drops: CorpseDrop[] = (CORPSE_DROPS_BY_TYPE.get(type) ?? []).map((d) => ({
-      defId: d.str('defId'),
+      /* 2026-09-21: a key kind stays **one row** (its chance and its rng draw must not move) — the planet is
+         re-rolled by `Loot.rollCorpseWithMax` when the row hits (*planet-bound keys*). */
+      defId: resolvePlanetKeyRef(d.str('defId')),
       qty: [d.int('qtyMin', { min: 0 }), d.int('qtyMax', { min: 0 })] as const,
       chance: d.num('chance', { min: 0, max: 1 }),
     }));

@@ -270,6 +270,19 @@ export class Lobby {
   }
 
   /**
+   * 2026-09-21: `lobby:look.shipModel` — which ship the hangar parks in this member's berth. true when it actually
+   * changed (→ broadcast). The relay keeps it as an opaque, shape-checked string: what the id means is the client's
+   * business (`shared/shipModel.ts`), and the relay must not load that module. Once ships are **bought**, this has
+   * to be filled from the profile store like `code` · `level` rather than taken from the client.
+   */
+  setShipModel(id: PeerId, shipModel: string): boolean {
+    const p = this.players.get(id);
+    if (!p || p.shipModel === shipModel) return false;
+    p.shipModel = shipModel;
+    return true;
+  }
+
+  /**
    * Move the host role. Not started (hub): lowest-slot *connected* member (falling back to the lowest slot overall).
    * Started (Phase 9 rule): candidates are **connected members inside the mission** (`inMission`) only — when there is
    * none the role is *parked* (returns false, host id kept; the relay retries when an in-mission member reconnects).

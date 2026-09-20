@@ -49,3 +49,7 @@ record_equipment,record_porters_song
 # 2026-09-15 (가젯 개편, 사용자 결정): 화염수류탄 가젯(gad_incendiary)을 지우고 화염 수류탄(grenade_incendiary) 하나로 합쳤다 —
 # 가진 사람이 잃지 않도록 옛 id 를 새 id 로 푼다. 살아남은 쪽이 폭발 + 화염 지대를 함께 갖는다.
 gad_incendiary,grenade_incendiary
+# 2026-09-21 (사용자 결정 — 행성 전용 열쇠): 만능 열쇠 2종이 행성별 10종으로 갈라졌다. 창고 · 로드아웃 · 열쇠 주머니
+#   (pouch_key) 에 이미 들어 있는 옛 열쇠는 첫 행성(아켈론 II)의 것으로 푼다.
+key_basement,key_basement_amber
+keycard_lab,keycard_lab_amber

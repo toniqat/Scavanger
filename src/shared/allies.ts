@@ -196,6 +196,17 @@ export interface AlliesRef {
    * authority at once, otherwise `allyq revive`. True when the request went out or was applied.
    */
   requestRevive(id: AllyId, opts?: { defib?: boolean }): boolean;
+  /**
+   * appended (2026-09-21, 회복 아이템을 아군에게): puts `hp` back into a standing android — the right-click ally use of
+   * 붕대 · 약초 붕대 · 회복주사. On the authority at once, otherwise `allyq heal`; **a downed one is refused** (that is
+   * the defibrillator's job, `requestRevive`), as is a dead one. True when the request went out or was applied.
+   */
+  heal(id: AllyId, hp: number): boolean;
+  /**
+   * appended (2026-09-21): the same for a 실드 충전기 — `amount` -1 means fill the pool up
+   * (`BuffMessage.amount`, `shield_charger_full`). Clamped to the android's own `maxShield`.
+   */
+  chargeShield(id: AllyId, amount: number): boolean;
   /** The body of the android carrying this person (player/ raises the carried pose), null with none. */
   carrierOf(peer: PeerId): AllyBodyView | null;
   /** The dev cheat `/android 1|0` — one line of result (Korean). The console calls it. */

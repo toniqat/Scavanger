@@ -25,12 +25,12 @@ forwards interactions.
 | `parts/Androids.ts` | 조종실 안드로이드 슬롯: `hub_android_<bay>` interactables (`ALLY_BAY_HOLD_S` hold) → `ctx.net.setAndroidBay`, prompts and refusals (leader / mission / offline / pending), capsule status refresh, `getAndroidBays` / `getPodStandPose` / `buildPodStands`. |
 | `parts/Planet.ts` | Target planet: `setPlanet`, `travelBlockReason`, persistence (`PLANET_STORAGE_KEY`), window warp (`startTravel` / `tickTravel` / `finishTravel` / `cancelTravel`, pure `warpSpeedAt`), `applyPlanetLook`. |
 | `parts/Crew.ts` | Crew card sending (`crew` / `crewq`), training arena entry (`startTraining`), squad-leader handoff interactables (`lead:<peerId>`). |
-| `parts/Hangar.ts` | Hangar bays (`hub_ship_bay_<slot>`): prompts / refusals, bay occupants, ship-layout exchange (`ship` / `shipq`), visit wait, `furnitureSource` for a visited ship, visit status line. |
+| `parts/Hangar.ts` | Hangar bays (`hub_ship_bay_<slot>`): prompts / refusals, bay occupants (name **and** `ShipModelId` since 2026-09-21 — ours from `ctx.progression.profile`, a squadmate's from `LobbyPlayer`, both read by shape through `shipModelOf`), ship-layout exchange (`ship` / `shipq`), visit wait, `furnitureSource` for a visited ship, visit status line. |
 | `HousingMode.ts` | 3D side of housing / ship management: top-down camera, floor cursor, ghost + footprint + clearance tiles, select / hold-to-move / place / rotate / recover, outlines, grid and cockpit-ceiling visibility, key guide `housing`. |
 | `LaunchPod.ts` | Pod mesh, name tag, `hub_pod_<slot>` interactable (hold 0.4 s), door collider blocker for remote occupants, boarded camera shot. |
 | `Terminal.ts` | `hub_terminal` interactable → `HubMenu`; `setScreen()` writes the console status lines. |
 | `Computer.ts` | Shared-ship `hub_computer` → `ctx.meta.openCorpMenu()` (warning toast on failure). |
-| `DockingCutscene.ts` | Exterior dock / undock cutscene 900 m above the origin (undock half duration), chase camera via `setCameraOverride`, `elapsed`, `finishNow()`. |
+| `DockingCutscene.ts` | Exterior dock / undock cutscene 900 m above the origin (undock half duration), chase camera via `setCameraOverride`, `elapsed`, `finishNow()`. The small ship is **our own model** (2026-09-21, `shipModelOf(ctx.progression?.profile)`), ramp shut. |
 | `Labels.ts` | `TextPlane`: CanvasTexture text plane, redraws only on change. |
 | `hub.css` | Terminal frame / tabs / panes / planet grid / training row above the footer (`.hub-train-row`, `.hub-train`), launch-slot panel (`.hub-ready`, `.hr-*`), crew loadout popup (`.hub-crew-loadout`), launch warning, status line, planet card (`.hub-planet`, `.hp-*`). |
 | `intel.css` | Match tab (`.hmt-`), invite modal (`.hinv-`), training confirm (`.htc-`), intel panel in the terminal (`.hi-`), intel screen (`.his-`). |
@@ -46,11 +46,11 @@ forwards interactions.
 | `ui/LaunchWarnPanel.ts` | Launch warning popup before readying (`ctx.inventory.getLaunchWarnings()`), `취소` / `그래도 준비`; the acknowledged signature is not asked again. |
 | `ui/HubStatus.ts` | Bottom-centre status line / countdown digits (`pointer-events: none`). |
 | `ui/dom.ts` | DOM helpers, `parseSeed`, `randomSeed`, `isolateInput` (keeps field typing out of `Input`; Escape only blurs). |
-| `interiors/types.ts` | `ShipInterior`, `PodSlotDef`, `TerminalDef`, `RoomDef`, optional interior hooks (`setGridVisible`, `setCockpitCeilingHidden`, `setPlanetLook`, `setPlanetVisible`, `setWarp`, `updateNear`, `setBayOccupants`). |
-| `interiors/RoomLayout.ts` | Single source of personal-ship coordinates: `COCKPIT`, `CORRIDOR`, `AIRLOCK`, `ROOM_BOXES`, `COCKPIT_ROOM_BOX`, `roomBox`, `roomAtWorld`, `editAreaAtWorld`, `roomCellToWorld`, `worldToRoomCell`, `yawToRotation`. |
-| `interiors/PersonalShip.ts` | Cockpit (fixed props: viewport + dashboard terminal, pilot seats, launch pod socket; rest is furniture) → corridor → `SHIP_ROOM_COUNT` rooms with doors, strips, signs, grid → airlock. Fading cockpit ceiling group, `LightPool`, `ViewportWarp`. |
+| `interiors/types.ts` | `ShipInterior`, `PodSlotDef`, `TerminalDef`, `RoomDef`, `InteriorNearOpts` (2026-09-21: `occupants` · `focus`), optional interior hooks (`setGridVisible`, `setCockpitCeilingHidden`, `setPlanetLook`, `setPlanetVisible`, `setWarp`, `updateNear`, `setBayOccupants`). |
+| `interiors/RoomLayout.ts` | Single source of personal-ship coordinates: `COCKPIT`, `CORRIDOR`, `AIRLOCK` (`AIRLOCK_DEPTH` 3.6 since 2026-09-21), `AIRLOCK_DOOR_HALF` / `AIRLOCK_DOOR_HEIGHT`, `ROOM_BOXES`, `COCKPIT_ROOM_BOX`, `roomBox`, `roomAtWorld`, `editAreaAtWorld`, `roomCellToWorld`, `worldToRoomCell`, `yawToRotation`. |
+| `interiors/PersonalShip.ts` | Cockpit (fixed props: viewport + dashboard terminal, pilot seats, launch pod socket; rest is furniture) → corridor → `SHIP_ROOM_COUNT` rooms with doors, strips, signs, grid → **the airlock room** (2026-09-21: a bulkhead and a rear hatch, both `AirlockDoors`; `setAirlockOuterLocked` / `airlockDoorOpen`). Fading cockpit ceiling group, `LightPool` (`pickRooms` while walking, `pickFocus` during ship management), `ViewportWarp`. |
 | `interiors/SharedShip.ts` | Shared deck: bridge + terminal + viewport, 4 pod sockets, computer, implant bay, fixed dining table, holo table, airlock; aft door to the hangar; `LightPool` (deck + hangar zones); `ViewportWarp`. |
-| `interiors/Hangar.ts` | Hangar deck merged into the shared ship's batch and collider: gantries, catwalks, 4 bays, parked personal-ship models (`setOccupants`), light fixtures. |
+| `interiors/Hangar.ts` | Hangar deck merged into the shared ship's batch and collider: gantries, catwalks, 4 bays, parked ship models (`setOccupants(names, models)` — each bay shows **its owner's** ship model since 2026-09-21, ramp down onto the deck), light fixtures. |
 | `interiors/AndroidBays.ts` | `AndroidBayRack`: the cockpit's `ANDROID_BAY_COUNT` capsules (shell merged into the ship's batch, per-bay emissive status strip + name tag as own meshes, one solid collider each), `bays` (`HubAndroidBay`), `setState('dormant' \| 'out' \| 'pending')`. No lights. |
 | `interiors/Furniture.ts` | `buildFurniture(def, level, extra?)` builders for every non-leisure `FurnitureModelKind` (merges kitchen and mining builders); `FurnitureLayer`: per-room pieces, collider blockers, `Lv.n` signs, interactables `hub_furn_<uid>` with access-face checks, rebuild on `housing:*` events, owns `GymStaging` / `CookStaging` / `GameStaging` / `RemoteFurnitureStaging`. |
 | `interiors/FurnitureLeisure.ts` | `LEISURE_BUILDERS` (`isLeisureKind`): library media stands, TV with console + hidden game screen rig, record players, gym machines, sofa, chair, low table, rug; moving sub-groups and pose geometry (`FurnitureRig`). |
@@ -65,11 +65,11 @@ forwards interactions.
 | `interiors/parts.ts` | `Parts` geometry kit (deck, walls with openings + blockers, glass, ribs, crates, lockers, `consolePedestal`, unused `workbench`, signs), `GLASS_MAT`, `CeilingTarget`. |
 | `interiors/stations.ts` | Station geometry: `implantBay`, `diningTable` + `diningTablePlateSlots` (`TablePlateSlot`), `shipComputer` (+ body helpers), unused `repairBench`; `StationDef`, `ComputerStationDef`, `ShipStations`. |
 | `interiors/TablePlates.ts` | Dining plates (2026-09-16): `addPlateToBatch` (dish + tier-shaped food, gold garnish at max quality, no lights, cached standard materials) used by the `dining_table` furniture builder; `TablePlates` = squad plates + name tags on the shared-ship fixed table (`housing:tablePlatesChanged`, `hub:entered`). |
-| `interiors/Doors.ts` | `ShipDoors`: animated two-leaf sliding doors (no collider change). |
+| `interiors/AirlockDoors.ts` | `AirlockDoors` (2026-09-21): the airlock's **automatic** two-leaf pressure doors — leaf meshes (own groups, not merged), a per-leaf collider rewritten in place as it slides (`setBlockerBox`), `update(dt, occupants)`, `setLocked` / `openness`. Creates no light. (The row that stood here, `interiors/Doors.ts` / `ShipDoors`, described a file deleted with the sliding room doors on 2026-09-16.) |
 | `interiors/LightPool.ts` | Re-export of `LightPool` / `LightFixture` from `@/shared`. |
 | `interiors/Starfield.ts` | `Starfield` (points) and window `Planet` (`setColors`, `setOpacity`). |
 | `interiors/WarpStreaks.ts` | `WarpStreaks` line field and `ViewportWarp`, the shared `setWarp` implementation (stars → streaks, planet fade / re-tint). |
-| `interiors/ExteriorShips.ts` | Low-poly exterior ship models for the docking cutscene, `setThrust()`. |
+| `interiors/ExteriorShips.ts` | `buildPersonalExterior(model)` = **the raid dropship** at `'exterior'` detail (`shared/shipModel.ts`, 2026-09-21) + `buildSharedExterior()`; `setThrust` / `setRampOpen` / `setRampPitch`, `EXTERIOR_RAMP_END_Z`. |
 | `index.ts` | Barrel. |
 
 ## Public API
@@ -232,7 +232,7 @@ Metres, ship at the origin, spawn faces −Z. All values derive from csv keys (`
 | Corridor | −1.5 … 1.5 | 0 … `ROOMS_PER_SIDE × SEGMENT` (`SEGMENT = ROOM_DEPTH + ROOM_GAP`) |
 | Room i (port, i < `ROOMS_PER_SIDE`) | `CORRIDOR.minX − WALL − ROOM_SIZE` … `CORRIDOR.minX − WALL` | `k·SEGMENT + ROOM_GAP/2` … `+ ROOM_DEPTH` (k = i mod per side), door at the middle |
 | Room i (starboard) | `CORRIDOR.maxX + WALL` … `+ ROOM_SIZE` | same as port |
-| Airlock | −1.5 … 1.5 | `CORRIDOR.maxZ` … `+ AIRLOCK_DEPTH` |
+| Airlock (a room of its own, 2026-09-21) | −1.5 … 1.5 | `CORRIDOR.maxZ` … `+ AIRLOCK_DEPTH` (3.6), a `2 × AIRLOCK_DOOR_HALF` automatic door in each end wall |
 
 Grid cell `x` runs along +X, `y` along +Z from the area's min corner; a piece with top-left cell (x, y) and rotated
 footprint (cols, rows) is centred by `roomCellToWorld`. `yaw` 0..3 = quarter turns clockwise from above
@@ -284,6 +284,26 @@ doorway is an open shared edge.
 
 - The scene point-light count must never change: each interior owns exactly `HUB_POINT_LIGHTS` pool lights that move by
   ramping intensity; never toggle `visible` or add / remove lights. — `interiors/LightPool.ts` (`@/shared` `LightPool`)
+- **More rooms can be lit for free, because the light *count* never moves.** `LightPool` re-aims a fixed
+  `HUB_POINT_LIGHTS` set, so which places are lit is a free choice. Walking, the room **underfoot** is always a
+  candidate (lit or not) on top of the nearest `ROOM_LIGHT_POOL` lit ones; in ship management the candidate list is
+  **cut to at most `HUB_POINT_LIGHTS` entries** — the focused room, the room the PC stands in and the static places
+  nearest the focused area — because below the pool's size every candidate gets a light whatever its ranking, which
+  is how the room at the camera's centre is lit without touching `shared/lightPool.ts`.
+  — `interiors/PersonalShip.ts` (`pickRooms` · `pickFocus`), `HubSystem.update` (`InteriorNearOpts.focus`)
+- **An airlock door's collider is the leaf itself.** A sliding leaf rewrites its blocker in place
+  (`BoxInteriorCollider.setBlockerBox`) instead of toggling one, so a half-open door stops you over half the opening
+  and nothing is allocated per frame. A leaf parks **inside** the bulkhead beside the opening, which is why
+  `2 × AIRLOCK_DOOR_HALF` must stay within the chamber's half width. — `interiors/AirlockDoors.ts`
+- **The airlock's rear hatch stays locked in the hub.** In the ship the hatch faces space; an automatic door that
+  opened for anyone walking up to it would walk them into the void. `PersonalShip.setAirlockOuterLocked(false)` is
+  the one switch that opens it. — `interiors/PersonalShip.ts`
+- **One exterior model.** The ship parked in a hangar bay, the ship in the docking cutscene and the ship that lands
+  on an extraction pad are one builder, `shared/shipModel.ts` — `hub` must never import `extraction`'s internals, so
+  the mesh lives in `shared` (§4.1). The hub asks for `'exterior'` detail (merged, shared materials, no bay, no
+  greebles) and draws it at `SHIP_EXTERIOR_SCALE`; a member who changed ships gets a **rebuilt** model, never a
+  re-tint, because an exterior build shares its materials with every other ship of that model.
+  — `interiors/ExteriorShips.ts`, `interiors/Hangar.ts`
 - Compile a ship before showing it: every build is followed by `ctx.shaders.holdForScene()`; docking prebuilds and warms
   the destination. — `parts/Transitions.ts` (`prebuildTarget`)
 - Every client must build identical geometry at the origin — remote snapshots in the shared ship depend on it.
@@ -338,8 +358,8 @@ doorway is an open shared edge.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.
+- 2026-09-21 — Three user decisions. ① The personal ship's **airlock is a room of its own** (`interiors/AirlockDoors.ts`, `AIRLOCK_DEPTH` 2.5 → 3.6): a two-leaf automatic pressure door at each end, opening for the local player *or* a visiting squadmate within `SHIP_AIRLOCK_DOOR_RANGE_M` over `SHIP_AIRLOCK_DOOR_OPEN_S`, each leaf's collider rewritten in place as it slides; the aft one is the ship's rear hatch and starts locked (it faces space). ② **One exterior model** — `buildPersonalExterior` builds the raid dropship from the new `shared/shipModel.ts`, so the ship in a hangar bay and in the docking cutscene *is* the one that lands on a pad; the hand-built struts and ramp plate in `Hangar` went with it. ③ **Ship-purchase hook**: a bay parks its owner's `ShipModelId` (`setBayOccupants(names, models)`); `src/net` / `server` still have to put the field on the profile and the lobby record. Plus: ship management now gives point-light slots to the focused room **and** the room the PC stands in — the light count is unchanged (`pickFocus`).
 - 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
 - 2026-09-20 — B-66 (the `src/hub` share): `SharedShip`'s light-fixture comments name the two arrays they are counting (the constructor's `deck` and `Hangar.lightFixtures`) instead of writing «six + nine» down — the counts were measured and were right, but a number in prose is what went stale in `PersonalShip` before B-40. All eleven `FurnitureLeisure` builder headers that restated a csv footprint (`disc_stand` · `record_rack` · `rocking_chair` · `tv` · `gramophone` · `jukebox` · `turntable` · `bench_rack` · `smith_machine` · `treadmill` · `exercise_bike` — B-43 reached only `FurnitureKitchen`) now point at their `data/furniture.csv` row instead: the builders take `w`, `d`, `h` as arguments, so the number was never the comment's to hold. Every one of the eleven matched its row before the edit. Comment-only.
 - 2026-09-19 — Audit B-40 · B-41 · B-42 · B-43: comments realigned with the code (light-fixture counts, intel-map cell size, `computerScreenLocal`, `CAM_TOWARD_FRAC`, `가공 작업대`, `그래도 준비`, `닫기 (E)`, `.hub-train-row`, the housing-mode cursor mode, the armoury and the retired `재배층` / `repair_bench` paths, the stale `신호 찾기` name) and csv / derived numbers replaced by their source. Behaviour: an empty ready cell now hides its gear board (`ReadyPanel.paintGear`), `shipComputerBody` takes the monitor pose from `computerScreenPose` instead of copying its arithmetic, `CookStaging.stage` reports the **nearest** tool to the work spot, `RemoteFurnitureStaging.drive` is exhaustive over `FurniturePoseKind`, and the intel note names the action that is actually on screen.
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, `data/furniture.csv` names, decision headings and verbatim user quotes kept in backticks / 「」, no string literal touched. One room, two words on purpose: the shared ship's forward room is the **bridge**, the personal ship's the **cockpit**, and the android bays keep CLAUDE.md §3.2's feature name *cockpit bays*.
-- 2026-09-18 — Intel is bought for the **target** planet only: the terminal disables `정보 구매` while the paged planet is not the target and names both (`HubMenu.refreshIntel`; 정보 확인 / 지역 재배치 unchanged), and a locked row in the intel screen names the planet it was judged against (`IntelMenu.lockText`).

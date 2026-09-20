@@ -60,7 +60,9 @@ Numbers live in `data/constants.csv` under the named keys. Every cooldown is mul
   `drone:removed`.
 - **Wire** (`src/shared/net.ts` `ImplantMessage`): `imp` events `wield`, `grapple`, `dash`, `shield` (also unicast on
   `flow rejoined`), `beam` (≤ 4 Hz while channelling), `bash`, `scanCast`; legacy `barrier` / `scan` are still read,
-  `rocket` / `rocketHit` are ignored. `buff heal` / `boost` are sent and received here. Remote hand devices come from
+  `rocket` / `rocketHit` are ignored. `buff heal` / `boost` are sent and received here, and (2026-09-21)
+  `buff shield` is **received** here — weapons sends it when a 실드 충전기 is given to a squadmate, and
+  `amount` −1 means 「fill it up」 (`PlayerRef.chargeShield(Infinity)`). Remote hand devices come from
   `PlayerSnapshot.imp`, shield state from the snapshot's barrier fields.
 - `implant_ready` is played by audio/ from `implant:ready`, not sent here. The equip picker is inventory's; the HUD
   (`ui/hud/ImplantWidget`) only reads the getters.
@@ -70,7 +72,8 @@ Numbers live in `data/constants.csv` under the named keys. Every cooldown is mul
 - No lights; all glow is emissive / additive and FX are pooled. — `fx/ImplantFx.ts`
 - `IMPLANT_BARRIER_CARRY_OFFSET` must stay larger than `PLAYER_RADIUS`, or enemy hitscan reaches the player before the shield. — `parts/Barrier.ts`
 - `raycastBarrier` never changes state; only a call site whose shot really stopped calls `damageBarrier`, exactly once. — `parts/Barrier.ts`
-- `buff` kinds have one owner each: `heal` / `boost` here, `revive` / `cloak` in gadgets. Handling another folder's kind double-applies it. — `parts/Wire.ts` (`onBuff`)
+- `buff` kinds have one owner each: `heal` / `boost` / `shield` here, `revive` / `cloak` in gadgets. Handling another folder's kind double-applies it. — `parts/Wire.ts` (`onBuff`)
+- `heal` and `shield` are refused while the receiver is downed or dead (only `boost` passes): a body on the ground is the defibrillator's business, and topping it up would hide that. — `parts/Wire.ts` (`onBuff`)
 - An overcharge boost sets `setSpeedModifier('overcharge', …)` and `setOvercharged(duration)` with the same duration; `isOvercharged` is that timer. — `parts/Wire.ts` (`applyBoost`)
 - Input is ignored while `piloting` (drone control or rover ride); taking a drone's controls stows. — `ImplantSystem.ts` (`piloting`)
 - Silent releases (stow on death / phase change / reset / drone control) never refund grapple cooldown. — `parts/Devices.ts` (`releaseGrapple`)
@@ -83,8 +86,8 @@ Numbers live in `data/constants.csv` under the named keys. Every cooldown is mul
 ## Recent changes
 
 Last 5 only — older: `git log -- src/implants`.
+- 2026-09-21 — `buff shield` joins this folder's received kinds (`parts/Wire.onBuff` → `PlayerRef.chargeShield`, `amount` −1 = fill up): weapons sends it when a `실드 충전기` is given to a squadmate. `heal` and `shield` are both refused while the receiver is downed or dead.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched. The implant **names** (`갈고리` · `대시` · `배리어` · `오버차지` · `정찰`) stay Korean in English prose — they are live `ImplantDefs.name` strings.
 - 2026-09-15 — Anti-tank launcher (`atlauncher`) retired: def, update code and `effects/AtLauncher.ts` removed; barrier is the only wielded implant.
 - 2026-09-14 — Grapple cooldown raised; dash reach is a walking sweep (`dashReach`) so it no longer passes window frames.
 - 2026-09-13 — `piloting` also covers rover riding.
-- 2026-09-12 — Grapple cooldown refund, `implant:ready` per charge, `refillAll` for the stabilizer.

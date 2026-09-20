@@ -1,4 +1,5 @@
 import type { EquippedImplant, GymStat, ImplantId, PlayerProfile, SkillId, StatId } from '@/shared';
+import { DEFAULT_SHIP_MODEL, resolveShipModelId } from '@/shared';
 import {
   GYM_STATS, GYM_TRAINED_MAX,
   IMPLANT_IDS, PROFILE_STORAGE_KEY, PROFILE_VERSION, SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN,

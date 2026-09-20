@@ -159,7 +159,7 @@ Things today's smokes deliberately do not measure. Each is here so the next read
 - **`smoke-rover`'s turret check asserts more than it can know (found 2026-09-18, red at `9e6c01d` *and* at its parent,
   so it is not that commit).** Step 5 spawns one `warrior` 13 m to the rover's side, waits 5 sim s and requires both
   `rover:fired` to grow **and** that enemy's hp to fall. The turret picks the **nearest living enemy in
-  `ROVER_TURRET_RANGE` with line of sight** (`rover/parts/Turret.ts`) and damages it directly, so on a map where
+  `ROVER_TURRET_FRONT_RANGE` · `_REAR_RANGE` with line of sight** (`rover/parts/Turret.ts`) and damages it directly, so on a map where
   another bug is nearer — or where the circling rover keeps the spawned one outside `ROVER_TURRET_AIM_CONE` or behind
   cover — the run prints `29/30` with 16–20 shots fired and `hp 213 → 213`. The two halves of the assertion have to be
   measured against the **same** enemy, or the check has to clear the area first. **Fixed 2026-09-20 (B-22)**: step 5

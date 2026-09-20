@@ -1,55 +1,30 @@
 import * as THREE from 'three';
+import {
+  SHIP_BAY_FLOOR_LIFT, SHIP_BAY_HALF_W, SHIP_BAY_HEIGHT, SHIP_BAY_Z_MAX, SHIP_BAY_Z_MIN, SHIP_GROUND_DRAW_LIFT_MAX,
+  buildShipModel, type ShipModelBuild, type ShipModelId,
+} from '@/shared';
 import { buildShipGreebles } from './ShipGreebles';
 
 export type ShipState = 'hidden' | 'approach' | 'descend' | 'landed' | 'liftoff';
 
+/*
+ * 2026-09-21 (user's decision — one exterior model): the **mesh** of this ship lives in `shared/shipModel.ts`, so the
+ * hangar's parked ships and the docking cutscene draw the very ship that lands here (CLAUDE.md §4.1). What stayed in
+ * this file is everything that is not geometry: the flight path, the ramp / gear animation, the bay's walk box and
+ * the three point lights. The bay dimensions below are **re-exports** of the shared ones — `Hull.ts`,
+ * `ExtractionSystem` and `scripts/smoke-extraction.mjs` import them from here and never needed to know they moved.
+ */
 /** Bay floor rectangle in ship-local space (player walks in from local +Z through the ramp). */
-export const BAY_HALF_W = 1.5;
-export const BAY_Z_MIN = -5.2;
-export const BAY_Z_MAX = 0.2;
-export const BAY_HEIGHT = 2.6;
+export const BAY_HALF_W = SHIP_BAY_HALF_W;
+export const BAY_Z_MIN = SHIP_BAY_Z_MIN;
+export const BAY_Z_MAX = SHIP_BAY_Z_MAX;
+export const BAY_HEIGHT = SHIP_BAY_HEIGHT;
 /** Liftoff: seconds the ship stays put on the pad (ramp closing, engines spooling) before it starts to climb. */
 export const LIFTOFF_SPOOL_S = 1.6;
-
-/*
- * ── Coplanar-surface budget (2026-09-15) ──────────────────────────────────────────────────────────────────
- * The ship's origin sits **on the ground** (`floorYAt` = deck = local y 0, and `landPos.y` is the pad / deck top),
- * so anything drawn at exactly local y 0 is coplanar with the terrain the ship stands on — and any two hull parts
- * that share a face plane fight each other. Three of those existed and all three were reported as bugs:
- *   1. bay floor top = belly slab top = ground (y 0)      → "the bay floor is see-through, the ground shows"
- *   2. bay lining inner face = side slab inner face (x ±1.6) → "the left/right wall colours swap every frame"
- *   3. bay ceiling bottom = hull roof bottom (y 2.6)      → the same flicker overhead
- * The constants below are the fix: the **drawn** deck is lifted a hair, the lining is given its own thickness and
- * the outer shell starts outboard of it. `floorYAt` / `BAY_HEIGHT` / `Hull.ts` are untouched — the walking deck is
- * still local y 0, feet just sink `BAY_FLOOR_LIFT` into the plate.
- *
- * ── Ground clearance of the drawn deck (2026-09-15, 「sometimes the ship floor is the ship floor, sometimes the ground pokes through it」) ──
- * A world may **draw** its walkable ground above the height it reports for walking: the tutorial deck's textured top
- * plane sits `TOP_LIFT` = 0.02 above `DECK_LOWER_Y` (`world/tutorial/parts/Ground.ts`), a raid pad's chevrons 0.01
- * above the pad top (`world/Pads.ts`). The old 2.5 cm lift was sized against ground drawn exactly at walk height, and
- * the landed ship bobbed `root.y` ±1 cm on top of that — so over the tutorial deck the plate top swept 1.5…3.5 cm
- * while the ground was drawn at 2 cm: measured, the plate was **under** the ground 27–45 % of frames and inside a
- * 3 mm z-fight band another ~20 % (the reported pop; the feet never left the deck — the bug was drawing only).
- * Invariant, checked by `scripts/smoke-extraction.mjs`:
- *   `BAY_FLOOR_LIFT − GROUND_DRAW_LIFT_MAX ≥ 0.02`, and **`root.y` never goes below `landPos.y` while the ship is on
- *   the ground** (landed: no bob — a ship on its gear does not float; liftoff spool: the shake is one-sided, ≥ 0).
- * A world that draws its ground higher than `GROUND_DRAW_LIFT_MAX` above its walk height must raise this constant.
- */
 /** Highest any world draws its walkable ground above the height `getSurfaceY` / the pad report (tutorial `TOP_LIFT`). */
-export const GROUND_DRAW_LIFT_MAX = 0.02;
-/** Outer face of the side slabs (hull half width). */
-const HULL_HALF_W = 2.1;
-/** Bay lining walls: inner face (the walkable opening) and their thickness → outer face `BAY_LINING_OUTER_X`. */
-const BAY_LINING_INNER_X = 1.6;
-const BAY_LINING_T = 0.12;
-const BAY_LINING_OUTER_X = BAY_LINING_INNER_X + BAY_LINING_T;   // 1.72
-/** Clearance between the lining's outer face and the side slab's inner face — no shared plane, no fight. */
-const HULL_SKIN_GAP = 0.01;
-/**
- * How far the **drawn** bay floor sits above the deck plane (local y 0) so it wins against ground + belly — 2 cm above
- * `GROUND_DRAW_LIFT_MAX` (see the clearance note). Feet sink this much into the plate; the open ramp's top is at 0.07.
- */
-export const BAY_FLOOR_LIFT = GROUND_DRAW_LIFT_MAX + 0.02;
+export const GROUND_DRAW_LIFT_MAX = SHIP_GROUND_DRAW_LIFT_MAX;
+/** How far the **drawn** bay floor sits above the deck plane — the clearance note lives with it in `shared/shipModel.ts`. */
+export const BAY_FLOOR_LIFT = SHIP_BAY_FLOOR_LIFT;
 
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -76,21 +51,19 @@ export class Dropship {
   readonly interiorSwitchWorld = new THREE.Vector3();
   state: ShipState = 'hidden';
 
+  /** The shared mesh (`shared/shipModel.ts`) — every part this class animates hangs off it. */
+  private readonly build: ShipModelBuild;
   private ramp: THREE.Group;
   private rampAngle = Math.PI / 2;     // 0 = open flat, PI/2 = closed
   private rampTarget = Math.PI / 2;
-  private thrustMats: THREE.MeshBasicMaterial[] = [];
-  private thrustCones: THREE.Mesh[] = [];
+  private thrustMats: THREE.MeshBasicMaterial[];
+  private thrustCones: THREE.Mesh[];
   private engineLights: THREE.PointLight[] = [];
-  private landingLights: THREE.Mesh[] = [];
   private landingLightMat: THREE.MeshStandardMaterial;
   private interiorLight: THREE.PointLight;
   private interiorLampMat: THREE.MeshStandardMaterial;
   private switchMat: THREE.MeshStandardMaterial;
   private gear: THREE.Group;
-  /** Bay lining — only ever seen from inside, so it is kept out of the sun's shadow pass. */
-  private interiorParts: THREE.Mesh[] = [];
-  private disposables: Array<THREE.BufferGeometry | THREE.Material> = [];
 
   // Flight
   private start = new THREE.Vector3();
@@ -105,199 +78,51 @@ export class Dropship {
   private liftoffOrigin = new THREE.Vector3();
   private liftoffDir = new THREE.Vector3();
 
-  constructor() {
-    const hull = this.mat(new THREE.MeshStandardMaterial({ color: 0x5c6168, roughness: 0.6, metalness: 0.55 }));
-    const hullDark = this.mat(new THREE.MeshStandardMaterial({ color: 0x33373c, roughness: 0.7, metalness: 0.5 }));
-    const accent = this.mat(new THREE.MeshStandardMaterial({ color: 0xc9a03a, roughness: 0.6, metalness: 0.3 }));
-    const glass = this.mat(new THREE.MeshStandardMaterial({ color: 0x0f1a24, roughness: 0.1, metalness: 0.9, emissive: 0x1a3550, emissiveIntensity: 0.6 }));
-    const interior = this.mat(new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.85, metalness: 0.3, side: THREE.DoubleSide }));
-    const floorMat = this.mat(new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.9, metalness: 0.2 }));
-
+  constructor(model?: ShipModelId) {
+    /*
+     * 2026-09-21: the mesh comes from `shared/shipModel.buildShipModel` at `'full'` detail — the bay interior, its own
+     * material instances and every animated part as its own mesh, exactly what stood in this constructor before. The
+     * greeble pass stays in this folder and is handed in, so `shared` never imports a feature folder.
+     */
     const r = this.body;   // meshes only — the lights go straight on `root` (see the `body` note)
-    // ── Bay (interior) ── deck plane at y 0, walls x ±1.6, z from -5.2 .. 0.2, ceiling 2.6
-    // The floor plate is drawn `BAY_FLOOR_LIFT` above the deck plane (see the coplanar note at the top): at y 0 it
-    // shared its top face with the belly slab **and** with the terrain the ship stands on, which is what made the
-    // ground show through it in mottled patches. It is also grown 0.04 m into the lining walls and the front wall on
-    // every side, so its own side faces end up buried instead of sharing a plane with them.
-    const floor = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.28, 0.12, 5.44)), floorMat);
-    floor.position.set(0, BAY_FLOOR_LIFT - 0.06, -2.52);       // top face at y = BAY_FLOOR_LIFT; x ±1.64, z -5.24..0.2
-    const wallL = new THREE.Mesh(this.geo(new THREE.BoxGeometry(BAY_LINING_T, BAY_HEIGHT, 5.4)), interior);
-    wallL.position.set(-(BAY_LINING_INNER_X + BAY_LINING_T / 2), BAY_HEIGHT / 2, -2.5);
-    const wallR = wallL.clone(); wallR.position.x = -wallL.position.x;
-    // Dropped 0.025 so its underside clears `hullRoof`'s underside (both sat at y 2.6 and fought). The roof's face is
-    // inside the ceiling slab now, and the lamp strip below is simply recessed into it.
-    const ceiling = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.4, 0.12, 5.4)), interior);
-    ceiling.position.set(0, BAY_HEIGHT + 0.06 - 0.025, -2.5);
-    const frontWall = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.4, BAY_HEIGHT + 0.2, 0.12)), interior);
-    frontWall.position.set(0, BAY_HEIGHT / 2, -5.26);
-    // Wall panels / ribs
-    for (let i = 0; i < 5; i++) {
-      const z = -4.6 + i * 1.05;
-      const ribL = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.08, BAY_HEIGHT - 0.2, 0.16)), hullDark);
-      ribL.position.set(-1.56, BAY_HEIGHT / 2, z);
-      const ribR = ribL.clone(); ribR.position.x = 1.56;
-      this.interiorParts.push(ribL, ribR);
-      r.add(ribL, ribR);
-    }
-    // Seats (benches) along the walls
-    for (const sx of [-1, 1]) {
-      const bench = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.4, 0.1, 4.2)), hullDark);
-      bench.position.set(sx * 1.35, 0.5, -2.7);
-      const back = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.08, 0.6, 4.2)), hullDark);
-      back.position.set(sx * 1.55, 0.85, -2.7);
-      this.interiorParts.push(bench, back);
-      r.add(bench, back);
-    }
-    // Ceiling light strip
-    this.interiorLampMat = this.mat(new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2dc, emissiveIntensity: 2.2 }));
-    const lamp = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.3, 0.04, 4.6)), this.interiorLampMat);
-    lamp.position.set(0, BAY_HEIGHT - 0.03, -2.6);
+    this.build = buildShipModel(r, { model, detail: 'full', greebles: buildShipGreebles });
+    this.ramp = this.build.ramp;
+    this.gear = this.build.gear;
+    this.thrustCones = this.build.thrustCones;
+    this.thrustMats = this.build.thrustMats;
+    this.landingLightMat = this.build.landingLightMat;
+    this.interiorLampMat = this.build.interiorLampMat!;
+    this.switchMat = this.build.switchMat!;
+    this.ramp.rotation.x = -this.rampAngle;  // closed = rotated up
+
+    // ── the three point lights ── they live on `root` (never on `body`), so the scene's point-light count is fixed
+    // from the first frame and nothing recompiles when the ship appears (see the `body` note).
     this.interiorLight = new THREE.PointLight(0xfff2dc, 8, 9, 1.6);
-    this.interiorLight.position.set(0, BAY_HEIGHT - 0.4, -2.6);
-    // Red interior switch console on the far (front) wall
-    const swBox = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.6, 0.5, 0.18)), hullDark);
-    swBox.position.set(0, 1.25, -5.1);
-    this.switchMat = this.mat(new THREE.MeshStandardMaterial({ color: 0xff3b3b, emissive: 0xff2a2a, emissiveIntensity: 1.4, roughness: 0.4 }));
-    const swBtn = new THREE.Mesh(this.geo(new THREE.CylinderGeometry(0.11, 0.12, 0.08, 16)), this.switchMat);
-    swBtn.rotation.x = Math.PI / 2;
-    swBtn.position.set(0, 1.3, -5.0);
-    const swGuard = new THREE.Mesh(this.geo(new THREE.TorusGeometry(0.17, 0.02, 8, 20)), accent);
-    swGuard.position.set(0, 1.3, -5.0);
-    const swLabel = new THREE.Mesh(this.geo(new THREE.PlaneGeometry(0.5, 0.08)), this.mat(new THREE.MeshStandardMaterial({ color: 0xe6b31e, emissive: 0xe6b31e, emissiveIntensity: 0.5 })));
-    swLabel.position.set(0, 1.0, -5.005);
-    r.add(floor, wallL, wallR, ceiling, frontWall, lamp, swBox, swBtn, swGuard, swLabel);
+    this.interiorLight.position.copy(this.build.interiorLightPoint!);
     this.interiorLight.intensity = 0;          // lit by `showBody()`; the light itself never leaves the scene
     this.root.add(this.interiorLight);
-    this.interiorParts.push(wallL, wallR, ceiling, frontWall, lamp, swBox, swBtn, swGuard, swLabel);
-
-    // ── Outer hull ──
-    // 2026-09-10: this used to be **one solid box** (4.2 × 3.3 × 7.2 at y 1.35, z −3.0), so its rear face sat
-    // right behind the bay opening — the ramp came down and revealed a grey wall instead of the lit interior.
-    // It is a shell now: four slabs around the bay (left / right / roof / belly) plus a front cap, leaving a real
-    // hole at the rear. The only thing that closes that hole is the ramp itself (upright at z = 0.25 when closed,
-    // 3.2 wide × 3.0 tall — it covers the whole opening), which is exactly what a rear door should do.
-    // Hull outline x ±2.1, y −0.3..3.0, z −6.6..0.6; the opening is x ±1.6, y 0..2.6 — the bay lining owns x 1.6..1.72
-    // and the shell picks up outboard of it (`sideInnerX`), so no two faces share a plane.
-    // The slab starts **outboard of the bay lining**, not at the bay opening. The old `2.1 - 1.6` put its inner face at
-    // x ±1.6 — exactly the lining wall's inner face — so the two swallowed each other's volume and traded a different
-    // colour every frame (`hull` vs `interior`); that was the flickering side walls. `HULL_SKIN_GAP` keeps the two
-    // planes apart; the outer face stays at ±2.1, so the silhouette and `Hull.ts`'s side-slab colliders are unchanged.
-    const sideInnerX = BAY_LINING_OUTER_X + HULL_SKIN_GAP;      // 1.73
-    const sideW = HULL_HALF_W - sideInnerX;                     // 0.37
-    const sideGeo = this.geo(new THREE.BoxGeometry(sideW, 3.3, 7.2));
-    for (const sx of [-1, 1]) {
-      const side = new THREE.Mesh(sideGeo, hull);
-      side.position.set(sx * (HULL_HALF_W - sideW / 2), 1.35, -3.0);
-      r.add(side);
-    }
-    const hullRoof = new THREE.Mesh(this.geo(new THREE.BoxGeometry(4.2, 0.4, 7.2)), hull);
-    hullRoof.position.set(0, 2.8, -3.0);
-    // Belly: bottom stays at y −0.3 (the greeble seams live at −0.305), but its **top** drops 0.02 below the deck plane
-    // so it no longer shares y 0 with the ground under the ship. `Hull.ts`'s belly collider — whose top *is* the deck —
-    // is a separate box and is deliberately left where it is.
-    const hullBelly = new THREE.Mesh(this.geo(new THREE.BoxGeometry(4.2, 0.28, 7.2)), hull);
-    hullBelly.position.set(0, -0.16, -3.0);
-    // Front cap: the forward section (between the bay's front wall and the nose) has to stay closed now that the
-    // shell is open-ended — the 4-sided nose cone leaves corner gaps you would otherwise see straight through.
-    const hullFront = new THREE.Mesh(this.geo(new THREE.BoxGeometry(4.2, 3.3, 0.2)), hullDark);
-    hullFront.position.set(0, 1.35, -6.5);
-    r.add(hullRoof, hullBelly, hullFront);
-    const hullTop = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.0, 0.6, 6.4)), hullDark);
-    hullTop.position.set(0, 3.25, -3.2);
-    const spine = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.8, 0.5, 9.4)), accent);
-    spine.position.set(0, 3.6, -3.6);
-    // Nose / cockpit (wedge via cylinder segment)
-    const nose = new THREE.Mesh(this.geo(new THREE.CylinderGeometry(1.5, 2.05, 3.2, 4, 1)), hull);
-    nose.rotation.x = Math.PI / 2; nose.rotation.y = Math.PI / 4;
-    nose.position.set(0, 1.45, -8.1);
-    const cockpit = new THREE.Mesh(this.geo(new THREE.BoxGeometry(2.1, 0.9, 1.6)), glass);
-    cockpit.position.set(0, 2.55, -7.2);
-    cockpit.rotation.x = 0.25;
-    // Same reason as the belly: the chin's underside sat exactly on the ground plane (y 0). It reaches 0.02 below it now.
-    const chin = new THREE.Mesh(this.geo(new THREE.BoxGeometry(2.6, 0.72, 2.4)), hullDark);
-    chin.position.set(0, 0.34, -7.4);
-    // Tail fins
-    const finGeo = this.geo(new THREE.BoxGeometry(0.1, 1.6, 1.8));
-    for (const sx of [-1, 1]) {
-      const fin = new THREE.Mesh(finGeo, hull);
-      fin.position.set(sx * 1.4, 4.1, 0.2);
-      fin.rotation.z = -sx * 0.45;
-      r.add(fin);
-    }
-    const tailPlane = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.4, 0.12, 1.4)), hull);
-    tailPlane.position.set(0, 3.9, 0.3);
-    r.add(hullTop, spine, nose, cockpit, chin, tailPlane);
-
-    // ── Wings + nacelles + thrust cones ──
-    const thrustGeo = this.geo(new THREE.ConeGeometry(0.85, 2.2, 18, 1, true));
-    for (const sx of [-1, 1]) {
-      const wing = new THREE.Mesh(this.geo(new THREE.BoxGeometry(2.6, 0.22, 2.6)), hull);
-      wing.position.set(sx * 3.0, 2.3, -3.2);
-      const nacelle = new THREE.Mesh(this.geo(new THREE.CylinderGeometry(0.95, 1.05, 3.6, 18)), hullDark);
-      nacelle.position.set(sx * 4.2, 1.9, -3.2);
-      const ring = new THREE.Mesh(this.geo(new THREE.TorusGeometry(1.0, 0.1, 10, 24)), accent);
-      ring.rotation.x = Math.PI / 2;
-      ring.position.set(sx * 4.2, 0.15, -3.2);
-      const tm = this.mat(new THREE.MeshBasicMaterial({ color: 0x66c4ff, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-      this.thrustMats.push(tm);
-      const cone = new THREE.Mesh(thrustGeo, tm);
-      cone.rotation.x = Math.PI;
-      cone.position.set(sx * 4.2, -0.9, -3.2);
-      this.thrustCones.push(cone);
+    for (const p of this.build.enginePoints) {
       const el = new THREE.PointLight(0x66c4ff, 0, 18, 1.5);
-      el.position.set(sx * 4.2, -0.4, -3.2);
+      el.position.copy(p);
       this.engineLights.push(el);
       this.root.add(el);   // stays in the scene with the other lights (see the `body` note)
-      r.add(wing, nacelle, ring, cone);
     }
-
-    // ── Landing gear (3 legs, retract by scale) ──
-    this.gear = new THREE.Group();
-    const legGeo = this.geo(new THREE.CylinderGeometry(0.1, 0.12, 1.1, 8));
-    const padGeo = this.geo(new THREE.CylinderGeometry(0.35, 0.4, 0.12, 12));
-    for (const [x, z] of [[-1.8, -1.0], [1.8, -1.0], [0, -7.0]]) {
-      const leg = new THREE.Mesh(legGeo, hullDark);
-      leg.position.set(x, -0.45, z);
-      const pad = new THREE.Mesh(padGeo, hullDark);
-      pad.position.set(x, -1.0, z);
-      this.gear.add(leg, pad);
-    }
-    r.add(this.gear);
-
-    // ── Landing lights (amber strips at rear edges) ──
-    // 2026-09-15: x 2.0 → 2.15. At 2.0 the strip (x 1.925..2.075) sat entirely inside the side slab (outer face x 2.1) and was
-    // never visible; it now pokes 0.125 m out of its housing greeble (`ShipGreebles`). Emissive mesh only — no light.
-    this.landingLightMat = this.mat(new THREE.MeshStandardMaterial({ color: 0xffb347, emissive: 0xffb347, emissiveIntensity: 0 }));
-    for (const sx of [-1, 1]) {
-      const l = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.15, 0.15, 0.6)), this.landingLightMat);
-      l.position.set(sx * 2.15, 0.4, 0.1);
-      this.landingLights.push(l);
-      r.add(l);
-    }
-
-    // ── Rear ramp (hinged at bay floor rear edge, local z = 0.2) ──
-    this.ramp = new THREE.Group();
-    this.ramp.position.set(0, 0.0, 0.25);
-    const rampPlate = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.2, 0.14, 3.0)), floorMat);
-    rampPlate.position.set(0, 0, 1.5);
-    const rampEdgeL = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.12, 0.2, 3.0)), accent);
-    rampEdgeL.position.set(-1.6, 0.05, 1.5);
-    const rampEdgeR = rampEdgeL.clone(); rampEdgeR.position.x = 1.6;
-    this.ramp.add(rampPlate, rampEdgeL, rampEdgeR);
-    this.ramp.rotation.x = -this.rampAngle;  // closed = rotated up
-    r.add(this.ramp);
-
-    // ── Greebles (2026-09-15, D-8): panel seams, rivets, pipes, vents, hatches, antennas, nacelle ribs — outer skin only,
-    // merged per existing material (≤ 4 extra draw calls, no new programs, no lights). Merged geometries join `disposables`.
-    buildShipGreebles(r, { hull, hullDark, accent, glass }, (g) => { this.geo(g); });
 
     r.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     for (const c of this.thrustCones) c.castShadow = false;
     // The bay lining is invisible from outside; keeping it out of the shadow pass halves the ship's caster count.
-    for (const m of this.interiorParts) m.castShadow = false;
+    for (const m of this.build.interiorParts) m.castShadow = false;
     r.visible = false;
     this.root.add(r);
   }
+
+  /**
+   * 2026-09-21 (the ship-purchase hook): draw this ship as `model`. Called **before the hull is ever revealed** —
+   * `ExtractionSystem` sets it from the profile of whoever called the extraction. Today a model is a tint, which
+   * costs nothing and recompiles nothing; a model that changed the silhouette would rebuild the mesh here, and that
+   * is why the call site is the activation and not the landing.
+   */
+  setShipModel(model: unknown): void { this.build.setModel(model); }
 
   /** Reveal the hull and light the bay. The lights never leave the scene — only their intensity moves. */
   private showBody(): void {
@@ -305,9 +130,6 @@ export class Dropship {
     this.interiorLampMat.emissive.set(0xfff2dc); this.interiorLampMat.emissiveIntensity = 2.2;
     this.interiorLight.color.set(0xfff2dc); this.interiorLight.intensity = INTERIOR_LIGHT;
   }
-
-  private geo<T extends THREE.BufferGeometry>(g: T): T { this.disposables.push(g); return g; }
-  private mat<T extends THREE.Material>(m: T): T { this.disposables.push(m); return m; }
 
   /** Begin the flight-in. `landPos` is where the ship root will sit; `yaw` orients the ramp toward +dir(yaw). */
   startApproach(landPos: THREE.Vector3, yaw: number, approachDuration: number): void {
@@ -573,7 +395,7 @@ export class Dropship {
   }
 
   dispose(): void {
-    for (const d of this.disposables) d.dispose();
+    this.build.dispose();
     this.root.removeFromParent();
   }
 }

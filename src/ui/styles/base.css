@@ -1441,6 +1441,10 @@ input { font: inherit; color: inherit; }
 /* 2026-09-08 — a weapon swap rides the same ring in a cooler tint so a glance tells the two apart. */
 .reload.swap .fill { stroke: var(--c-text); }
 .reload.swap .lbl { color: var(--c-text); }
+/* 2026-09-21 — the reload is **held** (roll · 갈고리): the ring stops where it is, dimmed so a frozen arc reads as
+   waiting rather than as a stuck HUD. The progress is kept; a cancel still hides the ring outright. */
+.reload.paused { opacity: 0.45; }
+.reload.paused .fill { stroke: var(--c-text-dim); }
 
 /* Phase 10 — the healing hold gauge (hud/HealGauge): full circle, label bottom-left of the ring like the cook
    gauge */
@@ -1463,6 +1467,23 @@ input { font: inherit; color: inherit; }
 }
 .heal .lbl { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.1em; color: var(--c-text); white-space: nowrap; }
 .heal.near .lbl, .heal.ready .lbl { color: var(--c-success); font-weight: 600; }
+
+/* 2026-09-21 — the right-button chip above the crosshair (hud/HealGauge): while a `붕대` · `약초 붕대` · `회복주사`
+   is in hand it names the squadmate the right button would treat. `.off` = the item allows it but nobody is valid,
+   which is what 「the button is unavailable rather than silently doing nothing」 looks like. Its own element, so it
+   is independent of the ring's `.show`. */
+.heal-ally {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -82px);
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 8px; border-radius: 3px;
+  background: var(--c-panel); border: 1px solid var(--c-border);
+  font-size: 11px; letter-spacing: 0.04em; color: var(--c-success); white-space: nowrap;
+  pointer-events: none;
+  opacity: 0; transition: opacity 80ms var(--ease);
+}
+.heal-ally.show { opacity: 1; }
+.heal-ally.off { color: var(--c-text-faint); border-color: rgba(255, 255, 255, 0.08); }
 
 /* 2026-09-08 — the hold ring (hud/HoldGauge): interaction holds + the downed give-up. Replaces the bottom
    prompt's progress bar and the vitals give-up bar, so every hold in the game fills the same ring at the

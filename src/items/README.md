@@ -18,7 +18,7 @@ Unlike other feature folders, `@/items` is imported directly by `inventory/`, `w
 | `ImplantDefs.ts` | Implant items (category `implant`): stat implants `imp_<stat>_<g>` (grades I–IV) + perk implants `imp_perk_<perk>` (`implants_perks.csv`), each with a broken pair `imp_broken_*` (`repairsTo`, `repairCost`). `IMPLANT_WORKING_DEFS`, `IMPLANT_BROKEN_DEFS`, `IMPLANT_ITEM_DEFS`, `PERK_IMPLANT_DEFS`, `IMPLANT_GRADES`, `IMPLANT_SLOTS_BY_GRADE`, `IMPLANT_VALUE_BY_RARITY`, `BROKEN_IMPLANT_VALUE_DIV`, `IMPLANT_REPAIR_COST`, `IMPLANT_STAT_NAME_KO`, `implantItemIdFor`, `perkImplantItemIdFor`, `isImplantItemDef`, `isBrokenImplantDef` |
 | `Recipes.ts` | Craft recipes only: `CRAFT_RECIPES` (from `recipes.csv`), `CRAFT_COST_BY_OUTPUT` / `craftCostOf(defId)` (value index used by repair and salvage); fills `CraftRecipe.unlockSeries` from library `recipe:<id>` effects |
 | `Salvage.ts` | Durability buckets (`durabilityBucketOf`, `durabilityBucketInfo`, `bucketOfRatio`, `DURABILITY_BUCKETS`, `DURABILITY_BUCKET_LABELS`, `maxDurabilityOf`), `repairCostFor`, `needsRepairCost`, `salvageFor`, `scaleSalvage`, `SALVAGE_RECIPES` (hand rows from `salvage.csv` + rows generated from craft inputs), `ALL_CRAFT_RECIPES`, `CRAFT_RECIPE_MAP`, `getRecipe`, `checkSalvageEconomy()` |
-| `LootTables.ts` | Loot table loaders and planet rules: tier tables (`LOOT_TABLES`, `getTierTable`, `getTierLabel`), `LootCategory`/`LOOT_CATEGORIES`/`lootCategoryOf`, planet curves (`PLANET_GRADE_CURVES`, `getPlanetGradeCurve`, `planetRarityWeights`), planet-bound drops (`PLANET_BOUND_CATEGORIES`, `lootPlanetsOf`, `isLootableOnPlanet`, `libraryVolumeWeight`, `planetCategoryAvailable`, `libraryBookPool`, `planetSeedPool`), retirement (`RETIRED_ITEM_IDS`, `isLootableDef`), corpse tables (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseSampleDrop`, `DEFAULT_ROGUE_WEAPON_ID`), named drops (`NAMED_DROPS`, `NAMED_DROP_MAP`, `numberedArmorIdForTier`), faction corpses (`FACTION_LOOT`, `FACTION_LOOT_MAP`, `FACTION_SITE_BONUSES`, `getFactionSiteBonus`) |
+| `LootTables.ts` | Loot table loaders and planet rules: tier tables (`LOOT_TABLES`, `getTierTable`, `getTierLabel`), `LootCategory`/`LOOT_CATEGORIES`/`lootCategoryOf`, planet curves (`PLANET_GRADE_CURVES`, `getPlanetGradeCurve`, `planetRarityWeights`), planet-bound drops (`PLANET_BOUND_CATEGORIES`, `lootPlanetsOf`, `isLootableOnPlanet`, `libraryVolumeWeight`, `planetCategoryAvailable`, `libraryBookPool`, `planetSeedPool`), planet-bound **keys** (`resolvePlanetKeyRef`, `planetKeyVariantsOf`), retirement (`RETIRED_ITEM_IDS`, `isLootableDef`), corpse tables (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseSampleDrop`, `DEFAULT_ROGUE_WEAPON_ID`), named drops (`NAMED_DROPS`, `NAMED_DROP_MAP`, `numberedArmorIdForTier`), faction corpses (`FACTION_LOOT`, `FACTION_LOOT_MAP`, `FACTION_SITE_BONUSES`, `getFactionSiteBonus`) |
 | `Loot.ts` | `LootService implements LootRef` — def lookups, `createItem`, stats/repair/salvage wrappers, `rollCrate(On)`, `rollCorpse(On)`; `nextUid()` |
 | `ItemSpec.ts` | `itemSpecRows(def)` — tooltip spec rows for healing items, shield chargers, boosts, gadgets and grenades (first row is always `사용 시간`); values are strings or `SpecSeg[]` (numbers highlighted); two-step explosives (frag · incendiary blast · mine · remote mine) show damage as `outer-centre` via `shared/explosion.explosionDamageRange`, `SpecRow.tone`, labels `SPEC_LABEL_KO` |
 | `ItemText.ts` | `parseItemText(text)` → lines of styled spans for description markup `{em}…{/em}`, `{dim}…{/dim}`, `{br}` (unknown tokens stay literal); `plainItemText` |
@@ -51,6 +51,8 @@ Direct `@/items` imports: `inventory/` (grids, crafting, tooltips, sort, durabil
 - Library media: `book_<series>_<volume>`, `disc_<series>_<volume>`, `record_<series>` (`libraryItemIdFor`); name = series name + roman
   numeral unless single-volume. Games: `console_*`, `game_*`.
 - Generated salvage recipe id: `break_<itemId>`.
+- Keys (2026-09-21): `<kind>_<planet id>` — `key_basement_amber` … `keycard_lab_crimson` (`data/planets.csv` ids).
+  The kind alone (`key_basement`) is what the loot tables and `structures.csv` write; see 「행성 전용 열쇠」.
 - Categories come from the csv `category` column (`ItemCategory` in `src/shared/types.ts`). Grenades are `category: 'gadget'` with
   `ItemDef.grenade` (`frag` | `fire`); `ItemDef.grenadeFire` marks the fire-zone grenade.
 - Optional-column fields appear only when their csv cells are filled: `soil` (`soilTag` …), `prep`, `pouch`, `strain`, `medium`,
@@ -143,6 +145,31 @@ An enemy type with no table yields one `mat_bio_sample`. `CorpseLootOpts` (`site
 **Named drops** (`loot_named.csv`) are keyed by enemy type only, ignore every planet curve except the epic+ gate (`epicPlusMul`), and set
 durability from `NAMED_LOOT_DURABILITY_MIN/MAX`.
 
+## 행성 전용 열쇠 (planet-bound keys)
+
+**2026-09-21 (사용자 결정).** The two skeleton keys became **ten** — one per kind × planet, `key_basement_amber` …
+`keycard_lab_crimson` (`data/items.csv`; the retired `key_basement` · `keycard_lab` resolve to the 아켈론 II pair
+through `data/item_aliases.csv`, so a stash, a loadout and the 열쇠 주머니 keep working). A locked door takes only
+**this raid's planet's** key — `world/Structures.ts` builds the id as `<structures.csv key>_<planet>` — and the
+prompt · deny toast name that planet, because the point of the feature is to send the player to it.
+
+**Finding one stays planet-independent**, so any planet can drop any planet's key. The loot tables therefore keep
+**one entry per kind**, not ten, and `LootTables.ts` spreads it:
+
+- `loot_item_weights.csv` writes `key_basement` / `keycard_lab` once; `expandWeightTarget` applies that multiplier
+  to all five variants, so the tier 3 · 4 「1」 and the tier 1 · 2 · 5 「0」 safety pins keep covering every key and
+  the crate's `key` category pool is the ten ids at equal weight (a uniform planet, a 50/50 kind).
+- `loot_corpses.csv` keeps **one row** per kind — its chance and its rng draw must not move — and
+  `resolvePlanetKeyRef` turns that cell into the first planet's variant so `data:check`'s item cross-reference
+  still resolves. When the row hits, `Loot.rollCorpseWithMax` picks the planet uniformly on `rng.fork('corpseKeyPlanet')`
+  (`Random.fork` never advances its parent, so nothing else in the corpse moves).
+- A structure container's bonus key is rolled by `world/Structures.ts`, not here: the **kind** comes from the
+  building, the **planet** from a fork of the lock stream, per container.
+
+The kinds are read from the item table (`category: 'key'` + an id ending in a planet id), so adding a planet or a
+key kind is a csv-only change. Keys are still epic, so the epic+ gate (`planet_loot.csv` `epicPlusMul`) catches
+them exactly as before.
+
 ## 프로세서 (연산 클러스터)
 
 **2026-09-16 (채광 개편, 사용자 결정) — the processor is crafted, not found, and it wears out.** `mat_compute_core` (연산 코어) was
@@ -219,8 +246,8 @@ whose `durabilityMax` is a liquid gauge and is excluded by name in the same pred
 ## Recent changes
 
 Last 5 only — older: `git log -- src/items`.
+- 2026-09-21 — Keys are **planet-bound** (사용자 결정): ten ids replace the two skeleton keys, the retired pair aliases to 아켈론 II, and one table entry per kind fans out to five variants (`expandWeightTarget`, `resolvePlanetKeyRef`, `planetKeyVariantsOf`, `Loot.rollCorpseWithMax`'s `corpseKeyPlanet` fork) — see 「행성 전용 열쇠」.
 - 2026-09-19 — Comment audit B-51~B-54: uniques are called **mythic** (not 전설) everywhere, csv counts and the repair/salvage multiplier table are out of the comment prose (they point at the csv / the constants), 「정제 작업대」 → 「가공 작업대」, and the `repairCost` tombstone block in `WeaponStats.ts` is gone.
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, csv names and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-17 — `data/loot_corpse_samples.csv` (`CorpseTable.samples`, `Loot.rollCorpseSamples`): the bug types listed there drop only 미확인 세포 with a tier rolled **per unit** on a forked corpse rng; stacks split at `SAMPLE_STACK_MAX`; exempt from the epic+ gate (cell IV at csv rates).
 - 2026-09-17 — `ItemSpec`: explosive damage rows read as a range `min-max` (frag `30-60`, incendiary blast `15-30`, mine `40-80`, remote mine `50-100`).
-- 2026-09-17 — `spec_gene_6` (미확인 유전자 VI) and the mythic sockets `sock_soil_prime` · `sock_medium_prime` deleted from csv (no aliases): mythic is reserved for the gun line, so the 유전자 family tops out at legendary.

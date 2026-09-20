@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HUB_POINT_LIGHTS, HUB_TRAVEL_WARP_STRETCH, NET_MAX_PLAYERS, NET_SLOT_COLORS, type HubAndroidBay, type HubShipKind } from '@/shared';
+import { HUB_POINT_LIGHTS, HUB_TRAVEL_WARP_STRETCH, NET_MAX_PLAYERS, NET_SLOT_COLORS, type HubAndroidBay, type HubShipKind, type ShipModelId } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
 import { BoxInteriorCollider } from './InteriorCollider';
 import { Hangar, type HangarBayDef } from './Hangar';
@@ -314,8 +314,13 @@ export class SharedShip implements ShipInterior {
   /** Hangar bays, in slot order (the hub hangs the boarding interactables off these). */
   get bays(): readonly HangarBayDef[] { return this.hangar.bays; }
 
-  /** Park the squad's ships: `names[i]` = crew name in bay `i`, null = empty bay. */
-  setBayOccupants(names: readonly (string | null)[]): void { this.hangar.setOccupants(names); }
+  /**
+   * Park the squad's ships: `names[i]` = crew name in bay `i`, null = empty bay; `models[i]` = that member's ship
+   * model (2026-09-21 — each bay shows its owner's own ship).
+   */
+  setBayOccupants(names: readonly (string | null)[], models?: readonly (ShipModelId | null)[]): void {
+    this.hangar.setOccupants(names, models);
+  }
 
   /** The android bays (2026-09-15), in bay order. A reused array — the coordinates never change once built. */
   get androidBays(): readonly HubAndroidBay[] { return this.androidRack.bays; }

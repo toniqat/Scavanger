@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PlanetDef } from '@/shared';
 import { Sky, SKY_PALETTES, type SkyPalette } from './Sky';
-import { Random, SUN_SHADOW_HALF_M } from '@/shared';
+import { Random, SUN_SHADOW_HALF_M, INDOOR_LIGHT_AMBIENT_MUL, INDOOR_FOG_MUL, INDOOR_LIGHT_FADE_S } from '@/shared';
 
 /**
  * Sun (with player-following shadow frustum), hemisphere fill, exponential fog and the sky dome.
@@ -28,6 +28,13 @@ export class Atmosphere {
   private ovColor: number | null = null;
   private ovBlend = 0;
   private readonly ovScratch = new THREE.Color();
+  /* ── appended (2026-09-21): the indoor correction — a **local view** lift, nothing on the wire ── the hemisphere
+   * fill the palette decided is held in `baseHemi`, and `indoor` (0..1) is the crossfade `Engine` steps. It rides on
+   * top of the hazard override rather than replacing it (`applyOverride`), so a sandstorm still narrows sight indoors
+   * — only less, which is what being under a roof means. **No light is added**: the fill that already exists gets
+   * brighter, so the scene's point-light count is untouched (CLAUDE.md §4.5). */
+  private baseHemi = 0;
+  private indoor = 0;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -138,7 +145,33 @@ export class Atmosphere {
   private captureBase(): void {
     this.baseDensity = this.fog.density;
     this.baseColor.copy(this.fog.color);
+    this.baseHemi = this.hemi.intensity;
+    // a whole new look (planet · hub · space mode) means the old indoor state describes nothing: drop it here rather
+    // than fade it out, so the hangar is never lit by the last raid's roof. `Engine` re-probes within a fraction of a
+    // second and fades it back in if we really are under one.
+    this.indoor = 0;
     if (this.scene.background instanceof THREE.Color) this.baseBg.copy(this.scene.background);
+    this.applyOverride();
+  }
+
+  /* ── appended (2026-09-21): indoor brightness, 「레이드 실내가 어둡다」 ─────────────────────────────────────── */
+  /**
+   * Step the indoor crossfade toward `target` (1 = indoors). `Engine` owns the probe and calls this every frame;
+   * the fade is **linear over `INDOOR_LIGHT_FADE_S`**, not a damp, because a damp never actually arrives and would
+   * rewrite the fog every frame for the rest of the raid. Settled = an early return and zero work.
+   */
+  stepIndoor(dt: number, target: number): void {
+    const t = target > 1 ? 1 : target < 0 ? 0 : target;
+    if (this.indoor === t) return;
+    const step = INDOOR_LIGHT_FADE_S > 0 ? dt / INDOOR_LIGHT_FADE_S : 1;
+    this.indoor = t > this.indoor ? Math.min(t, this.indoor + step) : Math.max(t, this.indoor - step);
+    this.applyOverride();
+  }
+
+  /** Snap the indoor correction off (a scene teardown — `game:abort`). */
+  resetIndoor(): void {
+    if (this.indoor === 0) return;
+    this.indoor = 0;
     this.applyOverride();
   }
 
@@ -169,7 +202,12 @@ export class Atmosphere {
     const base = this.baseDensity;
     // a clear planet (base 0) measures from the density the palette already held — multiplying 0 stays 0 forever
     const target = (base > 0 ? base : this.palette.fogDensity) * this.ovFogMul;
-    this.fog.density = base + (target - base) * t;
+    // 2026-09-21: the indoor correction is laid on **after** the hazard override, as a factor on whatever density
+    // came out of it. Folding it into the override instead would make a roof cancel a sandstorm outright; this way a
+    // storm still darkens the inside, only half as much. Colour and background are left alone — they are the sky.
+    const k = this.indoor;
+    this.fog.density = (base + (target - base) * t) * (1 + (INDOOR_FOG_MUL - 1) * k);
+    this.hemi.intensity = this.baseHemi * (1 + (INDOOR_LIGHT_AMBIENT_MUL - 1) * k);
     this.fog.color.copy(this.baseColor);
     if (this.ovColor !== null && t > 0) this.fog.color.lerp(this.ovScratch.setHex(this.ovColor), t);
     // the background crosses over with it, original colour → fog colour. At t=0 it stays `baseBg`, so a clear

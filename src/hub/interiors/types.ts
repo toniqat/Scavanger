@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { HubAndroidBay, HubShipKind } from '@/shared';
+import type { HubAndroidBay, HubShipKind, ShipModelId } from '@/shared';
 import type { AndroidBayState } from './AndroidBays';
 import type { BoxInteriorCollider } from './InteriorCollider';
 import type { ShipStations, StationDef } from './stations';
@@ -53,6 +53,24 @@ export interface RoomDef extends EditAreaDef {
 
 /** Colours the window planet takes once the warp lands (`PlanetDef.hologram` / `hologramAtmo`). */
 export interface WarpDestination { color: number; atmo: number }
+
+/**
+ * 2026-09-21: what `ShipInterior.updateNear` needs besides the player's own XZ. `HubSystem` gathers both once per
+ * frame from state it already holds — nothing here is measured, so no layout is read inside a frame (§4.2).
+ */
+export interface InteriorNearOpts {
+  /**
+   * Everyone standing in **this** ship: the local player first, then every squadmate whose `hubSite` matches ours.
+   * The airlock's automatic doors open for any of them. A reused array — read it, never keep it.
+   */
+  occupants?: readonly THREE.Vector3[];
+  /**
+   * The edit area the ship-management camera is looking at (a room index or `COCKPIT_ROOM_INDEX`), null whenever
+   * the mode is off. The personal ship gives that area — together with the room the PC stands in — the point-light
+   * pool's slots; the light **count** is unchanged, only where the fixed set of lights hangs (§4.5).
+   */
+  focus?: number | null;
+}
 
 /** A built ship interior (personal or shared). Geometry is at world origin on every client. */
 export interface ShipInterior {
@@ -114,17 +132,21 @@ export interface ShipInterior {
    */
   setWarp?(speed: number, dest?: WarpDestination): void;
   /**
-   * Room lights (2026-09-08): per-frame animation that follows the player — both ships move their light pool here
-   * (the sliding doors it also drove were removed 2026-09-16). Optional.
+   * Per-frame animation that follows the player: the light pool (2026-09-08) and, since 2026-09-21, the personal
+   * ship's automatic airlock doors. `opts` is optional and every interior may ignore it — the shared ship does.
    */
-  updateNear?(dt: number, px: number, pz: number): void;
+  updateNear?(dt: number, px: number, pz: number, opts?: InteriorNearOpts): void;
   /**
    * The shared ship's hangar (2026-09-08, shared ship only): the four personal-ship bays behind the aft door, in slot order.
    * Empty / absent everywhere else.
    */
   readonly bays?: readonly HangarBayDef[];
-  /** Park the squad's ships in the bays: `names[i]` = crew name in bay `i`, null = empty. Shared ship only. */
-  setBayOccupants?(names: readonly (string | null)[]): void;
+  /**
+   * Park the squad's ships in the bays: `names[i]` = crew name in bay `i`, null = empty. Shared ship only.
+   * 2026-09-21: `models[i]` is that member's own ship model (`shared/shipModel.ts`) — a bay shows the ship its owner
+   * flies, which is the same model that lands on the extraction pad when they call it. Omitted / null = the default.
+   */
+  setBayOccupants?(names: readonly (string | null)[], models?: readonly (ShipModelId | null)[]): void;
   /**
    * The android bays (2026-09-15, shared ship only): the cockpit's `ANDROID_BAY_COUNT` capsules in bay order. Absent /
    * empty everywhere else. A reused array — read it and use it, never keep it.

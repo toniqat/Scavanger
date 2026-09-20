@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { Layers, ROVER_HALF_LENGTH, ROVER_HALF_WIDTH, ROVER_HULL_H, type Random } from '@/shared';
 import { merge, paint, paintGradient, xform } from '../../build';
 import type { ObstacleEntry, SpatialHash } from '../../SpatialHash';
+import { roverWheelZoneOf } from '../model';
 
 const KHAKI = new THREE.Color(0x7a735a);
 const KHAKI_DARK = new THREE.Color(0x48452f);
@@ -30,19 +31,42 @@ const WRECK_TINT = new THREE.Color(0x3b3531);
 /** The wheel radius (m) — the wheel angle = distance travelled / this value. */
 export const ROVER_WHEEL_R = 0.55;
 const WHEEL_X = [-2.55, -0.85, 0.85, 2.55];
-/** The turret ring's local spot (on the body's top face). */
+/** The two turret rings' local spots (on the body's top face) — the nose gun and, 2026-09-21, the tail gun. */
 const TURRET_X = 0.55;
+const TURRET_REAR_X = -2.5;
+const TURRET_Y = 2.17;
+/**
+ * The rear turret is drawn **from the front turret's own merged geometry**, only smaller and turned round. One more
+ * body-sized mesh is one more draw call and the same triangles as the gun that was already there — building a second
+ * silhouette would have added a second geometry's worth for a thing the player mostly sees from behind (§4.5: a
+ * body's cost is its triangles).
+ */
+const TURRET_REAR_SCALE = 0.85;
+
+/** One gun mount. `restYaw` = where it points with no target, measured **from the hull's facing** (front 0, rear π). */
+export interface RoverTurretMount {
+  group: THREE.Group;
+  /** The child that carries the mount's scale — every local coordinate of the turret model lives in **this** space. */
+  inner: THREE.Group;
+  /** The muzzle tip (its world position is read off it). */
+  barrelTip: THREE.Object3D;
+  muzzleFlash: THREE.Mesh;
+  restYaw: number;
+}
 
 export interface RoverBody {
   /** Position + yaw. */
   root: THREE.Group;
   /** Terrain pitch (about the local Z axis) · roll (about the local X axis). */
   tilt: THREE.Group;
-  turret: THREE.Group;
-  /** The muzzle tip (its world position is read off it). */
-  barrelTip: THREE.Object3D;
-  muzzleFlash: THREE.Mesh;
+  /** `[front, rear]` — the index is `ROVER_TURRET_FRONT_PART` / `_REAR_PART` minus `ROVER_WHEEL_ZONES`. */
+  turrets: readonly [RoverTurretMount, RoverTurretMount];
   wheels: THREE.Mesh[];
+  /**
+   * `wheels` indices per wheel **zone** (`ROVER_PART_ORDER`'s first four). The body draws two wheels per quadrant and
+   * the hit zones are four, so one zone dying blows the pair it owns.
+   */
+  wheelsByZone: readonly (readonly number[])[];
   hullEntry: ObstacleEntry;
   hullMat: THREE.MeshStandardMaterial;
   wheelMat: THREE.MeshStandardMaterial;
@@ -77,7 +101,8 @@ export function buildRoverBody(hash: SpatialHash, rng: Random, geos: THREE.Buffe
     box(hull, 0.12, 0.12, 0.3, L - 1.25, 2.22, side * 0.55, GLASS);                            // driver's periscope
     box(hull, 0.7, 0.08, 0.7, -1.4, 2.21, side * 0.6, PANEL);                                  // roof hatch
   }
-  box(hull, 0.9, 0.35, 0.5, -1.95, 2.35, -0.85, KHAKI_DARK);                                   // stowage bin
+  // 2026-09-21: the roof's stowage bin moved out onto the left flank — the rear turret ring now stands where it sat.
+  box(hull, 0.9, 0.35, 0.28, -0.95, 1.62, W + 0.15, KHAKI_DARK);                                // stowage bin
   box(hull, 0.6, 0.25, 0.12, -2.4, 1.7, W + 0.06, RUBBER);                                     // exhaust
   {
     const antenna = new THREE.CylinderGeometry(0.02, 0.025, 1.6, 5);
@@ -107,7 +132,8 @@ export function buildRoverBody(hash: SpatialHash, rng: Random, geos: THREE.Buffe
     box(glow, 0.05, 0.1, 0.14, -L + 0.02, 1.95, side * (W - 0.25), MARKER);
     box(glow, 0.14, 0.06, 0.05, L * 0.84 - 0.2, 1.72, side * (W + 0.03), MARKER);
   }
-  box(glow, 0.08, 0.06, 0.5, -2.95, 2.2, 0, BEACON);
+  // 2026-09-21: the roof beacon sits between the hatches and the rear turret ring now (it used to be at the tail).
+  box(glow, 0.08, 0.06, 0.5, -1.95, 2.2, 0, BEACON);
   const glowGeo = merge(glow);
   geos.push(glowGeo);
   const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true });
@@ -139,16 +165,6 @@ export function buildRoverBody(hash: SpatialHash, rng: Random, geos: THREE.Buffe
   }
   const turGeo = merge(tur);
   geos.push(turGeo);
-  const turret = new THREE.Group();
-  turret.name = 'rover_turret';
-  turret.position.set(TURRET_X, 2.17, 0);
-  const turMesh = new THREE.Mesh(turGeo, hullMat);
-  turMesh.castShadow = true;
-  turMesh.layers.enable(Layers.PROP);
-  turret.add(turMesh);
-  const barrelTip = new THREE.Object3D();
-  barrelTip.position.set(2.36, 0.52, 0.08);
-  turret.add(barrelTip);
   const flashGeo = new THREE.ConeGeometry(0.17, 0.6, 7);
   xform(flashGeo, { x: 0, y: 0, z: 0 }, new THREE.Euler(0, 0, -Math.PI / 2));
   geos.push(flashGeo);
@@ -156,12 +172,35 @@ export function buildRoverBody(hash: SpatialHash, rng: Random, geos: THREE.Buffe
     color: 0xffc36a, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false,
   });
   mats.push(flashMat);
-  const muzzleFlash = new THREE.Mesh(flashGeo, flashMat);
-  muzzleFlash.position.set(2.66, 0.52, 0.08);
-  muzzleFlash.scale.setScalar(1e-4);   // hidden = scale 0 (turning `visible` off would drop it from the shader pre-compile)
-  muzzleFlash.frustumCulled = false;
-  turret.add(muzzleFlash);
-  tilt.add(turret);
+
+  /** One mount from the shared turret geometry. `restYaw` is measured from the hull's facing. */
+  const mount = (name: string, x: number, scale: number, restYaw: number): RoverTurretMount => {
+    const group = new THREE.Group();
+    group.name = name;
+    group.position.set(x, TURRET_Y, 0);
+    const inner = new THREE.Group();     // the scale lives here so `group.rotation.y` stays the aim yaw alone
+    inner.scale.setScalar(scale);
+    group.add(inner);
+    const mesh = new THREE.Mesh(turGeo, hullMat);
+    mesh.castShadow = true;
+    mesh.layers.enable(Layers.PROP);
+    inner.add(mesh);
+    const barrelTip = new THREE.Object3D();
+    barrelTip.position.set(2.36, 0.52, 0.08);
+    inner.add(barrelTip);
+    const muzzleFlash = new THREE.Mesh(flashGeo, flashMat);
+    muzzleFlash.position.set(2.66, 0.52, 0.08);
+    muzzleFlash.scale.setScalar(1e-4);   // hidden = scale 0 (turning `visible` off would drop it from the shader pre-compile)
+    muzzleFlash.frustumCulled = false;
+    inner.add(muzzleFlash);
+    tilt.add(group);
+    return { group, inner, barrelTip, muzzleFlash, restYaw };
+  };
+  const turrets: readonly [RoverTurretMount, RoverTurretMount] = [
+    mount('rover_turret_front', TURRET_X, 1, 0),
+    mount('rover_turret_rear', TURRET_REAR_X, TURRET_REAR_SCALE, Math.PI),
+  ];
+  for (const t of turrets) t.group.rotation.y = -t.restYaw;
 
   /* ── Eight wheels (one shared geometry) ─────────────────────────────── */
   const wheelParts: THREE.BufferGeometry[] = [];
@@ -183,19 +222,21 @@ export function buildRoverBody(hash: SpatialHash, rng: Random, geos: THREE.Buffe
   const wheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.1 });
   mats.push(wheelMat);
   const wheels: THREE.Mesh[] = [];
+  const wheelsByZone: number[][] = [[], [], [], []];
   for (const wx of WHEEL_X) {
     for (const side of [-1, 1]) {
       const m = new THREE.Mesh(wheelGeo, wheelMat);
       m.position.set(wx, ROVER_WHEEL_R, side * (W - 0.2));
       m.castShadow = true;
       tilt.add(m);
+      wheelsByZone[roverWheelZoneOf(wx, side)].push(wheels.length);
       wheels.push(m);
     }
   }
 
   const hullEntry = hash.addBox(new THREE.Vector3(0, -9999, 0), L, W, 0, ROVER_HULL_H, 'rover');
 
-  return { root, tilt, turret, barrelTip, muzzleFlash, wheels, hullEntry, hullMat, wheelMat, glowMat, wheelAngle: 0 };
+  return { root, tilt, turrets, wheels, wheelsByZone, hullEntry, hullMat, wheelMat, glowMat, wheelAngle: 0 };
 }
 
 /** Places the body and its collider at `(x, y, z)` (y = the road surface) and `yaw`. */
@@ -216,11 +257,36 @@ export function spinRoverWheels(body: RoverBody, distance: number): void {
   for (const w of body.wheels) w.rotation.z = -body.wheelAngle;
 }
 
-/** The destroyed look — scorched colours · dead lights · a twisted turret. Only material colours change, so no shader recompiles. */
+/** The destroyed look — scorched colours · dead lights · twisted turrets. Only material colours change, so no shader recompiles. */
 export function applyRoverWreckLook(body: RoverBody): void {
   body.hullMat.color.copy(WRECK_TINT);
   body.wheelMat.color.set(0x2e2c2a);
   body.glowMat.color.set(0x1a1a1a);
-  body.turret.rotation.set(0.12, body.turret.rotation.y + 0.7, -0.08);
-  body.muzzleFlash.scale.setScalar(1e-4);
+  for (const t of body.turrets) {
+    t.group.rotation.set(0.12, t.group.rotation.y + 0.7, -0.08);
+    t.muzzleFlash.scale.setScalar(1e-4);
+  }
+}
+
+/**
+ * 2026-09-21 — a blown wheel **zone**: both of that quadrant's wheels drop onto the rim and cant over.
+ * The eight wheels share one material, so the look cannot be a colour — it is the pose, which reads from any angle
+ * and costs nothing (no new geometry, no new material, no shader recompile).
+ */
+export function applyRoverWheelWreck(body: RoverBody, zone: number): void {
+  for (const i of body.wheelsByZone[zone] ?? []) {
+    const w = body.wheels[i];
+    if (!w) continue;
+    w.position.y = ROVER_WHEEL_R * 0.45;
+    w.rotation.x = w.position.z >= 0 ? 0.38 : -0.38;
+    w.scale.set(1, 1, 0.45);
+  }
+}
+
+/** 2026-09-21 — a dead gun: the barrel droops and the flash is off for good. `which` 0 = front, 1 = rear. */
+export function applyRoverTurretWreck(body: RoverBody, which: number): void {
+  const t = body.turrets[which];
+  if (!t) return;
+  t.group.rotation.z = 0.42;
+  t.muzzleFlash.scale.setScalar(1e-4);
 }

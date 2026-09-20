@@ -10,11 +10,11 @@ settings reach the engine through `main.ts` (`ui:displayChanged`).
 
 | File | Responsibility |
 |---|---|
-| `Engine.ts` | `Engine(canvas, uiRoot)`: renderer (sRGB, ACES, PCFSoft shadows, pixel ratio capped), scene, camera, `GameContext`, input binding, `addSystem()` / `start()`. Post chain RenderPass → UnrealBloomPass → outline passes → OutputPass. Display knobs `setPostProcessing` · `setShadows` · `setResolutionScale`, bloom perf guard, `debugForcePerfGuard()`. Palette on `world:ready`; clears FX + atmosphere override on `game:abort`. |
+| `Engine.ts` | `Engine(canvas, uiRoot)`: renderer (sRGB, ACES, PCFSoft shadows, pixel ratio capped), scene, camera, `GameContext`, input binding, `addSystem()` / `start()`. Post chain RenderPass → UnrealBloomPass → outline passes → OutputPass. Display knobs `setPostProcessing` · `setShadows` · `setResolutionScale`, bloom perf guard, `debugForcePerfGuard()`. Palette on `world:ready`; clears FX + atmosphere override on `game:abort`. Owns the indoor probe (`stepIndoorLight` · `indoorApplies` · `probeIndoor`). |
 | `LightBudget.ts` | Keeps the visible point-light count constant: `SCENE_POINT_LIGHT_BUDGET` padding lights (intensity 0) switched on to fill the gap each frame. `countVisiblePointLights(root)`, `contentCount()`, `padsShown`. Engine field `lights`. |
 | `ShaderWarmup.ts` | `ctx.shaders` (`ShaderWarmupRef`, `src/shared/render.ts`): `warm(root, replaces?)`, `holdForScene()`, `hold(promise)`, `holdFor(promise, timeoutS)`, `holding`, `pendingJobs`, `compileProgress`; `update()` / `beforeRender()` called by Engine. Times out after `SHADER_WARMUP_TIMEOUT_S` (or the caller's own cap). |
 | `Outline.ts` | `ctx.outline` (`OutlineRef`, `src/shared/render.ts`): screen-space outline channels `hover` (white) and `selected` (green) via one `OutlinePass` per channel. Empty channel = pass disabled = zero cost. `renderDirect` draws on the canvas path when bloom is off; `warm()` pre-links its programs. |
-| `Atmosphere.ts` | Sun (shadow frustum follows the player on a snapped grid), hemisphere fill, `FogExp2`, sky dome. `applySeed(seed)`, `setSpaceMode(on)` (hub look), `setOverride(fogMul, color, blend)` (hazard visibility). Exposed as `scene.userData.atmosphere` so `hub/` can call it without importing `core/`. |
+| `Atmosphere.ts` | Sun (shadow frustum follows the player on a snapped grid), hemisphere fill, `FogExp2`, sky dome. `applySeed(seed)`, `setSpaceMode(on)` (hub look), `setOverride(fogMul, color, blend)` (hazard visibility), `stepIndoor(dt, target)` / `resetIndoor()` (the indoor view correction). Exposed as `scene.userData.atmosphere` so `hub/` can call it without importing `core/`. |
 | `Sky.ts` | Gradient sky dome shader (horizon haze, sun disc, stars); `SKY_PALETTES`, `SkyPalette`. |
 | `util/MathUtil.ts` | `damp` / `dampVec3` / `dampAngle`, `smoothDamp`, easings, `noise1`, `randomInCone`. |
 | `fx/ParticlePool.ts` | Fixed-capacity CPU-simulated `THREE.Points` pool (additive or alpha); on-screen point size capped. |
@@ -28,14 +28,15 @@ settings reach the engine through `main.ts` (`ui:displayChanged`).
 
 - `ctx.shaders`, `ctx.outline` — see `src/shared/render.ts`.
 - Events consumed: `world:ready` (palette + `holdForScene()`), `game:abort`, `game:paused {paused, freeze}`,
-  `atmo:override {fogMul, color, blend}` (the only path that narrows sky/fog visibility — hazards emit it; `world/` never touches `scene.fog`).
+  `atmo:override {fogMul, color, blend}` (the only path that narrows sky/fog visibility — hazards emit it; `world/` never touches `scene.fog`),
+  `ui:cinematic {active}` (suspends the indoor correction).
 - Events emitted: `render:autoAdjusted {bloom:false, reason:'perf'}` — at most once per boot, when the perf guard turns bloom off.
 - Called from `main.ts`: `setPostProcessing`, `setShadows`, `setResolutionScale` (on every `ui:displayChanged`).
 - Debug: `window.__game` is the Engine (`__game.lights`, `__game.shaders`, `__game.debugForcePerfGuard()`).
 
 Frame order (`Engine.frame`): dt clamp → `ctx.time` / `ctx.missionTime` → systems `update` → `lateUpdate` → FX pools →
-atmosphere → `shaders.update()` → `shaders.beforeRender()` → `outline.warm` → render (skipped while `shaders.holding`)
-→ `input.endFrame()`.
+indoor step → atmosphere → `shaders.update()` → `shaders.beforeRender()` → `outline.warm` → render (skipped while
+`shaders.holding`) → `input.endFrame()`.
 
 ## Rules
 
@@ -66,13 +67,25 @@ atmosphere → `shaders.update()` → `shaders.beforeRender()` → `outline.warm
   so the settings menu's effective-value publish is a no-op and the player's re-enable counts as a change. — `Engine.perfDisableBloom`
 - `outline.warm` runs outside the draw branch so new outline programs link during a hold, not right after it. Outline
   renders disable `shadowMap.autoUpdate` and restore every `visible` flag they touch. — `Outline.ts`
+- **Indoors is brighter without a light** (2026-09-21, user's request 「레이드 실내가 어둡다」). The lift is a factor on the
+  **hemisphere fill that already exists** (`INDOOR_LIGHT_AMBIENT_MUL`) plus a thinner fog (`INDOOR_FOG_MUL`), crossed
+  over linearly across `INDOOR_LIGHT_FADE_S` so a doorway cannot flicker. Adding a light instead is forbidden — the
+  raid budget has zero spare and the count is a program key (rule above). It is **local and silent**: nothing on the
+  wire, other clients unaffected. — `Atmosphere.stepIndoor` / `applyOverride`, `Engine.stepIndoorLight`
+- The indoor factor is laid on **after** the `atmo:override` result, not folded into it: a roof must soften a
+  sandstorm, never cancel it. Fog **colour** and the background are left alone — they are the sky. `captureBase`
+  takes `baseHemi` and drops the indoor state, so a new palette / `setSpaceMode` never inherits the last roof. — `Atmosphere.applyOverride`
+- The probe is one upward ray from the eye (`world.raycast`, `INDOOR_PROBE_UP_M`) at `INDOOR_LIGHT_FADE_S / 4` — the
+  rate is **derived from the fade**, so the state is at worst a quarter of a crossfade late (invisible) for a handful
+  of rays per second instead of one per frame. It is skipped outside a gameplay phase, in the hub / `spaceMode`,
+  during `liftoff` or any `ui:cinematic`, and before `world.ready`. — `Engine.indoorApplies` / `probeIndoor`
 - Only the FX/util barrels are shared; `hub/` reaches the atmosphere via `scene.userData.atmosphere`, not an import.
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/core`.
+- 2026-09-21 — Indoors is lifted locally: `Atmosphere.stepIndoor` scales the existing hemisphere fill and thins the fog over `INDOOR_LIGHT_FADE_S`, driven by `Engine`'s upward eye probe at a quarter of that fade. No light added, nothing on the wire.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-20 — `countVisiblePointLights` walks an explicit stack instead of `traverseVisible` and skips the padding group it already counts; `x:lightBudget` 0.156–0.157 → 0.132–0.142 ms/frame in S2. The count stays exact and per-frame — see the rule above for why a flag or an interval was rejected (`docs/DECISIONS.md` perf Phase C · B3).
 - 2026-09-15 — `ShaderWarmup.holdFor(ready, timeoutS)` and `compileProgress` for the raid-entry loading gate.
 - 2026-09-12 — `outline.warm` runs even while a shader hold is active.
-- 2026-09-12 — `Outline.ts` / `ctx.outline`: hover/selected screen-space outlines for ship management.
