@@ -112,3 +112,5 @@ export * from './corpseViewers';
 export * from './charBuffView';
 /* appended (2026-09-17, B-17): hiding during a cutscene — a popup whose state would break if it closed hides for the cutscene and comes back unchanged */
 export * from './cutsceneHide';
+/* appended (2026-09-20, B-63): the shot sound id table — weapons/ and player/ (android squadmates) read the one table */
+export * from './shotSounds';

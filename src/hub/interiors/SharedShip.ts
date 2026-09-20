@@ -27,8 +27,10 @@ const HANGAR_DOOR_HEIGHT = 3.2;
 /**
  * Shared ship: 26×14 m main deck. Bridge + terminal and a wide viewport at −X, four launch pods in a row on the −Z
  * wall (slot-coloured rings by LaunchPod), armoury / lockers / crates along +Z, central holo table, airlock at +X
- * where docking arrivals spawn. Six light fixtures on the deck + nine in the hangar, served by `HUB_POINT_LIGHTS`
- * pool lights nearest the player (2026-09-10, `LightPool` — the deck and the hangar used to hang 15 lights of their own).
+ * where docking arrivals spawn. Light **places** are the `deck` array in the constructor plus `Hangar.lightFixtures`,
+ * served by the `HUB_POINT_LIGHTS` pool lights nearest the player (2026-09-10, `LightPool` — the deck and the hangar
+ * used to hang a `PointLight` of their own on every one of them). The two arrays are the count: writing the number
+ * here is what went stale in `PersonalShip` before the 2026-09-19 audit.
  *
  * **Hangar (2026-09-08)**: the middle of the +Z (aft) wall is a 4 m open doorway (a sliding door until 2026-09-16)
  * onto the `Hangar` deck — 44 × 30 m, four marked bays with the squad's personal ships parked in them. The hangar is
@@ -267,7 +269,8 @@ export class SharedShip implements ShipInterior {
     this.holo.position.set(0, 1.62, 1.5);
     r.add(this.holo);
 
-    // Light places (2026-09-10): the deck's six fixtures + the hangar's nine; `HUB_POINT_LIGHTS` pool lights serve the nearest
+    // Light places (2026-09-10): this `deck` array + `Hangar.lightFixtures`; `HUB_POINT_LIGHTS` pool lights take the
+    // nearest of them — the arrays are the count, so no number is written down anywhere
     const fx = (x: number, y: number, z: number, color: number, intensity: number, distance: number): LightFixture => ({ x, y, z, color, intensity, distance });
     const deck: LightFixture[] = [
       fx(-8, CEIL - 0.3, 0.5, 0xeef2ff, 30, 13),
@@ -322,7 +325,8 @@ export class SharedShip implements ShipInterior {
 
   /** The light pool follows the player (called by the hub, same contract as `PersonalShip.updateNear`). */
   updateNear(dt: number, px: number, pz: number): void {
-    // past the aft wall = the hangar: its nine gantry lamps outrank the deck lamps behind the bulkhead, and vice versa
+    // past the aft wall = the hangar: its own places (`Hangar.lightFixtures` — the gantry rows and the gate lamp)
+    // outrank the deck lamps behind the bulkhead, and vice versa
     this.lightPool.update(dt, px, pz, pz > ROOM.maxZ ? 1 : 0);
   }
 

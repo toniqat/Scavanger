@@ -14,8 +14,8 @@
  *             다시 굽는다 (`vite build` + `node electron/build.mjs` — `npm run app:build` 에서 tsc 만 뺐다: 타입 검사는
  *             러너의 1단계가 하고, 남의 폴더의 반쯤 된 타입 에러로 셸 검사가 막히지 않게). 번들에 릴레이 코드
  *             (`startRelayServer` · `WebSocketServer` · `ProfileStore` · `ws` import)가 **없다**. 스모크의 릴레이를 9823 에 띄운다.
- *   1. 부팅   `electron.exe <repo> --hidden --relay=ws://127.0.0.1:9823/ws --app-port=8820 --user-data=<tmp>
- *             --remote-debugging-port=9340` → `/json/version` → puppeteer-core `connect` → `127.0.0.1:8820` 페이지.
+ *   1. 부팅   `electron.exe <repo> --hidden --relay=ws://127.0.0.1:9823/ws --app-port=9910 --user-data=<tmp>
+ *             --remote-debugging-port=9340` → `/json/version` → puppeteer-core `connect` → `127.0.0.1:9910` 페이지.
  *             `window.__game.ctx` · UA `Electron/` · `__scavDesktop` 흉내 없음 · `__scavShellRelock` 설치 ·
  *             숨긴 창에서도 시뮬레이션이 돈다 · 메인 프로세스 인스펙터(`--inspect=9341`)로 `webContents.sendInputEvent`
  *             Escape 를 넣으면 `before-input-event` → `__scavShellRelock` 이 정확히 한 번 · 페이지는 키를 한 번씩만 받는다.
@@ -27,8 +27,8 @@
  *             (`electron/default-relay.txt` 에 LAN 주소가 구워져 있다). 함선에 들어가면 링크가 8787 에 붙거나(공용 릴레이가
  *             떠 있을 때) `unreachable` + 배경 프로브다 — 어느 쪽이든 `embedded` 는 없다.
  *   4. 세이브 = 창 포트   localStorage 표식 → CDP `Browser.close` 정상 종료 → 같은 `--app-port` 재부팅(3번) → 표식 있음 ·
- *             `--app-port=8822` → 없음. 함선에서 `body.desktop-nocursor` 가 켜지는 것으로 `isDesktopShell()` 이 흉내 없이 true.
- *   5. 단일 인스턴스   같은 userData 로 두 번째 실행 → 곧바로 exit 0 · 첫 창에 `second-instance` · 8822 를 안 연다.
+ *             `--app-port=9912` → 없음. 함선에서 `body.desktop-nocursor` 가 켜지는 것으로 `isDesktopShell()` 이 흉내 없이 true.
+ *   5. 단일 인스턴스   같은 userData 로 두 번째 실행 → 곧바로 exit 0 · 첫 창에 `second-instance` · 9912 를 안 연다.
  *   6. `server.txt`   임시 폴더 = `cwd` 후보, BOM + 주석 + 맨 `host:port` → 구운 LAN 주소보다 먼저 걸리고 그 릴레이에 붙는다.
  *   7. `--release` 일 때만: `release/SCAVANGER/` 가 정확히 **셋**(app/ · SCAVANGER.exe · server.txt) · `app.asar` 에 릴레이 코드도
  *             `node_modules` 도 없다 · `server.txt` 가 start-server.bat 를 말한다 · stub `SCAVANGER.exe` 가 인자(`--hidden
@@ -37,7 +37,7 @@
  *
  * 포트 (다른 러너와 겹치지 않게 고정):
  *   8787 공용 릴레이(이 스모크는 듣지 않는다 — 3번에서 셸이 그리로 파이프할 뿐) · 8790–8799 **사용자의 실제 세이브 오리진(절대
- *   안 쓴다)** · 8820 창 · 8822 두 번째 창 오리진 · 9823 스모크 릴레이 · 9340 원격 디버깅(렌더러 CDP) ·
+ *   안 쓴다)** · 9910 창 · 9912 두 번째 창 오리진 · 9823 스모크 릴레이 · 9340 원격 디버깅(렌더러 CDP) ·
  *   9341 메인 프로세스 Node 인스펙터.
  *   시작할 때 이 포트가 막혀 있으면 — 이 스크립트가 남긴 것(명령줄에 `scav-desktop-`)만 죽이고, 아니면 아무것도 안 하고 실패한다.
  *
@@ -79,8 +79,13 @@ const RELEASE = args.includes('--release') || !!RELEASE_DIR;
 const NO_BUILD = args.includes('--no-build');
 const FORCE_BUILD = args.includes('--build');
 
-const APP_PORT = 8820;
-const APP_PORT_2 = 8822;
+// ⚠ 2026-09-20: 원래 8820 · 8822 였는데 같은 날 `PROXY_RELAY_PORT` 를 옮기면서 이 둘을 빼먹었다 — 둘 다 WinNAT 예약 구간
+// **8800–8899** 안이고, 셸은 `APP_PORT` 부터 `APP_PORT_TRIES`(10) 개를 순서대로 시도하므로 8820–8829 가 전부 EACCES 가 된다.
+// 그러면 창이 아예 안 떠서 `/json/version` 이 45 초 안에 답하지 않고, 점수는 5/6 으로 끝난다 (`docs/TODO.md` E-13 이 「원인 미상」
+// 으로 적어 둔 바로 그 빨간이다). 9910–9919 는 그 밖이고 9823 · 9885 · 9886 · 9896 와도 거리가 있다.
+// 범위는 기계마다 · 때마다 옮겨간다 — 다시 빨간이면 `netsh interface ipv4 show excludedportrange protocol=tcp` 를 먼저 본다.
+const APP_PORT = 9910;
+const APP_PORT_2 = 9912;
 // ⚠ 2026-09-20: 원래 8823 였는데 이 개발 PC 의 WinNAT 이 **8800–8899** 를 통째로 예약해 bind 가 EACCES 로 죽고, 스모크가 「포트가 비어 있어야 한다」로 오진단해 항상 실패했다 (`netsh interface ipv4 show excludedportrange protocol=tcp`). 9823 는 그 범위 밖이다 — `smoke-netlink` 이 같은 날 9885 · 9886 으로 옮긴 것과 같은 이유다.
 const PROXY_RELAY_PORT = 9823;
 const DEBUG_PORT = 9340;
@@ -194,9 +199,16 @@ async function bootDiag(h, debugPort, lastErr, waitedMs, graceMs = 120_000) {
   let late = null;
   while (!late && Date.now() - t1 < graceMs) { late = await getJson(`http://127.0.0.1:${debugPort}/json/version`, 1000); if (!late) await sleep(500); }
   const lateS = late ? ((Date.now() - t1 + waitedMs) / 1000).toFixed(0) : null;
+  /*
+   * 2026-09-20 (E-13): 셀이 이미 「app port N is reserved by Windows」를 열 줄씩 찍고 있었는데, 한 줄짜리 FAIL 요약이
+   * 그걸 올려 주지 않아 나흘 동안 「원인 미상」으로 남아 있었다. 진단이 스스로 말하게 한다 — 이 줄이 뜨면 포트 문제지
+   * 앞의 어느 검사도 아니므로 `netsh interface ipv4 show excludedportrange protocol=tcp` 를 보고 포트를 옮기면 된다.
+   */
+  const reserved = (h?.out.match(/app port \d+ is reserved by Windows/g) ?? []).length;
+  const portNote = reserved ? ` — 셸이 앱 포트 ${reserved}개를 「reserved by Windows」로 넘겼다: WinNAT 예약 구간이 APP_PORT 스캔 범위를 덮어 창이 열리지 않았다` : '';
   return `[진단] exit=${JSON.stringify(h?.exit ?? null)} 프로세스생존=${alive} 트리=${tree} `
     + `듣는중 ${debugPort}=[${onDebug.join(',')}] ${INSPECT_PORT}=[${onInspect.join(',')}] 마지막fetch=${lastErr ?? 'none'} `
-    + (late ? `— 결국 ${lateS} s 에 떴다 (죽은 게 아니라 느린 것이다)` : `— ${Math.round((waitedMs + graceMs) / 1000)} s 를 기다려도 안 떴다`);
+    + (late ? `— 결국 ${lateS} s 에 떴다 (죽은 게 아니라 느린 것이다)` : `— ${Math.round((waitedMs + graceMs) / 1000)} s 를 기다려도 안 떴다`) + portNote;
 }
 
 /**

@@ -1546,11 +1546,9 @@ input { font: inherit; color: inherit; }
 .oarrow .ico { font-size: 11px; line-height: 1; color: var(--oc); }
 .oarrow .lbl { font-size: 9px; letter-spacing: 0.08em; color: var(--c-text); white-space: nowrap; }
 .oarrow .lbl:empty { display: none; }
-.oarrow.grenade .ico { font-size: 9px; }
-.oarrow.grenade.hot .tip, .oarrow.grenade.hot .ico { animation: cookPulse 200ms ease-in-out infinite alternate; }
+/* 2026-09-20 (B-66): `.oarrow.grenade*` · `.oarrow.call*` are gone. Grenades and ship calls left this widget for
+   `hud/DangerIndicators` on 2026-09-10, so `OffscreenIndicators` only ever writes the `ping` category now. */
 .oarrow.ping .lbl { color: var(--c-text-dim); }
-.oarrow.call .body { border-color: var(--c-border-strong); }
-.oarrow.call.orbital_laser .tip, .oarrow.call.airstrike .tip { animation: cookPulse 320ms ease-in-out infinite alternate; }
 /* ══════════════════════════════════════════════════════════════════════════
  * ── tactical kit ──  implant widget, quick-use bar, weight bar, detection,
  *                     deployable / mine markers, downed UI, progress toasts,

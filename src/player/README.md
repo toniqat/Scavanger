@@ -37,7 +37,7 @@ revive / carry interactions. Weapons, implants and gadgets act on the player onl
 | `Hellpod.ts` | Procedural drop pod + drop choreography; `group` holds the light, `body` holds the meshes |
 | `RemotePods.ts` | Three pre-built pods that replay squadmates' `pod drop` |
 | `RemotePlayerSystem.ts` | Remote avatars lifecycle, remote footsteps, revive interactables, carry host, ghosts (host), remote falls, ally avatars + `ally revive` receipt + ally pod drops, debug hooks |
-| `AllyAvatars.ts` | Android squadmate bodies (`ctx.allies.getBodies()` → `SoldierModel` with the android look): pose mapping, held gun / armor, footsteps, `revive:ally:<id>`, shot FX, carry socket, smoke injection hooks |
+| `AllyAvatars.ts` | Android squadmate bodies (`ctx.allies.getBodies()` → `SoldierModel` with the android look): pose mapping, held gun / armor (`shared/shotSounds.weaponClassOfDef`), footsteps, `revive:ally:<id>`, shot FX (shot id from `shared/shotSounds.shotSoundOfDef` — the table weapons/ reads), carry socket, smoke injection hooks |
 | `RemoteAvatar.ts` | `RemoteAvatarRef`: pose from snapshot flags, held item, armor, suspended grey look, climb / furniture / rover visibility, per-avatar `weaponSocket` |
 | `Carry.ts` | `CarryHost` seam between the two systems (`PlayerSystem.setCarryHost`) |
 | `Portraits.ts` | `createPortraits` — separate WebGL canvas for the launch-slot panel portraits (null when no context) |
@@ -75,7 +75,6 @@ revive / carry interactions. Weapons, implants and gadgets act on the player onl
 `debugAllyBody(opts)` / `debugAllyClear(id?)`.
 
 **`AllyAvatars`** (via `getSystem('remotePlayers').getAllyAvatars()`): `getAvatar(id)` / `getAvatars()` / `size` /
-`has(id)` (read by `RemotePlayerSystem.updateCarries` — a carry ends when the body's avatar is gone) /
 `getReviveTargets()` / `socketOf(id)` / `carrierOf(ctx, peer)`; `AllyAvatar` exposes `isShown`, `isGreyed`, `poseView`,
 `heldWeaponId`, `shoulderSocket`, `weaponSocket`, `muzzleWorld(out)`, `getHeadPosition(out)`.
 
@@ -139,7 +138,7 @@ the remote side `net:remotePlayerAdded` / `Removed`, `net:peerSuspended`, `net:m
 | Intro wake (`introWaking`) | tutorial → `playIntroWake(TUTORIAL_INTRO_WAKE_S)`; respawn variant from game/ | Movement, look, aim, weapons, interaction | Ends itself → `player:introWakeDone` (opening only); death / resets cancel silently and clear the fade |
 | Scene lock | extraction → `setSceneLock(true, opts)` | Same input as intro wake; damage ignored, or clamped at `minHp` with `allowDamage`; no knockback | `setSceneLock(false)`, abort / new mission / spawns |
 | Carry / carried | F tap / peer carries us | Carrier: WASD + sprint only; carried: frozen, follows socket | Any other action (`dropCarried('action')`), revive / death / reset |
-| Carried by an android | `ctx.allies.carrierOf(myPeer)` returns a body (`RemotePlayerSystem.updateCarries`) | Same as being carried by a peer; checked **before** the peer path so it works without a `localId` (`ALLY_LOCAL_PEER`) | The body stops carrying us, or its avatar disappears |
+| Carried by an android | `ctx.allies.carrierOf(myPeer)` returns a body (`RemotePlayerSystem.updateCarries`) | Same as being carried by a peer; checked **before** the peer path so it works without a `localId` (`ALLY_LOCAL_PEER`) | `carrierOf` stops naming a body — whether it put us down, died or lost its avatar (the release reads `myCarrierIsAlly`, never `AllyAvatars.has`) |
 | In pod | hub → `setInPod(true)` | Movement / sprint / aim; model hidden | `setInPod(false)`, spawns, abort |
 
 Fall damage (`parts/Fall`): the controller measures fall **height** (`MoveResult.fallHeight`), damage =
@@ -233,8 +232,8 @@ frame plus a `BUFF_TICK_S` tick, and a new array + revision go out only when `sa
 ## Recent changes
 
 Last 5 only — older: `git log -- src/player`.
+- 2026-09-20 — B-63 / B-64: android guns read the one shot-sound table (`shared/shotSounds.ts`, so a legendary no longer fires the rifle sample) and an android carry is released by `RemotePlayerSystem.myCarrierIsAlly` instead of `AllyAvatars.has` — a carrier whose avatar vanished used to leave the local body stuck on a gone socket. `AllyAvatars.has(id)` is gone with its last caller; both defects are now covered by `scripts/smoke-ally-avatars.mjs`.
 - 2026-09-20 — A soldier body draws far less: shadows from the torso · head · limb segments only (13–17 meshes, was 43–65), the occlusion silhouette from the torso + head (3, was 43), and `GearLook` armour plates / held items cast nothing. An android goes 182 draws → ~70 (`SoldierModel.core` / `shadowed`, `GearLook.finish`; user's decision, `docs/DECISIONS.md` perf Phase 1).
 - 2026-09-19 — Audit B-47…B-50: stale comments corrected (`rescueRevive` now gates on `usesHellpod`), dead code / imports dropped (`wasGrounded`, `RigInput.stridePhase`, 578 unused import entries in 8 files), stale-avatar sweeps count the avatars actually drawn, terms unified (armor, stride count).
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-17 — `gaming` char buff also for a standing video-game session (`housing.gameSession.seatUid` null, no furniture pose) — `parts/Buffs.ts`.
-- 2026-09-17 — No occlusion silhouette for bodies leaving in the extraction ship: local `ExtractionRef.riding`, remote / android bodies `inLeavingShip` (`RemoteAvatar.ts`).

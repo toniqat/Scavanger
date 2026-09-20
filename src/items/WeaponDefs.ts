@@ -1,7 +1,7 @@
 import type { UniqueWeaponKind, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
 import {
   AMMO_FOR_CLASS, MELEE_STOCK_MUL_DEFAULT, WEAPON_GRADE_DAMAGE_STEP, WEAPON_GRADE_DURABILITY_STEP, WEAPON_GRADE_ROMAN,
-  UNIQUE_WEAPON_IDS, UNIQUE_WEAPON_LABEL_KO, csvRows,
+  UNIQUE_WEAPON_IDS, UNIQUE_WEAPON_LABEL_KO, csvRows, weaponClassOfDef,
 } from '@/shared';
 import { SOCKET_SLOTS, numberList } from '@/shared';   // 2026-09-14 (gun balance): family sockets · grade handling
 
@@ -42,9 +42,13 @@ export const WEAPON_BASE_DURABILITY: Readonly<Record<WeaponClass, number>> = (()
   return out;
 })();
 
-/** Class of a weapon def; undefined → secondary slot is a pistol, everything else an AR. */
+/**
+ * Class of a weapon def; undefined → secondary slot is a pistol, everything else an AR. The line itself lives in
+ * `shared/shotSounds.weaponClassOfDef` (2026-09-20, B-63) because player/ needs it too and cannot import this folder
+ * (CLAUDE.md §4.1); this export is the name the item-side call sites already use.
+ */
 export function weaponClassOf(def: WeaponDef): WeaponClass {
-  return def.weaponClass ?? (def.slot === 'secondary' ? 'PISTOL' : 'AR');
+  return weaponClassOfDef(def);
 }
 
 /** Family (base weapon id) of a def: `ar` for `ar_g3`; a def without `family` is its own family. */

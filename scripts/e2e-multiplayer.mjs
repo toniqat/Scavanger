@@ -295,7 +295,18 @@ try {
   ok(await A.evaluate(() => (window.__game.ctx.net.getRemotePlayers()[0].flags & (1 << 12)) !== 0), 'remote ref carries IN_HUB flag');
   ok(await A.evaluate(() => window.__game.ctx.net.inHubSession), 'A inHubSession');
   // 2026-09-15: `.squad` 그대로 — `[class*="squad"]` 는 먼저 붙는 분대 도킹 카운트다운(`.hub-squad-dock`)을 집는다
-  ok(await A.evaluate(() => { const el = document.querySelector('#ui-root .squad'); return !!el && el.textContent.includes('분대원'); }), 'A squad panel lists 분대원 in the hub');
+  // 2026-09-20 (B-26): 이 패널은 프레임 루프에서 제 박자로 다시 그린다 (`HudSystem.update` → `Squad.update`). 이름이
+  // `ctx.net.lobby` 에 들어온 직후 DOM 을 한 번만 읽으면 부하가 걸린 회차에 옛 이름이 그대로 잡힌다 (2026-09-19 full
+  // verify 에서 178/179). 위의 이름 단언들과 같은 15 s `waitFor` 로 다시 그릴 때까지 기다리고, 시간이 다 되면 그때
+  // 패널에 **실제로** 무엇이 적혀 있었는지 같이 찍는다 — `false` 만 남으면 나중의 red 를 읽을 수 없다.
+  const squadPanel = await waitFor(A, () => {
+    const el = document.querySelector('#ui-root .squad');
+    return el && el.textContent.includes('분대원') ? 1 : 0;
+  }, 'A squad panel repaint', 15000).catch(() => 0);
+  ok(squadPanel === 1, 'A squad panel lists 분대원 in the hub', squadPanel === 1 ? '' : await A.evaluate(() => {
+    const el = document.querySelector('#ui-root .squad');
+    return el ? `panel=${JSON.stringify(el.textContent.replace(/\s+/g, ' ').trim().slice(0, 200))}` : 'no #ui-root .squad';
+  }));
 
   console.log('crew cards (Phase 10: crew card / crewq loadout / crew loadout)');
   const aIdCrew = await A.evaluate(() => window.__game.ctx.net.localId);

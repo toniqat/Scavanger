@@ -2,7 +2,8 @@
 // `remotePlayers.debugAllyBody()` 로 몸을 주입해 allies/ 없이도 검사한다: 안드로이드 외형(얼굴 조각 교체 · SoldierModel.isAndroid) ·
 // 자세 매핑(stand · crouch · downed · dormant = 회색 + 실루엣 없음 · carry) · 감춰진 · 죽은 몸은 그리지 않음 · 손에 든 총 · 방탄복 판 ·
 // 몸 풀 재사용(같은 SoldierModel 이 돌아온다) · 쓰러진 기의 `revive:ally:<id>` 상호작용(프롬프트 · 완료 → requestRevive) ·
-// 안드로이드가 업은 로컬 플레이어(`carrierOf` → setCarriedBy) · `ally:fired` 연출이 씬의 점광원 개수를 바꾸지 않는다 ·
+// 안드로이드가 업은 로컬 플레이어(`carrierOf` → setCarriedBy) · **업은 아바타가 사라져도 풀려난다**(B-64) ·
+// `ally:fired` 연출이 씬의 점광원 개수를 바꾸지 않는다 · **전설 유니크 6종의 사격음**과 weapons ↔ player 표 일치(B-63) ·
 // 안드로이드 얼굴 초상 · 분대에 안드로이드가 있으면 솔로 PC 도 즉사하지 않고 쓰러진다.
 // Usage: node scripts/smoke-ally-avatars.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
@@ -234,6 +235,58 @@ try {
   });
   ok(!c3.isCarried && c3.inScene, 'put down again → the body is back in the scene', JSON.stringify(c3));
 
+  /*
+   * 2026-09-20 (B-64): 업고 있던 **아바타가 사라져도** 풀려나야 한다. 예전 해제 조건은 `AllyAvatars.has(myCarrier)` 였고
+   * 그건 「그 아바타가 아직 있나」를 묻는 말이라, 몸이 목록에서 빠지면 영영 업힌 채로 남았다. 두 모양을 다 본다:
+   *   ① `localId` 가 있는 경우, ② 없는 경우(`ALLY_LOCAL_PEER` = 서버 없는 솔로) — 아래 peer 경로가 `if (!localId) return`
+   *   으로 먼저 빠지므로 ②는 아무도 풀어줄 수 없던 쪽이다. 2026-09-20 확인: 옛 코드에서 실제로 빨개지는 것은 ②뿐이고
+   *   (①은 peer 경로가 `setCarriedBy(null)` 을 대신 불러 준다) ①은 회귀 방지용으로 함께 남긴다.
+   * 검사가 끝나면 다음 검사들이 쓰는 몸(`ally-a`)을 그대로 다시 넣어 둔다.
+   */
+  console.log('the carry is released even when the carrier avatar disappears (B-64)');
+  const reinject = () => P(() => {
+    const p = window.__game.ctx.player;
+    const pos = p.position.clone(); pos.x += 1.6;
+    window.__b = window.__rp.debugAllyBody({ id: 'ally-a', slot: 1, position: pos, yaw: 0.3, weaponDefId: 'ar', armorDefId: 'armor_2' });
+    return true;
+  });
+  for (const shape of ['localId', 'no localId (ALLY_LOCAL_PEER)']) {
+    const solo = shape !== 'localId';
+    await P((isSolo) => {
+      const ctx = window.__game.ctx;
+      // localId 는 NetSystem 의 getter 다 — 인스턴스에 같은 이름을 얹어 가리고, 끝나면 delete 로 되돌린다
+      if (!isSolo && ctx.net) Object.defineProperty(ctx.net, 'localId', { get: () => 'me', configurable: true });
+      else if (ctx.net) delete ctx.net.localId;
+      window.__b.carrying = (ctx.net && ctx.net.localId) || 'local';
+      window.__b.pose = 'carry';
+    }, solo);
+    await waitSim(0.4);
+    const up = await P(() => {
+      const p = window.__game.ctx.player;
+      const av = window.__rp.getAllyAvatars().getAvatar('ally-a');
+      return { isCarried: p.isCarried, onSocket: !!av && p.object.parent === av.shoulderSocket, peer: window.__b.carrying };
+    });
+    ok(up.isCarried && up.onSocket, `[${shape}] the android shouldered us`, JSON.stringify(up));
+    /*
+     * 아바타 자체를 없앤다. 목록에서 빼기(`debugAllyClear`)**만** 하면 부족하다 — 몸을 지우는 스윕은 `lateUpdate` 에서
+     * 돌고 `updateCarries` 는 `update` 에서 도는 탓에, 그 다음 프레임 한 번은 아바타가 아직 살아 있어서 옛 `has()` 조건도
+     * 우연히 성립한다. 아바타가 **먼저** 사라지는 진짜 구멍(풀 반납 · 함선 전환 등)을 만들려면 같은 틱에 `clear()` 까지 부른다.
+     */
+    await P(() => { const mgr = window.__rp.getAllyAvatars(); window.__rp.debugAllyClear('ally-a'); mgr.clear(); });
+    await waitSim(0.5);
+    const gone = await P(() => {
+      const ctx = window.__game.ctx; const p = ctx.player;
+      return {
+        avatars: window.__rp.getAllyAvatars().size,
+        isCarried: p.isCarried, inScene: p.object.parent === ctx.scene,
+      };
+    });
+    ok(gone.avatars === 0 && !gone.isCarried && gone.inScene, `[${shape}] the avatar vanished → we are put down and back in the scene`, JSON.stringify(gone));
+    await P(() => { const ctx = window.__game.ctx; if (ctx.net) delete ctx.net.localId; });
+    await reinject();
+    await waitSim(0.4);
+  }
+
   console.log('ally:fired FX never changes the scene point-light count');
   const fx = await P(() => {
     const ctx = window.__game.ctx; const V = window.__V;
@@ -247,6 +300,58 @@ try {
   });
   ok(fx.after === fx.before, `ally:fired keeps the point-light count (${fx.before})`, JSON.stringify(fx));
   ok(fx.shots === 6 && fx.id === 'shot_rifle', 'every shot plays the weapon class sound', JSON.stringify(fx));
+
+  /*
+   * 2026-09-20 (B-63): 전설 유니크를 든 안드로이드도 플레이어와 **같은 소리**를 낸다. 표가 둘로 갈라져 있던 동안
+   * 여섯 자루 모두 `shot_rifle` 로 떨어졌다. 위 검사가 `shot_` 로 거르는 바람에 활 · 표창의 `melee_swing` 은 세지도
+   * 않았으므로, 여기서는 나온 `audio:play` id 를 거르지 않고 그대로 모은다. def id 는 `data/weapons_unique.csv` 의 값이다.
+   */
+  console.log('an android holding a legendary plays that unique\'s shot sound (B-63)');
+  const UNIQUE_SHOT_SOUNDS = [
+    ['u_flame', 'shot_energy'], ['u_shock', 'shot_energy'],
+    ['u_shuriken', 'melee_swing'], ['u_bow', 'melee_swing'],
+    ['u_bazooka', 'shot_shotgun'], ['u_minigun', 'shot_rifle'],
+  ];
+  const uq = await P((pairs) => {
+    const ctx = window.__game.ctx;
+    const from = ctx.player.position.clone(); from.y += 1.2;
+    const to = from.clone(); to.x += 25;
+    return pairs.map(([defId]) => {
+      const n0 = window.__ev['audio:play'].length;
+      ctx.bus.emit('ally:fired', { id: 'ally-a', from, to, weaponDefId: defId });
+      return {
+        defId,
+        known: !!(ctx.loot && ctx.loot.getWeaponDef(defId)),
+        ids: window.__ev['audio:play'].slice(n0).map((e) => String(e.id)),
+      };
+    });
+  }, UNIQUE_SHOT_SOUNDS);
+  for (let i = 0; i < UNIQUE_SHOT_SOUNDS.length; i++) {
+    const [defId, want] = UNIQUE_SHOT_SOUNDS[i];
+    const row = uq[i];
+    ok(row.known && row.ids.length === 1 && row.ids[0] === want, `${defId} → ${want}`, JSON.stringify(row));
+  }
+
+  /*
+   * 표가 하나라는 것 자체를 본다: 같은 def 에 대해 weapons 쪽(`WeaponDefaults.shotSoundId(kindOf(def))`)과
+   * player 쪽(`shared/shotSounds.shotSoundOfDef`)이 같은 id 를 내야 한다. 표가 다시 둘로 갈라지는 순간 이 줄이 빨개진다.
+   */
+  console.log('one shot-sound table: weapons ↔ player agree on every weapon def');
+  const cross = await P(async () => {
+    const W = await import('/src/weapons/WeaponDefaults.ts');
+    const S = await import('/src/shared/shotSounds.ts');
+    const D = await import('/src/items/WeaponDefs.ts');
+    const defs = [...D.WEAPON_DEFS, ...D.UNIQUE_WEAPON_DEFS];
+    const bad = [];
+    for (const def of defs) {
+      const weapons = W.shotSoundId(W.kindOf(def));
+      const player = S.shotSoundOfDef(def);
+      if (weapons !== player) bad.push({ id: def.id, weapons, player });
+    }
+    return { n: defs.length, bad: bad.slice(0, 5), badN: bad.length, noDef: S.shotSoundOfDef(null) };
+  });
+  ok(cross.n > 6 && cross.badN === 0, `every weapon def (${cross.n}) gets one id from both sides`, JSON.stringify(cross));
+  ok(cross.noDef === 'shot_rifle', 'no def at all → the shared fallback shot_rifle', JSON.stringify(cross));
 
   console.log('android face portrait');
   const face = await P(() => {

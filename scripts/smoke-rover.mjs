@@ -8,7 +8,7 @@
 //   2. 탑승 상호작용 프롬프트 · 홀드 시간 → 탑승: localAboard · player.roverRide · riders 'local' · 정류장 공개 · 목적지 선택 열기
 //   3. 요금: 10 단위 · [150, 600] · 현재 정류장 거절 · 결제 → 크레딧 차감 = 요금 · departing · tripStarted(local)
 //   4. 유예 뒤 trip · 이동 중 탑승 프롬프트 거절 · 치트 arrive → 도착 · 강제 하차 · 목적지 곁
-//   5. 순환 출발(depart) · 곁에 세운 적에게 포탑이 쏜다
+//   5. 순환 출발(depart) · 곁에 세운 적에게 포탑이 쏜다 (주위를 비우고, 발사 시점의 표적으로 「쐈다」 와 「hp 가 줄었다」 를 한 몸에 묶는다)
 //   6. 다시 도착 → 탑승 → 피해 → 체력 0 → destroyed · 탑승자 하차 · targetable false · 탑승 거절
 //
 // Usage: node scripts/smoke-rover.mjs [http://localhost:5273]
@@ -211,6 +211,23 @@ try {
     /* ── 5 ── */
     await page.evaluate(() => { window.__game.ctx.bus.emit('cheat:rover', { action: 'depart' }); });
     await waitFor(page, () => window.__game.ctx.world.rover.vehicle.state === 'patrol', 'patrol', 20000);
+    // 포탑은 사거리(ROVER_TURRET_RANGE) 안의 **가장 가까운** 적을 골라 직접 때린다 (src/world/rover/parts/Turret.ts).
+    // 그래서 「쐈다」(rover:fired 수)와 「이 적의 hp 가 줄었다」를 따로 보면 서로 다른 몸 둘을 보고 판정하게 된다 —
+    // 더 가까운 벌레가 있으면 20발을 쏘고도 세워 둔 적은 hp 그대로다 (docs/TODO.md B-22). 두 조건을 한 몸에 묶는다:
+    //   ① 세우기 전에 살아 있는 다른 적을 모두 치운다. 순환 주행은 5초 동안 40 m 넘게 가므로 「지금 자리 반경」으로
+    //      잘라서는 모자라다. 죽이지 않고 despawn — 시체 · 전리품 · 죽음 연출을 만들지 않는 가장 얕은 제거다.
+    //      알(isEgg)은 queryNear 가 기본으로 걸러내 표적 경쟁에 끼지 않으므로 그대로 둔다.
+    //   ② rover:fired 에는 표적이 실려 있지 않다 (from · to 뿐). 사건이 오는 그 순간의 포탑 표적(ts.targetId — 바로 앞줄에서
+    //      takeDamage 를 맞은 그 적이다)을 함께 적어 둔다. 포탑 상태는 RoverRef 에 없으므로 world 시스템의 Rover 로 간다.
+    const cleared = await page.evaluate(() => {
+      const es = window.__game.getSystem('enemies');
+      const others = es.getEnemies().filter((e) => !e.isDead && !e.isEgg);
+      for (const e of others) es.despawn(e);
+      const turret = window.__game.getSystem('world').roverSys.turret;
+      window.__rvFireTargets = [];
+      window.__game.ctx.bus.on('rover:fired', () => { window.__rvFireTargets.push(turret.targetId); });
+      return others.length;
+    });
     const firedBefore = (await events(page, 'rover:fired')).length;
     const spawn = await page.evaluate(() => {
       const ctx = window.__game.ctx, rv = ctx.world.rover, v = rv.vehicle;
@@ -227,13 +244,23 @@ try {
     const shot = await page.evaluate(() => {
       const es = window.__game.getSystem('enemies');
       const e = es.byId.get(window.__rvEnemy);
-      const r = { hp: e ? e.hp : null, dead: e ? e.state === 'dead' : true };
+      const hits = window.__rvFireTargets;
+      const r = {
+        hp: e ? e.hp : null, dead: e ? e.state === 'dead' : true,
+        mine: hits.filter((id) => id === window.__rvEnemy).length,
+        others: [...new Set(hits.filter((id) => id !== window.__rvEnemy))],
+      };
       if (e && e.state !== 'dead') e.takeDamage(999999, undefined, undefined, 'ai');
       return r;
     });
     const firedAfter = (await events(page, 'rover:fired')).length;
-    if (spawn) ok(firedAfter > firedBefore && (shot.dead || shot.hp < spawn.hp), `순환 중 포탑이 곁의 적을 쏜다 (${firedAfter - firedBefore}발 · hp ${spawn.hp} → ${shot.hp})`);
-    else console.log('  --   포탑 검사 건너뜀 (적을 세우지 못했다)');
+    if (spawn) {
+      // 치운 뒤에 새로 솟은 적을 쏜 발이 섞였을 수 있다 — 그대로 찍어 두되, 판정은 이 적에게 간 발수로만 한다
+      if (shot.others.length) console.log(`  --   포탑이 다른 적도 쐈다 (id ${shot.others.join(', ')})`);
+      ok(firedAfter > firedBefore && shot.mine > 0 && (shot.dead || shot.hp < spawn.hp),
+        `순환 중 포탑이 곁의 적을 쏜다 (다른 적 ${cleared}마리 치움 · ${firedAfter - firedBefore}발 중 이 적에게 ${shot.mine}발 · hp ${spawn.hp} → ${shot.hp})`,
+        JSON.stringify({ id: spawn.id, ...shot }));
+    } else console.log('  --   포탑 검사 건너뜀 (적을 세우지 못했다)');
 
     /* ── 6 ── */
     await page.evaluate(() => { window.__game.ctx.bus.emit('cheat:rover', { action: 'arrive' }); });

@@ -16,8 +16,9 @@
 import * as THREE from 'three';
 import {
   ALLY_FLAGS, FOOTSTEP_MIN_INTERVAL_S, NET_SLOT_COLORS, PLAYER_REVIVE_HOLD, PLAYER_REVIVE_RANGE,
+  shotSoundOfDef, weaponClassOfDef,
   type AllyBodyView, type AllyId, type AllyMode, type AllyPose, type AllyStateId, type GameContext,
-  type Interactable, type PeerId, type WeaponClass, type WeaponDef,
+  type Interactable, type PeerId,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { damp, dampAngle, wrapAngle } from '@/core/util/MathUtil';
@@ -41,33 +42,12 @@ const _to = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _spark = new THREE.Vector3();
 
-/**
- * Shot sound id for an android's gun. `weapons/WeaponDefaults.shotSoundId` answers the same question for the player,
- * and weapons/ is another folder's internals, which this folder must not import (CLAUDE.md §4.1) — so this is a
- * **second judgement of the same thing, not a copy of that table** (2026-09-19, B-49, corrected): it reads the
- * `WeaponDef` (`ammoType` · `pellets` · the class) where the weapons side switches on `WeaponKind`, and it knows no
- * unique at all — every legendary lands on `shot_rifle` here, while the weapons side gives the flamethrower and the
- * shockgun `shot_energy`, the bow and the shuriken `melee_swing`, the bazooka `shot_shotgun`.
- * So a new shot sound must be added in **both** places, and the two can drift apart with nothing failing. The cure
- * is one id table in `src/shared` that both folders read; that file is not this folder's to change.
+/*
+ * An android's gun sounds off the **one shot-sound table**, `shared/shotSounds.ts` (2026-09-20, B-63): `shotSoundOfDef`
+ * here, `weapons/WeaponDefaults.shotSoundId` for the player's own gun — the same ids, uniques included, so an android
+ * holding a legendary no longer fires the rifle sample. `weaponClassOfDef` (the held-gun silhouette) comes from there
+ * too, for the same reason: this folder must not import items/ or weapons/ (CLAUDE.md §4.1).
  */
-function allyShotSound(def: WeaponDef | null): string {
-  if (!def) return 'shot_rifle';
-  if (def.ammoType === 'energy') return 'shot_energy';
-  if (def.pellets && def.pellets > 1) return 'shot_shotgun';
-  switch (weaponClassOfDef(def)) {
-    case 'SR': return 'shot_sniper';
-    case 'SMG': return 'shot_smg';
-    case 'PISTOL': return 'shot_pistol';
-    case 'SG': return 'shot_shotgun';
-    default: return 'shot_rifle';
-  }
-}
-
-/** The same one line as `items/WeaponDefs.weaponClassOf` (kept here so that folder is never imported). */
-function weaponClassOfDef(def: WeaponDef): WeaponClass {
-  return def.weaponClass ?? (def.slot === 'secondary' ? 'PISTOL' : 'AR');
-}
 
 /** Body state a smoke writes directly (`debugAllyBody`), readable whatever the body's age and pose. */
 export interface DebugAllyBody {
@@ -323,7 +303,6 @@ export class AllyAvatars {
   getAvatars(): ReadonlyMap<AllyId, AllyAvatar> { return this.avatars; }
   /** The units with a revive interactable registered right now (smoke tests). */
   getReviveTargets(): AllyId[] { return [...this.revives.keys()]; }
-  has(id: AllyId): boolean { return this.avatars.has(id); }
   /** `id`'s shoulder socket (where a carried local player hangs), or null. */
   socketOf(id: AllyId): THREE.Object3D | null { return this.avatars.get(id)?.shoulderSocket ?? null; }
 
@@ -455,7 +434,7 @@ export class AllyAvatars {
       _spark.copy(_from).addScaledVector(_dir, 0.1);
       ParticleBurst.sparks(fx.additive, _spark, _dir, 3, 9, color);
     }
-    ctx.bus.emit('audio:play', { id: allyShotSound(def), position: _from, volume: 0.85, pitch: 0.95 + Math.random() * 0.1 });
+    ctx.bus.emit('audio:play', { id: shotSoundOfDef(def), position: _from, volume: 0.85, pitch: 0.95 + Math.random() * 0.1 });
   }
 
   /* ──────────────────────── being carried ──────────────────────── */

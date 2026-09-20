@@ -389,11 +389,11 @@ function tvGameOverlay(model: FurnitureModel, cy: number, sw: number, sh: number
 
 export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   /**
-   * Disc stand (`3 × 1 · 1.8`): a metal-framed display cabinet — `SHELF_SLOTS.disc` slots spread over three shelves
-   * (`perRow = ceil(n / rows)`, so the shelf count is fixed and the row width follows the csv slot count),
-   * and in every slot a disc case standing tilted slightly forward. The case's back panel is the **rarity colour** and the
-   * silvery disc face shows in front of it. An empty slot keeps only its base. Under the front edge of every shelf runs a
-   * white LED strip (emissive), which is what makes it read as a display cabinet.
+   * Disc stand (`data/furniture.csv` `furn_disc_stand`): a metal-framed display cabinet — `SHELF_SLOTS.disc` slots
+   * spread over three shelves (`perRow = ceil(n / rows)`, so the shelf count is fixed and the row width follows the
+   * csv slot count), and in every slot a disc case standing tilted slightly forward. The case's back panel is the
+   * **rarity colour** and the silvery disc face shows in front of it. An empty slot keeps only its base. Under the
+   * front edge of every shelf runs a white LED strip (emissive), which is what makes it read as a display cabinet.
    */
   disc_stand: (b, _model, w, d, h, a, extra) => {
     const n = SHELF_SLOTS.disc;
@@ -429,9 +429,10 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * Record rack (`3 × 2 · 1.2`): a short-legged wooden cabinet (two compartments of record spines across its front) with a
-   * divided **record bin** on top. In every bin slot (`SHELF_SLOTS.record`) a filed record stands as a rarity-coloured
-   * sleeve, the black disc rising halfway out of it. A headboard behind it, with an accent strip.
+   * Record rack (`data/furniture.csv` `furn_record_rack`): a short-legged wooden cabinet (two compartments of record
+   * spines across its front) with a divided **record bin** on top. In every bin slot (`SHELF_SLOTS.record`) a filed
+   * record stands as a rarity-coloured sleeve, the black disc rising halfway out of it. A headboard behind it, with
+   * an accent strip.
    */
   record_rack: (b, _model, w, d, h, a, extra) => {
     const n = SHELF_SLOTS.record;
@@ -477,9 +478,10 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * Rocking chair (`2 × 2 · 1.1`): two curved rockers (an arc built out of short boxes) · four legs · a cushioned seat ·
-   * a backrest leaning back (two posts · a top rail · five slats) · armrests. **All of it inside the `rig.rock` group**, so
-   * the whole chair rocks while someone sits in it (the pivot is the bottom of the arc = the group's origin).
+   * Rocking chair (`data/furniture.csv` `furn_rocking_chair`): two curved rockers (an arc built out of short boxes) ·
+   * four legs · a cushioned seat · a backrest leaning back (two posts · a top rail · five slats) · armrests. **All of
+   * it inside the `rig.rock` group**, so the whole chair rocks while someone sits in it (the pivot is the bottom of
+   * the arc = the group's origin).
    */
   rocking_chair: (_b, model, _w, _d, _h, a) => {
     const seatTop = SIT_SEAT_TOP;                                                                 // player FURN_SIT: the soles sit 0.36 m below the seat top
@@ -519,9 +521,9 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * TV (`3 × 1 · 1.3`): a thin panel on a stand above a media console (two doors · a player in the middle compartment · a
-   * front accent). With `extra.on` the screen glows and shows a sky · horizon · sun · UI bar inside it; off is dark glass
-   * + a red standby light.
+   * TV (`data/furniture.csv` `furn_tv`): a thin panel on a stand above a media console (two doors · a player in the
+   * middle compartment · a front accent). With `extra.on` the screen glows and shows a sky · horizon · sun · UI bar
+   * inside it; off is dark glass + a red standby light.
    *
    * 2026-09-13 (video games): the screen's **front** (−Z) is the TV's front — seats stand on that side and look at it. With
    * `extra.consoleLook` a console (three looks + the generic box) sits on the left of the top plate and a pad on the right.
@@ -736,10 +738,10 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * Gramophone (`2 × 2 · 1.3`): a wooden box on a round wooden table · turntable · winding crank · tonearm, and a brass horn
-   * rising behind it and flaring forward (five cylinders growing wider). With `extra.on` the **front nameplate · the record
-   * label** glow warm and the record turns — the horn's mouth and throat, where the sound comes out, do not glow even when
-   * it is on (2026-09-14, user's decision).
+   * Gramophone (`data/furniture.csv` `furn_gramophone`): a wooden box on a round wooden table · turntable · winding
+   * crank · tonearm, and a brass horn rising behind it and flaring forward (five cylinders growing wider). With
+   * `extra.on` the **front nameplate · the record label** glow warm and the record turns — the horn's mouth and
+   * throat, where the sound comes out, do not glow even when it is on (2026-09-14, user's decision).
    */
   gramophone: (b, model, _w, _d, _h, a, extra) => {
     const on = extra?.on === true;
@@ -793,9 +795,10 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * Jukebox (`2 × 2 · 1.8`): a burgundy body under a half-round arched roof. Across its front two neon tubes following the
-   * arch · side neon posts · chrome trim · a disc window · a title card · a row of buttons · a chrome speaker grille. With
-   * `extra.on` the neon · the windows · the title card glow (off = the same colour darkened).
+   * Jukebox (`data/furniture.csv` `furn_jukebox`): a burgundy body under a half-round arched roof. Across its front
+   * two neon tubes following the arch · side neon posts · chrome trim · a disc window · a title card · a row of
+   * buttons · a chrome speaker grille. With `extra.on` the neon · the windows · the title card glow (off = the same
+   * colour darkened).
    */
   jukebox: (b, _model, _w, _d, _h, a, extra) => {
     const on = extra?.on === true;
@@ -826,9 +829,9 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * Turntable (`3 × 2 · 1.0`): a turntable deck · amp · speaker on a floating slate cabinet (wooden top plate · grooves
-   * across its front · a record compartment). With `extra.on` the base's LED strips · the strobe dots · the pitch slider ·
-   * the amp's VU light up and the platter turns.
+   * Turntable (`data/furniture.csv` `furn_turntable`): a turntable deck · amp · speaker on a floating slate cabinet
+   * (wooden top plate · grooves across its front · a record compartment). With `extra.on` the base's LED strips · the
+   * strobe dots · the pitch slider · the amp's VU light up and the platter turns.
    */
   turntable: (b, model, w, d, _h, a, extra) => {
     const on = extra?.on === true;
@@ -879,10 +882,10 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * Bench rack (`3 × 5 · 1.6`): two uprights carrying J hooks at the head side (+Z) · a top crossbar · floor feet, a flat
-   * bench between them, the barbell on the hooks. The plates show **only during a session** (`extra.gymActive` →
-   * `rig.plates.visible`). The barbell is the `rig.bar` group, so while exercising it leaves the hooks for above the chest
-   * (`barPress`) and travels up and down.
+   * Bench rack (`data/furniture.csv` `furn_bench_rack`): two uprights carrying J hooks at the head side (+Z) · a top
+   * crossbar · floor feet, a flat bench between them, the barbell on the hooks. The plates show **only during a
+   * session** (`extra.gymActive` → `rig.plates.visible`). The barbell is the `rig.bar` group, so while exercising it
+   * leaves the hooks for above the chest (`barPress`) and travels up and down.
    */
   bench_rack: (b, model, _w, _d, _h, a, extra) => {
     // The bar on the J hooks sits a little below the arms-extended height (`BENCH_BAR_HIGH.y` = `PAD_TOP` + `PRESS_HIGH_UP`) — it reads as being lifted up and out
@@ -914,9 +917,10 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * Smith machine (`4 × 5 · 2.2`): two chrome rails stand through the middle of a cage of four uprights · a top frame · a
-   * floor frame, and the barbell is caught on the rails' sliders so it moves **vertically only**. Safety stops · rest pins
-   * on the rails, and below them the same flat bench as the bench rack. Plates only during a session.
+   * Smith machine (`data/furniture.csv` `furn_smith_machine`): two chrome rails stand through the middle of a cage of
+   * four uprights · a top frame · a floor frame, and the barbell is caught on the rails' sliders so it moves
+   * **vertically only**. Safety stops · rest pins on the rails, and below them the same flat bench as the bench rack.
+   * Plates only during a session.
    */
   smith_machine: (b, model, _w, _d, _h, a, extra) => {
     // The rails are vertical, so the bar's z is fixed — it stands at the middle of player's fist path
@@ -962,9 +966,9 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * Treadmill (`2 × 4 · 1.4`): a motor cowl at the front (−Z) · two forward-leaning posts · a console (screen) tilted toward
-   * the runner · handles, and on the long deck behind them the running belt · foot rails · rollers. The belt stripes are the
-   * `rig.belt` group, so they flow backwards (+Z) while running.
+   * Treadmill (`data/furniture.csv` `furn_treadmill`): a motor cowl at the front (−Z) · two forward-leaning posts · a
+   * console (screen) tilted toward the runner · handles, and on the long deck behind them the running belt · foot
+   * rails · rollers. The belt stripes are the `rig.belt` group, so they flow backwards (+Z) while running.
    */
   treadmill: (b, model, _w, _d, _h, a) => {
     b.boxB(0.84, 0.14, 1.7, 0, 0.02, 0.1, M.hullDark);                                           // deck
@@ -1006,10 +1010,10 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * Exercise bike (`2 × 3 · 1.2`): front and rear feet · a low beam · the saddle post · a rear diagonal · the front fork
-   * (two plates with the flywheel between them) · a half-round cover · the resistance knob · handlebars · console · chain
-   * cover · saddle. The crank (`rig.crank`, with the pedals a child group that stays level) and the flywheel
-   * (`rig.flywheel`) turn about X.
+   * Exercise bike (`data/furniture.csv` `furn_exercise_bike`): front and rear feet · a low beam · the saddle post · a
+   * rear diagonal · the front fork (two plates with the flywheel between them) · a half-round cover · the resistance
+   * knob · handlebars · console · chain cover · saddle. The crank (`rig.crank`, with the pedals a child group that
+   * stays level) and the flywheel (`rig.flywheel`) turn about X.
    */
   exercise_bike: (b, model, _w, _d, _h, a) => {
     for (const sz of [-0.62, 0.6]) {

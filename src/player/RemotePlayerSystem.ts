@@ -153,7 +153,15 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   /** Phase 10: peer ids whose avatar the LOCAL player carries (instant feedback before their `CARRIED` bit lands). */
   private readonly localCarried = new Set<PeerId>();
   /** Phase 10: peer id whose shoulder socket our own body currently hangs on (null = not carried). */
-  private myCarrier: PeerId | null = null;
+  private myCarrier: PeerId | AllyId | null = null;
+  /**
+   * Is `myCarrier` an **android** id rather than a peer id (2026-09-20, `docs/TODO.md` B-64)? The two id spaces are
+   * both plain strings, so the carrier alone cannot say which path owns us. Kept as its own field because the release
+   * in `updateCarries` used to ask `AllyAvatars.has(myCarrier)` instead, which answers *「does that avatar still
+   * exist」* — so a carrier whose **avatar** went away (pooled, left the roster) never released us and the local body
+   * stayed frozen on a socket that was gone. Every write of `myCarrier` writes this flag too; they must never disagree.
+   */
+  private myCarrierIsAlly = false;
   /** 2026-09-09: squadmates' drop pods (`pod drop`). Mission start and the rescue drop both come through here. */
   private pods: RemotePods | null = null;
   /** 2026-09-10: remote footsteps — the last step index and time per peer (`remote:footstep`). */
@@ -460,7 +468,7 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     // Phase 10: never take a carried body down with the carrier's avatar (`dispose` detaches the whole subtree)
     this.evacuateShoulder(av);
     if (this.localCarried.delete(id)) this.ctx.player?.dropCarried('reset');
-    if (this.myCarrier === id) { this.myCarrier = null; this.ctx.player?.setCarriedBy(null); }
+    if (this.myCarrier === id && !this.myCarrierIsAlly) this.releaseMyCarrier();
     this.avatars.delete(id);
     av.dispose();
   }
@@ -478,7 +486,7 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     for (const id of [...this.revives.keys()]) this.unregisterRevive(id);
     this.reviveSuppress.clear();
     this.steps.clear();
-    if (this.myCarrier !== null) { this.myCarrier = null; this.ctx.player?.setCarriedBy(null); }
+    if (this.myCarrier !== null) this.releaseMyCarrier();
     this.localCarried.clear();
     for (const av of this.avatars.values()) { this.evacuateShoulder(av); av.carried = false; av.dispose(); }
     this.avatars.clear();
@@ -716,27 +724,39 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     const myPeer: PeerId = localId ?? ALLY_LOCAL_PEER;
     const allyCarrier = this.allies?.carrierOf(ctx, myPeer) ?? null;
     if (allyCarrier) {
-      if (this.myCarrier !== allyCarrier) {
+      if (this.myCarrier !== allyCarrier || !this.myCarrierIsAlly) {
         const socket = this.allies?.socketOf(allyCarrier) ?? null;
-        if (socket) { this.myCarrier = allyCarrier; ctx.player?.setCarriedBy(socket); }   // no avatar → next frame
+        // no avatar → next frame
+        if (socket) { this.myCarrier = allyCarrier; this.myCarrierIsAlly = true; ctx.player?.setCarriedBy(socket); }
       }
       return;
     }
-    if (this.myCarrier !== null && this.allies?.has(this.myCarrier)) {
-      // the android put us down
-      this.myCarrier = null;
-      ctx.player?.setCarriedBy(null);
-    }
+    /*
+     * The android put us down — and the release is judged on **who owns us** (`myCarrierIsAlly`), never on whether
+     * that android's avatar is still around (2026-09-20, B-64). It used to read `AllyAvatars.has(myCarrier)`, which
+     * is true only while the avatar exists: an avatar that vanished (pooled, dropped from the roster) left us
+     * carried forever, and on the server-less solo path (`ALLY_LOCAL_PEER`, no `localId`) nobody below could free us
+     * either, because the peer path returns early. Only raid end / `game:abort` (`clearAll`) hid it.
+     */
+    if (this.myCarrier !== null && this.myCarrierIsAlly) this.releaseMyCarrier();
     // our own body: whoever's `cr` points at us owns it (the carried side of `attachTo`)
     if (!localId) return;   // no session: only `debugCarryLocal` drives the local body
     let mine: PeerId | null = null;
     for (const r of refs) if (r.carrying === localId) { mine = r.id; break; }
     if (!mine) for (const r of this.debugRefs) if (r.carrying === localId) { mine = r.id; break; }
-    if (mine === this.myCarrier) return;
+    if (mine === this.myCarrier && !this.myCarrierIsAlly) return;
     this.myCarrier = mine;
+    this.myCarrierIsAlly = false;   // the peer path owns us from here (the ally branch above already let go)
     const socket = mine ? this.avatars.get(mine)?.shoulderSocket ?? null : null;
     ctx.player?.setCarriedBy(socket);
     if (mine && !socket) this.myCarrier = null;   // no avatar yet: retry next frame
+  }
+
+  /** The one place our own body is handed back: both carrier fields clear together, so they cannot disagree. */
+  private releaseMyCarrier(): void {
+    this.myCarrier = null;
+    this.myCarrierIsAlly = false;
+    this.ctx.player?.setCarriedBy(null);
   }
 
   /**
@@ -753,11 +773,12 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
       // relay session exists (`updateCarries` then sees `mine === myCarrier` and leaves it alone).
       ref.carrying = this.ctx.net?.localId ?? '__local__';
       this.myCarrier = id;
+      this.myCarrierIsAlly = false;   // a debug ref is a peer avatar, not an android
       this.ctx.player?.setCarriedBy(av.shoulderSocket);
       return true;
     }
     ref.carrying = null;
-    if (this.myCarrier === id) { this.myCarrier = null; this.ctx.player?.setCarriedBy(null); }
+    if (this.myCarrier === id && !this.myCarrierIsAlly) this.releaseMyCarrier();
     return true;
   }
 

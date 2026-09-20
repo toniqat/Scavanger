@@ -34,9 +34,18 @@ export const SALVAGE_YIELD_BY_DURABILITY: readonly number[] = numberList('tables
 export const DURABILITY_BUCKETS = REPAIR_COST_BY_DURABILITY.length;
 /** The salvage multiplier of the top (full-durability) bucket — the reference value the listing carries. */
 const TOP_SALVAGE_MUL = SALVAGE_YIELD_BY_DURABILITY[DURABILITY_BUCKETS - 1] ?? 0;
-/** The bucket labels — `0~20 %` … `81~100 %`. */
+/**
+ * The bucket labels — `0~20 %` … `81~100 %` at five buckets. The width is **derived from the csv list**, never
+ * written down: add or drop a multiplier in `tables.csv` and the labels follow (2026-09-20, `docs/TODO.md` B-67 —
+ * the width used to be the literal `20`, so a six-entry list would have silently labelled the buckets wrong).
+ * `bucketOfRatio` splits the ratio by the same count, so the two always describe the same buckets.
+ */
+const DURABILITY_BUCKET_WIDTH = 100 / DURABILITY_BUCKETS;
 export const DURABILITY_BUCKET_LABELS: readonly string[] =
-  REPAIR_COST_BY_DURABILITY.map((_, i) => (i === 0 ? '0~20 %' : `${i * 20 + 1}~${(i + 1) * 20} %`));
+  REPAIR_COST_BY_DURABILITY.map((_, i) => {
+    const hi = Math.round((i + 1) * DURABILITY_BUCKET_WIDTH);
+    return i === 0 ? `0~${hi} %` : `${Math.round(i * DURABILITY_BUCKET_WIDTH) + 1}~${hi} %`;
+  });
 
 /**
  * The categories that can be repaired. A healing spray is still handled by `inventory`'s `sprayRepairCost`.

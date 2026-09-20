@@ -37,7 +37,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 |---|---|---|
 | `e2e-multiplayer.mjs` (`e2e-mp`) | net, server, game, extraction, hub, pickups, player, enemies · X R | Two clients: ship → quick match → docking → launch pods (boarding ≠ ready) → mission → pickups → reconnect / ghosts → abort; server profile, credits, social, rooms |
 | `smoke-aim-sway.mjs` | player, weapons | Figure-8 camera sway only while aiming, per class/stance/movement, none in the hub |
-| `smoke-ally-avatars.mjs` | player, allies | Android bodies from injected `AllyBodyView`s: android look, pose mapping, hidden / dead bodies, held gun + armour, pooled reuse, `revive:ally:<id>` → `requestRevive`, carried by an android, `ally:fired` FX keeps the point-light count, android face portrait, downed-not-dead with an android on the roster |
+| `smoke-ally-avatars.mjs` | player, allies | Android bodies from injected `AllyBodyView`s: android look, pose mapping, hidden / dead bodies, held gun + armour, pooled reuse, `revive:ally:<id>` → `requestRevive`, carried by an android, `ally:fired` FX keeps the point-light count, android face portrait, downed-not-dead with an android on the roster; **the six uniques' shot sound ids** and `weapons.shotSoundId(kindOf) === shared.shotSoundOfDef` over every weapon def (B-63), **the carry release when the carrier's avatar disappears** — with and without a `localId`, the second being the half only `ALLY_LOCAL_PEER` reaches (B-64) |
 | `smoke-ally-hooks.mjs` | inventory, pickups, extraction, world, gadgets, stratagems | Android raid hooks: ally bag/weight, container peek == take, item requests, `takeBy`, pads, loot list, hazard safe point, stash deposit |
 | `smoke-allies-core.mjs` | allies | Android core loop: the `/android` cheat roster in the personal ship, solo raid pod drop with the bound base kit and ×`ALLY_HP_MUL` hp, follow back into the harness, the harness halving while the leader keeps one heading, sense → enemy ping → burst → `applyAllyHit`, damage → downed → revive, bleed-out → `spawnAllyCorpse` |
 | `smoke-allies-orders.mjs` | allies | Android orders: leader move / caution pings, first-request-wins + `ALLY_REQUEST_COOLDOWN_S`, the "I have none" chat line, heal delivery (ping → approach → drop while the requester stands still), crate looting by the ping's **`containerId`** that stops when a player opens the box, an item ping → ground pickup, extract ping → second call → console press |
@@ -162,8 +162,23 @@ Things today's smokes deliberately do not measure. Each is here so the next read
   `ROVER_TURRET_RANGE` with line of sight** (`rover/parts/Turret.ts`) and damages it directly, so on a map where
   another bug is nearer — or where the circling rover keeps the spawned one outside `ROVER_TURRET_AIM_CONE` or behind
   cover — the run prints `29/30` with 16–20 shots fired and `hp 213 → 213`. The two halves of the assertion have to be
-  measured against the **same** enemy (assert on `rover:fired`'s target, or pin `ts.targetId`), or the check has to
-  clear the area first. See `docs/TODO.md` B-22.
+  measured against the **same** enemy, or the check has to clear the area first. **Fixed 2026-09-20 (B-22)**: step 5
+  now despawns every other living enemy before it spawns its own, and records `turret.targetId` at the instant
+  `rover:fired` arrives — `updateTurretLogic` calls `fire()` on the line after `target.takeDamage(...)` and the bus is
+  synchronous, so that id *is* the body just hit. A shot that went elsewhere is named in the failure payload. The
+  event still carries no target of its own, which is why the smoke reads a `private` field (`docs/TODO.md` B-73).
+
+- **A fixed port is not yours to keep — Windows reserves ranges, and they drift (2026-09-20, TODO E-13).** WinNAT
+  hands itself blocks of the ephemeral range; on this PC `8800–8899` went reserved and took three smokes with it.
+  `smoke-netlink` (9885 · 9886) and `smoke-android-lobby` (9896) were moved the same day, and `smoke-desktop`'s
+  `PROXY_RELAY_PORT` with them — but its `APP_PORT` 8820 was missed, and because the shell scans `APP_PORT` …
+  `+APP_PORT_TRIES-1` **all ten** landed in the reserved block, no window opened, and `/json/version` never
+  answered. That is the whole of E-13's 「원인 미상」 red: 5/6, dead in `attach`, before any of the 45 checks.
+  **The log had said so all along** — ten `app port N is reserved by Windows` lines from the shell — but the
+  one-line FAIL summary did not carry them, so nobody read them for four days. `bootDiag` now counts those lines
+  and says it in the summary. First move on any `EACCES` / never-binds / never-answers port:
+  `netsh interface ipv4 show excludedportrange protocol=tcp`. An `*` row is an *administered* exclusion (the relay's
+  8787–8799, which stays explicitly bindable); an unmarked row is WinNAT and is not.
 
 - **A wait must accept the end of the run as a terminating condition (fixed 2026-09-19, TODO B-31).** `smoke-phase3`'s
   laser step waited only for `stratagem:ended`. If the raid ended first — at `timeScale 4` a surviving bug can kill the
@@ -228,7 +243,9 @@ after touching `damageSource.ts` is checked by restarting vite, not by debugging
 - `smoke-inventory-p6.mjs` does not call `quietViteHmr(page, { parkRelay: true })`, although it is the same kind of
   single-player smoke (`meta` · `housing` · `ladder`) that `quiet-hmr.mjs` names as 「a server profile must not arrive
   mid-run」. Parking the relay socket makes it a real standalone client and removes that family of flakes (one setting
-  line, not an assertion).
+  line, not an assertion). Seen again 2026-09-20 in a 97-script run: **187/192**, the five reds all cascading from
+  「▶ 두 번 → 총 25 / 25개」 — the craft-quantity stepper had not moved when the click landed. 192/192 alone on the
+  next run, so it is the load flake, not the change under test.
 - **No smoke covers**: the dining-plate wire with two clients (`plate` / `plateq` — the current smoke only watches the
   `net:squadPlate` event), mineral veins, the removal of a hand-placed tutorial corpse, the squad-abandon flow in a browser
   (relay selftest only), or the 2026-09-16 android behaviours (free roam · ping agreement · 앞장서라 doubling · engage
@@ -237,12 +254,24 @@ after touching `damageSource.ts` is checked by restarting vite, not by debugging
   volumes 1–3.
 - Nothing compares `extraction`'s `GROUND_DRAW_LIFT_MAX` with a world's drawn ground lift (`world/tutorial` `TOP_LIFT`) —
   `smoke-extraction` checks the ship-side inequality only.
+- **A second runner in the same tree can make `no console errors` red in the first one** (2026-09-20, B-22). `verify`
+  reuses a relay it finds on 8787 (「relay already up」) without asking how old it is, so when the *other* runner tears
+  its relay down mid-run the page's `/ws` is refused and the smoke goes red **only** on its last assertion — every
+  gameplay check above it passed. Symptom to recognise: `ws://localhost:5273/ws ERR_CONNECTION_REFUSED` on a smoke
+  whose own subject was green, and a `GET /health` whose `uptime` is far younger than the run. It is not a flake in the
+  smoke. Give each concurrent runner `--log-dir scripts/logs/<name> --keep-relay`, as CLAUDE.md §2 says. The real fix
+  would be for `verify` to refuse a relay it did not start unless `--keep-relay` was passed.
 - **`check-comment-labels.mjs` cannot see a label mistyped in a `data/*.csv` comment.** A csv is read whole as live
   strings (its Korean columns *are* display text), so a `#` comment line's Korean is registered as live too and
   **justifies a near miss anywhere else**. That is how `housing.css`'s `해석 도감` stayed quiet although the real rail
   tab is `분석 도감` (`housing/ui/Analyzer.ts:109`) — `data/constants.csv:818` says `해석 도감` in prose. `.css` itself
   joined the comment side on 2026-09-20 (B-65); splitting a csv's comment lines from its data rows is the other half
   (`docs/TODO.md` B-74).
+- **`rover:fired` does not name its target** (`docs/TODO.md` B-73), so `smoke-rover`'s turret check reaches through `getSystem('world').roverSys.turret`
+  (a TS `private`) to read `turret.targetId` at the moment the event fires. It is correct — `updateTurretLogic` calls
+  `fire()` on the line after `target.takeDamage(...)` and the bus is synchronous — but it is the only way to tie a shot
+  to a body, and neither `RoverRef` nor the event payload offers one. Putting `targetId` on the event would stand the
+  check on the public API (`docs/TODO.md` B-68).
 
 ### Runner options (`node scripts/verify.mjs --help`)
 

@@ -232,7 +232,9 @@ export class Hangar {
     for (let i = 0; i < 9; i++) b.box(0.5, 0.03, 0.12, -16 + i * 4, 0.015, minZ + 6.2, M.stripAmber);
 
     /*
-     * ── light fixtures (9) ──
+     * ── light fixtures ──
+     * How many there are is the two `push` loops below, never a number written here (2026-09-20, B-66 — the same
+     * hand-counted number rotted in `PersonalShip` and in `SharedShip`'s class doc).
      * Hung off the gantries at 5.6 m, **not** under the 9 m ceiling: `PointLight` decays with the square of the
      * distance, so the first pass (6 lamps at 8.2 m, intensity 90) put roughly a third of the ship deck's
      * illuminance on a deck 3.6× its area and the whole hangar read as a black void with glowing strips. At 5.6 m
