@@ -137,6 +137,22 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 
 Things today's smokes deliberately do not measure. Each is here so the next reader knows it is a gap, not an oversight.
 
+- **Everything the rover gained on 2026-09-21.** `smoke-rover` still measures the car of before: a turret shot, a
+  ram, a fare, a ride. Nothing covers the **hit zones** (two dead wheel zones → `immobile`, and that boarding and
+  leaving still work from that state, which is the bug the immobile branch was written to avoid), the **hostility**
+  transition (threshold → boarding refused → the turrets take a player-side body) or the **wreck crates** (2–3
+  registered, spaced, openable, and rolling on the `lockedRoom` exemption). The last one also exercises the new
+  map-wide `ContainerSet` index, which is the part most likely to break something else.
+- **The ceiling turret is unmeasured.** Nothing asserts that the matching key switches it off for good, that the
+  wrong planet's key does not, that it refuses to shoot through the closed door, or that entering by the crawl vent
+  is what it is there to punish. `smoke-structure-reach` already walks every locked door, so it is the natural home.
+- **A planet-bound key is only checked by shape.** `check-planet-loot` now counts the families rather than two fixed
+  ids, so the drop *rate* is still guarded, but nothing checks the thing the feature is for: that the planet in a
+  dropped key is **independent of the planet you are on** (roll on one planet, measure the spread of suffixes).
+- **`check-planet-loot` has two reds that predate all of this** and are not run by `verify`: 「티어4 상자 유니크도
+  순번에 따라 오른다」 (uniques left the crate roll on 2026-09-16, so both sides read 0.00 %) and 「책 권 가중치
+  I > II > III > IV > V」 (volumes 4 and 5 are 0). Either the checks or the data are stale — nobody has decided which.
+
 - **Bug-egg draw-call cost at nests.** A raid now carries 32 (floor) / ~88 (typical) / 240 (absolute worst: 8 pads
   after buying 「벌레 둥지 +2」) `bug_egg` bodies. An intact egg is one draw call and is excluded from AI, `queryNear`
   and every head count, but nothing measures the frame time on a threat-3 planet with the nest intel bought.
@@ -340,6 +356,7 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-21 — 「Known gaps in the net」 gained five: everything the rover gained that day (hit zones · hostility · wreck crates), the ceiling turret, the planet-independence of a key drop, and `check-planet-loot`'s two pre-existing reds. `check-planet-loot` and `smoke-structure-reach` now match key **families** instead of two fixed ids.
 - 2026-09-21 — 「Known gaps in the net」 rewritten where the tree moved: the rover turret check now stands on `rover:fired.targetId` (B-73, the `private` reach is gone), `check-comment-labels` drops a csv's `#` lines so they can no longer justify a near miss elsewhere (B-74, the remaining half is a typo written *into* a csv comment), and a new bullet names the `dev:all` teardown that turned a `verify:all` into 91 reds — `killPort(8787)` takes the adopted vite with it, because `dev-all.mjs` stops both children when either exits.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, csv names and decision headings kept verbatim in backticks / 「」, no string literal touched — a smoke's Korean check names and `console.log` lines are program output and are all unchanged.
 - 2026-09-20 — `docs/PERF_PLAN.md` is gone: the perf record lives in `docs/DECISIONS.md`'s `perf Phase …` sections, and every pointer here and in `verify.mjs` · `smoke-layout-reads.mjs` · `perf-measure.mjs` moved with it. The harness itself is unchanged — its last run was the `--display scale` A/B that closed the plan's one open measurement.
