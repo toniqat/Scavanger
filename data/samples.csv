@@ -28,7 +28,7 @@
 # family = 이 표본이 해석되는 **계열** (cell | mineral | dna). 결과는 data/analysis_results.csv 의 그 계열 표에서 뽑힌다 —
 #   분석기에 **넣는 순간** 그 계열의 분석 레벨로 굴려 칸에 적는다 (housing/).
 # analyzeHours = 분석 레벨 1 에서 한 번 해석하는 실제 시간(시간). 함선을 떠나 있어도 흐른다.
-#   분석 레벨이 오르면 data/tables.csv 의 ANALYSIS_TIME_MUL_BY_LEVEL 배수만큼 줄어들고, 거기에 해석 도감 · 표본 레벨 단축이
+#   분석 레벨이 오르면 data/tables.csv 의 ANALYSIS_TIME_MUL_BY_LEVEL 배수만큼 줄어들고, 거기에 분석 도감 · 표본 레벨 단축이
 #   더 붙는다 (data/constants.csv 의 ANALYSIS_DEX_BONUS_PER_ENTRY · ANALYSIS_SAMPLE_LEVEL_* · ANALYSIS_SPEEDUP_CAP).
 # rewardDefId / rewardQty = **결과표가 비었을 때의 대체 산출물**. 은퇴한 아이템이면 안 된다 (npm run data:check 가 잡는다).
 # firstDefId / firstQty = 옛 「첫 해석 보너스」 칸. 2026-09-13 부터 **쓰지 않는다** — 채우면 로더가 잡는다.

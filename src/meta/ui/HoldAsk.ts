@@ -21,7 +21,7 @@ const ESCAPE_KEY = 'meta:holdAsk';
  *    tab whose frames have stopped). Click and Enter never confirm. **2026-09-15 2nd pass (user's decision)**: the
  *    hint row 「〈라벨〉 버튼을 1초 동안 …」 (`.cv-ask-hint` — the row that flashed on an early release) is gone, and
  *    instead a left-click hold keycap (`shared/keycap.createHoldButtonCap`) stands **inside the confirm button, left
- *    of the label**. `meta.css`'s `.cv-ask-hint` rule is unused from now on.
+ *    of the label**. `meta.css`'s `.cv-ask-hint` rule went with it — a comment stands in its place saying why.
  *  - **Escape = cancel** — it goes on top of `ctx.escape` and closes before the Tab window. Enter is swallowed. The
  *    initial focus is `취소`.
  *  - Pressing an empty spot on the backdrop cancels (cancelling is always safe).

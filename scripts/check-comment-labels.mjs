@@ -70,8 +70,17 @@ for (const f of files) {
     }
     if (f.startsWith('src/')) targets.push({ file: f, src, comments });
   } else {
-    corpus.push(src);
-    for (const v of src.split(/[,\n"]/)) {
+    /*
+     * 2026-09-21 (B-74): a csv's `#` comment lines are **prose, not data**, and are dropped before the file is read.
+     * Until then the whole file counted as live strings — a csv's Korean columns really are display text — so a
+     * label retyped in a `#` line registered as the real thing and silenced a near miss anywhere else in the tree.
+     * That is exactly what happened: `housing.css` called the analyzer rail tab `해석 도감` where the drawn string
+     * is `분석 도감`, and `data/constants.csv` · `data/samples.csv` saying it in prose kept this check quiet.
+     * Only csv is split this way — in a `.md` a `#` starts a heading, not a comment.
+     */
+    const data = f.endsWith('.csv') ? src.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n') : src;
+    corpus.push(data);
+    for (const v of data.split(/[,\n"]/)) {
       const t = v.trim();
       if (t.length >= 2 && HANGUL.test(t)) live.add(t);
     }

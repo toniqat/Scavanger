@@ -270,12 +270,12 @@ after touching `damageSource.ts` is checked by restarting vite, not by debugging
   whose own subject was green, and a `GET /health` whose `uptime` is far younger than the run. It is not a flake in the
   smoke. Give each concurrent runner `--log-dir scripts/logs/<name> --keep-relay`, as CLAUDE.md §2 says. The real fix
   would be for `verify` to refuse a relay it did not start unless `--keep-relay` was passed.
-- **`check-comment-labels.mjs` cannot see a label mistyped in a `data/*.csv` comment.** A csv is read whole as live
-  strings (its Korean columns *are* display text), so a `#` comment line's Korean is registered as live too and
-  **justifies a near miss anywhere else**. That is how `housing.css`'s `해석 도감` stayed quiet although the real rail
-  tab is `분석 도감` (`housing/ui/Analyzer.ts:109`) — `data/constants.csv:818` says `해석 도감` in prose. `.css` itself
-  joined the comment side on 2026-09-20 (B-65); splitting a csv's comment lines from its data rows is the other half
-  (`docs/TODO.md` B-74).
+- **A label mistyped inside a `data/*.csv` comment is still unchecked (narrowed 2026-09-21, B-74).** A csv's `#`
+  comment lines no longer count as live strings, so they can no longer **justify a near miss anywhere else** — that
+  was how `housing.css`'s `해석 도감` stayed quiet although the real rail tab is `분석 도감`
+  (`housing/ui/Analyzer.ts:109`), because `data/constants.csv:818` said `해석 도감` in prose. What is still open is
+  the other direction: `targets` holds `src/` files only, so a typo written **into** a csv comment is nobody's near
+  miss and nothing reports it.
 
 ### Runner options (`node scripts/verify.mjs --help`)
 

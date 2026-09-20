@@ -305,7 +305,7 @@
 
 /* ── The leftmost vertical rail (`rail` in `ui/StationShell.ts`, 2026-09-12) ─────
  * Two screens use it in the same place and the same look — the grow station **list** (name + 3×3 status dots + the
- * red dot) and the analyzer's **tabs** (`해석` · `해석 도감`). A screen that does not use it leaves it `hidden`,
+ * red dot) and the analyzer's **tabs** (`해석` · `분석 도감`). A screen that does not use it leaves it `hidden`,
  * so the flex gap goes with it.
  * ────────────────────────────────────────────────────────────────────────── */
 .hs-rail {
@@ -440,7 +440,7 @@
 .gs-slot.is-worn .gs-soil { filter: saturate(0.25) brightness(0.7); }
 
 /* ── The lab analyzer (A-12 2026-09-11 · the screen rework 2026-09-12) ─────────────────
- * The tabs (`해석` · `해석 도감`) moved out to the screen's leftmost rail (`.hs-rail`) and only the pages are left
+ * The tabs (`해석` · `분석 도감`) moved out to the screen's leftmost rail (`.hs-rail`) and only the pages are left
  * in the left pane.
  * One slot = three columns, **glyph cell | body (name · time · progress bar) | buttons** — the buttons are their
  * own column inside the flow, so nothing overlaps.

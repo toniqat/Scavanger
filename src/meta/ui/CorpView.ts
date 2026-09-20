@@ -1,5 +1,5 @@
 import type {
-  ContractInfo, CorpId, CurrencyReward, EmbeddedView, GameContext, ItemDef, ItemFavoriteApi, ItemInstance, QuestInfo, QuestState,
+  ContractInfo, CorpId, EmbeddedView, GameContext, ItemDef, ItemFavoriteApi, ItemInstance,
   ShopItem, TradeGridsView, TradeGridsViewOptions,
 } from '@/shared';
 import {
@@ -14,11 +14,11 @@ import { HoldAsk } from './HoldAsk';
 import { TileGrid, type TileSpec } from './TileGrid';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * CorpView — the **body** of the 기업 네트워크 screen.
+ * CorpView — the **body** of the `기업 네트워크` screen.
  *
  * **2026-09-07**: there is only one shell left — `MetaSystem.createCorpView(host)`, the inventory Tab screen's
- * 기업 tab. The ship computer's `E` calls `ctx.inventory.openScreen('corp')`, so there is exactly one 기업 네트워크
- * screen in the game and the window owns the blocker, the cursor and Escape.
+ * 기업 tab. The ship computer's `E` calls `ctx.inventory.openScreen('corp')`, so there is exactly one
+ * `기업 네트워크` screen in the game and the window owns the blocker, the cursor and Escape.
  *
  * Screen shape (**2026-09-13, user's decision — independent cards standing in one row**):
  *
@@ -303,7 +303,7 @@ export class CorpView {
       b.on('inventory:changed', refresh), b.on('inventory:stashChanged', refresh), b.on('loadout:changed', refresh),
       // 2026-09-12 (E2): the tiles carry the blue ribbon from `buildItemTile` — rebuild them when a favorite flips
       b.on('inventory:favoritesChanged', refresh),
-      // 2026-09-13 (library series): `buildItemTile` puts the same ribbon on a 「아직 꽂지 않은」 book · video · record
+      // 2026-09-13 (library series): `buildItemTile` puts the same ribbon on a 「아직 꽂지 않음」 book · video · record
       b.on('housing:libraryChanged', refresh),
       meta.onPurchaseFailure((f: PurchaseFailure) => {
         if (!this.visible || this.settling) return;
@@ -655,7 +655,8 @@ export class CorpView {
     el('span', { cls: 'cv-confirm-label', text: '거래 성사', parent: this.confirmBtn });
     this.bindHold(this.confirmBtn);
 
-    // 함선 창고 | 가방 — two cards, each its own header + scroll
+    // 함선 창고 | 가방 — one card holding both grids, each grid with its own header + scroll (2026-09-15 3rd pass,
+    // `makeInvCards` below)
     this.tradeInv = this.makeInvCards(root, 'cv-col', '.cv-tray.sell');
 
     this.tradeEl = root;

@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * TileGrid — a **packed item grid** for the 기업 화면 (2026-09-12).
+ * TileGrid — a **packed item grid** for the `기업 네트워크` screen (2026-09-12).
  *
  * The 기업 판매 물품, the 구매 / 판매 trays and the 임플란트 desk used to be CSS grids of `.ct-cell` boxes with an
  * `item-chip` inside. Two things went wrong with that: housing.css also owns a `.ct-cell` (the 배양조 tube, 54×76
@@ -143,7 +143,7 @@ export class TileGrid {
   }
 
   /**
-   * 2026-09-13: change the cell edge (the 기업 화면 fits its grids to the window). Re-lays the cells and moves the current
+   * 2026-09-13: change the cell edge (the `기업 네트워크` screen fits its grids to the window). Re-lays the cells and moves the current
    * tiles; the tiles' own size is baked in by `buildItemTile`, so the caller re-renders them right after.
    */
   setCell(cell: number): void {

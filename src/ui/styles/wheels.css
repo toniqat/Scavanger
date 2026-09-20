@@ -2,8 +2,8 @@
  * src/ui/styles/wheels.css — the two radial wheels added on 2026-09-09.
  *
  *   `.cwheel`  the communication wheel (`hud/CommsWheel`, H held; 4 sectors standing · 2 while downed)
- *   `.pwheel`  the local ping hold wheel (`hud/PingWheel`, the wheel button held; 2 sectors left/right + the ammo
- *              leg below)
+ *   `.pwheel`  the local ping hold wheel (`hud/PingWheel`, the wheel button held; 2 sectors, left and right — the
+ *              `.ammo-leg` below them went away on 2026-09-10, see the note beside `.psector` further down)
  *
  * Both behave the way `.qwheel` / `.swheel` do — a `pointer-events:none` overlay on the gameplay layer that
  * touches neither the blocker, nor the pointer lock, nor the ESC stack. Colour, spacing and transition variables

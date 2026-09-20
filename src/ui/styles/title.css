@@ -249,8 +249,9 @@
 }
 .cc-preview .cc-nogl[hidden] { display: none; }
 
-/* The stats (middle column, five rows down) — the vocabulary of `.cs-stat` in `progression/ui/character.css`,
-   moved over as it is */
+/* The stats (left column, five rows down — the 2026-09-14 rework joined the three columns into two, so this card
+   sits under the name card in `.cc-main`) — the vocabulary of `.cs-stat` in `progression/ui/character.css`, moved
+   over as it is */
 .char-create .cc-stats-wrap {
   display: flex; flex-direction: column; gap: 12px;
   min-width: 0;

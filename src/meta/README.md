@@ -1,7 +1,7 @@
 # src/meta/ — corporations, reputation, credits, trade desk, contracts, NPC quests, intel broker
 
 `MetaSystem` (`name: 'meta'`, registered in `main.ts` right after `InventorySystem`) publishes `ctx.meta` (`MetaRef`,
-contract in `src/shared/meta.ts`). It owns the 4 corporations' reputation, the credit balance, the corp network screen
+contract in `src/shared/meta.ts`). It owns the 4 corporations' reputation, the credit balance, the `기업 네트워크` screen
 (the Tab window's `기업` tab), shops and selling, contracts, the Ceres implant repair desk, the NPC quest engine behind the
 messenger (`ctx.meta.npc`), per-NPC trust, and intel broker purchases (`ctx.meta.intel`). Character XP belongs to
 `progression/`, items to `inventory/`, the messenger UI to `ui/`; this folder reaches them only through `ctx.*Ref`.
@@ -212,8 +212,8 @@ but no content gates on it yet.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/meta`.
+- 2026-09-21 — Doc fixes (B-77 · B-78 · B-79): one name for the screen, `기업 네트워크` — what the ship computer's prompt actually draws — in `ui/TileGrid.ts`, `ui/CorpView.ts` and here; `아직 꽂지 않은` corrected to the drawn `아직 꽂지 않음`; the 「two cards」 note re-stated as the one card `makeInvCards` builds; `CurrencyReward` · `QuestInfo` · `QuestState` imports dropped (nothing referenced them since the 2026-09-14 quest tab removal).
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1): 305 lines over 15 files. Korean on-screen labels, csv names and decision headings kept verbatim in backticks / 「」 (9 lines whose whole substance is such a quote stay Korean), no string literal, `REASON` value, csv key or event name touched; proved comment-only by stripping every comment from both sides and comparing the whole text.
 - 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
 - 2026-09-18 — `ENEMY_TYPE_KO` gained `bug_egg: '벌레 알'` so an NPC kill goal that names the new nest egg reads as a word, not an id (`NpcRules.ts`).
 - 2026-09-17 — Contract columns `.cc-` → `.ctr-` (`meta.css`, `ui/CorpView.ts`): `ui/styles/title.css` owns `.cc-` for character creation, and a prefix belongs to one folder (`scripts/check-css-prefixes.mjs`).
-- 2026-09-17 — Corp access gate: Lv.0 corps are locked in the corp rail (`corpLock`, `resolveCorp`, `.corp-tab.is-locked`), `openCorpMenu` refuses while no corp is Lv.1 (`anyCorpAccessible`); every contract's `minRepLevel` +1; `q_ce_s1` / `q_nm_s1` grant 100 rep (→ Lv.1).

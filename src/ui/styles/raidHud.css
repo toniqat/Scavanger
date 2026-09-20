@@ -38,8 +38,8 @@
 }
 
 /* ── The weapon panel (bottom right) ───────────────────────────────────── */
-/* What is left grows by as much as the slot cells (1 · 2 · T) and the weapon name gave up: thumbnail 76 px,
-   ammo 64 px.
+/* What is left grows by as much as the slot cells (1 · 2 · T) and the weapon name gave up: thumbnail 58 px
+   (76 px until the frameless chip of 2026-09-16 — `.wthumb` · `.wt-icon` below are the live number), ammo 64 px.
    2026-09-10 (2nd pass): that gun readout was wrapped in **one wide box** (`.wbox`) — it reads as a panel instead
    of a floating icon. Inside the box the order is one row of [rarity-coloured thumbnail] [24 / 120] … [type tag]
    plus the durability bar along the bottom.

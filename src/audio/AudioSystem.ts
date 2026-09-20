@@ -132,9 +132,10 @@ const FALL_STEP_PITCH_HEAVY = 0.78;
  * `(1 − d/range)^exp` as remote footsteps and the rogue drop, and the panner only handles direction (`panOnly`).
  * Beyond `range` no voice is made at all.
  *
- * `floor` = the smallest fraction guaranteed inside the range. Only sounds that are **fair only if their warning is
- * heard** have one (the sniper glint · the sniper shot · the scan pulse). It falls to 0 over the last
- * `RANGED_FLOOR_EDGE` of the range, so nothing cuts off abruptly at the edge.
+ * `floor` = the smallest fraction guaranteed inside the range. Only a sound that is **fair only if its warning is
+ * heard** has one — the table below is the list, so it is never written out here (2026-09-21, B-81: an enumeration
+ * of three stood here and the count had reached ten). It falls to 0 over the last `RANGED_FLOOR_EDGE` of the range,
+ * so nothing cuts off abruptly at the edge.
  *
  * These radii are **presentation for the player's ear** and no gameplay judgement reads them — a sound that does
  * have a judgement radius binds to that contract constant: a sprinting ground drone carries a little further than
@@ -320,7 +321,11 @@ export class AudioSystem implements GameSystem, AudioRef {
   private readonly roverLastPos = new THREE.Vector3();
   private roverHasLast = false;
   private roverLastClang = -Infinity;
-  /** 2026-09-15 (B-16): the live voices per `VOICE_CAP` id (`play` clears out the finished ones as it goes). */
+  /**
+   * 2026-09-15 (B-16): the live voices per **voice group** (`play` clears out the finished ones as it goes). The
+   * key is `VOICE_GROUP[id] ?? id`, not the id — 2026-09-16 moved the cap onto the group so the three bug step ids
+   * share one (`play`'s `const group = …`).
+   */
   private cappedVoices = new Map<string, CappedVoice[]>();
   /** 2026-09-16: incoming artillery shells — pre-made slots (when they are full the oldest is reused). */
   private incoming: IncomingShell[] = Array.from({ length: SHELL_TRACK_MAX }, () => ({
