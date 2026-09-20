@@ -66,7 +66,7 @@ function levelFromXp(xp) {
 const CHASM_NEAR_Z = 82, CHASM_GAP_Z = 3.6, CHASM_RUNUP_M = 12, TILT = Math.tan((20 * Math.PI) / 180), SAFE_CHASM_MARGIN = 1.5;
 const nearZ = (x) => CHASM_NEAR_Z - x * TILT;
 const farZ = (x) => nearZ(x) - CHASM_GAP_Z;
-// 2026-09-15 2차 (사용자 결정): `corpseOpen`(시체 상호작용)이 `corpseLoot` 앞에 들어와 16단계다.
+// 2026-09-15 2nd pass (user's decision): `corpseOpen` (the corpse interaction) came in before `corpseLoot`, so 16 steps.
 const RAID_STEPS = ['wake', 'move', 'sprintJump', 'corpseOpen', 'corpseLoot', 'advance1', 'shoot', 'advance2', 'crouch', 'crouchAim', 'advance3', 'drop', 'supplyLoot', 'heal', 'grenade', 'extract'];
 
 let pass = 0, fail = 0;
@@ -150,7 +150,7 @@ try {
   const waitSim = (s) => P((x) => window.__waitSim(x), s);
   const blockers = () => P(() => [...window.__game.ctx.uiBlockers]);
 
-  /* ── 1. 새 캐릭터 → 튜토리얼 레이드 ─────────────────────────────────── */
+  /* ── 1. A fresh character → the tutorial raid ───────────────────────── */
   console.log('진입');
   // The pre-landed ship turns 'playing' into 'extracting' → 'shipLanded' on the first playing frame (extraction/README).
   await waitFor(page, () => { const c = window.__game.ctx; return c.missionMode === 'tutorial' && c.world?.ready && c.isGameplayPhase() && c.player.spawned; }, 'tutorial raid in a gameplay phase', 90000);
@@ -193,7 +193,7 @@ try {
   ok(await step() === 'move', 'player:introWakeDone 이 wake → move 로 넘긴다');
   if ((await blockers()).length) console.log(`  note ui blockers at start: ${JSON.stringify(await blockers())}`);
 
-  /* ── 2. 절벽 1 kill 볼륨 + 도움닫기 제외 띠 ───────────────────────────── */
+  /* ── 2. Cliff 1's kill volume + the run-up exclusion band ─────────────── */
   console.log('절벽 1: kill 볼륨 · 도움닫기 제외');
   await P(() => { window.__tp(0, 0, 103, 0); });
   await waitSim(0.3);
@@ -217,7 +217,7 @@ try {
   ok(resp1.z >= nearZ(resp1.x) + CHASM_RUNUP_M - 0.05 && resp1.z < nearZ(resp1.x) + CHASM_RUNUP_M + 1.5 && Math.abs(resp1.y) < 0.4,
     `도움닫기 띠 안에서는 기록하지 않는다 — 가장자리에서 ${(resp1.z - nearZ(resp1.x)).toFixed(2)} m (≥ ${CHASM_RUNUP_M}) 떨어진 마지막 땅`, JSON.stringify(resp1));
 
-  /* ── 3. 체크포인트 부활 ─────────────────────────────────────────────────── */
+  /* ── 3. Respawning on the checkpoint ────────────────────────────────────── */
   console.log('체크포인트 부활');
   const gone = await P(() => window.__game.ctx.world.tutorial.gotoCheckpoint('cliff'));
   await waitSim(0.4);
@@ -230,9 +230,9 @@ try {
   ok(resp2.hp === resp2.maxHp && Math.abs(resp2.yaw) < 0.05, '체크포인트 부활도 체력 가득 · 앞(yaw 0)을 본다', JSON.stringify(resp2));
   ok(resp2.over === 0 && resp2.avail === 0, '튜토리얼 사망은 game:over · game:respawnAvailable 을 내지 않는다 (자동 부활 규칙은 본편에서 그대로)', JSON.stringify(resp2));
 
-  /* ── 4. 달려서 절벽 1 넘기 (실제 입력) ──────────────────────────────────── */
+  /* ── 4. Clearing cliff 1 at a sprint (real input) ───────────────────────── */
   console.log('달려 뛰기');
-  // 부활 기상 연출(2026-09-15) 동안은 입력이 잠긴다 — 달리기 입력 전에 끝나기를 기다린다
+  // Input is locked during the respawn wake (2026-09-15) — wait it out before the sprint input
   await waitFor(page, () => window.__game.getSystem('player').introWakeT < 0, 'respawn 2 get-up done', 10000);
   await waitSim(0.3);
   const jump = await P(async () => {
@@ -257,10 +257,11 @@ try {
     return { jumped, dead: p.isDead, cp: ctx.world.tutorial.checkpoint, pose: window.__pose() };
   });
   ok(!!jump.jumped && !jump.dead && jump.cp === 'corpse', `달리며 뛰면 절벽 1 을 넘어 corpse 체크포인트에 닿는다 (도약 z ${jump.jumped?.z.toFixed(2)})`, JSON.stringify(jump));
-  // 2026-09-15 2차: `corpse` 체크포인트가 여는 것은 이제 `corpseOpen`(「시체 상호작용」) 이다 — `corpseLoot` 은 시체 가방이 열려야 온다.
+  // 2026-09-15 2nd pass: the `corpse` checkpoint now opens `corpseOpen` (「시체 상호작용」) — `corpseLoot` comes only
+  // once the corpse's bag is open.
   await waitStep('corpseOpen', 10000);
 
-  /* ── 5. 건너편에서 되돌아 떨어지기 → 마지막으로 서 있던 자리 ───────────── */
+  /* ── 5. Falling back in from the far side → the last safe ground ───────── */
   console.log('마지막으로 서 있던 자리');
   await P(() => window.__tp(3, 0, 70, Math.PI));
   await waitSim(0.5);
@@ -270,8 +271,9 @@ try {
   await P(() => window.__keysUp());
   await waitFor(page, () => !window.__game.ctx.player.isDead, 'respawn 3', 20000);
   const resp3 = await P(() => ({ ...window.__pose(), cp: window.__game.ctx.world.tutorial.checkpoint, rule: window.__ev['player:fell'].slice(-1)[0]?.p?.rule }));
-  // 2026-09-15 (사용자 결정): 튜토리얼 부활은 서 있는 채 나타나지 않고 **쓰러졌다 일어난다** — 그 동안 입력이 잠기므로
-  //   다음 행동(시체 E) 전에 기상 연출이 끝나기를 기다린다. 오프닝과 달리 나침반 · Tab 잠금(`introWaking`)은 걸지 않는다.
+  // 2026-09-15 (user's decision): a tutorial respawn does not appear standing — the body **falls and gets up** — and
+  //   input is locked while it does, so the wake is waited out before the next action (E on the corpse). Unlike the
+  //   opening it raises no compass / Tab lock (`introWaking`).
   const wake3 = await P(() => { const ps = window.__game.getSystem('player'); return { t: ps.introWakeT, respawn: ps.introWakeRespawn, introWaking: window.__game.ctx.player.introWaking === true }; });
   ok(wake3.t >= 0 && wake3.respawn && !wake3.introWaking, '부활하면 쓰러졌다 일어나는 연출이 돈다 (부활 연출 · 오프닝 잠금 없음)', JSON.stringify(wake3));
   await waitFor(page, () => window.__game.getSystem('player').introWakeT < 0, 'respawn get-up done', 10000);
@@ -282,7 +284,7 @@ try {
   ok(resp3.hp === resp3.maxHp, '낙사 부활도 체력 가득');
   ok(await step() === 'corpseOpen', '되돌아 떨어져도 단계는 그대로다');
 
-  /* ── 6. 시체 뒤지기 → 무기 장착 → 닫기 ─────────────────────────────────── */
+  /* ── 6. Searching the corpse → equipping the weapon → closing ──────────── */
   console.log('시체');
   await P(() => window.__tp(2, 0, 68.2, 0));
   await waitSim(0.4);
@@ -297,7 +299,8 @@ try {
     const smg = (g?.items() ?? []).map((p) => p.item).find((it) => it?.defId === 'wpn_smg');
     return !!smg && smg.searched !== false;
   }, 'SMG revealed by the corpse search', 30000);
-  // 2026-09-15 2차: 시체 가방이 열리는 순간 `corpseOpen` 이 끝나고 `corpseLoot`(「기관단총을 주무기 칸에 장착」) 이 된다.
+  // 2026-09-15 2nd pass: the moment the corpse's bag opens, `corpseOpen` ends and it becomes `corpseLoot`
+  // (「기관단총을 주무기 칸에 장착」).
   ok(await step() === 'corpseLoot', 'E 로 시체를 열면 corpseOpen 이 끝나고 corpseLoot 이다');
   const equipped = await P(() => {
     const inv = window.__game.getSystem('inventory');
@@ -314,7 +317,7 @@ try {
   await waitStep('advance1', 10000);
   ok(await P(() => window.__game.ctx.tutorial.hides('hud', 'weapon')) === false, '창을 닫으면 advance1 이고 무기 HUD 가 나타난다');
 
-  /* ── 7. 벌레: 솟는 순간 shoot → 둘 처치 ─────────────────────────────────── */
+  /* ── 7. Bugs: `shoot` the moment they emerge → two kills ────────────────── */
   console.log('벌레');
   await P(() => window.__tp(0, 0, 58, 0));
   await waitSim(0.3);
@@ -330,7 +333,7 @@ try {
   await waitStep('advance2', 10000);
   ok(bugKills === 2, `벌레 둘을 처치하면 advance2 (${bugKills})`);
 
-  /* ── 8. 포복 구간 → 앉기 → 안드로이드 ───────────────────────────────────── */
+  /* ── 8. The crawl stretch → crouching → the androids ────────────────────── */
   console.log('앉기 · 안드로이드');
   await P(() => window.__tp(0, 0, -8, 0));
   await waitStep('crouch', 10000);
@@ -339,14 +342,16 @@ try {
   await P(() => window.__key('KeyC', false));
   await waitStep('crouchAim', 10000);
   ok(await P(() => window.__game.ctx.player.stance) !== 'stand', 'C 로 앉으면 crouchAim');
-  /* 2026-09-15: 앉기 · 포복 줄의 라벨은 crouchAim 에서도 자세를 따라간다 (옛 버그 — crouch 는 앉는 순간 끝나 라벨이 얼었다) */
+  /* 2026-09-15: the crouch · prone rows' labels follow the stance through `crouchAim` too (an old bug — `crouch`
+     ended the moment the body crouched, so the labels froze) */
   const ctlLabel = (id) => P((h) => document.querySelector(`.tut-controls .tut-ctl[data-hint="${h}"] .tut-ctl-label`)?.textContent ?? null, id);
   const waitLabels = (c, z, label) => waitFor(page, ([a, b]) => {
     const q = (h) => document.querySelector(`.tut-controls .tut-ctl[data-hint="${h}"] .tut-ctl-label`)?.textContent ?? null;
     return q('crouch') === a && q('prone') === b;
   }, label, 5000, [c, z]).then(() => true).catch(() => false);
   ok(await waitLabels('일어서기', '포복', 'crouched labels'), `앉은 채 crouchAim: C 일어서기 · Z 포복 (${await ctlLabel('crouch')} / ${await ctlLabel('prone')})`);
-  // TIP 토스트 — 판정 입력(정조준)은 player 몫이라 트리거 함수를 직접 부른다: 조작 가이드 바로 아래에 코드 페이드로 선다
+  // The TIP toast — the judged input (aiming down sights) belongs to player, so the trigger function is called
+  // directly: it stands right under the control guide with a code fade
   await P(() => window.__game.getSystem('tutorial').maybeCrouchTip(true));
   await waitSim(0.6);
   const tip = await P(() => {
@@ -374,7 +379,7 @@ try {
     await P(() => window.__key('KeyC', false));
   }
 
-  /* ── 9. 절벽 2 clamp 볼륨 ───────────────────────────────────────────────── */
+  /* ── 9. Cliff 2's clamp volume ──────────────────────────────────────────── */
   console.log('절벽 2: clamp 볼륨');
   const probes = await P(() => {
     const tw = window.__game.ctx.world.tutorial, v = window.__game.ctx.player.position.clone();
@@ -387,8 +392,8 @@ try {
     'fallRule: 협곡 바닥 kill · 절벽 2 착지 clamp · 그 밖 normal', JSON.stringify(probes));
   await P(() => window.__tp(0, 0, -72, 0));
   await waitStep('drop', 10000);
-  /* 2026-09-16 (버그 A — 사용자 결정 「모든 낙하 피해는 체력으로 곧장」): 방탄복 실드를 가득 채운 채 **자연 낙하**.
-     전에는 실드가 낙하 피해를 먹어 체력이 가득인 채 `heal` 이 조용히 지나갔다. */
+  /* 2026-09-16 (bug A — user's decision 「모든 낙하 피해는 체력으로 곧장」): a **natural drop** with the armor shield
+     full. The shield used to eat the fall damage, so HP stayed full and `heal` passed silently. */
   const armorEquip = await P(() => {
     const c = window.__game.ctx;
     const it = c.loot.createItem('armor_2', 1);
@@ -413,7 +418,8 @@ try {
     `낙하 피해는 실드를 건너뛰어 체력으로 곧장 들어간다 (체력 ${armor.hp} → ${dropA.hp}, 실드 ${armor.shield} → ${dropA.shield})`, JSON.stringify(dropA));
   await waitStep('supplyLoot', 10000);
   ok(await step() === 'supplyLoot', '방탄복을 입고 자연 낙하해도 drop → supplyLoot (체력이 깎였다)');
-  // clamp 볼륨은 따로 잰다 — 절벽 위로 되돌아가 체력 5 로 한 번 더 떨어진다 (뒤로 가는 체크포인트는 단계를 되돌리지 않는다)
+  // The clamp volume is measured on its own — back up the cliff and fall once more at HP 5 (a checkpoint going
+  // backwards never takes the step back)
   await P(() => window.__tp(0, 0, -72, 0));
   await waitSim(0.3);
   await P(() => window.__game.ctx.player.setHp(5));
@@ -426,7 +432,7 @@ try {
   const drop = await P(() => ({ fell: window.__ev['player:fell'].slice(-1)[0].p, ...window.__pose() }));
   ok(drop.fell.rule === 'clamp' && !drop.dead && drop.hp === 1 && Math.abs(drop.y + 10) < 0.4,
     `체력 5 로 10 m 를 떨어져도 clamp 가 체력 1 을 남긴다 (${JSON.stringify(drop.fell)})`, JSON.stringify(drop));
-  /* ── 9b. 보급품 시체 → 붕대 → 창 닫기 → 회복 (2026-09-15) ─────────────────── */
+  /* ── 9b. Supply corpse → bandage → close the window → heal (2026-09-15) ───── */
   console.log('보급품 시체');
   await waitStep('supplyLoot', 10000);
   ok(await step() === 'supplyLoot', '낙하 피해가 들어가면 drop → supplyLoot (붕대를 줍기 전에 「붕대 사용」이 뜨지 않는다)');
@@ -437,8 +443,9 @@ try {
   const sup0 = await objRows();
   ok(sup0.map((r) => r.id).join(',') === 'supplyBandage,supplyGrenade', `목표 두 줄이 함께 보인다 (${sup0.map((r) => r.id).join(',')})`);
   ok(sup0.length === 2 && sup0[0].color === sup0[1].color, '선택 목표도 달성 전에는 회색이 아니다 (필수와 같은 색)', JSON.stringify(sup0));
-  /* 2026-09-16 (버그 B): 다친 채 보급품 시체를 그냥 지나쳐 무너진 벽(`wall` 체크포인트)에 닿아도 회복 구간을 건너뛰지 않는다.
-     전에는 `CHECKPOINT_STEP.wall` = `grenade` 가 `supplyLoot` · `heal` 을 통째로 접었다. */
+  /* 2026-09-16 (bug B): walking past the supply corpse while hurt and reaching the collapsed wall (the `wall`
+     checkpoint) does not skip the healing stretch. `CHECKPOINT_STEP.wall` = `grenade` used to fold `supplyLoot` ·
+     `heal` away whole. */
   const nWall = await P(() => window.__ev['tutorial:checkpoint'].filter((e) => e.p.id === 'wall').length);
   await P(() => window.__tp(0, -10, -106, 0));
   await waitFor(page, (n) => window.__ev['tutorial:checkpoint'].filter((e) => e.p.id === 'wall').length > n, 'wall checkpoint (walked past the supply corpse)', 10000, nWall);
@@ -451,7 +458,8 @@ try {
     await P((s) => { window.__tp(s[0] + 1, s[1], s[2], 0); window.__game.ctx.interactables.all().find((i) => i.id === 'corpse:tut_supply').interact(); }, supply);
     await waitFor(page, () => window.__ev['inventory:containerOpened'].some((e) => e.p.containerId === 'corpse:tut_supply'), 'supply corpse opened', 10000);
   }
-  // 시체에서 붕대를 꺼낸 것과 같은 결과 — 가방에 붕대 한 개 (검색 연출 · 드래그는 corpse 구간이 이미 본다)
+  // The same result as pulling the bandage out of the corpse — one bandage in the bag (the search presentation ·
+  // the drag are already checked by the corpse section)
   await P(() => { const c = window.__game.ctx; c.inventory.tryAddItemAnywhere(c.loot.createItem('heal_bandage', 1)); });
   await waitFor(page, () => document.querySelector('.tut-panel .tut-obj[data-obj="supplyBandage"]')?.classList.contains('is-done'), 'bandage ticked', 5000).catch(() => null);
   ok(await step() === 'supplyLoot' && (await objRows()).find((r) => r.id === 'supplyBandage')?.done === true, '붕대를 얻으면 필수 줄이 체크되지만 창을 닫기 전에는 넘어가지 않는다');
@@ -465,8 +473,10 @@ try {
     '목표 줄 안에 키캡이 그려진다 ({QUICK:hold})');
   const healCtl = await P(() => [...document.querySelectorAll('.tut-controls .tut-ctl')].map((r) => r.dataset.hint));
   ok(healCtl.includes('quick') && healCtl.includes('quickWheel'), `빠른 사용 꺼내기 · 휠 열기가 서로 다른 줄이다 (${healCtl.join(',')})`);
-  /* 2026-09-16: 회복 단계는 붕대를 **실제로 쓸 때만**(`player:stimUsed`) 넘어간다 — 손에 드는 것으로는 안 넘어가고, 이미 지난 wall 도 접지 않았다 */
-  // 위에서 붕대는 `tryAddItemAnywhere` 로 가방에 넣었다 (시체에서 끌어온 것이 아니라 휠 자동 등록을 타지 않는다) — 비어 있는 휠 칸에 올린다
+  /* 2026-09-16: the heal step advances **only when the bandage is really used** (`player:stimUsed`) — taking it in
+     hand does not advance it, and the `wall` already passed did not fold it away either */
+  // Above, the bandage went into the bag through `tryAddItemAnywhere` (not dragged out of a corpse, so it never took
+  // the wheel's automatic registration) — put it on an empty wheel slot
   const bandageSlot = await P(() => {
     const inv = window.__game.ctx.inventory;
     const slots = inv.getQuickSlots() ?? [];
@@ -494,7 +504,7 @@ try {
   const usedBandage = await P(() => ({ stim: window.__ev['player:stimUsed'].length, step: window.__game.ctx.tutorial.step, hp: window.__game.ctx.player.hp }));
   ok(usedBandage.stim === 1 && usedBandage.step === 'grenade', `붕대를 길게 눌러 쓰면(player:stimUsed) heal → grenade (체력 ${heldBandage.hp} → ${usedBandage.hp})`, JSON.stringify(usedBandage));
 
-  /* ── 10. 벽 → 함선 → 즉시 이륙 → 정산 → 함선 ──────────────────────────── */
+  /* ── 10. The wall → the ship → instant liftoff → settlement → ship ────── */
   console.log('탈출');
   await P(() => window.__tp(0, -10, -106, 0));
   await waitStep('grenade', 10000);
@@ -502,9 +512,10 @@ try {
   ok(['quick', 'quickWheel', 'grenadeThrow', 'grenadePin'].every((id) => nadeCtl.some((r) => r.id === id))
     && nadeCtl.find((r) => r.id === 'grenadeThrow')?.text && nadeCtl.find((r) => r.id === 'grenadeThrow')?.caps === 2 && nadeCtl.find((r) => r.id === 'grenadePin')?.caps === 2,
   '수류탄 단계 조작 가이드: 꺼내기 · 휠 열기 두 줄 + 토큰 문장 줄 둘 (장착 후 던지기 · 핀 뽑기)', JSON.stringify(nadeCtl));
-  // 2026-09-15 맵 6차: 마지막 안드로이드 둘은 사선 방벽 뒤 웅덩이 한가운데 (1.85,−144.75)·(3.65,−144.75), 함선은 (−8.5,−158) yaw −10°.
-  //   `ship` 띠는 z −150 … −158 (웅덩이가 −149 까지 커졌다). 램프 축 위(발치 (−9.06,−154.8) 에서 3 m 뒤, 띠 안)에 세우고 W 로 걸어
-  //   올라간다 — 옛 (0,−143) 에서 W 는 함선 오른쪽을 지나 절벽으로 떨어진다.
+  // 2026-09-15 map 6th pass: the last two androids stand in the middle of the pit behind the diagonal barrier
+  //   (1.85,−144.75)·(3.65,−144.75), the ship at (−8.5,−158) yaw −10°. The `ship` band is z −150 … −158 (the pit grew
+  //   out to −149). Stand on the ramp axis (3 m back from the ramp foot (−9.06,−154.8), inside the band) and walk up
+  //   with W — from the old (0,−143), W passes the ship on its right and falls off the cliff.
   await P(() => window.__killNear(2.75, -144.75, 8));
   await P(() => window.__tp(-9.58, -10, -151.85, -0.1745));
   await waitStep('extract', 10000);
@@ -534,8 +545,9 @@ try {
   // 2026-09-15: the caption is the action name only — the hold hint is drawn by the key guide, no 「즉시 이륙」 tag
   // 2026-09-16: one caption for every ship — `출발 시퀀스 작동`
   ok(prompt.text === '출발 시퀀스 작동', `튜토리얼 함선 스위치 캡션은 행동 이름뿐이다 ("${prompt.text}")`, JSON.stringify(spot));
-  /* 2026-09-16 (사용자 결정 · 신고 「함선이 뜨는데 크로스헤어가 보인다」): 스위치를 누르는 순간부터 결과 화면까지 **매 프레임** 기록한다 —
-     크로스헤어 · 소셜 레이어의 실제로 칠해진 불투명도(조상 opacity × filter opacity, visibility/display 포함)와 HUD 페이드 값. */
+  /* 2026-09-16 (user's decision · the report 「함선이 뜨는데 크로스헤어가 보인다」): **every frame** from the switch
+     press to the results screen is recorded — the crosshair's and the social layer's really painted opacity (ancestor
+     opacity × filter opacity, visibility/display included) and the HUD fade value. */
   await P(() => {
     const ctx = window.__game.ctx, hud = window.__game.getSystem('hud');
     const eff = (el) => {
@@ -568,8 +580,9 @@ try {
     const ctx = window.__game.ctx, ps = window.__game.getSystem('player');
     const ev = window.__ev['extraction:liftoff'][0];
     const hp0 = ctx.player.hp;
-    // 2026-09-15 (extraction 사용자 결정 「실제 피해 · 죽지 않음」): 각본 잠금은 `{allowDamage: true, minHp: 1}` — 치명타도 체력 1 에서 멈춘다.
-    //   (2026-09-16: 붕대를 실제로 써서 체력이 1 보다 높아진 뒤로 옛 「피해가 안 들어간다」 판정이 이 결정과 어긋난 것이 드러났다.)
+    // 2026-09-15 (the extraction user's decision 「실제 피해 · 죽지 않음」): the scene lock is
+    //   `{allowDamage: true, minHp: 1}` — even a lethal hit stops at HP 1. (2026-09-16: once the bandage was really
+    //   used and HP rose above 1, the old 「피해가 안 들어간다」 assertion turned out to contradict that decision.)
     ps.applyDamage(1e6, undefined, false);
     const fin = window.__ev['tutorial:finished'].slice(-1)[0]?.p ?? null;
     let saved = null; try { saved = JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'); } catch { /* */ }

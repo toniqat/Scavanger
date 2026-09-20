@@ -1,13 +1,19 @@
-// Single-player smoke test for the **비디오게임** (2026-09-13, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, src/housing — parts/VideoGame ·
-// Rules.tvSeatFor · parts/GymGames 튜닝 · ui/tv/TvMenu · ui/gym 게임 모드 + progression applyGymSession 지능 · 인지력):
-//   1. 좌석 규칙 매트릭스 (순수 — 가구 목록을 잠깐 바꿔 `videoGameDebug.seatFor`) — 좌석 없음 · 반대로 앉음 · TV 뒤 · 폭 안 겹침 · 다른 방 ·
-//      통로의 높은 가구 = 막힘 · 폭 밖 가구 · low 가구 통과 · 쇼파 · 가까운 좌석 · 막힘 > 보고 있지 않음 · 옆으로 누운 TV
-//   2. 판정 튜닝 (`makeGame(kind, tuning)`) — 빈 튜닝 = 기본 · countMul 판정 수 · speedMul · windowMul · 패턴(쉼 · 발)
-//   3. 실제 배치 (서재 TV · 의자 · 게임 디스크 전시대) → tvSeatBlock / getTvSeat
-//   4. 게임기 장착 · 교체 · 빼기 · 게이트 · TV 회수 = 게임기 반환 / 창고가 막히면 회수 거절
-//   5. 게임 목록 · 게임기 불일치 · gameBlock 사유
-//   6. 세션 — TV 화면 → 플레이 → housing:gameSession · 게임 모드 화면 · gameBeat · 결과(지능 · 인지력) · 디버프 중 경험치 0 · 취소
-// 아이템 데이터(게임기 · 게임 디스크 def)가 아직 없으면 4–6 은 note 로 건너뛴다.
+// Single-player smoke test for **video games** (2026-09-13, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」,
+// src/housing — parts/VideoGame · Rules.tvSeatFor · parts/GymGames tuning · ui/tv/TvMenu · ui/gym game mode +
+// progression applyGymSession intelligence · perception):
+//   1. The seat rule matrix (pure — the furniture list is swapped for a moment, `videoGameDebug.seatFor`) — no seat ·
+//      seated facing away · behind the TV · no overlap in width · another room · tall furniture in the path =
+//      blocked · furniture outside the width · low furniture passes · the sofa · the nearest seat · blocked > not
+//      watching · a TV lying on its side
+//   2. The judgement tuning (`makeGame(kind, tuning)`) — an empty tuning = the default · countMul the judgement
+//      count · speedMul · windowMul · the pattern (rests · feet)
+//   3. A real placement (a library TV · chair · game disc stand) → tvSeatBlock / getTvSeat
+//   4. Mounting · swapping · pulling a console · the gates · collecting the TV = the console returned / collection
+//      refused when the stash is blocked
+//   5. The game list · a console mismatch · the gameBlock reasons
+//   6. The session — the TV screen → play → housing:gameSession · the game mode screen · gameBeat · the result
+//      (intelligence · perception) · 0 XP while debuffed · cancel
+// If the item data (the console · game disc defs) is not there yet, 4–6 are skipped with a note.
 // Usage: node scripts/smoke-video-games.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -25,7 +31,7 @@ const CHROME = [
 if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
-/** `data/constants.csv` 의 GYM_* — 기대값을 수치에서 유도한다. */
+/** GYM_* from `data/constants.csv` — the expected values are derived from the numbers. */
 const K = {};
 for (const line of readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'constants.csv'), 'utf8').split(/\r?\n/)) {
   const m = /^(GYM_[A-Z_]+),([^,]+)/.exec(line);
@@ -108,7 +114,7 @@ try {
     return cs.visibility === 'hidden' || cs.display === 'none' || cs.pointerEvents === 'none';
   }), '숨은 메뉴의 페이드가 끝난다', 5000);
 
-  /* ══ 1. 좌석 규칙 매트릭스 (순수) ══════════════════════════════════════════ */
+  /* ══ 1. The seat rule matrix (pure) ══════════════════════════════ */
   console.log('좌석 규칙');
   const seat = await H(() => {
     const h = window.__game.ctx.housing, dbg = h.videoGameDebug;
@@ -122,7 +128,7 @@ try {
     const saved = h.state.furniture;
     const P = (uid, defId, x, y, yaw, room = 3) => ({ uid, defId, room, x, y, yaw, level: 1 });
     const run = (items, tv = 't') => { h.state.furniture = items; try { return dbg.seatFor(tv); } finally { h.state.furniture = saved; } };
-    const TV = P('t', 'furn_tv', 6, 10, 0);                 // 3×1, 앞 = 격자 y 감소 → 좌석은 y < 10 쪽
+    const TV = P('t', 'furn_tv', 6, 10, 0);                 // 3×1, the front = decreasing grid y → the seat is on the y < 10 side
     const seatDef = chair ?? rocking;
     const out = { chair, sofa, rocking, low, high, seatDef };
     if (!seatDef) return out;
@@ -144,7 +150,7 @@ try {
       out.nearest = run([TV, P('c', seatDef, 7, 2, 2), P('s', sofa, 5, 6, 2)]);
     }
     out.nearestChair = run([TV, P('c', seatDef, 7, 7, 2), P('d', seatDef, 6, 2, 2)]);
-    const TV1 = P('t', 'furn_tv', 5, 5, 1);                // yaw 1 → 1×3, 앞 = 격자 x 증가 → 좌석은 x > 5 쪽, yaw 3
+    const TV1 = P('t', 'furn_tv', 5, 5, 1);                // yaw 1 → 1×3, the front = increasing grid x → the seat is on the x > 5 side, yaw 3
     out.side = run([TV1, P('c', seatDef, 9, 6, 3)]);
     out.sideFacing = run([TV1, P('c', seatDef, 9, 6, 1)]);
     return out;
@@ -175,7 +181,7 @@ try {
     ok(seat.side.seatUid === 'c' && seat.sideFacing.reason === R_FACING, `옆으로 누운 TV(yaw 1): x 증가 쪽 · yaw 3 좌석 (${seat.side.reason} / ${seat.sideFacing.reason})`, JSON.stringify(seat.side));
   }
 
-  /* ══ 2. 판정 튜닝 ══════════════════════════════════════════════════════════ */
+  /* ══ 2. The judgement tuning ═══════════════════════════════════════════ */
   console.log('판정 튜닝');
   const tune = await H(() => {
     const dbg = window.__game.ctx.housing.videoGameDebug;
@@ -205,8 +211,9 @@ try {
   ok(near(tune.press.zone, K.GYM_PRESS_ZONE * 0.5) && near(tune.press.perfect, K.GYM_PRESS_PERFECT * 0.5), `windowMul 0.5 → 구역 반폭 ${tune.press.zone} · 완벽 ${tune.press.perfect}`);
   ok(tune.breath.same && tune.breath.dTotal === K.GYM_BREATH_CYCLES * 3, `호흡: 맞지 않는 패턴 토큰(L-R)은 버려져 헬스 기본 (${tune.breath.dTotal}회)`);
   const bBeat = K.GYM_BREATH_BEAT_S / 0.85, bHold = K.GYM_BREATH_HOLD_S / 0.85;
-  /* 2026-09-14 (사용자 결정 「보이는 것 = 판정」): `game.window` 는 이제 **바깥(좋음) 띠**이고 csv 창 × `GYM_GOOD_OF_PERFECT` 다
-     (완벽 띠 = csv 창 그대로 = 화면에 그려지는 표식). 상한(박자의 절반)은 그대로 걸린다. */
+  /* 2026-09-14 (user's decision 「보이는 것 = 판정」): `game.window` is now the **outer (good) band**, the csv window
+     × `GYM_GOOD_OF_PERFECT` (the perfect band = the csv window as it is = the marker drawn on screen). The cap (half
+     a beat) still applies. */
   ok(tune.breath.tTotal === K.GYM_BREATH_CYCLES * 3 && tune.breath.holds === K.GYM_BREATH_CYCLES && near(tune.breath.beat, bBeat)
     && near(tune.breath.window, Math.min(K.GYM_BREATH_WINDOW_S * 1.1 * K.GYM_GOOD_OF_PERFECT, bBeat / 2)),
     `호흡 t-t-h-r: 판정 ${tune.breath.tTotal} · 꾹 ${tune.breath.holds} · 박자 ${tune.breath.beat.toFixed(3)} s`, JSON.stringify(tune.breath));
@@ -218,7 +225,7 @@ try {
     && near(tune.cycle.window, Math.min(K.GYM_CYCLE_WINDOW_S * 0.85 * K.GYM_GOOD_OF_PERFECT, cBeat / 2)),
   `사이클 L-L-R-r: 판정 ${tune.cycle.tTotal} · 발 ${tune.cycle.lanes.join(' ')} · 쉼 뒤 표식 박자 ${K.GYM_LEAD_BEATS + 4}`, JSON.stringify(tune.cycle));
 
-  /* ══ 3. 실제 배치 ══════════════════════════════════════════════════════════ */
+  /* ══ 3. A real placement ═══════════════════════════════════════════════ */
   console.log('실제 배치');
   const setup = await H(() => {
     const ctx = window.__game.ctx, h = ctx.housing;
@@ -228,7 +235,7 @@ try {
       let added = 0;
       while (added < n) { const q = Math.min(def.stackMax ?? 1, n - added); if (!ctx.inventory.tryAddToStash(ctx.loot.createItem(id, q))) break; added += q; }
     }
-    h.state.generatorLevel = Math.max(h.state.generatorLevel, 5);   // 서재 = 발전기 Lv.4 (2026-09-13 — 최대 Lv.5)
+    h.state.generatorLevel = Math.max(h.state.generatorLevel, 5);   // the library = generator Lv.4 (2026-09-13 — max Lv.5)
     h.state.rooms[3].purpose = 'library';
     const place = (defId, x, y, yaw) => {
       if (!h.storageEntry(defId) && !h.craftFurniture(defId)) return { err: `craft ${defId}: ${h.furnitureCraftBlock?.(defId)}` };
@@ -240,7 +247,7 @@ try {
     const tv = place('furn_tv', 6, 10, 0);
     const chair = place('furn_chair', 7, 5, 2);
     const stand = h.getFurnitureDef('furn_game_stand') ? place('furn_game_stand', 0, 13, 1) : { err: 'no furn_game_stand def' };
-    // 2026-09-13 (전력 할당 폐지): 할당할 전력이 없다 — TV 는 놓이기만 하면 작동한다
+    // 2026-09-13 (power allocation dropped): there is no power to allocate — a TV works as soon as it is placed
     return { tv, chair, stand, tvOp: tv.uid ? h.furnitureOperationalBlock(tv.uid) : 'no tv' };
   });
   ok(!!setup.tv.uid && !!setup.chair.uid, `서재에 TV · 의자 배치 (${JSON.stringify({ tv: setup.tv, chair: setup.chair })})`);
@@ -254,7 +261,7 @@ try {
   ok(live.block === null && live.seat === CHAIR, `배치한 의자가 TV 좌석 (${live.seat} · ${live.block})`);
   ok(live.notTv === 'TV 가 아닙니다', `의자 uid 로 물으면 TV 가 아니다 (${live.notTv})`);
 
-  /* ══ 4. 게임기 ══════════════════════════════════════════════════════════════ */
+  /* ══ 4. The console ══════════════════════════════════════════════════════ */
   const data = await H(() => {
     const loot = window.__game.ctx.loot;
     const consoles = loot.getAllItemDefs().filter((d) => d.gameConsole).map((d) => ({ id: d.id, kind: d.gameConsole.console }));
@@ -274,7 +281,7 @@ try {
       const n0 = { a: h.countDef(A), b: h.countDef(B) };
       const r = {};
       r.attach = h.attachTvConsole(TV, A);
-      r.afterAttach = { cur: h.getTvConsole(TV), a: h.countDef(A), ev: window.__rec.consoles.at(-1) ?? null, saved: { ...((h.state.tvConsoles ?? []).find((s) => s.uid === TV) ?? {}) } };   // 복사 — 교체가 같은 칸 객체를 고쳐 쓴다
+      r.afterAttach = { cur: h.getTvConsole(TV), a: h.countDef(A), ev: window.__rec.consoles.at(-1) ?? null, saved: { ...((h.state.tvConsoles ?? []).find((s) => s.uid === TV) ?? {}) } };   // a copy — a swap rewrites the same cell object
       r.again = h.attachTvConsole(TV, A);
       r.replace = h.attachTvConsole(TV, B);
       r.afterReplace = { cur: h.getTvConsole(TV), a: h.countDef(A), b: h.countDef(B) };
@@ -305,7 +312,7 @@ try {
       const r = {};
       r.attach = h.attachTvConsole(TV, A);
       const n = h.countDef(A);
-      // 창고가 막힌 척 — recoverBlock 사유 · recover 거절 (TV · 게임기 그대로)
+      // pretending the stash is blocked — the recoverBlock reason · recover refused (the TV · console stay)
       h.stashSpaceBlock = () => '함선 창고 가득';
       r.block = h.recoverBlock(TV);
       delete h.stashSpaceBlock;
@@ -316,7 +323,7 @@ try {
       r.afterRefused = { placed: !!h.getPlacedByUid(TV), cur: h.getTvConsole(TV) };
       r.ok = h.recover(TV);
       r.after = { placed: !!h.getPlacedByUid(TV), cons: (h.state.tvConsoles ?? []).filter((s) => s.uid === TV).length, count: h.countDef(A), n, ev: window.__rec.consoles.at(-1) ?? null };
-      // 다시 놓는다 (같은 자리)
+      // placed again (the same spot)
       const p = h.place(3, 'furn_tv', 6, 10, 0);
       r.replaced = p ? p.uid : null;
       return r;
@@ -328,7 +335,7 @@ try {
     ok(!!rec.replaced, `TV 를 다시 놓는다 (${rec.replaced})`);
     const TV2 = rec.replaced;
 
-    /* ══ 5. 게임 목록 ════════════════════════════════════════════════════════ */
+    /* ══ 5. The game list ════════════════════════════════════════════════ */
     console.log('게임 목록');
     const discA = D.find((d) => d.console === cA.kind && d.stat === 'intelligence') ?? D.find((d) => d.console === cA.kind);
     const discP = D.find((d) => d.console === cA.kind && d.stat === 'perception' && d !== discA) ?? D.find((d) => d.console === cA.kind && d !== discA);
@@ -358,7 +365,8 @@ try {
           ctx.uiBlockers.add('smoke');
           r.blockOther = h.gameBlock(TV, discA);
           ctx.uiBlockers.delete('smoke');
-          // 2026-09-17 (사용자 결정): 좌석은 조건이 아니다 — 치워도 시작할 수 있고 서서 한다 (`seatUid` null, 앉기 자세 없음)
+          // 2026-09-17 (user's decision): a seat is not a requirement — it can start with the chair collected and
+          // is played standing (`seatUid` null, no sitting pose)
           const chairItem = h.getPlacedByUid(CHAIR);
           r.recoverChair = h.recover(CHAIR);
           r.noSeat = h.gameBlock(TV, discA);
@@ -391,7 +399,7 @@ try {
         ok(withC.standEnd.info === null && withC.standEnd.ev?.active === false, '서서 하던 세션 취소 → 정리', JSON.stringify(withC.standEnd));
         const CHAIR2 = withC.chair;
 
-        /* ══ 6. 세션 ═══════════════════════════════════════════════════════════ */
+        /* ══ 6. The session ══════════════════════════════════════════════════ */
         console.log('세션');
         const hasProg = await H(() => {
           const p = window.__game.ctx.progression;
@@ -448,7 +456,7 @@ try {
             : discA.minigame === 'cycle' ? Math.max(1, Math.round(K.GYM_CYCLE_STROKES * (discA.tuning?.countMul ?? 1))) : Math.max(1, Math.round(K.GYM_BREATH_CYCLES * 3 * (discA.tuning?.countMul ?? 1)));
           ok(g1.started && g1.minigame === discA.minigame && g1.total === wantTotal, `게임 시작 — 디스크 튜닝 판정 수 ${g1.total} (${discA.minigame})`, JSON.stringify(g1));
           if (discA.minigame === 'press') ok(near(parseFloat(g1.zone ?? 'NaN'), Number((g1.gz * 200).toFixed(2)), 1e-6) && near(g1.gz, K.GYM_PRESS_ZONE * (discA.tuning?.windowMul ?? 1)), `구역 폭 = 튜닝된 zone (${g1.zone} = ${g1.gz} × 200)`);
-          // 진짜 키 — 벤치프레스 Space / 호흡 Space / 사이클 A · D 둘 다 (둘 중 하나는 판정)
+          // real keys — the bench press Space / breathing Space / cycling A · D, all of them (one of the two judges)
           await tap('Space'); await tap('KeyA'); await tap('KeyD');
           await waitFor(page, () => window.__rec.beats.length > 0 || (window.__game.ctx.housing.videoGameDebug.game?.time ?? 0) > 3, 'beat', 8000).catch(() => null);
           if (discA.minigame === 'press') ok((await H(() => window.__rec.beats.at(-1))) ?.tvUid === TV2, `진짜 Space → housing:gameBeat (${JSON.stringify(await H(() => window.__rec.beats.at(-1)))})`);
@@ -503,8 +511,10 @@ try {
             out.attachDuring = h.attachTvConsole(TV, h.getTvConsole(TV));
             h.cancelGameSession();
             out.cancel = window.__rec.sessions.at(-1);
-            // (가짜 `caller` 이벤트는 검사하지 않는다 — hub 의 GameStaging 은 「우리가 푼 것」을 reason 이 아니라 자기 releasing 플래그로 가리므로
-            //  꾸며낸 caller 도 「몰래 풀렸다」로 읽고 취소한다. housing 쪽 caller 무시는 GymScreen 닫기 경로가 매번 지나간다.)
+            // (a fake `caller` event is not checked — the hub's GameStaging tells 「what we released」 apart by its own
+            //  releasing flag rather than by the reason, so an invented caller reads as 「released behind our
+            //  back」 and cancels too.
+            //  The housing-side caller ignore is crossed by the GymScreen close path on every run.)
             out.startForReset = h.startGameSession(TV, id);
             b.emit('player:furniturePoseEnded', { kind: 'sit', reason: 'reset' });
             out.afterReset = { info: h.gameSession, ev: window.__rec.sessions.at(-1) };

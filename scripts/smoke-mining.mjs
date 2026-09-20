@@ -1,25 +1,39 @@
-// Single-player smoke test for **암호화폐 채굴 — housing 규칙 · 지갑 · 거래소 · 데이터** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, agent ③).
-// 화면(housing/ui/mining)은 이 스모크의 몫이 아니다 — 여기서는 `ctx.housing` API · `state` · 세이브 · `ctx.meta.creditsTx` · 데이터만 본다:
-// **2026-09-16 (사용자 결정 — 연산 코어 폐지)**: 클러스터에 꽂히는 것은 **프로세서**(`mat_processor`, 내구도 500)다. 중간 재료였던
-// 연산 코어(`mat_compute_core`)는 아이템 표에서 사라졌고, 칸은 「개수 하나」가 아니라 **칸마다의 남은 내구도**(`processors`)다.
-// 속도는 개수가 아니라 **성능 합**(`clusterPerf`)에서 나고, 주기가 끝날 때마다 꽂힌 전부가 `PROCESSOR_WEAR_PER_CYCLE` 만큼 닳는다.
-//   0. 순수 규칙 — `coinCycleMs` 가 코어마다 절반, `processorCells` / `processorCount` / `clusterPerf` / `clusterCycleMs`(다 닳은 둘 =
-//      새것 하나) / `wearProcessors`, `takeCompletedCycles` / `foldProgress` / `sanitizeClusters`(칸 목록 정리 · 진행도 [0,1) ·
-//      구간 시작 · 코인 id 모양 · 중복 uid · 배치되지 않은 uid 의 프로세서와 **옛 세이브의 `cores`** = orphanCores) / `sanitizeUnitsMap`.
-//   1. 데이터 — 프로세서 def(전설 2×1 · 내구도 500), 조합대 레시피 `mix_processor`(결정 코어 + 회로 기판), 연산 코어 def 는 **없다**,
-//      상자 티어 배수 0(제작 사슬의 끝이라 상자에서 나오지 않는다), 안드로이드 시체에도 없다.
-//   2. 채굴 시설 — 방 용도 mining · 메인 컴퓨터 1 + 클러스터 2 제작 · 배치(클러스터는 `multi` 라 두 번째도 제작, 컴퓨터는 「이미 보유 중」),
-//      2026-09-13 전력 할당 폐지 — 전력 API 가 없고 메인 컴퓨터가 있으면 `furnitureOperationalBlock` 은 null.
-//   3. 클러스터 — 코인 미지정 사유, 잠긴 코인 거절(`<기업> 퀘스트 「…」 완료 필요`), 프로세서 없음 사유, 프로세서 넣기(가방 → 창고 소모) ·
-//      주기가 한 개마다 절반, 가짜 시간(구간 시작을 되돌림) → 틱이 끝난 주기를 한 번에 넣음(`housing:cryptoMined` 1건 ·
-//      `walletChanged mined` · 진행도 소수 부분 유지) **+ 꽂힌 전부가 주기 수만큼 닳는다**, 프로세서 수 변경 = 끝난 주기 넣고 진행도
-//      접기 · 주기는 늘 `clusterCycleMs(코인, 성능 합)`, 멈춘 시계 없음(`stationNow` = `nowMs`) · 메인 컴퓨터 회수 = 사유 + 채굴 안 함(끝난
-//      주기를 넣지 않고 구간만 지금으로) → 다시 놓으면 그 자리에서 이어감, 코인 변경 = 진행도 0, 퀘스트 완료(가짜) 뒤 잠긴 코인 허용,
-//      프로세서 빼기(가방 · 창고로 — 내구도 그대로), 꽂힌 클러스터 회수 거절(`프로세서를 먼저 빼세요`) → 빼면 회수 · 칸 지움, `devAdvanceMining`.
-//   4. 거래소 — 서버 없음 = `서버에 연결되어야 합니다`, 시세 스텁 → 매도(크레딧 +floor(가격 × 코인 × (1 − 수수료)) · 지갑 −) · 매수(올림 · 지갑 +) ·
-//      잔고 부족 · 크레딧 부족 · 최대 단위 · 잠긴 코인 · 서버 거절이면 지갑 복구 · `creditsTx` 로컬 거절, 콘솔 `crypto wallet`.
-//   5. 세이브 — `sanitize` 왕복(클러스터 칸 목록 · 지갑 · 누적 채굴 그대로), 배치되지 않은 클러스터의 프로세서 → `out.refund`
-//      (내구도를 실을 수 없는 자루라 **새것으로** 돌아간다), localStorage 에 적힌 것도 같다.
+// Single-player smoke test for **crypto mining — the housing rules · the wallet · the exchange · the data** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, agent ③).
+// The screens (housing/ui/mining) are not this smoke's job — only the `ctx.housing` API · `state` · the save ·
+// `ctx.meta.creditsTx` · the data are checked here:
+// **2026-09-16 (user's decision — the compute core dropped)**: what mounts in a cluster is a **processor**
+// (`mat_processor`, durability 500). The compute core (`mat_compute_core`), the intermediate material, is gone from
+// the item table, and a cell is no longer a count but **the durability left in each cell** (`processors`).
+// Speed comes from the **perf sum** (`clusterPerf`), not from a count, and at the end of every cycle everything
+// mounted wears by `PROCESSOR_WEAR_PER_CYCLE`.
+//   0. The pure rules — `coinCycleMs` halves per core, `processorCells` / `processorCount` / `clusterPerf` /
+//      `clusterCycleMs` (two worn out = one new) / `wearProcessors`, `takeCompletedCycles` / `foldProgress` /
+//      `sanitizeClusters` (the cell list sanitized · progress [0,1) · the segment start · the coin id shape · a
+//      duplicate uid · the processors of an unplaced uid and **an old save's `cores`** = orphanCores) /
+//      `sanitizeUnitsMap`.
+//   1. The data — the processor def (legendary 2×1 · durability 500), the mixer recipe `mix_processor` (a crystal
+//      core + a circuit board), **no** compute core def, a crate tier multiplier of 0 (it is the end of the craft
+//      chain, so it never drops from a crate), and none on an android corpse either.
+//   2. The mining facility — room purpose mining · crafting · placing 1 main computer + 2 clusters (a cluster is
+//      `multi`, so a second one crafts too; the computer answers 「이미 보유 중」), power allocation dropped
+//      2026-09-13 — with no power API and a main computer present, `furnitureOperationalBlock` is null.
+//   3. The cluster — the no-coin reason, a locked coin refused (`<기업> 퀘스트 「…」 완료 필요`), the no-processor
+//      reason, mounting processors (consumed from bag → stash) · the cycle halving per unit, a fake clock (the
+//      segment start wound back) → the tick deposits the finished cycles at once (one `housing:cryptoMined` ·
+//      `walletChanged mined` · the fractional progress kept) **+ everything mounted wears by the cycle count**, a
+//      change in processor count = the finished cycles deposited and the progress folded · the cycle is always
+//      `clusterCycleMs(coin, perf sum)`, no stopped clock (`stationNow` = `nowMs`) · collecting the main computer =
+//      a reason + no mining (the finished cycles are not deposited, only the segment is re-opened at now) → placing
+//      it again resumes from there, a coin change = progress 0, a locked coin allowed after a (fake) quest
+//      completion, pulling processors (to bag · stash — durability kept), a mounted cluster refuses collection
+//      (`프로세서를 먼저 빼세요`) → once pulled it collects · the cells are erased, `devAdvanceMining`.
+//   4. The exchange — no server = `서버에 연결되어야 합니다`, a stubbed quote → a sell (credits
+//      +floor(price × coins × (1 − fee)) · wallet −) · a buy (rounded up · wallet +) · short balance · short
+//      credits · the max units · a locked coin · the wallet restored on a server refusal · a local `creditsTx`
+//      refusal, the console `crypto wallet`.
+//   5. The save — the `sanitize` round trip (the cluster cell lists · the wallet · the mined total unchanged), the
+//      processors of an unplaced cluster → `out.refund` (a bag that cannot carry durability, so they come back
+//      **new**), and what localStorage holds is the same.
 // Usage: node scripts/smoke-mining.mjs [http://localhost:5273/]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -105,7 +119,7 @@ try {
   const slot = (uid) => H((u) => { const s = window.__game.ctx.housing.state.clusters?.find((x) => x.uid === u); return s ? JSON.parse(JSON.stringify(s)) : null; }, uid);
   const walletOf = (coin) => H((c) => window.__game.ctx.housing.getCryptoWallet()[c] ?? 0, coin);
 
-  /* ══ 0. 순수 규칙 ══════════════════════════════════════════════════════════ */
+  /* ══ 0. The pure rules ═════════════════════════════════════════════════ */
   console.log('순수 규칙');
   const pure = await H(async () => {
     const R = await import('/src/housing/MiningRules.ts');
@@ -113,24 +127,26 @@ try {
     const o = {};
     const scrap = S.CRYPTO_COIN_MAP.get('scrap');
     o.cycles = [1, 2, 3, 9].map((n) => S.coinCycleMs(scrap, n));
-    o.cycle0 = S.coinCycleMs(scrap, 0) === Infinity;   // Infinity 는 page.evaluate 직렬화를 못 지난다 — 여기서 비교한다
+    o.cycle0 = S.coinCycleMs(scrap, 0) === Infinity;   // Infinity does not survive page.evaluate's serialization — the comparison happens here
     o.base = scrap.cycleHours * 3600e3;
-    /* 2026-09-16 (사용자 결정 — 연산 코어 폐지): 칸은 개수가 아니라 **칸마다의 남은 내구도**다.
-       `MAX` 는 순수 함수에 넘기는 「프로세서 최대 내구도」라 아이템 표를 읽지 않는다 (여기서는 100 으로 잡는다). */
+    /* 2026-09-16 (user's decision — the compute core dropped): a cell is not a count but **the durability left in
+       each cell**. `MAX` is the processor maximum durability handed to the pure functions, so it does not read the
+       item table (100 is used here). */
     const MAX = 100;
     o.perfMin = S.PROCESSOR_PERF_MIN;
     o.wearPer = S.PROCESSOR_WEAR_PER_CYCLE;
-    // 길이를 맞추고 숫자가 아닌 값은 빈 칸, **음수는 다 닳은 것(0)** 으로 붙든다 — 칸을 지우면 플레이어의 프로세서가
-    // 조용히 사라진다. 2026-09-16: 세이브 정리 쪽 `readProcessors` 가 이 함수를 그대로 부르므로 두 경로가 같은 규칙이다.
+    // holds the length, turns a non-number into an empty cell and **a negative into worn out (0)** — erasing the
+    // cell would make the player's processor vanish silently. 2026-09-16: the save side's `readProcessors` calls this
+    // same function, so both paths run one rule.
     o.cells = R.processorCells({ processors: [MAX, 'x', null, -3, 40] }, 4);
-    o.count = R.processorCount({ processors: [MAX, null, 0, 40] });            // 내구도 0 도 「꽂힌 것」이다
-    o.perfNew = R.clusterPerf({ processors: [MAX, MAX] }, MAX);                // 새것 둘 = 2
-    o.perfWorn = R.clusterPerf({ processors: [0, 0] }, MAX);                   // 다 닳은 둘 = 새것 하나 몫
+    o.count = R.processorCount({ processors: [MAX, null, 0, 40] });            // durability 0 still counts as mounted
+    o.perfNew = R.clusterPerf({ processors: [MAX, MAX] }, MAX);                // two new ones = 2
+    o.perfWorn = R.clusterPerf({ processors: [0, 0] }, MAX);                   // two worn out = the worth of one new one
     o.cycleParity = [1, 2, 5].every((n) => R.clusterCycleMs(scrap, n) === S.coinCycleMs(scrap, n));
     o.cycleWornPair = R.clusterCycleMs(scrap, o.perfWorn) === S.coinCycleMs(scrap, 1);
     o.cycle0Perf = R.clusterCycleMs(scrap, 0) === Infinity;
     const w = { uid: 'w', processors: [MAX, 0, null, 3], progress: 0, segmentAt: 0 };
-    o.wear = [R.wearProcessors(w, 2), w.processors.slice()];                   // 꽂힌 전부가 주기 수만큼, 0 에서 멈춘다
+    o.wear = [R.wearProcessors(w, 2), w.processors.slice()];                   // everything mounted wears by the cycle count and stops at 0
     o.wear0 = R.wearProcessors({ uid: 'w', processors: [MAX], progress: 0, segmentAt: 0 }, 0) === false;
     const s1 = { uid: 'f-1', processors: [MAX], progress: 0.25, segmentAt: 1000 };
     o.take = [R.takeCompletedCycles(s1, 1000, 3750), s1.progress, s1.segmentAt, R.takeCompletedCycles(s1, 1000, 4000), s1.progress];
@@ -142,11 +158,11 @@ try {
     o.foldInf = [s3.progress, s3.segmentAt];
     const san = R.sanitizeClusters([
       { uid: 'f-1', processors: [500, 'x', null, -3, 250, 500, 500, 500, 500, 500, 500], progress: 5, segmentAt: 'x', coinId: 'BAD!' },
-      { uid: 'f-1', processors: [500, 500, 500], coinId: 'volt' },                        // 같은 uid 의 두 번째 칸은 세지 않고 버린다
-      { uid: 'f-9', processors: [500, 500, 500, 500], coinId: 'scrap' },                  // 배치되지 않음 → 꽂혀 있던 4개가 orphanCores
-      { uid: 'f-2', processors: [], progress: 0.5, segmentAt: 5 },                        // 코인도 프로세서도 없다 → 칸을 남기지 않는다
+      { uid: 'f-1', processors: [500, 500, 500], coinId: 'volt' },                        // a second cell with the same uid is dropped, not counted
+      { uid: 'f-9', processors: [500, 500, 500, 500], coinId: 'scrap' },                  // not placed → the 4 that were mounted become orphanCores
+      { uid: 'f-2', processors: [], progress: 0.5, segmentAt: 5 },                        // no coin and no processor → no cell is kept
       { uid: 'f-3', processors: [null, 120], progress: -1, segmentAt: 42, coinId: 'volt' },
-      { uid: 'f-4', cores: 3, coinId: 'volt', progress: 0.2, segmentAt: 7 },              // 옛 세이브 — 꽂지 않고 프로세서로 환불한다
+      { uid: 'f-4', cores: 3, coinId: 'volt', progress: 0.2, segmentAt: 7 },              // an old save — not mounted, refunded as processors
       null, 'junk',
     ], new Set(['f-1', 'f-2', 'f-3', 'f-4']), 9, 777);
     o.san = san;
@@ -170,23 +186,25 @@ try {
     'foldProgress — 옛 주기로 접고 새 구간 · 주기 없으면 진행도 그대로', JSON.stringify([pure.fold, pure.foldInf]));
   const sc = pure.san.clusters;
   const mounted = (s) => (s?.processors ?? []).filter((v) => v !== null).length;
-  /* 2026-09-16: 세이브 정리(`readProcessors`)는 `processorCells` 를 그대로 부른다 — 두 경로가 갈리면 같은 세이브가
-     읽는 쪽에 따라 프로세서 하나를 꽂힌 것으로도 빈 칸으로도 보게 된다. 그래서 음수 내구도(손으로 고친 세이브)는
-     **여기서도 0 으로 조여 꽂아 둔다** (칸을 비우면 플레이어의 아이템이 조용히 사라진다). 아래 `processors[3] === 0`
-     이 그 합의를 붙든다 — null 로 되돌아가면 두 함수가 다시 갈라진 것이다. */
+  /* 2026-09-16: the save sanitizing (`readProcessors`) calls `processorCells` as it is — if the two paths split, the
+     same save shows one processor as mounted to one reader and as an empty cell to the other. So a negative
+     durability (a hand-edited save) is **clamped to 0 and kept mounted here too** (emptying the cell would make the
+     player's item vanish silently). The `processors[3] === 0` below holds that agreement — a return to null means the
+     two functions have split again. */
   ok(sc.length === 3 && sc[0].uid === 'f-1' && sc[0].processors.length === 9 && mounted(sc[0]) === 7 && sc[0].processors[4] === 250
     && sc[0].processors[1] === null && sc[0].processors[3] === 0 && sc[0].progress < 1 && sc[0].segmentAt === 777 && !('coinId' in sc[0])
     && sc[1].uid === 'f-3' && mounted(sc[1]) === 1 && sc[1].processors[1] === 120 && sc[1].progress === 0 && sc[1].segmentAt === 42 && sc[1].coinId === 'volt',
   'sanitizeClusters — 칸 목록을 격자 길이로 · 숫자 아닌 값은 빈 칸 · 음수는 0 · 진행도 [0,1) · 구간 시작 · 코인 모양 · 중복 uid 버림 · 빈 칸 버림', JSON.stringify(sc));
-  /* 2026-09-16 (사용자 결정 — 연산 코어 폐지): 옛 세이브의 `cores` 는 **꽂히지 않는다**. 세이브 정리는 순수 함수라 프로세서의
-     최대 내구도를 모르므로 내구도를 지어내지 않고, 같은 수만큼 새 프로세서로 함선 창고에 환불한다 (f-9 의 4 + f-4 의 3 = 7). */
+  /* 2026-09-16 (user's decision — the compute core dropped): an old save's `cores` are **not mounted**. The
+     sanitizing is a pure function and does not know a processor's maximum durability, so it invents no durability and
+     refunds the same number of new processors into the ship stash (4 from f-9 + 3 from f-4 = 7). */
   ok(sc[2].uid === 'f-4' && sc[2].processors.every((v) => v === null) && sc[2].coinId === 'volt' && !('cores' in sc[2]),
     'sanitizeClusters — 옛 세이브의 cores 는 칸에 꽂히지 않는다 (코인만 남는다)', JSON.stringify(sc[2]));
   ok(pure.san.orphanCores === 7,
     'sanitizeClusters — 배치되지 않은 클러스터의 프로세서 4 + 옛 cores 3 = orphanCores 7', String(pure.san.orphanCores));
   ok(JSON.stringify(pure.units) === JSON.stringify({ scrap: 12 }), 'sanitizeUnitsMap — id 모양 키 · 정수 ≥ 1 만', JSON.stringify(pure.units));
 
-  /* ══ 1. 데이터 ═══════════════════════════════════════════════════════════ */
+  /* ══ 1. The data ══════════════════════════════════════════════════════ */
   console.log('데이터');
   const data = await H(async () => {
     const ctx = window.__game.ctx;
@@ -204,27 +222,31 @@ try {
       android: android ? JSON.stringify(android).includes('mat_processor') : null,
     };
   });
-  // 2026-09-16 (사용자 결정): 프로세서는 **내구도를 가진** 2×1 전설 재료다 — 스택이 아니라 한 개씩 다루는 물건이라 stackMax 1 이다
+  // 2026-09-16 (user's decision): a processor is a 2×1 legendary material **with durability** — it is handled one at
+  // a time rather than stacked, so stackMax is 1
   ok(data.p && data.p.rarity === 'legendary' && data.p.cat === 'material' && data.p.w === 2 && data.p.h === 1
     && data.p.stack === 1 && data.p.value > 0 && data.p.dur > 0,
   '프로세서 def — 전설 재료 2×1 · 스택 없음 · 내구도 있음', JSON.stringify(data.p));
   ok(data.hasCore === false, '연산 코어 def 는 사라졌다 (mat_compute_core 로 찾으면 없다)');
-  // 프로세서는 이제 가공 작업대가 아니라 **연구실 조합대**에서 나온다: 결정 코어 1 + 회로 기판 4 (`mix_processor`)
+  // a processor now comes from the lab's **mixer**, not the processing bench: 1 crystal core + 4 circuit boards
+  // (`mix_processor`)
   ok(data.rec && data.rec.id === 'mix_processor' && data.rec.bench === 'mixer' && data.rec.station === 'ship'
     && data.rec.inputs.some((i) => i.defId === 'mat_crystal_core') && data.rec.inputs.some((i) => i.defId === 'mat_circuit'),
   '프로세서 레시피 — 조합대 · 결정 코어 + 회로 기판', JSON.stringify(data.rec));
-  /* 2026-09-16 (사용자 결정, 채광 개편): 프로세서는 「광맥 → 미확인 광물 → 해석 → 결정 코어 → 조합대」 사슬의 **끝**이라
-     상자에서 나오면 그 사슬을 돌릴 이유가 없어진다 — 모든 티어에서 0 이고, 안드로이드 시체에도 없다. */
+  /* 2026-09-16 (user's decision, the mining rework): a processor is the **end** of the 「vein → unidentified mineral →
+     analysis → crystal core → the mixer」 chain, so dropping from a crate would remove every reason to run that chain
+     — 0 at every tier, and none on an android corpse either. */
   ok(data.procMul.every((m) => m === 0), '상자 배수 — 프로세서는 모든 티어 0 (제작 사슬의 끝)', JSON.stringify(data.procMul));
   ok(data.coreMul.every((m) => !m), '상자 배수 — 사라진 연산 코어의 줄도 없다', JSON.stringify(data.coreMul));
   if (data.android === null) note('안드로이드 시체 표를 찾지 못했다 (CORPSE_TABLE_MAP)');
   else ok(data.android === false, '안드로이드 시체 표에도 프로세서 줄이 없다');
 
-  /* ══ 2. 채굴 시설 ═════════════════════════════════════════════════════════ */
+  /* ══ 2. The mining facility ═══════════════════════════════════════════ */
   console.log('채굴 시설');
   for (const [id, n] of [['mat_scrap', 40], ['mat_cable', 30], ['mat_circuit', 30], ['mat_alloy', 30]]) await giveStash(id, n);
   const ROOM = 3;
-  // 채굴 시설은 발전기 Lv.5 (2026-09-13 최대) — 게이트는 smoke-housing 의 몫이라 상태로 올린다
+  // the mining facility needs generator Lv.5 (the 2026-09-13 maximum) — that gate is smoke-housing's job, so the
+  // state is raised directly here
   await H((room) => { const h = window.__game.ctx.housing; h.state.generatorLevel = 5; h.state.rooms[room].purpose = 'mining'; h.state.rooms[room].level = 1; }, ROOM);
   const placeFurn = (room, defId) => H(({ room, defId }) => {
     const h = window.__game.ctx.housing;
@@ -243,7 +265,8 @@ try {
   const blocks = await H(() => { const h = window.__game.ctx.housing; return [h.furnitureCraftBlock('furn_mining_computer'), h.furnitureCraftBlock('furn_compute_cluster'), h.getMiningComputerUid()]; });
   ok(blocks[0] === '이미 보유 중입니다' && blocks[1] !== '이미 보유 중입니다' && blocks[2] === pc.uid,
     '제작 잠금 — 메인 컴퓨터는 「이미 보유 중」, 클러스터는 아니다 · getMiningComputerUid', JSON.stringify(blocks));
-  // 2026-09-13 (전력 할당 폐지): 할당할 것이 없다 — 메인 컴퓨터가 놓여 있으면 어떤 채굴 가구에도 가동 사유가 없다
+  // 2026-09-13 (power allocation dropped): there is nothing to allocate — with the main computer placed, no mining
+  // furniture has anything blocking its operation
   const opBlock = await H(({ c1, c2, pc }) => {
     const h = window.__game.ctx.housing;
     return { c1: h.furnitureOperationalBlock(c1), c2: h.furnitureOperationalBlock(c2), pc: h.furnitureOperationalBlock(pc),
@@ -252,7 +275,7 @@ try {
   ok(opBlock.c1 === null && opBlock.c2 === null && opBlock.pc === null && opBlock.powerApi.length === 0,
     '전력 할당 없음 — 메인 컴퓨터가 있으면 furnitureOperationalBlock 은 null · 전력 API 없음', JSON.stringify(opBlock));
 
-  /* ══ 3. 클러스터 ═════════════════════════════════════════════════════════ */
+  /* ══ 3. The cluster ══════════════════════════════════════════════════ */
   console.log('클러스터');
   const list0 = await H(() => window.__game.ctx.housing.getComputeClusters());
   ok(list0.length === 2 && list0.every((c) => c.coinId === null && c.cores === 0 && !c.mining && c.block === '채굴할 코인을 정하세요' && c.maxCores === 9),
@@ -287,8 +310,9 @@ try {
     const i = await info(C1);
     cyc.push({ r, cores: i.cores, perf: i.perf, cycle: i.cycleMs });
   }
-  /* 2026-09-16 (사용자 결정): 주기는 개수가 아니라 **성능 합**에서 난다 — 새 프로세서 하나가 성능 1 이므로
-     갓 꽂은 동안에는 성능 합 = 개수이고 주기도 옛 식(`coinCycleMs`) 그대로다. */
+  /* 2026-09-16 (user's decision): the cycle comes from the **perf sum**, not from a count — one new processor is
+     perf 1, so while they are freshly mounted the perf sum = the count and the cycle matches the old formula
+     (`coinCycleMs`). */
   ok(cyc.every((c) => c.r === null) && cyc.map((c) => c.cores).join() === '1,2,3' && cyc.map((c) => c.perf).join() === '1,2,3'
     && cyc[1].cycle === cyc[0].cycle / 2 && cyc[2].cycle === cyc[0].cycle / 4 && cyc[0].cycle === pure.base,
   '프로세서 넣기 1 → 2 → 3 — 새것이라 성능 합 = 개수 · 주기 100 % · 50 % · 25 %', JSON.stringify(cyc));
@@ -303,7 +327,7 @@ try {
     && mountedOf(miningNow.processors) === 6 && miningNow.processors.every((v) => v === null || v === DUR_MAX),
   `칸 목록 — 길이 = 격자 칸 수 · 갓 꽂은 것은 새것 내구도(${DUR_MAX}) · processorMax = 아이템 표의 최대`, JSON.stringify(miningNow.processors));
 
-  // 가짜 시간: 구간 시작을 2.5 주기 되돌린다 → 틱이 두 주기를 한 번에 넣는다
+  // a fake clock: the segment start is wound back 2.5 cycles → the tick deposits two cycles at once
   const cycle6 = miningNow.cycleMs;
   await clearEv();
   const w0 = await walletOf('scrap');
@@ -325,15 +349,17 @@ try {
   ok(near(s1.progress, 0.5, 0.05), '진행도 소수 부분이 남는다 (≈ 0.5)', String(s1.progress));
   const minedMap = await H(() => window.__game.ctx.housing.state.cryptoMined?.scrap ?? 0);
   ok(minedMap >= 2 * yieldScrap, 'cryptoMined 누적', String(minedMap));
-  /* 2026-09-16 (사용자 결정 — 프로세서 마모): 주기가 끝나는 그 자리에서 꽂힌 **전부**가 `PROCESSOR_WEAR_PER_CYCLE × 끝난 주기 수`
-     만큼 닳는다 — 따라잡기로 두 주기가 한 번에 끝났으므로 여섯 개 모두 그만큼 줄고, 그만큼 다음 주기가 느려진다. */
+  /* 2026-09-16 (user's decision — processor wear): where a cycle ends **everything** mounted wears by
+     `PROCESSOR_WEAR_PER_CYCLE × the finished cycle count` — the catch-up ended two cycles at once, so all six drop by
+     that much and the next cycle is that much slower. */
   const worn = await info(C1);
   ok(mountedOf(worn.processors) === 6 && worn.processors.every((v) => v === null || v === DUR_MAX - 2 * WEAR)
     && worn.perf < 6 && worn.cycleMs > cycle6,
   `주기 2개 뒤 — 꽂힌 전부가 ${2 * WEAR} 만큼 닳고 성능 합 · 주기가 그만큼 나빠진다 (${JSON.stringify(worn.processors)} · perf ${worn.perf})`);
 
-  /* 프로세서 수 변경: 1.3 주기 → 넣기 = 한 주기 넣고 0.3 을 새 주기로 접는다.
-     2026-09-16: 되돌릴 폭도 「지금의 성능 합으로 낸 주기」로 재야 한다 — 마모 뒤의 주기는 처음 주기보다 길다. */
+  /* a change in processor count: 1.3 cycles → a mount deposits one cycle and folds the 0.3 into the new cycle.
+     2026-09-16: the wind-back is measured by the cycle the **current** perf sum gives too — the cycle after wear is
+     longer than the first one. */
   const cycleWorn = worn.cycleMs;
   await H(({ u, cycle }) => {
     const h = window.__game.ctx.housing;
@@ -346,7 +372,8 @@ try {
   const fold = await H((u) => window.__game.ctx.housing.insertClusterCores(u, 1), C1);
   const s2 = await slot(C1);
   const info7 = await info(C1);
-  // 스모크가 주기를 따로 계산하지 않고 **게임과 같은 식**을 부른다: `clusterCycleMs(코인, clusterPerf(칸, 최대 내구도))`
+  // the smoke does not work the cycle out itself, it calls **the game's own formula**:
+  // `clusterCycleMs(coin, clusterPerf(cells, max durability))`
   const want7 = await H(async (i) => {
     const S = await import('/src/shared/index.ts');
     const R = await import('/src/housing/MiningRules.ts');
@@ -357,9 +384,10 @@ try {
   '프로세서 변경 — 끝난 주기는 넣고 진행도는 접어 잇는다 · 새 주기 = clusterCycleMs(코인, 성능 합)',
   JSON.stringify({ fold, cores: info7.cores, progress: s2.progress, w: await walletOf('scrap') - w1, cycle: info7.cycleMs, want: want7 }));
 
-  /* 2026-09-13 (전력 할당 폐지): 멈추는 시계는 없다 — `stationNow` = `nowMs`, `housing:operationalChanged {pausedMs}` 를 내는 곳도 받는 곳도 없다.
-     남은 「가동」 조건은 메인 컴퓨터 하나다: 없으면 클러스터는 끝난 주기를 넣지 않고 틱마다 구간만 지금으로 다시 연다(진행도는 그대로),
-     다시 놓으면 그 자리에서 이어간다 — 막혀 있던 시간은 따라잡지 않는다. */
+  /* 2026-09-13 (power allocation dropped): there is no clock that stops — `stationNow` = `nowMs`, and nothing emits
+     or receives `housing:operationalChanged {pausedMs}`. The one remaining operating condition is the main computer:
+     with none, a cluster deposits no finished cycle and only re-opens the segment at now on every tick (the progress
+     stays); placing it again resumes from there — the blocked time is never caught up. */
   const clockSame = await H((u) => { const h = window.__game.ctx.housing; const a = h.nowMs(), b = h.stationNow(u), c = h.nowMs(); return b >= a && b <= c; }, C1);
   ok(clockSame, 'stationNow(uid) = nowMs() — 멈춘 시계 없음');
   const pcRec = await H((u) => { const h = window.__game.ctx.housing; return { block: h.recoverBlock(u), rec: h.recover(u), comp: h.getMiningComputerUid() }; }, pc.uid);
@@ -392,7 +420,7 @@ try {
     && near(sResumed.progress, 0.3, 1e-9) && sResumed.segmentAt >= tBlocked && sResumed.segmentAt <= rePc.now,
   '다시 놓으면 곧바로 채굴 — 막혀 있던 시간은 따라잡지 않고 진행도 0.3 에서 이어간다', JSON.stringify({ rePc, sResumed, mining: iResumed.mining, block: iResumed.block }));
 
-  // 코인 변경 = 진행도 0
+  // a coin change = progress 0
   await H(({ u, cycle }) => {
     const h = window.__game.ctx.housing;
     const s = h.state.clusters.find((x) => x.uid === u);
@@ -403,14 +431,16 @@ try {
   const s3 = await slot(C1);
   ok(toVolt === null && s3.coinId === 'volt' && s3.progress === 0, '코인 변경 — 진행도 0', JSON.stringify(s3));
 
-  // 퀘스트 완료(가짜) 뒤 잠긴 코인 허용
-  // 2026-09-14: 기업 퀘스트 폐지 — 노마드 코인 해금은 NPC 퀘스트 q_nm_permit (`MetaSave.npc.quests`)
+  // a locked coin allowed after a (fake) quest completion
+  // 2026-09-14: corporation quests dropped — the nomad coin unlocks from the NPC quest q_nm_permit
+  // (`MetaSave.npc.quests`)
   await H(() => { const m = window.__game.getSystem('meta'); m.npcQuests.save.quests['q_nm_permit'] = { s: 'complete', at: Date.now(), p: [] }; });
   const unlocked = await H((u) => [window.__game.ctx.meta.getQuestState('q_nm_permit'), window.__game.ctx.housing.setClusterCoin(u, 'nomad'),
     window.__game.ctx.housing.getCryptoCoins().find((c) => c.def.id === 'nomad').unlocked], C1);
   ok(unlocked[0] === 'complete' && unlocked[1] === null && unlocked[2] === true, '퀘스트 완료 → 잠긴 코인 지정 · unlocked', JSON.stringify(unlocked));
 
-  // 프로세서 빼기 — **뒤 칸부터**, 내구도를 그대로 들고 (2026-09-16: 닳은 것만 골라 빼서 작업대로 가져가는 길)
+  // pulling processors — **from the last cell first**, carrying the durability along (2026-09-16: the way to pull
+  // only the worn ones and take them to a bench)
   const c0 = await count();
   const durOf = () => H(() => [...window.__game.ctx.inventory.getAllItems(), ...window.__game.ctx.inventory.getStashItems()]
     .filter((i) => i.defId === 'mat_processor').map((i) => i.durability ?? null));
@@ -420,8 +450,9 @@ try {
   const durAfter = await durOf();
   ok(rem === null && mountedOf((await slot(C1)).processors) === 5 && await count() === c0 + 2,
     '프로세서 빼기 — 2개가 가방 · 창고로 (뒤 칸부터)', JSON.stringify({ rem, c: await count() - c0 }));
-  /* 2026-09-16 (사용자 결정): 빠지는 것은 **그 칸의 내구도를 그대로** 든 인스턴스다 — 스모크가 주기 수를 셈하지 않고
-     빼기 직전의 칸 값(뒤 두 칸)과 견준다. 닳은 것이 닳은 채로 나와야 작업대에서 고칠 것이 남는다. */
+  /* 2026-09-16 (user's decision): what comes out is an instance carrying **that cell's durability as it was** — the
+     smoke does not count cycles, it compares against the cell values just before the pull (the last two cells). A
+     worn one has to come out worn, or there is nothing left to repair at a bench. */
   const gained = (() => { const pool = [...durBefore]; return durAfter.filter((v) => { const i = pool.indexOf(v); if (i < 0) return true; pool.splice(i, 1); return false; }); })();
   const wantBack = cellsBefore.slice(-2);
   const sortNum = (a) => [...a].sort((x, y) => x - y).join();
@@ -430,27 +461,27 @@ try {
   const remBad = await H((u) => window.__game.ctx.housing.removeClusterCores(u, 1), C2);
   ok(remBad === '꽂힌 프로세서가 없습니다', '빈 클러스터에서 빼기 거절', String(remBad));
 
-  // 회수: 프로세서가 있으면 거절
+  // collecting: refused while processors are mounted
   const rb = await H((u) => [window.__game.ctx.housing.recoverBlock(u), window.__game.ctx.housing.recover(u)], C1);
   ok(rb[0] === '프로세서를 먼저 빼세요' && rb[1] === false && !!(await slot(C1)), '프로세서가 꽂힌 클러스터 — recoverBlock 사유 · recover 거절', JSON.stringify(rb));
   await H((u) => window.__game.ctx.housing.removeClusterCores(u, 9), C1);
   const rc = await H((u) => { const h = window.__game.ctx.housing; return [h.recoverBlock(u), h.recover(u)]; }, C1);
   ok(rc[1] === true && !(await slot(C1)) && await count() === c0 + 7, '다 빼면 회수 · 칸이 지워진다 · 프로세서 7 보존', JSON.stringify({ rc, c: await count() - c0 }));
 
-  // devAdvanceMining — 두 번째 클러스터: 스크랩 · 새 프로세서 1 · 24 시간 = 두 주기
+  // devAdvanceMining — the second cluster: scrap · 1 new processor · 24 hours = two cycles
   await H((u) => { const h = window.__game.ctx.housing; h.setClusterCoin(u, 'scrap'); h.devSetClusterCores(u, 1); }, C2);
   const wff = await walletOf('scrap');
   const ffUnits = await H(() => window.__game.ctx.housing.devAdvanceMining(24));
   ok(ffUnits === 2 * yieldScrap && await walletOf('scrap') === wff + 2 * yieldScrap, 'devAdvanceMining(24) — 프로세서 1 스크랩 = 두 주기', String(ffUnits));
 
-  /* ══ 4. 거래소 ═══════════════════════════════════════════════════════════ */
+  /* ══ 4. The exchange ══════════════════════════════════════════════════ */
   console.log('거래소');
   const offline = await H(async () => {
     const h = window.__game.ctx.housing;
     return [h.cryptoQuote('scrap', 'sell', 10)?.block, await h.tradeCrypto('scrap', 'sell', 10), h.cryptoQuote('nope', 'buy', 1)];
   });
   ok(offline[0] === '서버에 연결되어야 합니다' && offline[1] === '서버에 연결되어야 합니다' && offline[2] === null, '서버 없음 — 견적 · 매매 거절, 모르는 코인 = null', JSON.stringify(offline));
-  // 콘솔 `crypto wallet scrap 2.5` → 2500 단위
+  // the console `crypto wallet scrap 2.5` → 2500 units
   const consoleOut = await H(async () => {
     const mod = await import('/src/console/commands/crypto.ts');
     const cmd = mod.cryptoCmd({});
@@ -460,7 +491,7 @@ try {
   });
   ok(consoleOut.units === 2500 && typeof consoleOut.r1 === 'string' && typeof consoleOut.r2 === 'string' && consoleOut.r2.includes('지갑'),
     '콘솔 crypto wallet scrap 2.5 → 2500 단위 · crypto 상태 출력', JSON.stringify(consoleOut));
-  // 시세 스텁 (net 의 getter 를 인스턴스 속성으로 가린다)
+  // the quote stub (the net getter is masked by an instance property)
   await H(() => {
     Object.defineProperty(window.__game.ctx.net, 'crypto', {
       configurable: true,
@@ -486,7 +517,7 @@ try {
     o.locked = h.cryptoQuote('helix', 'buy', 10)?.block;
     o.lockedTrade = await h.tradeCrypto('helix', 'buy', 10);
     o.nomadOk = h.cryptoQuote('nomad', 'buy', 10)?.block;
-    // 서버 거절 → 떼어 둔 지갑 복구
+    // a server refusal → the set-aside wallet is restored
     m.creditsTx = async () => ({ ok: false, reason: '테스트 거절' });
     o.wBeforeRefuse = h.getCryptoWallet().scrap ?? 0; o.cBeforeRefuse = m.credits;
     o.refused = await h.tradeCrypto('scrap', 'sell', 100);
@@ -513,7 +544,7 @@ try {
   ok(trade.txLocal && trade.txLocal.ok === false && typeof trade.txLocal.reason === 'string', 'meta.creditsTx — 로컬 잔액 부족은 곧바로 거절', JSON.stringify(trade.txLocal));
   await H(() => { delete window.__game.ctx.net.crypto; });
 
-  /* ══ 5. 세이브 ═══════════════════════════════════════════════════════════ */
+  /* ══ 5. The save ══════════════════════════════════════════════════════ */
   console.log('세이브');
   const save = await H(async ({ c2 }) => {
     const h = window.__game.ctx.housing;
@@ -534,7 +565,8 @@ try {
       orphanClusters: orphan.clusters, refund: out.refund,
     };
   }, { c2: C2 });
-  // 2026-09-16: 칸의 알맹이는 개수가 아니라 **칸마다의 남은 내구도 목록**이다 — 왕복에서 그 목록이 그대로여야 한다
+  // 2026-09-16: a cell's content is not a count but **the list of durability left per cell** — the round trip has to
+  // leave that list unchanged
   const strip = (list) => JSON.stringify((list ?? []).map((s) => [s.uid, s.coinId ?? null, s.processors, Math.round(s.progress * 1e6), s.segmentAt]));
   ok(strip(save.roundClusters) === strip(save.liveClusters) && save.liveClusters.length === 1
     && (save.liveClusters[0]?.processors ?? []).some((v) => typeof v === 'number' && v < DUR_MAX),
@@ -543,7 +575,8 @@ try {
     'sanitize 왕복 — 지갑 · 누적 채굴 그대로', JSON.stringify([save.liveWallet, save.roundWallet]));
   ok(save.storedClusters && strip(save.storedClusters) === strip(save.liveClusters) && JSON.stringify(save.storedWallet) === JSON.stringify(save.liveWallet),
     'localStorage 에 적힌 함선도 같다', JSON.stringify({ c: save.storedClusters, w: save.storedWallet }));
-  /* 2026-09-16: 환불 자루(`CraftIngredient`)는 내구도를 싣지 못하므로 꽂혀 있던 것은 **프로세서 개수**로만 돌아간다. */
+  /* 2026-09-16: the refund bag (`CraftIngredient`) cannot carry durability, so what was mounted comes back only as a
+     **processor count**. */
   const coreRefund = save.refund.find((r) => r.defId === 'mat_processor');
   ok(save.orphanClusters.length === 0 && coreRefund?.qty === 1 && !save.refund.some((r) => r.defId === 'mat_compute_core'),
     '배치되지 않은 클러스터 — 칸은 버리고 프로세서 1 은 refund 로', JSON.stringify({ c: save.orphanClusters, refund: save.refund }));

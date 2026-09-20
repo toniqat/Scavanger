@@ -1,10 +1,11 @@
-// 레이드 진입 로딩 게이트 smoke (2026-09-15, game/parts/LoadGate + core/ShaderWarmup.holdFor / compileProgress).
-// 검사하는 것:
-//   ① 솔로 발사 — 게이트가 걸리고 화면이 검은 채로 붙잡힌다 (`ui:screenFade` 1 + hold), 임무 시계 0, `raid:loadProgress` 가
-//      1 까지 오르고 `RAID_LOAD_MIN_BLACK_S` 이상 지난 뒤 `raid:loadReleased {timedOut:false}` + 페이드인 → deploying → playing.
-//   ② 분대 — 끝나지 않는 가짜 분대원을 주입하면(디버그 훅) 호스트가 기다린다: 임무 시계 · 강하 포드가 멈춘 채로 있다가
-//      짧게 덮어쓴 대기 상한에서 `timedOut: true` 로 풀린다.
-//   ③ 재접속 · 훈련장은 게이트를 타지 않는다.
+// Raid-entry loading gate smoke (2026-09-15, game/parts/LoadGate + core/ShaderWarmup.holdFor / compileProgress).
+// What it checks:
+//   ① Solo launch — the gate is armed and the screen is held black (`ui:screenFade` 1 + hold), mission clock 0,
+//      `raid:loadProgress` climbs to 1 and, once `RAID_LOAD_MIN_BLACK_S` has passed,
+//      `raid:loadReleased {timedOut:false}` + the fade-in → deploying → playing.
+//   ② Squad — injecting a fake squadmate that never finishes (a debug hook) makes the host wait: the mission clock
+//      and the hellpod stay frozen until a briefly overridden timeout releases it with `timedOut: true`.
+//   ③ A rejoin and the training range do not go through the gate.
 // Usage: node scripts/smoke-raid-loading.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -43,7 +44,7 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 튜토리얼은 여기서 검사하지 않는다 (smoke-tutorial) — 새 프로필의 자동 튜토리얼을 끝난 것으로 표시한다.
+    // The tutorial is not checked here (smoke-tutorial) — a fresh profile's automatic tutorial is marked as done.
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -54,7 +55,7 @@ try {
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory, 'boot');
   await page.evaluate(() => {
-    // 셰이더 hold 중에는 그리지 않으므로 rAF 가 드물어질 수 있다 — 프레임을 직접 밀어 준다.
+    // Nothing is drawn while the shader hold is up, so rAF can grow sparse — the frames are pushed by hand.
     let lastRaf = performance.now();
     (function tick() { lastRaf = performance.now(); requestAnimationFrame(tick); })();
     setInterval(() => { const now = performance.now(); if (now - lastRaf > 100) window.__game.frame(now); }, 33);
@@ -66,7 +67,7 @@ try {
       window.__ev[n] = [];
       ctx.bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p ?? {}))); });
     }
-    // 해제 시각을 `ctx.time` 으로 정확히 잡는다 (폴링으로는 최소 암전 시간을 잴 수 없다)
+    // Take the release moment exactly, off `ctx.time` (polling cannot measure the minimum black time)
     window.__mark = { releasedAt: -1, startedAt: -1 };
     ctx.bus.on('raid:loadReleased', () => { window.__mark.releasedAt = ctx.time; });
   });
@@ -124,7 +125,7 @@ try {
   await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing after the gate', 40000);
   s = await snap();
   ok(!s.holding && s.phase === 'playing', 'the drop plays only after the release', JSON.stringify(s));
-  await waitReal(0.5);   // 임무 시계는 `playing` 이 된 **뒤부터** 흐른다 — 전환 프레임에는 아직 0 이다
+  await waitReal(0.5);   // The mission clock runs only **after** `playing` — on the transition frame it is still 0
   s = await snap();
   ok(s.missionTime > 0, 'mission clock runs once released', `${s.missionTime}`);
 
@@ -132,8 +133,8 @@ try {
   await toHub();
   await P(() => {
     const gate = window.__game.getSystem('gameflow').loadGate;
-    gate.debugSetTimeout(4);          // 60 초를 실제로 기다리지 않는다
-    gate.debugAddMember('peer-x', 0.5);   // 절대 1 이 되지 않는 가짜 분대원
+    gate.debugSetTimeout(4);          // does not really wait the 60 s out
+    gate.debugAddMember('peer-x', 0.5);   // a fake squadmate that never reaches 1
   });
   await resetEv();
   await launch(4102);

@@ -1,24 +1,35 @@
-// Single-player smoke test for **발전기 = 증축 조건** (2026-09-13, 사용자 결정 「전력 할당 시스템 제거」 — housing `Rules.purposeBuildBlockReason` ·
-// `ShipState` sanitize · ui `hud/ShipManage` 발전기 행). 옛 `smoke-power`(전력 할당 · 비활성화 · 멈춘 시계)를 대체한다.
-//   0. 계약: 전력 API 7종(`getPowerOverview` · `getFacilityPower` · `setPowerAllocation` · `isFurnitureDisabled` · `setFurnitureDisabled` ·
-//      `getOperationalBenchLevel` · `benchOperationalBlock`)이 `ctx.housing` 에 없다 · 남은 질의(`furnitureOperationalBlock` · `stationNow`) ·
-//      새 함선 = `SHIP_STATE_VERSION_CURRENT` · 발전기 Lv.1 · 최대 Lv.5 (= constants.csv) · 전력 필드(`powerAlloc` · `pausedAt` · `disabledFurniture`) 없음.
-//   1. 증축 게이트: 발전기 Lv.1–5 × 지을 수 있는 용도 — `purposeGeneratorLevel` = room_purposes.csv `generator` · `purposeBlock` 에
-//      `발전기 레벨 N 필요 (현재 M)` 가 레벨이 모자랄 때만 · `purposeRequirements` 는 **채워진 요구도** 돌려준다
-//      (2026-09-14 — 재료 칩처럼 `현재/필요`; 빈 배열은 요구가 시작 레벨 이하일 때뿐) · 온실 선행(`Rules.NEEDS_GREENHOUSE`,
-//      2026-09-14 부터 빈 배열이라 검사가 저절로 지나간다) ·
-//      레벨을 올려 가며 실제 `setRoomPurpose` — 열리기 전 거절 · 열린 뒤 성공 + csv 증축 재료 소모 · 함선당 하나.
-//   2. 가구 · 창고 강화는 여전히 발전기 게이트: 총기 작업대 Lv.1 → 2 (발전기 1 막힘 · 2 풀림) · 창고 Lv.2 (발전기 1 막힘 · 2 에서 강화).
-//   3. 발전기 강화 1 → 2 = facility_upgrades.csv `generator,2` 재료를 정확히 소모 · Lv.5 에서 nextCost null · 거절.
-//   4. `sanitize` 이관: 발전기 0 → 1 · 8 → 5 (환불 없음) · v12 모양 세이브(발전기 2 · 온실 + 연구실 + 서재 · 책 꽂힌 책장 · 해석 중인 분석기 ·
-//      전력 필드) → 온실 유지 · 연구실 · 서재 빈 방 · 가구는 가구 창고 · 환불 = 두 방 증축 재료 + 책 + 표본 · `removedByGenerator` 2 ·
-//      전력 필드 없음 · 한 번 더 읽어도 아무것도 안 바뀐다.
-//   5. `furnitureOperationalBlock`: 메인 컴퓨터 없는 연산 클러스터만 사유, 컴퓨터를 놓으면 null · 작업대는 늘 null · `stationNow` = `nowMs`.
-//   6. 화면: 시설 관리 발전기 행 — 버튼 `업그레이드` / `최대` · `is-hint` 없음 · **레벨별 해금 목록(`.sm-gen-unlock`)은 없다**
-//      (2026-09-14 — 대신 빈 방의 용도 지정 카드마다 `buildFacilityChip` 발전기 칩이 `현재/필요` · 모자라면 `.is-short`) ·
-//      `.sm-pw*` · `.is-unpowered` 없음 · 재배 스테이션 화면에 `.hpw-toggle` · `.hpw-banner` 없음 · 전력 이벤트가 한 번도 나지 않는다.
-//   7. 진짜 로드 경로: 4번의 v12 세이브를 localStorage 에 쓰고 새로고침 → 토스트 `발전기 레벨이 모자란 시설 2곳을 제거했습니다` ·
-//      환불이 함선 창고에 들어온다 · 가구 창고 · 방 상태.
+// Single-player smoke test for **the generator = the build gate** (2026-09-13, user's decision
+// 「전력 할당 시스템 제거」 — housing `Rules.purposeBuildBlockReason` · `ShipState` sanitize · ui `hud/ShipManage`
+// generator row). It replaces the old `smoke-power` (power allocation · disabling · the stopped clock).
+//   0. The contract: the 7 power API entries (`getPowerOverview` · `getFacilityPower` · `setPowerAllocation` ·
+//      `isFurnitureDisabled` · `setFurnitureDisabled` · `getOperationalBenchLevel` · `benchOperationalBlock`) are
+//      gone from `ctx.housing` · the queries that stayed (`furnitureOperationalBlock` · `stationNow`) · a new ship =
+//      `SHIP_STATE_VERSION_CURRENT` · generator Lv.1 · max Lv.5 (= constants.csv) · no power fields (`powerAlloc` ·
+//      `pausedAt` · `disabledFurniture`).
+//   1. The build gate: generator Lv.1–5 × the purposes that can be built — `purposeGeneratorLevel` =
+//      room_purposes.csv `generator` · `purposeBlock` carries `발전기 레벨 N 필요 (현재 M)` only while the level is
+//      short · `purposeRequirements` returns a **satisfied requirement** too (2026-09-14 — `현재/필요` like a
+//      material chip; an empty array only when the requirement is at or below the start level) · the greenhouse
+//      prerequisite (`Rules.NEEDS_GREENHOUSE`, an empty array since 2026-09-14, so that check passes by itself) ·
+//      a real `setRoomPurpose` while the level is raised — refused before it opens · accepted after, paying the
+//      csv build materials · one per ship.
+//   2. Furniture · storage upgrades are still generator-gated: 총기 작업대 Lv.1 → 2 (blocked at generator 1 ·
+//      released at 2) · storage Lv.2 (blocked at generator 1 · upgraded at 2).
+//   3. A generator upgrade 1 → 2 consumes exactly the facility_upgrades.csv `generator,2` materials · nextCost is
+//      null at Lv.5 · refused.
+//   4. `sanitize` migration: generator 0 → 1 · 8 → 5 (no refund) · a v12-shaped save (generator 2 · greenhouse +
+//      lab + library · a bookshelf with a book · an analyzer mid-analysis · power fields) → the greenhouse stays ·
+//      lab · library become empty rooms · the furniture goes to the furniture store · the refund = both rooms'
+//      build materials + the book + the sample · `removedByGenerator` 2 · no power fields · reading it once more
+//      changes nothing.
+//   5. `furnitureOperationalBlock`: only a compute cluster with no main computer has a reason, placing the computer
+//      makes it null · a bench is always null · `stationNow` = `nowMs`.
+//   6. The screen: the 시설 관리 generator row — buttons `업그레이드` / `최대` · no `is-hint` · **there is no
+//      per-level unlock list (`.sm-gen-unlock`)** (2026-09-14 — instead every empty room's purpose card carries a
+//      `buildFacilityChip` generator chip with `현재/필요`, `.is-short` when short) · no `.sm-pw*` ·
+//      no `.is-unpowered` · no `.hpw-toggle` · `.hpw-banner` on the grow-station screen · not one power event fires.
+//   7. The real load path: section 4's v12 save is written to localStorage and the page reloaded → the toast
+//      `발전기 레벨이 모자란 시설 2곳을 제거했습니다` · the refund lands in the stash · the furniture store · room state.
 // Usage: node scripts/smoke-generator.mjs [http://localhost:5273/]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -49,7 +60,7 @@ async function waitFor(page, fn, label, timeout = 60000, arg) {
   throw new Error(`timeout waiting for ${label}`);
 }
 
-/* ── csv 원본 (게임 코드와 따로 읽어 기대값으로 쓴다) ─────────────────────────────── */
+/* ── The csv source (read apart from the code, as expected values)  */
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const csvRows = (file) => {
   const lines = readFileSync(join(DATA, file), 'utf8').split(/\r?\n/).filter((l) => l.trim() && !l.startsWith('#'));
@@ -60,7 +71,7 @@ const parseCost = (s) => (s ? s.split('|').map((x) => { const [defId, qty] = x.s
 const CSV_PURPOSE = Object.fromEntries(csvRows('room_purposes.csv').map((r) => [r.purpose, { cost: parseCost(r.cost), gen: r.generator ? Number(r.generator) : null }]));
 const CSV_GEN_COST = Object.fromEntries(csvRows('facility_upgrades.csv').filter((r) => r.facility === 'generator').map((r) => [Number(r.level), parseCost(r.cost)]));
 const CSV_CONST = Object.fromEntries(readFileSync(join(DATA, 'constants.csv'), 'utf8').split(/\r?\n/).map((l) => l.split(',')).filter((c) => /^GENERATOR_(START|MAX)_LEVEL$/.test(c[0])).map((c) => [c[0], Number(c[1])]));
-/** 재료 목록 → { defId: qty } (합산 · 정렬) — 비교용. */
+/** A material list → { defId: qty } (summed · sorted) — for comparison. */
 const bagOf = (list) => {
   const m = {};
   for (const c of list) m[c.defId] = (m[c.defId] ?? 0) + c.qty;
@@ -86,7 +97,8 @@ try {
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    // 부팅 직후(첫 프레임 전)의 토스트를 잡는다: main.ts 는 `engine.start()`(init) 뒤 첫 rAF 전에 `window.__game` 을 건다
+    // catches the toasts from right after boot (before the first frame): main.ts hangs `window.__game` after
+    // `engine.start()` (init) and before the first rAF
     window.__bootNotify = [];
     let game;
     Object.defineProperty(window, '__game', {
@@ -114,8 +126,9 @@ try {
   await page.evaluate(() => { localStorage.removeItem('scav.s1.ship'); localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); });
   await page.reload({ waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory && !!window.__game.ctx.housing && !!window.__game.ctx.loot, 'boot');
-  /* 저장된 함선 문서에 찍히는 번호는 계약의 `SHIP_STATE_VERSION` 이 아니라 **디스크 판** `ShipState.SHIP_STATE_VERSION_CURRENT`
-     다 (2026-09-16 에 표본 레벨 · 프로세서 칸이 들어오며 14). 숫자를 박으면 판이 오를 때마다 빨개지므로 부팅 뒤에 읽는다. */
+  /* The number stamped into a saved ship document is not the contract's `SHIP_STATE_VERSION` but the **disk
+     version** `ShipState.SHIP_STATE_VERSION_CURRENT` (14 since sample levels · processor slots arrived on
+     2026-09-16). Writing the number out would turn this red on every version bump, so it is read after boot. */
   const SHIP_V = await H(async () => (await import('/src/housing/ShipState.ts')).SHIP_STATE_VERSION_CURRENT);
   await pumpFrames();
   await H(() => {
@@ -151,7 +164,8 @@ try {
     }
     return short;
   };
-  /** 가구 창고에 한 점 넣고 그 방의 자동 배치 자리에 놓는다 (재료 없이 — 제작 규칙은 smoke-housing 의 몫). */
+  /** Puts one piece in the furniture store and places it on that room's auto-placement spot (with no materials —
+      the craft rules are smoke-housing's business). */
   const placeFurn = (room, defId) => H(({ room, defId }) => {
     const h = window.__game.ctx.housing;
     if (!h.getFurnitureDef(defId)) return { err: `no def ${defId}` };
@@ -161,10 +175,10 @@ try {
     const p = h.place(room, defId, spot.x, spot.y, spot.yaw);
     return p ? { uid: p.uid } : { err: 'place refused' };
   }, { room, defId });
-  /** 두 counts 스냅샷의 차이 중 0 이 아닌 것 (before − after = 소모량). */
+  /** The non-zero entries of the difference between two counts snapshots (before − after = what was consumed). */
   const spent = (before, after) => bagOf(Object.keys(before).map((id) => ({ defId: id, qty: before[id] - after[id] })).filter((c) => c.qty !== 0));
 
-  /* ══ 0. 계약 · 새 함선 ═════════════════════════════════════════════════════ */
+  /* ══ 0. The contract · a new ship ═════════════════════════════════════ */
   console.log('계약 · 새 함선');
   const c0 = await H(({ POWER_API, POWER_FIELDS }) => {
     const h = window.__game.ctx.housing, s = h.state;
@@ -183,7 +197,7 @@ try {
     `새 함선: 발전기 Lv.${c0.gen} · getFacility maxLevel ${c0.max}`, JSON.stringify(c0));
   ok(c0.version === SHIP_V && c0.powerKeys.length === 0, `새 함선 state v${c0.version} · 전력 필드 없음`, JSON.stringify(c0.powerKeys));
 
-  /* ══ 1. 증축 게이트 ════════════════════════════════════════════════════════ */
+  /* ══ 1. The build gate ════════════════════════════════════════════════ */
   console.log('증축 게이트 — 발전기 Lv.1–5 × 용도');
   const short1 = await giveMats({ mat_scrap: 80, mat_cable: 12, mat_alloy: 30, mat_circuit: 12 });
   if (short1.length) note(`함선 창고에 재료를 다 넣지 못했다 — ${short1.join(', ')}`);
@@ -223,9 +237,10 @@ try {
     const bad = gate.rows.filter((r) => r.L === L).filter((r) => {
       const need = CSV_PURPOSE[r.p].gen;
       const text = `발전기 레벨 ${need} 필요 (현재 ${L})`;
-      // 2026-09-14 (사용자 결정 — 「재료 썸네일에 발전기 레벨 썸네일을 표시」): `purposeRequirements` 는 이제
-      // **채워진 요구도** 돌려준다(재료 칩처럼 `현재/필요` 를 늘 보여 준다). 빈 배열은 「요구가 시작 레벨 이하」
-      // 뿐이다 — 막는지 여부는 예전대로 `purposeBlock` 이 답한다.
+      // 2026-09-14 (user's decision — 「재료 썸네일에 발전기 레벨 썸네일을 표시」): `purposeRequirements` now returns a
+      // **satisfied requirement** too (it always shows `현재/필요`, the way a material chip does). An empty array
+      // only means 「the requirement is at or below the start level」 — whether it blocks is still `purposeBlock`'s
+      // answer, as before.
       const wantReq = need <= CSV_CONST.GENERATOR_START_LEVEL ? [] : [{ facility: 'generator', have: L, need }];
       if (!same(r.req, wantReq)) return true;
       return L < need ? r.block !== text : r.block !== null;
@@ -236,7 +251,7 @@ try {
   }
   ok(gate.needGh.every((p) => /온실이 먼저 필요합니다/.test(gate.noGh[p] ?? '')), `온실이 없으면 연구실 · 주방은 발전기 Lv.5 에서도 「${gate.noGh.lab}」`);
 
-  // 레벨을 올려 가며 실제로 짓는다 — 열리기 전 거절 · 열린 뒤 성공 + csv 증축 재료 소모
+  // really builds while the level is raised — refused before it opens · accepted after, paying the csv build materials
   const build = await H(async ({ MATS }) => {
     const SH = await import('/src/shared/index.ts');
     const h = window.__game.ctx.housing, inv = window.__game.ctx.inventory;
@@ -275,7 +290,7 @@ try {
   ok(build.dup.res === false && /하나만 둘 수 있습니다/.test(build.dup.block ?? ''), `함선당 하나: 작업실 두 번째 → 「${build.dup.block}」`);
   const ROOM = Object.fromEntries(build.rooms.map((p, i) => [p, i]));
 
-  /* ══ 2. 가구 · 창고 강화 게이트 ═══════════════════════════════════════════ */
+  /* ══ 2. The furniture · storage upgrade gate ═════════════════════ */
   console.log('가구 · 창고 강화 — 발전기 게이트 유지');
   const bench = ROOM.workshop !== undefined ? await placeFurn(ROOM.workshop, 'furn_bench_gun') : { err: 'no workshop room' };
   if (bench.uid) {
@@ -291,7 +306,8 @@ try {
     }, bench.uid);
     ok(fu.lv === 1 && fu.b1 === '발전기 레벨 2 필요 (현재 1)' && same(fu.q1, [{ facility: 'generator', have: 1, need: 2 }]) && fu.u1 === false && fu.lvAfter1 === 1,
       `총기 작업대 Lv.1 · 발전기 1 → 「${fu.b1}」 · 강화 거절`, JSON.stringify(fu));
-    // 2026-09-14: 채워진 요구도 칩으로 보여 주므로 `q2` 는 `2/2` 다 — 「막히지 않는다」는 사유(`b2`)가 말한다
+    // 2026-09-14: a satisfied requirement is shown as a chip too, so `q2` is `2/2` — 「it is not blocked」 is what
+    // the reason (`b2`) says
     ok(!/발전기/.test(fu.b2 ?? '') && same(fu.q2, [{ facility: 'generator', have: 2, need: 2 }]),
       `발전기 2 → 발전기 사유 없음 · 요구 칩은 2/2 (${fu.b2 ?? 'null'})`, JSON.stringify(fu));
   } else note(`총기 작업대를 놓지 못했다 — ${JSON.stringify(bench)}`);
@@ -317,7 +333,7 @@ try {
   ok(st.b2 === '발전기 레벨 2 필요 (현재 1)' && st.u2denied === false && st.lvDenied === 1, `창고 Lv.2 · 발전기 1 → 「${st.b2}」 · 거절`, JSON.stringify(st));
   ok(st.b2open === null && st.u2 && st.lv2 === 2, `발전기 2 → 창고 Lv.2 강화`, JSON.stringify(st));
 
-  /* ══ 3. 발전기 강화 ════════════════════════════════════════════════════════ */
+  /* ══ 3. Generator upgrades ════════════════════════════════════════════ */
   console.log('발전기 강화 — csv 비용 · 최대 레벨');
   const want2 = bagOf(CSV_GEN_COST[2] ?? []);
   ok(Object.keys(want2).length > 0 && (CSV_GEN_COST[1] ?? []).length === 0 && [3, 4, 5].every((lv) => (CSV_GEN_COST[lv] ?? []).length > 0) && !CSV_GEN_COST[6],
@@ -347,11 +363,12 @@ try {
   ok(g3.top.level === 5 && g3.top.next === null && g3.top.res === false && g3.top.lv === 5 && g3.top.blocked === '최대 레벨입니다',
     `Lv.5: nextCost null · 「${g3.top.blocked}」 · 강화 거절`, JSON.stringify(g3.top));
 
-  /* ══ 4. sanitize 이관 ═════════════════════════════════════════════════════ */
+  /* ══ 4. sanitize migration ══════════════════════════════════════════════ */
   console.log('ShipState sanitize — 발전기 레벨 · 모자란 시설 제거 + 환불');
   const bookId = await H(() => window.__game.ctx.loot.getAllItemDefs().find((d) => d.book && !d.retired && /^book_[A-Za-z0-9_]+$/.test(d.id))?.id ?? null);
-  /* 2026-09-16 (사용자 결정, 표본 전면 개편): 옛 `spec_cell` 은 아이템 표에서 줄째로 사라졌다 (세이브 마이그레이션 없음).
-     해석 중이던 표본이 **정말 환불되는지**를 보는 검사이므로 살아 있는 표본 id 를 표에서 찾아 쓴다. */
+  /* 2026-09-16 (user's decision, the sample rework): the old `spec_cell` disappeared from the item table row and
+     all (no save migration). This check is about whether a sample mid-analysis **really is refunded**, so a live
+     sample id is looked up in the table instead. */
   const sampleId = await H(() => window.__game.ctx.loot.getAllItemDefs().find((d) => d.sample && !d.retired)?.id ?? null);
   const mig = await H(async ({ bookId, sampleId, POWER_FIELDS }) => {
     const S = await import('/src/housing/ShipState.ts');
@@ -361,7 +378,7 @@ try {
     const run = (doc) => { const out = { refund: [] }; const s = S.sanitize(JSON.parse(JSON.stringify(doc)), out); return { s, out }; };
     const base = S.freshState();
     const r = {};
-    // gen 0 → 1 (작업실은 남는다 · 온실은 Lv.2 가 필요해 제거)
+    // gen 0 → 1 (the workshop stays · the greenhouse needs Lv.2, so it is removed)
     {
       const rooms = empty8(); rooms[0] = { purpose: 'workshop', level: 1 };
       const a = run({ ...base, version: 12, generatorLevel: 0, rooms });
@@ -370,7 +387,7 @@ try {
       r.gen0 = { gen: a.s.generatorLevel, room0: a.s.rooms[0].purpose, removed: a.out.removedByGenerator, refund: a.out.refund.length,
         ghGen: b.s.generatorLevel, ghRoom: b.s.rooms[0].purpose, ghRemoved: b.out.removedByGenerator, ghRefund: b.out.refund, ghWant: SH.ROOM_PURPOSE_BUILD_COST.greenhouse };
     }
-    // gen 8 → 5 (채굴 시설은 남는다) · 환불은 gen 5 세이브와 똑같다
+    // gen 8 → 5 (the mining facility stays) · the refund is identical to a gen 5 save
     {
       const rooms = empty8(); rooms[0] = { purpose: 'workshop', level: 1 }; rooms[1] = { purpose: 'mining', level: 1 };
       const a = run({ ...base, version: 12, generatorLevel: 8, rooms });
@@ -378,7 +395,8 @@ try {
       r.gen8 = { gen: a.s.generatorLevel, rooms: a.s.rooms.slice(0, 2).map((x) => x.purpose), removed: a.out.removedByGenerator,
         refund8: a.out.refund, refund5: b.out.refund, stored8: a.s.furnitureStorage.length, stored5: b.s.furnitureStorage.length };
     }
-    // v12 모양: 발전기 2 · 방 2 온실(재배 스테이션) · 방 3 연구실(해석 중인 분석기) · 방 4 서재(책 꽂힌 책장) + 전력 필드
+    // v12 shape: generator 2 · room 2 greenhouse (a grow station) · room 3 lab (an analyzer mid-analysis) ·
+    // room 4 library (a bookshelf with a book) + power fields
     {
       const ghDef = SH.FURNITURE_DEF_MAP.get('furn_grow_station');
       const probe = S.freshState();
@@ -399,7 +417,7 @@ try {
         analyses: [{ uid: 'f-21', slot: 0, sampleDefId: sampleId, startedAt: 1000, readyAt: 5000 }],
         powerAlloc: { 1: 4, 2: 6, 3: 3 }, disabledFurniture: ['f-21'], pausedAt: { 'f-20': 123456 },
       };
-      window.__v12Doc = doc;                         // 7번(진짜 로드 경로)이 같은 문서를 쓴다
+      window.__v12Doc = doc;                         // section 7 (the real load path) uses the same document
       const a = run(doc);
       const want = [];
       R.mergeCost(want, SH.ROOM_PURPOSE_BUILD_COST.lab);
@@ -424,9 +442,10 @@ try {
   }, { bookId, sampleId, POWER_FIELDS });
   ok(!!bookId, `서적 def 하나 (${bookId})`);
   ok(!!sampleId, `미확인 표본 def 하나 (${sampleId})`);
-  /* 2026-09-16: 옛 세이브의 환불 목록에는 **이제 없는 def** 가 들어 있을 수 있다 (표본 전면 개편처럼 줄째로 지운 변경 —
-     사용자 결정으로 마이그레이션이 없다). 이 환불은 `HousingSystem.update` 첫 프레임에서 불리므로, 던지면 housing 이
-     통째로 멈춘다 (`[Engine] update failed in housing`). 경고만 남기고 건너뛰어야 하고, 같은 자루의 나머지는 들어와야 한다. */
+  /* 2026-09-16: an old save's refund list can hold a **def that no longer exists** (a change that deleted whole
+     rows, like the sample rework — the user's decision was no migration). This refund is called on
+     `HousingSystem.update`'s first frame, so throwing stops housing outright (`[Engine] update failed in housing`).
+     It has to warn and skip instead, and the rest of the same bag must still come in. */
   const ghostRefund = await H(async () => {
     const ctx = window.__game.ctx, h = ctx.housing;
     const live = ctx.loot.getAllItemDefs().find((d) => d.category === 'material' && !d.retired).id;
@@ -455,7 +474,7 @@ try {
   ok(v.removed === 2 && v.migratedRooms === true && v.powerKeys.length === 0, `removedByGenerator ${v.removed} · migratedRooms · 전력 필드 없음 (${v.powerKeys.join(',') || '-'})`);
   ok(v.again.removed === 0 && v.again.refund === 0 && v.again.migratedRooms === false && same(v.again.rooms, v.rooms), '정리된 세이브를 다시 읽으면 아무것도 바뀌지 않는다', JSON.stringify(v.again));
 
-  /* ══ 5. 가동 질의 ══════════════════════════════════════════════════════════ */
+  /* ══ 5. Operation queries ══════════════════════════════════════════════ */
   console.log('furnitureOperationalBlock · stationNow');
   if (ROOM.mining !== undefined) {
     const clus = await placeFurn(ROOM.mining, 'furn_compute_cluster');
@@ -478,14 +497,15 @@ try {
     } else note(`연산 클러스터를 놓지 못했다 — ${JSON.stringify(clus)}`);
   } else note('채굴 시설 방이 없다 (1번 증축 실패)');
 
-  /* ══ 6. 화면 ══════════════════════════════════════════════════════════════ */
+  /* ══ 6. The screen ══════════════════════════════════════════════════════ */
   console.log('화면 — 시설 관리 발전기 행 · 재배 스테이션');
-  /* 2026-09-14 (사용자 결정): 발전기 행의 **레벨별 해금 목록**(`.sm-gen-unlocks` / `.sm-gen-unlock`)은 없어졌다 —
-     다섯 줄짜리 표가 방 목록을 밀어냈다. 같은 정보는 **용도 지정 카드의 발전기 칩**(`buildFacilityChip` —
-     재료 칩과 같은 줄에 `현재/필요`, 모자라면 `.is-short`)이 그 용도를 고르는 자리에서 말한다.
-     그래서 여기서는 ① 목록이 정말 사라졌는지 ② 빈 방의 용도 카드마다 칩이 room_purposes.csv 의 `generator` 를
-     그대로 적는지를 본다. 카드는 **이미 지은 용도를 아예 그리지 않으므로**(`builtElsewhere`) 읽는 동안만
-     방 용도를 비워 두고 원래대로 되돌린다 (가구는 건드리지 않는다). */
+  /* 2026-09-14 (user's decision): the generator row's **per-level unlock list** (`.sm-gen-unlocks` /
+     `.sm-gen-unlock`) is gone — a five-row table pushed the room list out. The same information is said by the
+     **generator chip on the purpose card** (`buildFacilityChip` — `현재/필요` on the same line as the material
+     chips, `.is-short` when short), right where that purpose is chosen. So what is checked here is ① that the list
+     really disappeared and ② that every empty room's purpose card writes room_purposes.csv's `generator` verbatim.
+     A card **does not draw a purpose that is already built** (`builtElsewhere`), so the room purposes are emptied
+     only while they are read and put back afterwards (the furniture is left alone). */
   const ui = await H(async ({ room }) => {
     const h = window.__game.ctx.housing;
     const wait = (ms = 80) => new Promise((r) => setTimeout(r, ms));
@@ -523,7 +543,7 @@ try {
     h.changed('smoke');
     await wait();
     r.at1 = readGen();
-    // 빈 방의 용도 지정 카드 — 발전기 Lv.3 에서 칩이 `현재/필요` 를 적는다
+    // an empty room's purpose card — at generator Lv.3 the chip writes `현재/필요`
     h.state.rooms.forEach((x) => { x.purpose = 'empty'; x.level = 0; });
     h.state.generatorLevel = 3;
     h.changed('smoke');
@@ -570,12 +590,12 @@ try {
   const pwEv = (await ev('housing:powerChanged')).length + (await ev('housing:operationalChanged')).length;
   ok(pwEv === 0, `housing:powerChanged · housing:operationalChanged 가 한 번도 나지 않았다 (${pwEv})`);
 
-  /* ══ 7. 진짜 로드 경로 ════════════════════════════════════════════════════ */
+  /* ══ 7. The real load path ══════════════════════════════════════════ */
   console.log('로드 경로 — v12 세이브 → 새로고침');
   await clearStash();
   const want7 = await H(() => JSON.parse(JSON.stringify(window.__v12Want)));
   const ids7 = Object.keys(bagOf(want7));
-  await sleep(600);                                      // 창고 저장 debounce 가 빈 창고를 쓰게
+  await sleep(600);                                      // lets the stash save debounce write the empty stash
   const pre = await counts(ids7);
   await H(() => {
     const h = window.__game.ctx.housing;
@@ -583,7 +603,7 @@ try {
     const text = JSON.stringify(window.__v12Doc);
     const put = () => { try { localStorage.setItem('scav.s1.ship', text); } catch { /* storage off */ } };
     put();
-    // ShipStore 의 pagehide / beforeunload flush 가 먼저 등록돼 있으므로, 그 뒤에 다시 쓴다
+    // `ShipStore`'s pagehide / beforeunload flush is registered first, so it is written again after it
     window.addEventListener('beforeunload', put);
     window.addEventListener('pagehide', put);
   });
@@ -611,7 +631,7 @@ try {
     `로드된 함선: v${SHIP_V} · 발전기 2 · 온실만 남음 · 분석기 · 책장은 가구 창고 · 전력 필드 없음`, JSON.stringify(load));
   const got7 = bagOf(ids7.map((id) => ({ defId: id, qty: post[id] - pre[id] })));
   ok(same(got7, bagOf(want7)), `환불이 함선 창고에 들어왔다 (${JSON.stringify(got7)})`, JSON.stringify({ want: bagOf(want7), pre, post }));
-  await sleep(700);                                      // markDirty debounce → 다시 쓴 세이브
+  await sleep(700);                                      // markDirty debounce → the save written again
   const saved = await H(({ POWER_FIELDS }) => { try { const j = JSON.parse(localStorage.getItem('scav.s1.ship')); return { v: j.version, keys: POWER_FIELDS.filter((k) => k in j), rooms: j.rooms.slice(0, 4).map((x) => x.purpose) }; } catch (e) { return { err: String(e) }; } }, { POWER_FIELDS });
   ok(saved.v === SHIP_V && saved.keys.length === 0 && same(saved.rooms, ['empty', 'greenhouse', 'empty', 'empty']), `정리된 상태가 localStorage 에 다시 저장됐다 (v${saved.v})`, JSON.stringify(saved));
 

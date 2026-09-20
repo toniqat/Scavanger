@@ -39,10 +39,11 @@ async function waitFor(page, fn, label, timeout = 60000, arg) {
   throw new Error(`timeout waiting for ${label}`);
 }
 /**
- * `.hud-bl { transition: bottom var(--t-med) }` (base.css, 260 ms) — 버프 줄이 생기는 순간 열이 122 → 151 px 로 **미끄러진다**.
- * 곧바로 읽으면 중간값(142 px 따위)이 잡히므로, 두 번 연속 같은 값이 나올 때까지 기다렸다가 비교한다. 이미 자리를 잡은
- * 경우(값이 안 변한다)에는 한 번만 더 재고 끝나므로 느려지지 않는다. `sleep(700)` 로 눌러 둔 다른 두 자리(함선 · 빈 목록)와
- * 같은 뜻인데, 값이 굳는 것을 실제로 확인한다는 점만 다르다.
+ * `.hud-bl { transition: bottom var(--t-med) }` (base.css, 260 ms) — the moment the buff strip appears the column
+ * **slides** from 122 to 151 px. Reading it straight away catches an in-between value (142 px or so), so this waits until
+ * the same value comes back twice in a row and only then compares. Where it has already settled (the value does not
+ * change) it measures once more and is done, so nothing gets slower. It means the same thing as the two other spots held
+ * down with `sleep(700)` (the ship · the empty list), except that it really confirms the value has set.
  */
 async function settledStyle(page, sel, prop, timeout = 3000) {
   const read = () => page.evaluate(([s, p]) => getComputedStyle(document.querySelector(s))[p], [sel, prop]);
@@ -192,7 +193,8 @@ try {
   ok(C['fatigue:strength'].tDisp !== 'none' && C.meal.tDisp === 'none', 'time label shown only with a timer', JSON.stringify({ t: C['fatigue:strength'].tDisp, m: C.meal.tDisp }));
   ok(K.meal.ratio === null && K.meal.time === '' && near(C.meal.reveal, 1, 0.05) && K.pose.ratio === null, 'no timer → no gauge (whole face lit, no label)', JSON.stringify({ meal: K.meal, c: C.meal }));
 
-  // 122 px + 줄이 체력 블록에 더하는 29 px = 151 px — 열과 체력 블록 사이 여백이 줄이 있으나 없으나 같다 (실측 43.81 px).
+  // 122 px + the 29 px the strip adds to the hp block = 151 px — the gap between the column and the hp block is the
+  // same with or without the strip (measured 43.81 px).
   const lifted = await settledStyle(page, '.hud-bl', 'bottom');
   ok(lifted === '151px', `.hud-bl lifts over the strip (${lifted})`);
 
@@ -283,7 +285,7 @@ try {
   ok(fat && fat.debuff && near(fat.ratio, 12.5 / 24.5, 0.01) && fat.time === '12h' && sq.tDisp === 'none', 'row gauge ratio from the ref\'s timer; the time label is hidden at mini size', JSON.stringify(fat));
   ok(meal && !meal.dim && meal.glyph === '♨' && meal.title === '콩죽', 'row meal thumbnail (active, def glyph, def name)', JSON.stringify(meal));
   ok(sq.rowH > 30, `row grows to fit the strip (${sq.rowH} px)`);
-  // 2026-09-16 (사용자 결정): 내 행 자체가 없어졌다 — 내 버프는 PC 체력바 아래 띠가 그린다.
+  // 2026-09-16 (user's decision): my own row is gone — my buffs are drawn by the strip under the PC hp bar.
   ok(!sq.meHas && sq.meCells === -1, '내 행이 아예 없다 (2026-09-16)', JSON.stringify({ meHas: sq.meHas, meCells: sq.meCells }));
 
   await P(() => {
@@ -296,7 +298,7 @@ try {
   const sq2 = await P(() => window.__game.getSystem('hud').squadBuffs(window.__peer.id)[0]);
   ok(sq2.kind === 'exercise' && sq2.glyph === '⚖' && sq2.title === '운동 중' && sq2.ratio === null, 'net:remoteBuffsChanged → the row redraws (운동 중)', JSON.stringify(sq2));
 
-  // 2026-09-13 (사용자 결정): 비디오게임 세션은 「게임 중」 버프로 분대원에게 보인다
+  // 2026-09-13 (user's decision): a video-game session shows to squadmates as a 「게임 중」 buff
   await P(() => {
     const peer = window.__peer;
     peer.buffs = [{ kind: 'gaming', key: 'pose', debuff: false, state: 'active', pose: 'sit', stat: 'intelligence', minigame: 'breath' }];

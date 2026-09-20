@@ -1,4 +1,4 @@
-// Phase 11 소셜 UI smoke (src/ui): the ESC screen (2026-09-08: it parks itself so the viewport centre — where
+// Phase 11 social UI smoke (src/ui): the ESC screen (2026-09-08: it parks itself so the viewport centre — where
 // Escape leaves the OS cursor — lands inside 게임으로 돌아가기, right of that button's middle), the
 // profile cards + right-click menu (분대 초대 gating — 2026-09-15 invite only, 귓속말하기, 친구 추가 / 친구 삭제 with its confirm card), the
 // 설정 side panel with a real ControlsPanel inside 키 설정, the ship-only 커뮤니티 thumbnail (online count inside its
@@ -49,9 +49,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 1600, height: 900 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts on its own for a new profile and
+    // locks room purposes · crafting · the terminal · boarding in order, so it is marked here as "already done"
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -93,7 +93,7 @@ try {
         { code: 'NPQR5678', name: '최근다섯', level: 7, presence: 'ship', squad: 0, joinable: true, at: 5 },
       ],
     });
-    /* 2026-09-14 (메신저): the thumbnail badge also counts NPC / 단체방 unread — park both behind empty refs so only the
+    /* 2026-09-14 (messenger): the thumbnail badge also counts NPC / group room unread — park both behind empty refs so only the
        social mirror under test moves it (the messenger itself is scripts/smoke-messenger.mjs). */
     window.__game.getSystem('hud').debugNpc({
       getContacts: () => [], getMessages: () => [], markRead() {}, unreadTotal: 0, getQuests: () => [], getQuest: () => null,
@@ -168,7 +168,8 @@ try {
   });
   ok(layout.shown, 'ESC opens the pause menu in the ship');
   const r = layout.resume;
-  // 2026-09-09: 메뉴는 더 이상 커서를 찾아가지 않는다 — 세로 중앙 · 가로는 **왼쪽 절반** 고정 (사용자 결정).
+  // 2026-09-09: the menu no longer goes looking for the cursor — vertically centred, horizontally fixed to the
+  // **left half** (user's decision).
   const frameMidX = (r.l + r.r) / 2, frameMidY = (r.t + r.b) / 2;
   ok(frameMidX < layout.cx, '일시정지 메뉴가 화면 왼쪽 절반에 있다', JSON.stringify([frameMidX, layout.cx]));
   ok(Math.abs(frameMidY - layout.cy) <= layout.cy * 0.5,
@@ -185,7 +186,7 @@ try {
   ok(hidden.join('|') === '함선으로 귀환|파티 떠나기',
     '함선으로 귀환 (임무 없음) 과 파티 떠나기 (로비 없음) 는 함선에서 숨는다', JSON.stringify(hidden));
 
-  /* 타이틀로 / 게임 종료 는 경고 팝업을 거친다 — 한 번의 클릭으로 진행이 날아가면 안 된다. */
+  /* 타이틀로 / 게임 종료 go through a warning popup — one click must not throw the progress away. */
   const ask = await P(() => {
     const frame = document.querySelector('.menu.pause .frame');
     const btn = [...frame.querySelectorAll('.actions .ui-btn')].find((b) => b.textContent === '타이틀로');
@@ -217,7 +218,7 @@ try {
   await waitSim(0.3);
   await click('.cm-btn');
   await waitSim(0.15);
-  // 2026-09-14 (메신저): the social column is the messenger's 친구 tab now — the tab is remembered across open / close.
+  // 2026-09-14 (messenger): the social column is the messenger's 친구 tab now — the tab is remembered across open / close.
   await P(() => window.__game.getSystem('hud').messenger.setTab('friends'));
   await waitSim(0.1);
   let off = await P(() => ({
@@ -261,7 +262,7 @@ try {
   ok(col.reqShown && col.reqCards === 1, 'the incoming friend request has its own card', JSON.stringify(col));
   ok(col.reqActs.join('|') === '수락|거절', 'a request card carries 수락 / 거절', JSON.stringify(col.reqActs));
 
-  /* 2026-09-08 — 고정 크기: the frame keeps its box, and the 친구 / 최근 grids keep theirs, whatever the lists hold. */
+  /* 2026-09-08 — fixed size: the frame keeps its box, and the 친구 / 최근 grids keep theirs, whatever the lists hold. */
   await P(() => {
     window.__box = (sel) => {
       const wrap = document.querySelector('.community-panel');
@@ -302,7 +303,7 @@ try {
   let menu = await P(() => window.__menu());
   ok(menu.open, 'right-click opens the profile context menu');
   // 2026-09-11 (B-4): 차단 joined the menu. 2026-09-14: 귓속말하기 → 개인 대화, 대화 기록 left (the messenger conversation replaces it).
-  // 2026-09-15 (분대 · 도킹 매칭): 같이 하기 → **분대 초대** (초대 전용 — 2인 이상 분대에 있는 사람은 `이미 다른 분대에 있음`)
+  // 2026-09-15 (squads · dock matching): 같이 하기 → **분대 초대** (invite only — somebody in a squad of 2+ reads `이미 다른 분대에 있음`)
   ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|remove|block' && menu.items[0].label === '분대 초대' && menu.items[1].label === '개인 대화',
     'a friend gets 분대 초대 / 개인 대화 / 친구 삭제 / 차단', JSON.stringify(menu.items.map((i) => i.label)));
   ok(!menu.items[0].off && menu.items[0].why === '', '분대 초대 enabled for a friend in the ship with no squad', JSON.stringify(menu.items[0]));
@@ -386,8 +387,8 @@ try {
   }));
   ok(esc.menu && !esc.pause, 'Escape cancels the context menu without opening the 일시정지 메뉴', JSON.stringify(esc));
   ok(esc.panel, 'the 커뮤니티 panel behind it stays open');
-  // 2026-09-09 (ESC 닫기): with nothing innermost left, the next Escape closes the **커뮤니티 panel** itself
-  // (열린 화면 중 맨 위 하나), and only the press after that — with nothing open — opens the 일시정지 메뉴.
+  // 2026-09-09 (ESC closes): with nothing innermost left, the next Escape closes the **커뮤니티 panel** itself
+  // (the topmost of the open screens), and only the press after that — with nothing open — opens the 일시정지 메뉴.
   await P(() => window.__tap('Escape'));
   await waitSim(0.15);
   let esc2 = await P(() => ({
@@ -439,17 +440,18 @@ try {
     };
   });
   ok(set.open, '설정 opens from the pause menu');
-  // 2026-09-09: 설정은 **화면 중앙**에 오고 좌우로 넓어졌다 (ESC 가 왼쪽 절반으로 옮겨 가 피할 것이 없다).
+  // 2026-09-09: 설정 sits **centred on the screen** and grew wider (ESC moved to the left half, so there is
+  // nothing to dodge).
   ok(set.justify === 'center', 'the 설정 overlay is centred', `${set.side} ${set.justify}`);
   ok(set.right > set.w * 0.6, 'the 설정 panel reaches past the middle (it is centred, not a left rail)', JSON.stringify([set.right, set.w]));
-  // 2026-09-10: 서버 설정(접속할 릴레이 주소)이 네 번째로 붙었다.
+  // 2026-09-10: 서버 설정 (the relay address to connect to) was added as the fourth section.
   ok(set.nav.join('|') === '화면 설정|오디오 설정|키 설정|서버 설정', 'the left rail lists the four sections in order', JSON.stringify(set.nav));
   ok(set.on.join('|') === '화면 설정' && set.section === 'display', '화면 설정 is selected by default', JSON.stringify([set.on, set.section]));
   ok(set.shownPanes.length === 1 && /display/.test(set.shownPanes[0]), 'exactly one pane is visible at a time', JSON.stringify(set.shownPanes));
   ok(set.paneScroll === 'auto', 'the right pane scrolls vertically', set.paneScroll);
   ok(set.displayRows.join('|') === '전체화면|화면 효과|그림자|해상도 배율', '화면 설정 rows', JSON.stringify(set.displayRows));
   ok(set.toggles === 3 && set.segs.join('|') === '75%|100%|125%', 'three on/off pills + the 해상도 배율 steps', JSON.stringify([set.toggles, set.segs]));
-  // 2026-09-14 (사용자 결정): 음악 재생 창이 `AudioChannel 'bgm'` 볼륨을 보여 주므로 오디오 설정에 `음악` 줄이 생겼다
+  // 2026-09-14 (user's decision): the music player shows the `AudioChannel 'bgm'` volume, so 오디오 설정 gained a `음악` row
   ok(set.vols.join('|') === '전체|효과음|음악' && set.sliders === 3, '오디오 = 전체 · 효과음 · 음악 sliders', JSON.stringify(set.vols));
   ok(set.keys === 1, '키 설정 holds one real ControlsPanel instance', String(set.keys));
   ok(set.keycaps > 50, 'the keyboard diagram rendered its keys', String(set.keycaps));
@@ -817,7 +819,7 @@ try {
   bd = await badge();
   ok(bd.a === null, 'social:inviteResult drops the badge at once (no waiting for the next snapshot)', JSON.stringify(bd));
   toasts = await P(() => window.__notifs());
-  // 리드 통합: 수락 토스트는 `net:peerJoined` 의 `<이름> 합류` 와 겹쳐 뺐다.
+  // Merged into one line: the accepted toast overlapped `net:peerJoined`'s `<이름> 합류`, so it was taken out.
   ok(!toasts.some((t) => t.includes('님이 분대에 합류했습니다')), '수락 → 따로 토스트 없음 (합류 토스트가 대신한다)', JSON.stringify(toasts));
 
   console.log('차단');
@@ -891,10 +893,10 @@ try {
   ok(chatHide.ping, 'their ping line still is (pings / comms wheel stay)', JSON.stringify(chatHide));
   ok(chatHide.other, 'an unblocked squad-mate\'s line is drawn', JSON.stringify(chatHide));
 
-  /* ── 2026-09-11 (B-11 (1)): the `…` 말풍선 obeys the same 차단 gate the chat line does ──
+  /* ── 2026-09-11 (B-11 (1)): the `…` bubble obeys the same 차단 gate the chat line does ──
      Two fake peers (`remotePlayers.debugSpawn`) are handed to the HUD the way the nameplates get them
      (`hud.debugRemotes`), parked in front of the camera and flagged TYPING. The blocked one must draw nothing;
-     the other must still draw. The fake lobby (which is where the 아이디 lives) is installed and removed inside the
+     the other must still draw. The fake lobby (which is where the player code lives) is installed and removed inside the
      SAME task as the synchronous `hud.lateUpdate`, exactly like the chat check above — no frame ever sees it. */
   console.log('차단한 분대원의 … 말풍선');
   const TYPING = await P(() => import('/src/shared/index.ts').then((m) => m.PlayerFlags.TYPING).catch(() => 1 << 28));
@@ -902,8 +904,8 @@ try {
   await P(() => {
     const rp = window.__game.getSystem('remotePlayers');
     rp.debugClear();
-    window.__bubA = rp.debugSpawn({ id: 'peer-b', name: '친구둘', slot: 1 });    // GHJK6789 — 차단한 상대
-    window.__bubB = rp.debugSpawn({ id: 'peer-c', name: '친구하나', slot: 2 });  // CDEF2345 — 차단하지 않은 상대
+    window.__bubA = rp.debugSpawn({ id: 'peer-b', name: '친구둘', slot: 1 });    // GHJK6789 — the blocked one
+    window.__bubB = rp.debugSpawn({ id: 'peer-c', name: '친구하나', slot: 2 });  // CDEF2345 — the unblocked one
     window.__game.getSystem('hud').debugRemotes([window.__bubA, window.__bubB]);
   });
   await waitSim(0.4);   // one drive() per ref is all it takes — `ensure()` fills `ref.avatar`
@@ -969,9 +971,10 @@ try {
   await waitSim(0.2);
   ok(await P(() => window.__game.getSystem('hud').typingBubbleIds.length) === 0, 'clearing the debug refs clears the bubbles');
 
-  /* ── 2026-09-11 (B-12): 합류 · 이탈 토스트는 한 줄이다 ──
-     `hub/HubSystem` 의 `<이름> 함선 합류` · `함선 이탈` 두 줄을 지웠으므로 `ui/hud/Notifications` 만 남는다.
-     (반대로 `Notifications` 쪽을 지우면 초대 수락 알림이 통째로 사라진다 — `Notifications.ts` 의 `accepted` 주석.) */
+  /* ── 2026-09-11 (B-12): join · leave toast is one line ──
+     `hub/HubSystem`'s two lines `<이름> 함선 합류` · `함선 이탈` were deleted, so only `ui/hud/Notifications` is left.
+     (Deleting the `Notifications` side instead would lose the invite-accepted notification altogether — the `accepted`
+     comment in `Notifications.ts`.) */
   console.log('B-12: 합류 · 이탈 토스트 한 줄');
   ok(await P(() => window.__game.ctx.phase === 'hub'), '아직 함선 안이다 (hub 토스트가 살아 있던 조건)');
   await emit('net:peerJoined', { id: 'peer-j', name: '신입대원', slot: 3 });
@@ -1073,7 +1076,7 @@ try {
   ok(await hud('chatWhisperTarget') === 'QRST6789', '/r alone aims the input at the last partner', String(await hud('chatWhisperTarget')));
   for (let i = 0; i < 3 && await hud('isChatOpen'); i++) { await P(() => window.__tap('Escape')); await waitSim(0.05); }
 
-  /* 2026-09-14 (메신저): the old 대화 기록 page is the messenger's 대화 tab now — the same `whisperHistory`, drawn as bubbles. */
+  /* 2026-09-14 (messenger): the old 대화 기록 page is the messenger's 대화 tab now — the same `whisperHistory`, drawn as bubbles. */
   console.log('메신저 개인 대화 (옛 대화 기록 화면)');
   await click('.cm-btn');
   await waitSim(0.2);
@@ -1147,7 +1150,8 @@ try {
 
   await P(() => window.__game.ctx.bus.emit('game:over', { stats: window.__game.ctx.stats }));
   await waitSim(0.1);
-  // 2026-09-15 (머리줄 개편): 행성 줄이 두 조각이다 — 회색 라벨 `행성`(.rs-planet-k) + 흰 이름(.rs-planet-v), 가운뎃점 없음.
+  // 2026-09-15 (header row rework): the planet row is two pieces — a grey label `행성` (.rs-planet-k) + the white
+  // name (.rs-planet-v), no middle dot.
   ok(await text('.menu.death .planet-line .rs-planet-k') === '행성', 'the death screen labels the planet row 행성', await text('.menu.death .planet-line .rs-planet-k'));
   ok(await text('.menu.death .planet-line .rs-planet-v') === '베르단트 III', 'the death screen names the planet', await text('.menu.death .planet-line .rs-planet-v'));
   await P(() => { window.__game.ctx.missionPlanet = null; window.__game.ctx.bus.emit('game:over', { stats: window.__game.ctx.stats }); });
@@ -1155,14 +1159,16 @@ try {
   ok(await text('.menu.death .planet-line .rs-planet-v') === '목표 미지정', 'no planet → PLANET_NONE_LABEL', await text('.menu.death .planet-line .rs-planet-v'));
   await P(() => { window.__game.ctx.missionPlanet = 'mossy'; });
   await emit('game:phaseChanged', { phase: 'playing' });
-  // 2026-09-15: `extracted: true` 라야 **탈출 성공** 모습이다 — 앞의 `game:over` 로 `ctx.stats.extracted` 가 false 라
-  //   그냥 넘기면 같은 창이 사망 모습(제목 `전사` · 부제 `스캐빈저 신호 소실 …`)으로 떠 부제 단언이 그것을 읽는다.
+  // 2026-09-15: only `extracted: true` gives the **탈출 성공** look — the `game:over` above left `ctx.stats.extracted`
+  //   false, so passing it straight through would raise the same window in its death look (title `전사` · subtitle
+  //   `스캐빈저 신호 소실 …`) and the subtitle assertion would read that instead.
   await P(() => window.__game.ctx.bus.emit('game:complete', { stats: { ...window.__game.ctx.stats, seed: 4242, extracted: true } }));
   await waitSim(0.1);
   let comp = await P(() => ({
     key: document.querySelector('.menu.complete .planet-line .rs-planet-k')?.textContent,
     line: document.querySelector('.menu.complete .planet-line .rs-planet-v')?.textContent,
-    // 2026-09-15 (머리줄 개편): 탈출 성공에는 부제가 없다 — 요소는 사망 모습(`전사`)의 부제로 남아 있고 hidden 이다.
+    // 2026-09-15 (header row rework): 탈출 성공 has no subtitle — the element remains as the death look's
+    // (`전사`) subtitle and is hidden.
     subHidden: document.querySelector('.menu.complete .subtitle')?.hidden,
     subText: document.querySelector('.menu.complete .subtitle')?.textContent,
     order: (() => {
@@ -1174,7 +1180,8 @@ try {
   ok(comp.key === '행성' && comp.line === '베르단트 III', 'the result screen names the planet (회색 라벨 + 이름)', `${comp.key} / ${comp.line}`);
   ok(comp.subHidden === true && comp.subText === '', 'the 탈출 성공 subtitle is gone (hidden, no text)', JSON.stringify([comp.subHidden, comp.subText]));
   ok(comp.order, 'the planet line sits under the subtitle');
-  // 2026-09-15 (결과 창 개편): 다시 배치 (같은 시드) 버튼과 기능이 없어졌다 — 남은 버튼은 함선으로 귀환 하나다.
+  // 2026-09-15 (results screen rework): the 다시 배치 (same seed) button and what it did are gone — the one
+  // button left is 함선으로 귀환.
   const compBtns = await P(() => [...document.querySelectorAll('.menu.complete .actions .ui-btn')].map((b) => b.textContent));
   ok(compBtns.length === 1 && compBtns[0] === '함선으로 귀환', 'the result screen has only 함선으로 귀환 (no 다시 배치)', JSON.stringify(compBtns));
 

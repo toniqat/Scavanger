@@ -1,11 +1,13 @@
-// 레이더 강하 (src/enemies/RogueDrop.ts) 단독 스모크 — 릴레이 없이 싱글 플레이로 돈다.
-// 검사: callRogueDrop 의 예고 → getRogueDrops → ROGUE_DROP_ETA_S 뒤 착지 → 분대 인원(싱글 = 3명 · 두 번째 파도 없음 · 보스 없음)
-//       **레이더** 스폰(site 'drop' · 분대 하나 · 우회조 정확히 한 명) → 트리거 지점(구조물)으로 진격, 같은 dropId 재호출 거부,
-//       structure:investigated 의 **구역당 1회**, 상시 개체수 상한이 강하 인원을 깎지 않는 것, 훈련장 게이트.
-//       2026-09-10: 강하가 조용하지 않은 것 — 토스트 + 위험 인디케이터 + 착지 충격음(rogue_pod_impact).
-//       2026-09-13 (행성별 팩션): 레이드는 threat 2 행성(보레아스 IX)에서 돈다. 파도 — 분대 2 / 3 / 4인이면 두 번째 파도가
-//       RAIDER_DROP_WAVE_GAP_S 뒤 `${zone}#2` 로 따로 예고되고(인원 2 / 3 / 3–4), 한 파도는 4명을 넘지 않으며, 파도마다 분대 id 가
-//       다르다. threat 1 행성(아켈론 II)에서는 조사해도 굴리지 않는다.
+// Standalone smoke for the raider drop (src/enemies/RogueDrop.ts) — runs single player, without a relay.
+// Checks: callRogueDrop announces → getRogueDrops → it lands ROGUE_DROP_ETA_S later → the squad size (solo = 3 · no second
+//       wave · no boss) → **raiders** spawn (site 'drop' · one squad · exactly one flanker) → they advance on the trigger
+//       point (a structure), the same dropId is refused while one is in progress, structure:investigated rolls **once per
+//       zone**, the ambient population cap does not cut the drop's size, and the training-range gate.
+//       2026-09-10: the drop is not silent — a toast + the danger indicator + the landing impact sound (rogue_pod_impact).
+//       2026-09-13 (factions per planet): the raid runs on a threat 2 planet (`보레아스 IX`). Waves — with a squad of
+//       2 / 3 / 4 the second wave is announced separately as `${zone}#2` RAIDER_DROP_WAVE_GAP_S later (2 / 3 / 3–4 bodies),
+//       no one wave passes 4, and every wave has its own squad id. On a threat 1 planet (`아켈론 II`) an investigation
+//       rolls nothing.
 // Usage: node scripts/smoke-rogue-drop.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -21,13 +23,13 @@ const CHROME = [
 if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
-// 계약 값 (data/constants.csv · data/tables.csv) — 브라우저 안에서 상수를 import 할 수 없으니 여기 옮겨 적는다
+// The contract values (data/constants.csv · data/tables.csv) — a constant cannot be imported inside the browser, so they are copied here
 const ETA = 8;
 const RADIUS = 26;
 const SOLO = 3;
 const WAVE_GAP = 10;
 const WAVE_MAX = 4;
-/** 분대 인원 → [첫 파도 lo, hi, 두 번째 파도 lo, hi] (RAIDER_DROP_WAVE1_* · WAVE2_*). */
+/** Squad size → [first wave lo, hi, second wave lo, hi] (RAIDER_DROP_WAVE1_* · WAVE2_*). */
 const WAVES = { 1: [3, 3, 0, 0], 2: [3, 3, 2, 2], 3: [3, 3, 3, 3], 4: [4, 4, 3, 4] };
 const WATCH_S = 3;
 const PLANET = 'tundra';      // threat 2
@@ -56,7 +58,7 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 이 스크립트는 튜토리얼을 검사하지 않는다 (scripts/smoke-tutorial.mjs 의 몫) — 끝난 것으로 표시해 둔다
+    // This script does not check the tutorial (that is scripts/smoke-tutorial.mjs's job) — it is marked as done here
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -81,7 +83,7 @@ try {
     }
     window.__sys = window.__game.getSystem('enemies');
     window.__V = window.__game.ctx.camera.position.constructor;
-    /** 그 지점에서 가장 가까운 살아 있는 적까지의 거리 (없으면 Infinity). */
+    /** The distance from that spot to the nearest living enemy (Infinity with none). */
     window.__enemyClearance = (x, z) => {
       let best = Infinity;
       for (const e of window.__sys.active) {
@@ -91,12 +93,13 @@ try {
       }
       return best;
     };
-    /** 플레이어에게서 멀리(시야 밖) · 거점(구조물 · 플랫폼 · 폐허)에서도 멀리 · **살아 있는 적에게서도 멀리** 떨어진 맵 안 지점 하나. */
-    /* 2026-09-15: 적 이격(`ENEMY_CLEAR`)이 없으면 시드에 따라 강하 분대(`ROGUE_DROP_RADIUS` 26 m 로 흩어진다)가
-       살아 있는 벌레 바로 옆에 내린다 — 내리자마자 `aware` 가 되어 `EnemyAI` 가 investigate 를 풀고,
-       「전원이 진격 상태로 내린다」가 0/3 으로 빨개졌다 (제품은 정상: `RogueDrop` 은 전원에게 `beginInvestigation` 을
-       부른다). 800 번을 다 굴려도 조건을 못 채우면 그중 **가장 한산한** 후보를 쓴다 — 예전처럼 아무 곳이나
-       받아들이지 않는다. */
+    /** One spot inside the map, far from the player (out of sight) · far from the sites (structure · platform · ruin) ·
+        and **far from any living enemy** too. */
+    /* 2026-09-15: without the enemy clearance (`ENEMY_CLEAR`) the drop squad (it scatters over `ROGUE_DROP_RADIUS` 26 m)
+       lands right beside a living bug on some seeds — it goes `aware` the moment it lands, `EnemyAI` releases the
+       investigation, and 「전원이 진격 상태로 내린다」 went red at 0/3 (the product is fine: `RogueDrop` calls
+       `beginInvestigation` on every one of them). When all 800 rolls fail the condition, the **quietest** of those
+       candidates is used — anywhere at all is no longer accepted the way it once was. */
     window.__farPoint = (minD, ENEMY_CLEAR = 45) => {
       const ctx = window.__game.ctx; const V = window.__V; const world = ctx.world; const pp = ctx.player.position;
       const sites = [...world.getStructures().map((s) => s.position), ...world.getRailLines().flatMap((l) => l.platforms.map((p) => p.position)),
@@ -113,11 +116,11 @@ try {
       }
       return best;
     };
-    /** 거점 그룹을 치운다 — threat 2 행성은 거점마다 로그 · 레이더가 서 있어 강하 병력이 진격 대신 교전에 들어간다. */
+    /** Clears the site groups — on a threat 2 planet a rogue · raider stands at every site, so the dropped bodies open fire instead of advancing. */
     window.__clearHumanoids = () => { for (const e of window.__sys.active) if (e.active && e.isHumanoid && e.state !== 'dead') e.kill(false); };
   });
   const waitSim = async (sec) => { const t0 = await page.evaluate(() => window.__game.ctx.time); await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${sec}s`, 240000, t0 + sec); };
-  /** 절대 시각(`ctx.time`)까지 기다린다 — 착지처럼 "예고 때 정해진 순간" 을 기준으로 재야 할 때. */
+  /** Waits until an absolute time (`ctx.time`) — for what has to be measured against "the moment fixed at the announcement", such as the landing. */
   const waitTime = (t, label) => waitFor(page, (want) => window.__game.ctx.time >= want, label, 240000, t);
   const P = (fn, arg) => page.evaluate(fn, arg);
   const startMission = async (seed, planet) => {
@@ -135,10 +138,10 @@ try {
   ok(await P(() => window.__sys.planetThreatLevel === 2), 'the raid runs on a threat-2 planet');
   ok(await P(() => window.__game.ctx.enemies.getRogueDrops().length === 0), 'no drop is in progress at mission start');
 
-  /* ── 1. 예고 ───────────────────────────────────────────────────────────── */
+  /* ── 1. the announcement ─────────────────────────────────────────────── */
   console.log('예고 (callRogueDrop)');
   const call = await P(() => {
-    // 거점 그룹을 **먼저** 치운 다음 지점을 고른다 — 그래야 `__farPoint` 의 적 이격이 실제 상황을 잰다
+    // Clears the site groups **first** and only then picks the spot — that is what makes `__farPoint`'s enemy clearance measure the real situation
     const ctx = window.__game.ctx;
     window.__clearHumanoids();
     const p = window.__farPoint(130);
@@ -161,10 +164,12 @@ try {
   ok(view && Math.abs(view.landsAt - (call.time + ETA)) < 0.6, `landsAt = ctx.time + ROGUE_DROP_ETA_S (${view && (view.landsAt - call.time).toFixed(2)}s)`);
   const inc = await P(() => window.__ev['rogueDrop:incoming']);
   ok(inc.length === 1 && inc[0].dropId === 'smoke_zone' && inc[0].eta === ETA, `rogueDrop:incoming emitted once (${inc.length})`, JSON.stringify(inc[0]));
-  // 2026-09-10: 경보 · 낙하 굉음은 audio/AudioSystem 이 `rogueDrop:incoming` 을 받아 낸다 (전용 반경 · 거리 감쇠).
-  // `audio:play` 버스 이벤트가 아니라 AudioSystem 내부 호출이므로 여기서는 DOM 알림 · 위험 인디케이터로 확인한다.
-  // 토스트와 인디케이터는 같은 프레임에 뜨지 않으므로(하나는 이벤트 · 하나는 lateUpdate) 폴링하며 누적한다.
-  // 2026-09-13: 문구는 ui/ 가 "레이더 강하" 로 바꾸는 중이라 `강하` 만 본다.
+  // 2026-09-10: the alarm · the fall roar are played by audio/AudioSystem when it receives `rogueDrop:incoming` (its own
+  // radius · distance falloff). That is an internal AudioSystem call and not an `audio:play` bus event, so it is confirmed
+  // here through the DOM notification · the danger indicator.
+  // The toast and the indicator never appear on the same frame (one is an event, the other lateUpdate), so they are polled
+  // and accumulated.
+  // 2026-09-13: ui/ is in the middle of changing the wording to "레이더 강하", so only `강하` is looked for.
   let alerted = { toast: false, danger: 0 };
   const seenAlert = () => {
     const a = window.__alert || (window.__alert = { toast: false, danger: 0 });
@@ -177,16 +182,16 @@ try {
   ok(alerted.toast, '강하 토스트가 뜬다');
   ok(alerted.danger > 0, '위험 인디케이터(머리 마커 · 방향 호)가 강하를 가리킨다', JSON.stringify(alerted));
 
-  /* ── 2. 착지 ───────────────────────────────────────────────────────────── */
+  /* ── 2. the landing ──────────────────────────────────────────────────── */
   console.log(`착지 (+${ETA}s)`);
-  /* 2026-09-15: 호출 때 한 번 치우는 것만으로는 모자랐다 — `__clearHumanoids()` 는 예고보다 8 초 앞서 돌고
-     벌레는 건드리지 않아서, 그 8 초 동안 강하 지점으로 흘러든 개체가 「전원이 진격 상태로 내린다」를 깨뜨렸다.
-     착지 **직전에** 강하 지점 둘레를 한 번 더 비운다. 이미 내린 뒤라면 손대지 않는다 — 그러면 갓 내린
-     레이더를 죽여 버린다. */
+  /* 2026-09-15: clearing once at the call was not enough — `__clearHumanoids()` runs 8 seconds ahead of the announcement
+     and leaves the bugs alone, so a body that drifted into the drop spot during those 8 seconds broke
+     「전원이 진격 상태로 내린다」. The ring around the drop spot is emptied once more **just before** the landing. Once it
+     has already landed nothing is touched — that would kill the raiders that just came down. */
   await waitTime(view.landsAt - 1.0, 'landing −1 s');
   const swept = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const d = window.__drop;
-    if (!ctx.enemies.getRogueDrops().some((v) => v.id === 'smoke_zone')) return null;   // 이미 착지 — 건드리지 않는다
+    if (!ctx.enemies.getRogueDrops().some((v) => v.id === 'smoke_zone')) return null;   // already landed — left alone
     let n = 0;
     for (const e of sys.active) {
       if (!e.active || e.state === 'dead') continue;
@@ -199,7 +204,7 @@ try {
   const landed = await P((a) => {
     const ctx = window.__game.ctx; const sys = window.__sys;
     const d = window.__drop;
-    // 죽은 개체는 세지 않는다 — 착지 직전 정리가 남긴 시체가 `active` 인 채 잠깐 남아 "예고보다 많이 내렸다" 가 된다
+    // Dead bodies are not counted — a corpse left by the sweep just before the landing stays `active` for a moment and reads as "more came down than were announced"
     const fresh = sys.active.filter((e) => e.active && e.isHumanoid && e.state !== 'dead' && !a.before.includes(e.id));
     return {
       ev: window.__ev['rogueDrop:landed'],
@@ -212,7 +217,7 @@ try {
       dist: fresh.map((e) => Math.hypot(e.position.x - d.x, e.position.z - d.z)),
       guard: fresh.map((e) => Math.hypot(e.guardPos.x - d.x, e.guardPos.z - d.z)),
       investigating: fresh.filter((e) => e.investigating).length,
-      // 진격이 풀린 이유를 바로 읽을 수 있게 (교전 시작? 피해? 근처에 뭐가 있나)
+      // So the reason the advance was released can be read straight off (opened fire? took damage? what is nearby)
       why: fresh.map((e) => {
         let nd = Infinity, nt = '';
         for (const o of sys.active) {
@@ -242,7 +247,7 @@ try {
   ok(landed.origin.every((d) => d < 0.01), '진격 목표 = 트리거 지점', JSON.stringify(landed.origin));
   ok(landed.impact > 0, `착지 충격음 (rogue_pod_impact ×${landed.impact})`);
 
-  /* ── 3. 진격 ───────────────────────────────────────────────────────────── */
+  /* ── 3. the advance ──────────────────────────────────────────────────── */
   console.log(`진격 (watch ${WATCH_S}s → advance)`);
   const d0 = landed.dist.slice();
   await waitSim(WATCH_S + 9);
@@ -258,7 +263,7 @@ try {
   const alive = adv.filter((a) => a).length;
   ok(alive > 0 && moved >= Math.ceil(alive / 2), `절반 이상이 구조물 쪽으로 붙었다 (${moved} / ${alive}; ${adv.map((a, i) => a ? `${d0[i].toFixed(0)}→${a.d.toFixed(0)}` : 'x').join(' ')})`);
 
-  /* ── 3b. 파도 (분대 인원) ──────────────────────────────────────────────── */
+  /* ── 3b. waves (squad size) ──────────────────────────────────────── */
   console.log('파도 (분대 2 / 3 / 4인)');
   const plan = await P((W) => {
     const ctx = window.__game.ctx; const sys = window.__sys;
@@ -304,7 +309,7 @@ try {
   ok(squads.length >= 4 && squads.every((roles) => roles.length <= WAVE_MAX && roles.filter((r) => r === 'flanker').length === 1),
     `파도마다 자기 분대 · 우회조 한 명 (${JSON.stringify(w4.bySquad)})`);
 
-  /* ── 4. 구역당 1회 ─────────────────────────────────────────────────────── */
+  /* ── 4. once per zone ──────────────────────────────────────────────── */
   console.log('구역당 1회 (structure:investigated)');
   const once = await P(() => {
     const sys = window.__sys; const ctx = window.__game.ctx; const V = window.__V;
@@ -322,7 +327,7 @@ try {
   ok(once.r1 === once.r0 + 1, `첫 조사는 굴린다 (rolls ${once.r0} → ${once.r1})`);
   ok(once.r2 === once.r1, `같은 구역은 다시 굴리지 않는다 — 실패했더라도 (rolls ${once.r2})`);
 
-  // 여러 구역을 조사하면 RAIDER_DROP_CHANCE_BY_THREAT[1](0.45) 로 언젠가는 실제 강하가 뜬다
+  // Investigating several zones eventually raises a real drop at RAIDER_DROP_CHANCE_BY_THREAT[1] (0.45)
   const many = await P(() => {
     const sys = window.__sys; const ctx = window.__game.ctx; const V = window.__V;
     const pp = ctx.player.position;
@@ -339,7 +344,7 @@ try {
   ok(many.calls > many.c0, `구조물 조사가 실제로 강하를 부른다 (calls ${many.c0} → ${many.calls}, rolls ${many.rolls})`);
   ok(many.pending > 0, `부른 강하가 예고 목록에 올라간다 (${many.pending})`);
 
-  /* ── 5. 미션 리셋 ──────────────────────────────────────────────────────── */
+  /* ── 5. the mission reset ──────────────────────────────────────────── */
   console.log('미션 리셋');
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub', 20000);
@@ -348,7 +353,7 @@ try {
   const afterReset = await P(() => ({ pending: window.__game.ctx.enemies.getRogueDrops().length, rolls: window.__sys.debugRogueDrops.rolls, waves: window.__sys.debugDropWaves.pending.length }));
   ok(afterReset.pending === 0 && afterReset.rolls === 0 && afterReset.waves === 0, `미션 리셋이 진행 중인 강하 · 예약 파도 · 굴림 기록을 비운다 (${JSON.stringify(afterReset)})`);
 
-  /* ── 5b. threat 1 행성: 강하 없음 ──────────────────────────────────────── */
+  /* ── 5b. a threat 1 planet: no drop ──────────────────────────────── */
   console.log(`threat 1 (${CALM_PLANET})`);
   await startMission(41, CALM_PLANET);
   const calm = await P(() => {
@@ -367,7 +372,7 @@ try {
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub', 20000);
 
-  /* ── 6. 훈련장 게이트 ──────────────────────────────────────────────────── */
+  /* ── 6. the training-range gate ──────────────────────────────────── */
   console.log('훈련장');
   await P(() => {
     const ctx = window.__game.ctx;

@@ -1,14 +1,21 @@
-// Single-player smoke test for the **요리 미니게임 · 요리 품질** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, src/housing —
+// Single-player smoke test for the **cooking minigames · meal quality** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, src/housing —
 // parts/CookGames · parts/Cooking · ui/cook · parts/Dining · ui/DiningTable):
-// 판정 6종을 화면 없이 (`cookDebug.makeGame`) — 썰기(예비 박자 무시 · 창 · 헛클릭 = 다음 표식 실패 · 놓침), 다지기(번갈아 채움 · 같은 버튼
-// 연타 = 반대 게이지 감소 · 시간 선형 점수 · 강제 종료 0 점), 굽기(50 % 뒤집기 · 100 % 꺼내기 · 늦은 뒤집기 = 실패 + 꺼내기 · 탐 ·
-// 불에 닿기 전 클릭 무시), 볶기(예비 박 무시 · 한 박자 한 번 · 바 채움 · 판정 평균), 젓기(누르기만 = 0 점 · 온도 제어 = 1 점 · 주기적
-// stir 연출), 붓기(램프 적분 · 붓기 전엔 안 끝남 · 떼고 SETTLE 뒤 끝 · 넘침 = 0 점) → cookBlock 사유 · 조리대 레벨 잠김 → 조리대 화면
-// (레일 · 단계 칩 · 조리 시작 버튼) → 세션(블로커 · ESC · 커서 · 키 가이드 · 실제 pointerdown 칼질 → housing:cookBeat) → 결과 = 식탁의
-// 접시 · 재료 소모 → 다시 만들기(「식탁의 요리를 바꿉니다」 경고 · Enter 무시 · 확정) → Tab 닫기 → 취소(Esc · game:abort · 자세 리셋) = 재료 · 접시 그대로 →
-// 자동 가구 Lv.1/2/3 점수 · 선택 카드 · 자동 연출 → 조리대 화면의 바꾸기 경고(Escape 취소 · 확정) → 식탁 (접시 먹기 · 줄지 않음 · 출격 경고 ·
-// 공유 식탁의 분대원 접시) → 새로고침 뒤 접시 · 식사 품질 보존 → 출격 식사의 derived 보너스 → 레이드 시작에 접시를 치운다.
-// 2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니다 — 식탁 가구가 없으면 조리대를 쓸 수 없다 (그 게이트도 본다).
+// The six judges with no screen (`cookDebug.makeGame`) — chop (a click during the lead-in beats is ignored · the
+// window · a stray click = the next mark missed · a miss), mince (alternating fills · the same button hammered = the
+// opposite gauge drains · a score linear in time · a forced end = 0 points), grill (flip at 50 % · remove at 100 % ·
+// a late flip = miss + remove · burnt · a click before the piece reaches the fire is ignored), stir-fry (the lead-in
+// beat ignored · one press per beat · the bar fills · the judgement average), stir (holding alone = 0 points ·
+// temperature control = 1 point · the periodic stir cue), pour (the ramp integral · never ends before the first
+// pour · ends SETTLE after the release · overflow = 0 points) → cookBlock reasons · the bench level lock → the cook
+// bench screen (rail · step chips · the 「조리 시작」 button) → the session (blocker · ESC · cursor · key guide · a
+// real pointerdown chop → housing:cookBeat) → the result = the dining table's plate · the ingredients consumed →
+// cook again (the 「식탁의 요리를 바꿉니다」 warning · Enter ignored · confirm) → Tab closes → cancel (Esc · game:abort ·
+// the pose reset) = ingredients · plate unchanged → auto appliance Lv.1/2/3 scores · the choice card · the auto
+// cutscene → the replace warning on the bench screen (Escape cancels · confirm) → the dining table (eating a plate ·
+// it does not shrink · the launch warning · squadmates' plates on the shared table) → the plate · meal quality
+// survive a reload → the derived bonus of the launched meal → a raid start clears the plate.
+// 2026-09-16 (the plate model, user's decision): a meal is not an item — with no dining table furniture the cook
+// bench cannot be used (that gate is checked too).
 // Usage: node scripts/smoke-cooking.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -26,7 +33,8 @@ const CHROME = [
 if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
-/** `data/constants.csv` 의 COOK_* · `data/tables.csv` 의 품질 · 자동 점수 표 — 기대값을 수치에서 유도한다. */
+/** COOK_* from `data/constants.csv` · the quality · auto-score tables from `data/tables.csv` — expected values are
+    derived from those numbers. */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const K = {};
 for (const line of readFileSync(join(ROOT, 'data', 'constants.csv'), 'utf8').split(/\r?\n/)) {
@@ -39,7 +47,7 @@ for (const line of readFileSync(join(ROOT, 'data', 'tables.csv'), 'utf8').split(
   if (m) T[m[1]][Number(m[2])] = Number(m[3]);
 }
 const qualityFor = (s) => { let q = 0; T.MEAL_QUALITY_SCORE_MIN.forEach((min, i) => { if (s + 1e-9 >= min) q = i; }); return q; };
-/** 2026-09-13 (H3): 요리 숙련 보너스 기대값 — `COOK_SKILL_SCORE_AT_MAX × 레벨 / SKILL_LEVEL_MAX`. */
+/** 2026-09-13 (H3): the expected cooking-skill bonus — `COOK_SKILL_SCORE_AT_MAX × level / SKILL_LEVEL_MAX`. */
 const SKILL_LEVEL_MAX = Number(/^SKILL_LEVEL_MAX,([^,\s]+)/m.exec(readFileSync(join(ROOT, 'data', 'constants.csv'), 'utf8'))?.[1] ?? 100);
 
 let pass = 0, fail = 0;
@@ -89,13 +97,15 @@ try {
       const b = window.__game.ctx.bus;
       window.__rec = { sessions: [], steps: [], beats: [], results: [], audio: [], guide: [], station: [], served: [], notify: [], xp: [], plates: [] };
       b.on('housing:plateChanged', (p) => window.__rec.plates.push({ reason: p.reason, plate: p.plate ? { ...p.plate } : null }));
-      // 2026-09-13 (H3): 숙련 경험치 호출을 엿본다 — 인스턴스 속성이라 housing 이 부르는 `ctx.progression.addSkillXp` 가 여기를 지난다
+      // 2026-09-13 (H3): spies on the skill-XP calls — it is an instance property, so the
+      // `ctx.progression.addSkillXp` that housing calls passes through here
       const prog = window.__game.ctx.progression;
       if (typeof prog.addSkillXp === 'function') {
         const origXp = prog.addSkillXp;
         prog.addSkillXp = function (id, amount) { window.__rec.xp.push([id, amount]); return origXp.call(this, id, amount); };
       }
-      // 2026-09-13 (H3): housing 인스턴스에 가짜 서재 합산 · 레시피 해금을 덮어 쓰고 되돌린다 (서재 에이전트의 구현과 무관하게 규칙만 본다)
+      // 2026-09-13 (H3): overrides library totals · recipe unlocks on the housing instance with fakes and restores
+      // them (only the rules are checked, independently of the library agent's implementation)
       window.__patched = new Map();
       window.__patch = (obj, key, value) => {
         if (!window.__patched.has(key)) window.__patched.set(key, [obj, Object.getOwnPropertyDescriptor(obj, key)]);
@@ -125,21 +135,22 @@ try {
   await page.reload({ waitUntil: 'load' });
   await boot();
 
-  /* ══ 1. 판정 — 화면 없이 ══════════════════════════════════════════════════ */
+  /* ══ 1. The judges — with no screen ═════════════════════════════════ */
   console.log('판정 (썰기)');
   const chop = await H((K) => {
     const g = window.__game.ctx.housing.cookDebug.makeGame('chop');
     const to = (t) => g.update(t - g.time);
     const n = g.notes, B = g.beatS, W = g.window;
-    // 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 창이 두 띠로 갈렸다 — `bands.perfect`(그려지는 표식) · `bands.good`(= `window`).
-    // 「좋음」 을 노리려면 두 띠 **사이**를 겨눈다 (옛 `window × 0.6` 은 이제 완벽 띠 안이다).
+    // 2026-09-14 (user's decision 「보이는 것 = 판정」): the window has split into two bands — `bands.perfect` (the
+    // drawn mark) · `bands.good` (= `window`). A good judgement means aiming **between** the two bands (the
+    // old `window × 0.6` is now inside the perfect band).
     const GOOD = (g.bands.perfect + g.bands.good) / 2;
-    g.press('left');                                   // 예비 박자 동안의 클릭은 무시
+    g.press('left');                                   // a click during the lead-in beats is ignored
     const lead = g.judgements.length;
-    to(n[0].t); g.press('right'); g.press('left');     // 우클릭은 썰기가 아니다 · 정박 → 완벽
-    to(n[1].t + GOOD); g.press('left');                // 좋음
-    to(n[2].t - B / 2); g.press('left');               // 헛클릭 → 다음 표식(2) 실패
-    to(n[3].t + W + 0.01);                             // 놓침 (클릭 없음)
+    to(n[0].t); g.press('right'); g.press('left');     // right-click is not a chop · on the beat → perfect
+    to(n[1].t + GOOD); g.press('left');                // good
+    to(n[2].t - B / 2); g.press('left');               // a stray click → the next mark (2) is missed
+    to(n[3].t + W + 0.01);                             // a miss (no click)
     for (let i = 4; i < n.length; i++) { to(n[i].t); g.press('left'); }
     const ev = g.drain();
     return { lead, total: g.total, judgements: [...g.judgements], score: g.score, done: g.done,
@@ -156,26 +167,26 @@ try {
   console.log('판정 (다지기)');
   const mince = await H((K) => {
     const d = window.__game.ctx.housing.cookDebug;
-    // ① 같은 버튼 연타는 반대 게이지를 깎는다
+    // ① hammering the same button drains the opposite gauge
     const a = d.makeGame('mince');
     a.press('right'); const v1 = a.v;
     a.press('left'); const h1 = a.h;
     a.press('left'); const drained = { h: a.h, v: a.v };
-    a.press('left'); a.press('left'); a.press('left');         // 반대쪽은 0 아래로 안 간다
+    a.press('left'); a.press('left'); a.press('left');         // the opposite side never goes below 0
     const floor = a.v;
     const beats = a.drain().filter((e) => e.type === 'beat').map((e) => e.action);
-    // ② 번갈아 누르면 PERFECT_S 안에 끝 → 1 점
+    // ② alternating presses finish within PERFECT_S → 1 point
     const b = d.makeGame('mince');
     let guard = 0;
     while (!b.done && guard++ < 500) { b.update(0.05); b.press(guard % 2 ? 'left' : 'right'); }
-    // ③ 끝난 시간이 PERFECT 와 ZERO 의 한가운데 → 0.5 점
+    // ③ finishing halfway between PERFECT and ZERO → 0.5 points
     const c = d.makeGame('mince');
     const need = Math.ceil(1 / K.COOK_MINCE_FILL);
     const mid = (K.COOK_MINCE_PERFECT_S + K.COOK_MINCE_ZERO_S) / 2;
     for (let i = 0; i < need * 2 - 1; i++) c.press(i % 2 ? 'right' : 'left');
     c.update(mid - c.time);
     c.press(need * 2 % 2 ? 'left' : 'right');
-    // ④ 강제 종료
+    // ④ the forced end
     const e = d.makeGame('mince');
     e.press('left');
     e.update(K.COOK_MINCE_MAX_S + 0.01);
@@ -197,17 +208,17 @@ try {
     const g = d.makeGame(step);
     const to = (t) => g.update(t - g.time);
     const [p0, p1] = g.pieces;
-    g.clickPiece(1);                                             // 아직 불에 안 닿았다 → 무시
+    g.clickPiece(1);                                             // not on the fire yet → ignored
     const early = { judgements: g.judgements.length, flipped: p1.flipped };
-    to(p0.start + p0.seconds * 0.5); g.clickPiece(0);            // 50 % 뒤집기 → 완벽
-    to(p1.start + p1.seconds * (0.5 + K.COOK_GRILL_FLIP_GOOD * 0.8)); g.clickPiece(1);   // 좋음
-    to(p0.start + p0.seconds * 1.0); g.clickPiece(0);            // 100 % 꺼내기 → 완벽
-    to(p1.start + p1.seconds * K.COOK_GRILL_BURN_AT + 0.01);     // 안 꺼냈다 → 탐
+    to(p0.start + p0.seconds * 0.5); g.clickPiece(0);            // flip at 50 % → perfect
+    to(p1.start + p1.seconds * (0.5 + K.COOK_GRILL_FLIP_GOOD * 0.8)); g.clickPiece(1);   // good
+    to(p0.start + p0.seconds * 1.0); g.clickPiece(0);            // remove at 100 % → perfect
+    to(p1.start + p1.seconds * K.COOK_GRILL_BURN_AT + 0.01);     // not removed → burnt
     const ev = g.drain();
     const late = d.makeGame(step);
     const q0 = late.pieces[0];
-    // 안 뒤집고 완벽 폭 밖 · 좋음 폭 안에서 꺼낸다 → 뒤집기 실패 + 꺼내기 좋음
-    // (2026-09-14 판정 완화로 옛 고정 90 % 는 `COOK_GRILL_DONE_PERFECT` 0.10 안에 들어와 완벽이 됐다)
+    // removes without flipping, outside the perfect width and inside the good width → flip missed + a good remove
+    // (the 2026-09-14 judgement easing brought the old fixed 90 % inside `COOK_GRILL_DONE_PERFECT` 0.10, so perfect)
     late.update(q0.start + q0.seconds * (1 - (K.COOK_GRILL_DONE_PERFECT + K.COOK_GRILL_DONE_GOOD) / 2) - late.time);
     late.clickPiece(0);
     return { early, seconds: [p0.seconds, p1.seconds], start1: p1.start, judgements: [...g.judgements], score: g.score, done: g.done,
@@ -226,15 +237,15 @@ try {
     const g = window.__game.ctx.housing.cookDebug.makeGame('stirfry');
     const to = (t) => g.update(t - g.time);
     const B = g.beatS, W = g.window;
-    const GOOD = (g.bands.perfect + g.bands.good) / 2;   // 2026-09-14: 완벽 띠와 좋음 띠 사이
-    g.press('left');                                   // 예비 박
+    const GOOD = (g.bands.perfect + g.bands.good) / 2;   // 2026-09-14: between the perfect band and the good band
+    g.press('left');                                   // the lead-in beat
     const lead = g.judgements.length;
-    to(g.beatTime(0)); g.press('left');                // 완벽
+    to(g.beatTime(0)); g.press('left');                // perfect
     const bar1 = g.bar;
-    to(g.beatTime(0) + 0.01); g.press('left');         // 같은 박자 두 번째 → 무시
+    to(g.beatTime(0) + 0.01); g.press('left');         // a second press on the same beat → ignored
     const dup = g.judgements.length;
-    to(g.beatTime(1) + GOOD); g.press('left');         // 좋음
-    to(g.beatTime(2) + Math.min(B / 2 - 0.01, W + 0.05)); g.press('left');   // 창 밖이지만 가까운 박자 → 실패(조금 찬다)
+    to(g.beatTime(1) + GOOD); g.press('left');         // good
+    to(g.beatTime(2) + Math.min(B / 2 - 0.01, W + 0.05)); g.press('left');   // outside the window but near the beat → a miss (it still fills a little)
     const bars = [bar1, g.bar];
     let k = 3;
     while (!g.done && k < 60) { to(g.beatTime(k)); g.press('left'); k++; }
@@ -260,7 +271,7 @@ try {
     while (!a.done && guard++ < 10000) a.update(0.02);
     const hold = { done: a.done, score: a.score, ratio: a.ratio, elapsed: a.elapsed, temp: a.temp,
       stirs: a.drain().filter((e) => e.type === 'beat' && e.action === 'stir').length };
-    // 온도 제어: 가운데보다 뜨거우면 누르고 아니면 뗀다
+    // temperature control: holds while hotter than the middle, releases otherwise
     const b = d.makeGame('stir');
     const mid = (K.COOK_STIR_BAND_LOW + K.COOK_STIR_BAND_HIGH) / 2;
     guard = 0;
@@ -269,14 +280,14 @@ try {
       else if (b.temp <= mid && b.holding) b.release('left');
       b.update(0.02);
     }
-    // 떼고만 있으면 온도가 오르고 완성은 멈춘다
+    // with the button released the temperature rises and doneness stops
     const c = d.makeGame('stir');
     c.update(1);
     return { t0, hold, control: { done: b.done, score: b.score, ratio: b.ratio }, idle: { temp: c.temp, progress: c.progress, done: c.done } };
   }, K);
   ok(near(stir.t0, (K.COOK_STIR_BAND_LOW + K.COOK_STIR_BAND_HIGH) / 2), `시작 온도 = 구간 한가운데 (${stir.t0})`);
   ok(stir.hold.done && near(stir.hold.elapsed, K.COOK_STIR_TIME_S, 0.03) && stir.hold.score === 0, `누르기만 = ${K.COOK_STIR_TIME_S} 초에 끝 · 구간 유지 ${Math.round(stir.hold.ratio * 100)} % = 0 점`, JSON.stringify(stir.hold));
-  // hub 의 국자는 마지막 stir 0.45 초 뒤 멈춘다 — 누르는 동안 적어도 0.3 초마다 와야 한다
+  // the hub's ladle stops 0.45 s after the last stir — while the button is held one must arrive every 0.3 s at least
   ok(stir.hold.stirs >= Math.floor(K.COOK_STIR_TIME_S / 0.3), `누르는 동안 stir 연출이 0.3 초 이내 간격으로 (${stir.hold.stirs}회 / ${K.COOK_STIR_TIME_S} 초)`);
   ok(stir.control.done && stir.control.score === 1 && stir.control.ratio >= K.COOK_STIR_PERFECT_RATIO, `온도를 구간에 두면 1 점 (유지 ${Math.round(stir.control.ratio * 100)} %)`);
   ok(stir.idle.temp > stir.t0 && stir.idle.progress === 0 && !stir.idle.done, `떼고 있으면 온도 ↑ · 완성은 멈춘다 (${stir.idle.temp.toFixed(3)})`);
@@ -286,12 +297,12 @@ try {
     const d = window.__game.ctx.housing.cookDebug;
     const step = { meal: 'smoke', order: 1, game: 'pour', items: [], liquid: 'water', targetMl: 250 };
     const a = d.makeGame(step);
-    a.update(3);                                              // 한 번도 안 부었다 → 안 끝난다
+    a.update(3);                                              // never poured → it does not end
     const idleDone = a.done;
     a.press('left');
     a.update(K.COOK_POUR_RAMP_S / 2);
     const half = { flow: a.flow, amount: a.amount };
-    // 떼는 동안 부어지는 양(램프의 반) 만큼 일찍 뗀다
+    // releases early by the amount that still pours during the release (half the ramp)
     const tail = K.COOK_POUR_RATE_ML_S * K.COOK_POUR_RAMP_S / 2;
     let guard = 0;
     while (a.amount + tail < a.target && guard++ < 100000) a.update(0.001);
@@ -316,7 +327,7 @@ try {
   ok(JSON.stringify(pour.beats) === JSON.stringify(['pour_start', 'pour_stop']), `연출 pour_start · pour_stop (${JSON.stringify(pour.beats)})`);
   ok(pour.over.done && pour.over.overflowed && pour.over.score === 0 && near(pour.over.amount, 250 * K.COOK_POUR_BEAKER_MUL), `넘치면 곧장 끝 · 0 점 (${pour.over.amount} / ${pour.over.cap})`);
 
-  /* ══ 2. 함선 · 주방 · 조리대 ══════════════════════════════════════════════ */
+  /* ══ 2. Ship · kitchen · cook bench ════════════════════════════════ */
   await H(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
   await waitFor(page, () => [...document.querySelectorAll('.menu.hidden')].every((m) => {
@@ -330,8 +341,8 @@ try {
     while (added < n) { const q = Math.min(def.stackMax ?? 1, n - added); if (!ctx.inventory.tryAddToStash(ctx.loot.createItem(id, q))) break; added += q; }
     return added;
   }, { id, n });
-  /* 2026-09-16 (사용자 결정 「행성 광맥」): 조리대 제작 · 강화가 석회암(`min_limestone`)을 먹는다 — 광물도 같이 채워 둔다
-     (`data/furniture.csv` · `furniture_upgrades.csv`; 없으면 `craft: 재료 부족`). */
+  /* 2026-09-16 (user's decision 「행성 광맥」): crafting · upgrading the cook bench eats limestone (`min_limestone`) —
+     the minerals are stocked too (`data/furniture.csv` · `furniture_upgrades.csv`; with none, `craft: 재료 부족`). */
   for (const [id, n] of [['mat_scrap', 60], ['mat_alloy', 20], ['mat_cable', 16], ['mat_circuit', 8], ['mat_cloth', 12],
     ['min_limestone', 20], ['min_natron', 10]]) await giveStash(id, n);
   await H(() => {
@@ -350,7 +361,8 @@ try {
     return p ? { uid: p.uid } : { err: 'place refused' };
   }, { room, defId });
   const benchP = await placeFurn(5, 'furn_bench_cook');
-  /* 2026-09-16 (접시 모델, 사용자 결정): 식탁 가구가 없으면 조리대를 쓸 수 없다 — cookBlock · startCook · 화면 열기(토스트) · 프롬프트 */
+  /* 2026-09-16 (the plate model, user's decision): with no dining table furniture the cook bench cannot be used —
+     cookBlock · startCook · opening the screen (a toast) · the prompt */
   const noTable = await H((uid) => {
     const ctx = window.__game.ctx, h = ctx.housing;
     const n0 = window.__rec.notify.length;
@@ -368,7 +380,7 @@ try {
   const tableP = await placeFurn(5, 'furn_dining_table');
   ok(benchP.uid && tableP.uid, 'craft + place 조리대 · 식탁', JSON.stringify({ benchP, tableP }));
   const BENCH = benchP.uid, TABLE = tableP.uid;
-  // 이전 판에서 남은 접시는 치운다 (함선 상태는 위에서 지웠지만, 서버 사본이 되돌릴 수 있다)
+  // clears a plate left over from an earlier run (the ship state was wiped above, but a server copy can restore it)
   await H(() => window.__game.ctx.housing.clearPlate());
   const apis = await H(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory, p = ctx.progression, h = ctx.housing;
@@ -378,7 +390,8 @@ try {
   });
   ok(apis.cookBlock && apis.consume && apis.noComplete && apis.plate && apis.notItem && apis.has, `조리 · 접시 API · 요리는 아이템이 아니다 (${JSON.stringify(apis)})`);
   if (!apis.mealQ) note('progression.getMealQuality 없음 — 식탁 품질 · derived 보너스 검사는 건너뛴다 (cook-progression-player 미완)');
-  /** 2026-09-13 (H3): 요리 숙련을 `level` 로 맞춘다 (프로필은 스모크를 넘어 남는다 — 지난 판의 경험치가 단계 점수 보너스로 새지 않게). */
+  /** 2026-09-13 (H3): sets the cooking skill to `level` (the profile outlives the smoke — so the previous run's XP
+      does not leak into the step-score bonus). */
   const setCookSkill = (level) => H((level) => {
     const p = window.__game.ctx.progression;
     if (typeof p.addSkillXpRaw !== 'function') return null;
@@ -399,7 +412,8 @@ try {
     const out = {
       notBench: h.cookBlock(TABLE, 'cook_green_salad'), unknown: h.cookBlock('f-9999', 'cook_green_salad'),
       notRecipe: h.cookBlock(BENCH, 'make_boost_adrenaline'), ok: h.cookBlock(BENCH, 'cook_green_salad'),
-      // 조리대가 안 놓였으면 위의 `craft + place` 가 이미 FAIL 이다 — 여기서 TypeError 로 스크립트를 죽이지 않는다 (2026-09-16)
+      // if the bench was not placed the `craft + place` above has already failed — this must not kill the script with
+      // a TypeError (2026-09-16)
       level: h.cookBlock(BENCH, 'cook_sausage'), benchLv: h.getPlacedByUid(BENCH)?.level ?? null,
     };
     ctx.isRaidActive = () => true;
@@ -421,7 +435,7 @@ try {
   const stew = blocks.recipes.find((r) => r.id === 'cook_tuber_stew');
   ok(salad && JSON.stringify(salad.steps) === '["chop"]' && stew && JSON.stringify(stew.steps) === '["chop","stir"]', `레시피 단계 = cook_steps.csv (샐러드 ${JSON.stringify(salad?.steps)} · 스튜 ${JSON.stringify(stew?.steps)})`);
 
-  /* ══ 4. 조리대 화면 ═══════════════════════════════════════════════════════ */
+  /* ══ 4. The cook bench screen ════════════════════════════════════════ */
   console.log('조리대 화면');
   const st = await H((BENCH) => {
     const h = window.__game.ctx.housing;
@@ -430,7 +444,7 @@ try {
   }, BENCH);
   await waitFor(page, () => { const r = document.querySelector('.menu.cook-station'); return r && !r.hidden && r.querySelectorAll('.cook-rail-item').length > 0; }, 'cook station open', 5000);
   ok(st.debug.open && st.debug.uid === BENCH && st.ev?.open === true && st.ev.uid === BENCH && st.blocker, `openCookStation → 화면 + ui:cookStationToggled (${JSON.stringify(st.ev)})`);
-  // 스튜를 레일에서 클릭해 고른다 → 단계 칩 두 개
+  // picks the stew by clicking it in the rail → two step chips
   const pick = await H(() => {
     const btn = document.querySelector('.menu.cook-station .cook-rail-item[data-recipe="cook_tuber_stew"]');
     btn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -441,12 +455,14 @@ try {
     const r = document.querySelector('.menu.cook-station');
     const h = window.__game.ctx.housing;
     return { picked: h.cookDebug.station.recipeId, rail: r.querySelectorAll('.cook-rail-item').length, recipes: h.cookDebug.recipes().length,
-      /* 2026-09-15 4차: 티어 머리줄이 없어졌다(정렬이 전역) — 티어는 칸 모서리 배지다. */
+      /* 2026-09-15 4th pass: the tier header rows are gone (the sort is global) — a tier is a badge on the cell's
+         corner. */
       tiers: r.querySelectorAll('.cook-cell-tier, .cook-cell-dot, .cook-rail-dot').length, chips: [...r.querySelectorAll('.cook-stepchip-main')].map((x) => x.textContent),
       cost: r.querySelectorAll('.cook-sel-cost .item-chip').length, effects: r.querySelectorAll('.cook-eff-line').length,
       start: r.querySelector('.cook-start')?.classList.contains('is-blocked'), name: r.querySelector('.cook-sel-name')?.textContent,
       grids: r.querySelectorAll('.hs-card-inv .trade-grids').length,
-      // 2026-09-17 (사용자 결정): 조리대 레벨 · 레시피 책이 모자란 요리는 목록에 없다 — 기대 개수는 화면 밖 API 로 센다
+      // 2026-09-17 (user's decision): a recipe short of the bench level · recipe book is not in the list — the
+      // expected count is taken from the API outside the screen
       listable: (() => {
         const lv = h.getPlacedByUid(h.cookDebug.station.uid)?.level ?? 0;
         const book = (id) => typeof h.isRecipeUnlocked === 'function' ? h.isRecipeUnlocked(id) !== false : true;
@@ -462,10 +478,10 @@ try {
   ok(stDom.rail === stDom.listable && stDom.rail < stDom.recipes && stDom.tiers === 0, `목록 = 조리대 레벨 · 책이 되는 요리 ${stDom.rail}/${stDom.recipes}줄 · 티어 배지 · 초록 점 없음 (${stDom.tiers})`);
   ok(stDom.column === 'column' && stDom.rowName === '덩이줄기 스튜' && stDom.noteGone && stDom.maxGone, `세로 줄 목록 (썸네일 · 이름 「${stDom.rowName}」) · 안내문 · 최고 품질 보너스 없음`);
   ok(stDom.chips.length === 2 && /① .*썰기/.test(stDom.chips[0]) && /② .*젓기/.test(stDom.chips[1]), `단계 칩 줄 (${JSON.stringify(stDom.chips)})`);
-  // 2026-09-15 4차 (사용자 결정): 창고 · 가방이 **한 카드 안의 한 격자 뷰**다 (옛 카드 둘 → 하나)
+  // 2026-09-15 4th pass (user's decision): stash · bag are **one grid view inside one card** (old two cards → one)
   ok(stDom.cost === 2 && stDom.effects >= 1 && stDom.start === false && stDom.grids === 1, `재료 칩 ${stDom.cost} · 능력치 줄 ${stDom.effects} · 조리 시작 활성 · 창고+가방 한 카드`);
 
-  /* ── 2026-09-15 (B-15, 사용자 결정 「전부 딤드 + 숙련 배지」): 숙련이 모자란 요리도 레일에 있다 ── */
+  /* ── 2026-09-15 (B-15, user's decision 「전부 딤드 + 숙련 배지」): a recipe short of the skill is in the rail too ── */
   console.log('숙련 잠김 요리 (B-15)');
   const sk = await H((BENCH) => {
     const ctx = window.__game.ctx, h = ctx.housing, p = ctx.progression;
@@ -477,7 +493,7 @@ try {
     const table = ctx.loot.getAllRecipes().filter((r) => listed.has(r.id));
     const out = { skillApi: typeof p.addSkillXpRaw === 'function' };
     if (!out.skillApi) return out;
-    // 숙련을 0 으로 — 조리대 레벨은 되고 숙련만 모자란 요리(skillOnly) · 둘 다 모자란 요리(both)
+    // skills to 0 — a recipe whose bench level is fine but its skill short (skillOnly) · one short of both (both)
     const skillIds = [...new Set(table.map((r) => r.skill))];
     const before = Object.fromEntries(skillIds.map((id) => [id, p.getSkill(id)]));
     for (const id of skillIds) setSkill(id, 0);
@@ -491,17 +507,18 @@ try {
     out.inputs = skillOnly.inputs.length;
     out.stepsWant = h.cookDebug.recipes().find((r) => r.id === skillOnly.id).steps.length;
     const s0 = window.__rec.sessions.length;
-    station.select(skillOnly.id);                                     // 동기 refresh
+    station.select(skillOnly.id);                                     // a synchronous refresh
     const item = root.querySelector(`.cook-rail-item[data-recipe="${skillOnly.id}"]`);
     out.row = { present: !!item, locked: !!item?.classList.contains('is-locked'), skill: !!item?.classList.contains('is-skill'), book: !!item?.classList.contains('is-book'),
       badge: item?.querySelector('.cook-rail-skill')?.textContent ?? null, lv: item?.querySelectorAll('.cook-rail-lv:not(.cook-rail-skill)').length ?? -1,
       dot: item?.dataset.rank === '0', title: item?.title ?? '' };
     if (both) {
       const bi = root.querySelector(`.cook-rail-item[data-recipe="${both.id}"]`);
-      out.bothRow = { present: !!bi };                               // 2026-09-17: 조리대 레벨이 모자라면 숙련과 상관없이 목록에 없다
+      out.bothRow = { present: !!bi };                               // 2026-09-17: short of the bench level = not in the list, whatever the skill
     }
-    /* 2026-09-15 4차 (사용자 결정): 티어 묶음이 없어지고 순위가 **전역**이다 — 시작할 수 있음(초록 점) → 막힘 → 잠김.
-       비교는 한 묶음(전체) 안에서 한다: 그래야 「만들 수 있는 것이 앞으로」가 목록 전체에 대해 검사된다. */
+    /* 2026-09-15 4th pass (user's decision): the tier groups are gone and the rank is **global** — startable (a green
+       dot) → blocked → locked. The comparison runs inside one group (the whole list): only then is 「만들 수 있는 것이
+       앞으로」 checked over the whole list. */
     const groups = [[]];
     for (const c of root.querySelectorAll('.cook-rail-item')) {
       groups[0].push({ id: c.dataset.recipe, rank: Number(c.dataset.rank) });
@@ -510,7 +527,7 @@ try {
     const g = groups.find((gr) => gr.some((x) => x.id === skillOnly.id)) ?? [];
     out.startableAbove = g.findIndex((x) => x.rank === 0) >= 0 && g.findIndex((x) => x.rank === 0) < g.findIndex((x) => x.id === skillOnly.id);
     out.ranks = groups.map((gr) => gr.map((x) => x.rank).join(''));
-    // 고른 잠김 요리: 재료 · 단계는 보이고, 조리 시작만 막힌다 (진짜 사유)
+    // a locked recipe once picked: ingredients · steps still show, only 「조리 시작」 is blocked (with the real reason)
     out.sel = { picked: h.cookDebug.station.recipeId, cost: root.querySelectorAll('.cook-sel-cost .item-chip').length, steps: root.querySelectorAll('.cook-stepchip').length,
       dim: !!root.querySelector('.cook-start')?.classList.contains('is-blocked'), reason: root.querySelector('.cook-sel-reason')?.textContent ?? '',
       sub: root.querySelector('.cook-sel-sub')?.textContent ?? '', startBlock: h.cookDebug.station.startBlock };
@@ -518,17 +535,17 @@ try {
     out.start = h.startCook(BENCH, skillOnly.id);
     out.btnStart = station.start();
     out.noSession = window.__rec.sessions.length === s0 && h.cookSession === null && station.isOpen;
-    // 기본 선택은 여전히 시작할 수 있는 요리
+    // the default pick is still a recipe that can be started
     station.selectedRecipeId = null;
     station.refresh();
     out.defaultPick = { id: h.cookDebug.station.recipeId, block: h.cookDebug.station.startBlock };
-    // 숙련이 차면 숙련 잠김이 풀린다
+    // the skill lock releases once the skill is high enough
     setSkill(skillOnly.skill, skillOnly.skillRequired);
     station.select(skillOnly.id);
     const it2 = root.querySelector(`.cook-rail-item[data-recipe="${skillOnly.id}"]`);
     out.after = { skill: !!it2?.classList.contains('is-skill'), badge: !!it2?.querySelector('.cook-rail-skill'), block: h.cookBlock(BENCH, skillOnly.id) };
     for (const id of skillIds) setSkill(id, before[id]);
-    station.select('cook_tuber_stew');                                  // 아래 세션 절이 스튜를 조리 시작 버튼으로 연다
+    station.select('cook_tuber_stew');                                  // the session section below opens the stew with the 「조리 시작」 button
     out.back = h.cookDebug.station.recipeId;
     return out;
   }, BENCH);
@@ -549,7 +566,7 @@ try {
     ok(sk.back === 'cook_tuber_stew', `스튜로 되돌린다 (${sk.back})`);
   }
 
-  /* ══ 5. 세션 — 스튜 (썰기 → 젓기), 버튼으로 시작 ══════════════════════════ */
+  /* ══ 5. The session — stew (chop → stir), started from the button ══ */
   console.log('세션 (덩이줄기 스튜)');
   const before = await H(() => { const inv = window.__game.ctx.inventory; return { tuber: inv.countDefAll('crop_tuber'), leaf: inv.countDefAll('crop_leafgreen') }; });
   await H(() => document.querySelector('.menu.cook-station .cook-start').dispatchEvent(new MouseEvent('click', { bubbles: true })));
@@ -560,14 +577,16 @@ try {
       step: window.__rec.steps.at(-1) ?? null, guide: window.__rec.guide.at(-1) ?? null, panel: !document.querySelector('.cook-ovl').hidden,
       head: document.querySelector('.cook-steps')?.textContent ?? '', again: h.startCook(h.cookDebug.station.uid || '', 'cook_tuber_stew'),
       audio: window.__rec.audio.includes('cook_start'), stage: !!document.querySelector('.cook-panel .cook-stage.cook-chop'),
-      // 2026-09-17: 오버레이가 **실제로 보이는가** — 옛 루트 `.cook` 은 수류탄 쿠킹 게이지(base.css, opacity 0 · 120 px 상자)와 이름이 겹쳐
-      // DOM · 세션은 다 살아 있는데 화면에 아무것도 안 보였다. hidden 만 보던 검사는 그것을 놓쳤다.
+      // 2026-09-17: is the overlay **really visible** — the old root `.cook` collided in name with the grenade
+      // cooking gauge (base.css, opacity 0 · a 120 px box), so DOM · session were all alive while nothing showed on
+      // screen. A check that only looked at `hidden` missed it.
       seen: (() => {
         const root = document.querySelector('.cook-ovl'), panel = root?.querySelector('.cook-panel');
         if (!root || !panel) return null;
         const r = panel.getBoundingClientRect(), rr = root.getBoundingClientRect();
         let op = 1;
-        // 패널 자신은 등장 애니메이션(cookIn, 260 ms) 중이라 뺀다 — 가려지는 것은 루트 · 조상의 불투명도다
+        // the panel itself is mid entry animation (cookIn, 260 ms) so it is left out — what hides it is the opacity
+        // of the root · its ancestors
         for (let e = root; e; e = e.parentElement) op *= Number(getComputedStyle(e).opacity);
         const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
         return { op, rootW: rr.width, rootH: rr.height, onScreen: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight && r.width > 300,
@@ -582,7 +601,7 @@ try {
   ok(s1.screen === 'game' && s1.game === 'chop' && s1.stage && s1.step?.phase === 'play' && s1.step.index === 0 && s1.step.total === 2, `자동 가구가 없으면 곧장 미니게임 (${JSON.stringify(s1.step)})`);
   ok(JSON.stringify(s1.guide) === JSON.stringify(['썰기']) && /① 썰기 …/.test(s1.head), `키 가이드 · 머리줄 (${s1.head})`);
   ok(typeof s1.again === 'string', `조리 중 두 번째 시작은 거절 (${s1.again})`);
-  // 실제 pointerdown — 표식이 판정선에 가까워질 때 무대에서 좌클릭
+  // a real pointerdown — a left click on the stage as a mark nears the judgement line
   const live = await H(() => new Promise((res) => {
     const h = window.__game.ctx.housing;
     const t0 = performance.now();
@@ -635,7 +654,8 @@ try {
     `요리가 나온 판 → 요리 숙련 경험치 ${K.COOK_SKILL_XP} × max(0.25, 0.75) (${JSON.stringify(s3.xp)})`);
   ok(s3.craftXp.length === 0, `조리대 요리는 제작 경험치를 주지 않는다 — 요리 경험치만 (사용자 결정 2026-09-13) (${JSON.stringify(s3.craftXp)})`);
 
-  /* ── 다시 만들기 → 「식탁의 요리를 바꿉니다」 경고 (2026-09-16 접시 모델: 식탁에는 한 접시 — 다시 만들면 바뀐다) ── */
+  /* ── cook again → the 「식탁의 요리를 바꿉니다」 warning (2026-09-16 plate model: one plate per table,
+       replaced on a re-cook) ── */
   const again = await H(() => {
     const h = window.__game.ctx.housing;
     const plate0 = h.getPlate();
@@ -643,7 +663,7 @@ try {
     const askEl = document.querySelector('.sh-ask[data-ask="cook-replace-plate"]');
     const ask = { open: h.cookDebug.replaceAsk, dom: !!askEl, screen: h.cookDebug.screen, body: askEl?.querySelector('.sh-ask-body')?.textContent ?? '',
       hold: !!askEl?.querySelector('button[data-hold]'), focusCancel: document.activeElement === askEl?.querySelector('button[data-cancel]') };
-    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true }));   // Enter 는 확정하지 않는다
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true }));   // Enter does not confirm
     ask.afterEnter = h.cookDebug.replaceAsk && h.cookDebug.screen === 'result';
     const confirmed = h.cookDebug.confirmReplace();
     const mid = { screen: h.cookDebug.screen, index: h.cookDebug.stepIndex, sessions: window.__rec.sessions.length, ask: h.cookDebug.replaceAsk,
@@ -673,7 +693,7 @@ try {
   ok(closed.ev.active === false && closed.ev.completed === true && closed.info === null, 'Tab → housing:cookSession {active:false, completed:true}');
   ok(!closed.blocker && !closed.esc && closed.hidden && !closed.inv && closed.guide === null && closed.ticking === false, 'Tab: 블로커 · ESC · 화면 · 키 가이드 · 루프 정리, 인벤토리는 안 열린다');
 
-  /* ══ 5-1. 요리 숙련 · 서재 보너스 (2026-09-13, H3 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ═══════════════ */
+  /* ══ 5-1. Cooking skill · library bonus (2026-09-13 H3 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══ */
   console.log('요리 숙련 · 서재 보너스 (직접 하기)');
   const libApi = await H(() => ({ lib: typeof window.__game.ctx.housing.getLibraryEffects === 'function', unlock: typeof window.__game.ctx.housing.isRecipeUnlocked === 'function' }));
   note(`서재 API — getLibraryEffects ${libApi.lib ? '있음' : '없음'} · isRecipeUnlocked ${libApi.unlock ? '있음' : '없음'} (아래는 housing 인스턴스에 가짜 합산을 덮어 써서 규칙만 본다)`);
@@ -685,7 +705,7 @@ try {
   const b1 = await H(async ({ BENCH }) => {
     const ctx = window.__game.ctx, h = ctx.housing;
     const S = await import('/src/shared/index.ts');
-    // 젓기(stir) 는 서재 대상이 아니다 — 합산에 들어 있어도 붙으면 안 된다
+    // stirring (stir) is not a library target — even when it is in the totals it must not apply
     window.__patch(h, 'getLibraryEffects', () => ({ ...S.EMPTY_LIBRARY_EFFECTS, cookScore: { chop: 0.1, stir: 0.5 }, revision: 9001 }));
     const bonus = { chop: h.cookDebug.bonus('chop'), stir: h.cookDebug.bonus('stir') };
     const xp0 = window.__rec.xp.length;
@@ -695,11 +715,11 @@ try {
     const res = h.cookDebug.result;
     const out = { r, screen, bonus, res, raw: h.cookDebug.stepRaw, done: window.__rec.steps.filter((s) => s.phase === 'done').at(-1),
       flash: document.querySelector('.cook-stepscore')?.textContent ?? '', row: document.querySelector('.cook-result .cook-result-step')?.textContent ?? '' };
-    // 다시 만들기 — 서재 0 · 원점수 0 → 요리 점수가 ¼ 아래라도 경험치는 max(0.25, 점수)
+    // cook again — library 0 · raw score 0 → even with a cooking score below ¼ the XP is max(0.25, score)
     window.__patch(h, 'getLibraryEffects', () => ({ ...S.EMPTY_LIBRARY_EFFECTS, revision: 9002 }));
     out.bonus2 = h.cookDebug.bonus('chop');
     out.restart = h.cookDebug.restart();
-    out.restartAsk = h.cookDebug.replaceAsk;                   // 2026-09-16: 식탁에 접시가 있다 — 바꾸기 경고를 확정한다
+    out.restartAsk = h.cookDebug.replaceAsk;                   // 2026-09-16: the table holds a plate — the replace warning is confirmed
     h.cookDebug.confirmReplace();
     h.cookDebug.finishStep(0);
     out.res2 = h.cookDebug.result;
@@ -740,14 +760,15 @@ try {
   `스튜: 썰기 0.95 + 보너스 → 1 로 자른다 · 젓기 0.4 → ${stirWant.toFixed(3)} (서재 없음) · 품질 ${b2.res?.quality}`, JSON.stringify({ res: b2.res, raw: b2.raw }));
   ok(b2.rows[0]?.includes('95 → 100 %') && (hasSkillBonus ? b2.rows[1]?.includes(`40 → ${Math.round(stirWant * 100)} %`) : /40 %$/.test(b2.rows[1] ?? '')), `결과 단계 줄 (${JSON.stringify(b2.rows)})`);
 
-  /* ── 레시피 책 ── */
+  /* ── Recipe books ── */
   console.log('레시피 책');
   const bk = await H(async ({ BENCH }) => {
     const ctx = window.__game.ctx, h = ctx.housing;
     const S = await import('/src/shared/index.ts');
     const all = ctx.loot.getAllRecipes();
     const skillOk = (x) => (ctx.progression.getSkill(x.skill) ?? 0) >= x.skillRequired;
-    // 2026-09-17: 조리대 레벨이 모자란 요리는 책과 상관없이 목록에 없다 — 책만 보려면 지금 조리대 레벨로 되는 요리를 고른다
+    // 2026-09-17: a recipe short of the bench level is not in the list whatever the book — to check the book alone,
+    // one the current bench level allows is picked
     const benchLv = h.getPlacedByUid(BENCH)?.level ?? 1;
     let r = all.find((x) => x.bench === 'cook' && x.unlockSeries && (x.benchLevel ?? 1) <= benchLv && S.cookStepsOf(x.outputDefId).length > 0 && skillOk(x));
     let stub = false;
@@ -782,15 +803,16 @@ try {
       const root = document.querySelector('.menu.cook-station');
       return { present: !!root?.querySelector(`.cook-rail-item[data-recipe="${id}"]`), picked: window.__game.ctx.housing.cookDebug.station.recipeId };
     }, bk.id);
-    // 2026-09-17 (사용자 결정): 책이 없는 요리는 목록에 없다 — 골라도 선택이 목록의 요리로 되돌아간다
+    // 2026-09-17 (user's decision): a recipe with no book is not in the list — picking it snaps the selection back to
+    // a recipe that is
     ok(!bk2.present && bk2.picked !== bk.id, `조리대 화면: 책이 없는 요리는 목록에 없다 (선택 ${bk2.picked})`);
-    // 꽂았다 → housing:libraryChanged 로 화면이 풀린다
+    // shelved → housing:libraryChanged releases the screen
     await H(() => { const ctx = window.__game.ctx; window.__patch(ctx.housing, 'isRecipeUnlocked', () => true); ctx.bus.emit('housing:libraryChanged', { revision: 9010 }); });
     await waitFor(page, (id) => !!document.querySelector(`.menu.cook-station .cook-rail-item[data-recipe="${id}"]`), 'libraryChanged → 목록에 나타남', 5000, bk.id);
     await H((id) => window.__game.ctx.housing.cookStation.select(id), bk.id);
     const bk3 = await H(({ id, BENCH }) => ({ block: window.__game.ctx.housing.cookBlock(BENCH, id), reason: document.querySelector('.menu.cook-station .cook-sel-reason')?.textContent ?? '' }), { id: bk.id, BENCH });
     ok(bk3.block !== bk.want && bk3.reason !== bk.want, `책을 꽂으면 풀린다 — housing:libraryChanged 에 화면도 (${bk3.block})`);
-    // 서재 API 가 없을 때: 책이 필요한 레시피는 잠긴 채다
+    // with no library API: a recipe that needs a book stays locked
     const bk4 = await H(({ id, BENCH, stub }) => {
       const ctx = window.__game.ctx, h = ctx.housing;
       window.__unpatch('isRecipeUnlocked');
@@ -805,7 +827,7 @@ try {
   const skillBack = await setCookSkill(0);
   ok(!skillBack || skillBack.level === 0, `요리 숙련 0 으로 되돌린다 (${JSON.stringify(skillBack)})`);
 
-  /* ══ 6. 취소 = 재료 그대로 ════════════════════════════════════════════════ */
+  /* ══ 6. Cancel = the ingredients stay ══════════════════════════════ */
   console.log('취소');
   const cancel = await H(({ BENCH }) => {
     const ctx = window.__game.ctx, h = ctx.housing, inv = ctx.inventory;
@@ -822,7 +844,7 @@ try {
     out.caller = h.cookSession !== null;
     ctx.bus.emit('player:furniturePoseEnded', { kind: 'cook', reason: 'reset' });
     out.reset = h.cookSession === null;
-    // game:abort 은 페이즈를 함선 밖으로 옮긴다 — 마지막에 하고, 아래에서 함선으로 다시 들어간다
+    // game:abort moves the phase out of the ship — it goes last, and the ship is re-entered below
     out.startAbort = h.startCook(BENCH, 'cook_green_salad');
     ctx.bus.emit('game:abort', {});
     out.evAbort = { ev: window.__rec.sessions.at(-1), info: h.cookSession, hidden: document.querySelector('.cook-ovl').hidden };
@@ -835,8 +857,9 @@ try {
   ok(cancel.xp === 0, `취소한 판은 요리 숙련 경험치가 없다 (${cancel.xp})`);
   ok(cancel.startEsc === null && cancel.evEsc.active === false && cancel.evEsc.completed === false, 'Esc (게임 도중) → 취소 completed:false');
   ok(cancel.evAbort.info === null && cancel.evAbort.ev.completed === false && cancel.evAbort.hidden, 'game:abort → 세션 · 화면 정리');
-  // `caller` 는 hub 가 스스로 푼 자세라는 뜻이다 — 가짜 이벤트는 hub `CookStaging`(자기가 풀지 않은 cook 자세 끝 = 취소)이 받아 취소하므로
-  // 여기서는 housing 쪽 규칙(reset = 취소)만 끝까지 본다.
+  // `caller` means the hub released the pose itself — the fake event is caught and cancelled by the hub's
+  // `CookStaging` (the end of a cook pose it did not release = a cancel), so only the housing-side rule
+  // (reset = cancel) is checked through to the end here.
   ok(cancel.startPose === null && cancel.reset, `자세가 reset 으로 풀리면 조리도 취소 (${cancel.startPose})`);
   if (!cancel.caller) note('가짜 caller 이벤트도 취소됐다 — hub CookStaging 이 자기가 풀지 않은 cook 자세 끝을 취소로 받는다 (정상)');
   ok(cancel.startAbort === null, `취소 뒤 다시 시작할 수 있다 (${cancel.startAbort})`);
@@ -845,7 +868,7 @@ try {
   await waitFor(page, () => window.__game.ctx.phase === 'hub' && window.__game.ctx.isHubPhase(), 'hub phase again', 20000);
   await sleep(400);
 
-  /* ══ 7. 자동 가구 ═════════════════════════════════════════════════════════ */
+  /* ══ 7. The auto appliance ════════════════════════════════════════════ */
   console.log('자동 가구 (푸드 프로세서)');
   const procP = await placeFurn(5, 'furn_food_processor');
   ok(!!procP.uid, 'craft + place 푸드 프로세서', JSON.stringify(procP));
@@ -880,10 +903,10 @@ try {
   ok(au3.r && au3.r.stepAuto[0] === true && near(au3.r.stepScores[0], T.COOK_AUTO_SCORE_BY_LEVEL[2]) && au3.r.quality === qualityFor(T.COOK_AUTO_SCORE_BY_LEVEL[2]) && !au3.r.reason,
     `자동 Lv.2 → 단계 ${au3.r?.stepScores[0]} · 품질 ${au3.r?.quality}`, JSON.stringify(au3.r));
   ok(au3.done?.auto === true && near(au3.done.score, T.COOK_AUTO_SCORE_BY_LEVEL[2]), 'housing:cookStep done {auto:true}');
-  // 결과에서 E → 닫기
+  // E on the result → close
   await H(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e', bubbles: true })); document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE', key: 'e', bubbles: true })); });
   ok(await H(() => window.__game.ctx.housing.cookSession === null && window.__rec.sessions.at(-1).completed === true), '결과 화면에서 E → 닫기');
-  // 2026-09-13 (H3): 자동으로 넘긴 단계에도 요리 숙련 · 서재 보너스가 붙는다
+  // 2026-09-13 (H3): the cooking skill · library bonus applies to a step passed to the auto appliance too
   await setCookSkill(30);
   const ab = await H(async (BENCH) => {
     const ctx = window.__game.ctx, h = ctx.housing;
@@ -916,11 +939,12 @@ try {
     && ab2.row.includes(`${Math.round(autoLv2 * 100)} → ${Math.round(wantA * 100)} %`),
   `자동 Lv.2 ${autoLv2} + 보너스 ${ab.bonus.total.toFixed(3)} → 단계 ${wantA.toFixed(3)} · 품질 ${ab2.res?.quality} (${ab2.row})`, JSON.stringify(ab2));
   await setCookSkill(0);
-  // 막힌 조리 시작 = 거절 토스트
+  // a blocked 「조리 시작」 = a refusal toast
   const denied = await H((BENCH) => {
     const h = window.__game.ctx.housing;
     h.openCookStation(BENCH);
-    // 레일에 있는(숙련 0) 요리 중 재료가 없는 콩죽 — 레일에 없는 요리를 고르면 화면이 첫 요리로 되돌린다
+    // bean porridge — in the rail (skill 0) but short of ingredients; picking a recipe not in the rail snaps the
+    // screen back to the first one
     const blocked = h.cookBlock(BENCH, 'cook_bean_porridge');
     h.cookStation.select('cook_bean_porridge');
     const n0 = window.__rec.notify.length;
@@ -934,7 +958,8 @@ try {
   ok(typeof denied.blocked === 'string' && denied.picked === 'cook_bean_porridge' && denied.dim && denied.reason === denied.blocked, `막힌 요리: 조리 시작 딤드 + 사유 줄 (${denied.reason})`);
   ok(denied.r === denied.blocked && denied.toast.includes(denied.blocked) && denied.session === null, `막힌 요리의 조리 시작 → 거절 토스트 · 세션 없음 (${denied.blocked})`);
 
-  /* ── 2026-09-16 (접시 모델, 사용자 결정): 조리대 화면의 「조리 시작」 도 접시가 있으면 시작 **전에** 1 초 홀드 경고 ── */
+  /* ── 2026-09-16 (the plate model, user's decision): with a plate on the table the bench screen's 「조리 시작」 also
+       raises a 1 s hold warning **before** it starts ── */
   console.log('식탁 접시 바꾸기 경고 (조리대 화면)');
   const sa = await H((BENCH) => {
     const ctx = window.__game.ctx, h = ctx.housing;
@@ -944,12 +969,12 @@ try {
     const s0 = window.__rec.sessions.length;
     const r = h.cookStation.start();
     const open = { ask: h.cookDebug.replaceAsk, session: h.cookSession, station: h.cookStation.isOpen, top: ctx.escape.topKey };
-    ctx.escape.closeTop();                                    // Escape = 취소 — 경고만 닫힌다
+    ctx.escape.closeTop();                                    // Escape = cancel — only the warning closes
     const cancelled = { ask: h.cookDebug.replaceAsk, session: h.cookSession, station: h.cookStation.isOpen, sessions: window.__rec.sessions.length - s0, plate: h.getPlate() };
     const r2 = h.cookStation.start();
     const confirmed = h.cookDebug.confirmReplace();
     const started = { session: h.cookSession?.recipeId ?? null, station: h.cookStation.isOpen };
-    h.cancelCook();                                           // 중간에 그만둔다 → 옛 접시는 그대로
+    h.cancelCook();                                           // quitting midway → the old plate stays
     return { plate0, r, open, cancelled, r2, confirmed, started, plateAfter: h.getPlate() };
   }, BENCH);
   ok(!!sa.plate0 && sa.r === null && sa.open.ask && !sa.open.session && sa.open.station && /^holdAsk:/.test(sa.open.top ?? ''),
@@ -959,7 +984,7 @@ try {
   ok(sa.r2 === null && sa.confirmed && sa.started.session === 'cook_green_salad' && !sa.started.station, `경고 확정 → 조리 시작 (${JSON.stringify(sa.started)})`);
   ok(JSON.stringify(sa.plateAfter) === JSON.stringify(sa.plate0), `조리를 중간에 그만두면 옛 접시는 그대로 (${JSON.stringify(sa.plateAfter)})`);
 
-  /* ══ 8. 식탁 — 접시 (2026-09-16 접시 모델, 사용자 결정) ═══════════════════ */
+  /* ══ 8. The dining table — the plate (2026-09-16 the plate model, user's decision) ══ */
   console.log('식탁 (접시)');
   await H(() => { const h = window.__game.ctx.housing; h.closeMenus(); h.devSetPlate('meal_tuber_stew', 5); });
   await H((u) => window.__game.ctx.housing.openDiningTable(u), TABLE);
@@ -980,7 +1005,7 @@ try {
   if (apis.mealQ) {
     const eat = await H((TABLE) => {
       const h = window.__game.ctx.housing, p = window.__game.ctx.progression;
-      p.useMeal('meal_green_salad', 1);                        // 다른 식사를 먼저 실어 둔다 (프로필은 스모크를 넘어 남는다)
+      p.useMeal('meal_green_salad', 1);                        // loads a different meal first (the profile outlives the smoke)
       const r = h.diningTable.eat(null);
       const after = { meal: p.getMeal(), q: p.getMealQuality(), plate: h.getPlate() };
       return { r, after, again: h.eatPlate(TABLE, null), blocked: h.plateEatBlock(TABLE, null) };
@@ -992,7 +1017,8 @@ try {
       `★5 접시를 먹는다 → 식사 품질 5 · 접시는 그대로 (${JSON.stringify(eat.after)})`);
     ok(eat.again === '이미 같은 요리를 먹었습니다' && eat.blocked === '이미 먹었습니다', `같은 접시를 또 먹으면 거절 (${eat.again} · ${eat.blocked})`);
     ok(/★★★★★/.test(plateDom.meal) && plateDom.btn === '먹음' && plateDom.eaten, `실린 식사 카드 · 먹은 접시 표시 (${JSON.stringify(plateDom)})`);
-    // 출격 경고: 먹은 접시는 말하지 않고, 다른 식사를 실어 둔 채 먹지 않은 접시가 있으면 `plateDiscard`
+    // the launch warning: an eaten plate says nothing; an uneaten plate while a different meal is loaded gives
+    // `plateDiscard`
     const lw = await H(() => {
       const ctx = window.__game.ctx, h = ctx.housing;
       const ids = ctx.inventory.getLaunchWarnings().map((w) => w.id);
@@ -1004,14 +1030,15 @@ try {
     ok(!lw.ids.includes('plateDiscard') && !lw.ids.includes('noMeal') && lw.other.length === 1 && lw.other[0].id === 'plateDiscard' && /잎채소 샐러드/.test(lw.other[0].detail),
       `출격 경고 — 먹은 접시는 조용 · 먹지 않은 접시는 plateDiscard (${JSON.stringify(lw)})`);
 
-    /* 공유 함선 고정 식탁 (uid null): 분대원 전원의 접시 — 와이어(`net/parts/Plates`) 대신 그 결과 이벤트 `net:squadPlate` 로 채운다 */
+    /* the shared ship's fixed dining table (uid null): every squadmate's plate — filled from the resulting
+       `net:squadPlate` event instead of the wire (`net/parts/Plates`) */
     console.log('공유 함선 식탁 (분대원 접시)');
     const sq = await H((TABLE) => {
       const ctx = window.__game.ctx, h = ctx.housing, hub = ctx.hub, p = ctx.progression;
       h.closeMenus();
       const out = {};
       ctx.bus.emit('net:squadPlate', { id: 'smoke-peer', name: '스모크대원', plate: { mealDefId: 'meal_omelet', quality: 3, cookedAt: 0 }, fresh: true });
-      out.personal = h.getTablePlates(null).map((x) => x.ownerId);        // 개인 함선에 서 있으면 분대원 접시는 식탁에 없다
+      out.personal = h.getTablePlates(null).map((x) => x.ownerId);        // standing in the personal ship, squadmates' plates are not on the table
       out.personalTable = h.getTablePlates(TABLE).length;
       const desc = Object.getOwnPropertyDescriptor(hub, 'ship');
       Object.defineProperty(hub, 'ship', { value: 'shared', configurable: true, writable: true });
@@ -1029,7 +1056,7 @@ try {
       } finally {
         if (desc) Object.defineProperty(hub, 'ship', desc); else delete hub.ship;
       }
-      out.back = h.eatPlate(TABLE, null);                                  // 아래 새로고침 · derived 절은 ★5 스튜를 기대한다
+      out.back = h.eatPlate(TABLE, null);                                  // the reload · derived sections below expect the ★5 stew
       return out;
     }, TABLE);
     ok(JSON.stringify(sq.personal) === '[null]' && sq.personalTable === 1, `개인 함선에서는 내 접시만 (${JSON.stringify(sq)})`);
@@ -1041,13 +1068,13 @@ try {
   }
   await H(() => window.__game.ctx.housing.closeMenus());
 
-  /* ══ 9. 새로고침 ══════════════════════════════════════════════════════════ */
+  /* ══ 9. Reload ════════════════════════════════════════════════════════ */
   console.log('새로고침');
   const keep = await H(() => {
     const p = window.__game.ctx.housing.getPlate();
     return { plate: p && [p.mealDefId, p.quality], q: window.__game.ctx.progression.getMealQuality?.() ?? null };
   });
-  await sleep(1500);                                                   // 저장 debounce
+  await sleep(1500);                                                   // the save debounce
   await page.reload({ waitUntil: 'load' });
   await boot();
   await sleep(500);
@@ -1061,13 +1088,13 @@ try {
     `식탁 접시가 새로고침을 건넌다 (함선 상태 저장) (${JSON.stringify(back)})`);
   if (apis.mealQ) ok(back.q === keep.q && back.q === 5, `식사 품질이 새로고침을 건넌다 (${back.q})`);
 
-  /* ══ 10. 출격 식사 → derived 보너스 ══════════════════════════════════════ */
+  /* ══ 10. The launched meal → the derived bonus ════════════════════ */
   if (apis.mealQ) {
     console.log('derived 보너스');
     const d = await H(async () => {
       const p = window.__game.ctx.progression;
       const S = await import('/src/shared/index.ts');
-      const def = S.getMealDef('meal_tuber_stew');                // 2026-09-16: 요리 표는 shared (아이템이 아니다)
+      const def = S.getMealDef('meal_tuber_stew');                // 2026-09-16: the meal table lives in shared (it is not an item)
       const e = def.meal.effects[0];
       const beforeV = p.derived[e.buff];
       p.armPreps();
@@ -1081,7 +1108,7 @@ try {
     ok(near(d.cleared, d.beforeV, 1e-6), '레이드가 끝나면(clearActivePreps) 보너스가 빠진다');
   }
 
-  /* ══ 11. 레이드 시작 → 식탁 접시를 치운다 (2026-09-16 사용자 결정 — `armPreps` 와 같은 자리: 훈련장 제외) ══════════ */
+  /* ══ 11. Raid start clears the plate (2026-09-16 user's decision — with `armPreps`, training range excluded) ══ */
   console.log('레이드 시작 → 접시 치움');
   const rs = await H(() => {
     const ctx = window.__game.ctx, h = ctx.housing;
@@ -1091,7 +1118,7 @@ try {
     ctx.bus.emit('game:abort', {});
     return out;
   });
-  await sleep(1200);                                                   // 저장 debounce
+  await sleep(1200);                                                   // the save debounce
   const rsStored = await H(() => { try { return JSON.parse(localStorage.getItem('scav.s1.ship'))?.plate ?? null; } catch { return 'err'; } });
   ok(rs.plate === null && rs.ev?.reason === 'raid' && rs.ev.plate === null && rsStored === null, `game:newMission (레이드) → 접시가 치워지고 저장된다 (${JSON.stringify({ rs, rsStored })})`);
 

@@ -1,15 +1,18 @@
 // Single-player smoke test for the tutorial (src/tutorial, 2026-09-08).
 // Covers: auto-start on a fresh profile only, the intro card, the objective panel + progress, the strict gates
 // (room purpose / furniture / craft / terminal / planet / pod / screen tabs), the community + matchmaking hiding,
-// the spotlight (dark panes + ring on the step's target), the 3D floor guide, the one-time material grant,
+// the spotlight (dark panes + ring on the step's target), the 3D floor guide, the one-time floor grant,
 // step persistence across a reload, the 건너뛰기 confirm card and the console command.
-// 2026-09-08: + the 발전기 step, "잠그지 않고 감춘다" (`hides(gate, id)` → 용도 · 화면 탭이 목록에서 빠진다),
-// the objective panel staying above the spotlight (`.tut-panel.is-lifted`) and the cursor showing under the card.
-// 2026-09-14 3차: **16 steps** — `manageDone`(관리 모드 닫기)도 `openCraft` 처럼 순서에서 빠졌다 (id 는 계약에 남는다).
-// 2026-09-15 (사용자 결정 — 뒤집음): **17 steps** — `manageDone`(「하우징 모드 닫기」)이 `craftGun` 바로 앞으로 돌아왔다.
-//   배치 버튼은 이제 `manageDone` 으로 넘기고, 관리 모드를 닫는 것이 `craftGun` 을 연다 — 바닥 안내선의 반 박자 계측도
-//   그 조작(`closeShipManage`)에 붙는다. 그리고 **하우징 모드가 열려 있는 동안에는 안내선이 없다** (다시 열면 걷히고 닫으면 돌아온다).
-// 2026-09-09: the bench makes 소총 → 탄약 in **one** window (craftGun → craftAmmo → openBag → equipGun → stowAmmo,
+// 2026-09-08: + the `generator` step, "hidden rather than locked" (`hides(gate, id)` → room purposes · screen tabs
+// drop out of the list), the objective panel staying above the spotlight (`.tut-panel.is-lifted`) and the cursor
+// showing under the card.
+// 2026-09-14 3rd pass: **16 steps** — `manageDone` (closing the management mode) left the order like `openCraft`
+//   (the id stays in the contract).
+// 2026-09-15 (user's decision — reversed): **17 steps** — `manageDone` (「하우징 모드 닫기」) came back right before
+//   `craftGun`. The 배치 button now advances to `manageDone`, and closing the management mode is what opens
+//   `craftGun` — the floor guide's half-beat measurement hangs off that action (`closeShipManage`) too. And **there
+//   is no floor guide while ship management is open** (reopening takes it down, closing brings it back).
+// 2026-09-09: the bench makes the rifle → the ammo in **one** window (craftGun → craftAmmo → openBag → equipGun → stowAmmo,
 // `openCraft` left the order and a save holding it maps to craftAmmo), the spotlight + floor guide appear
 // `TUTORIAL_STEP_DELAY_S` (0.5 s) **after** the target shows up (so every spotlight assertion here waits instead of
 // reading right away), the dim panes fade in over `TUTORIAL_DIM_FADE_S` (`.tut-spot.is-lit`, `--tut-dim-fade`),
@@ -20,27 +23,34 @@
 //     0.3 s → lit again ~0.5 s later), bounded on both sides, for the spotlight and the 3D floor guide alike.
 //   • spotlight geometry is read off the **four dark panes** (`window.__hole` / `window.__spotOn`), never the ring —
 //     the ring has a slow scale animation, so its `getBoundingClientRect` wobbles frame to frame.
-// 2026-09-10: 제작 대개편으로 `bulk_ammo_medium`(대량 제작, 90발)이 csv 에서 사라졌다 — 탄약 단계는
-// `make_ammo_medium`(화약 6 · 폐금속 2 → 30발)이다. 그래서 여기서 두 가지를 더 못 박는다:
-//   • 그 레시피가 **작업대 창에 뜰 수 있는 모양**인가 (`station: 'field'` · `bench` 없음).
-//   • `stowAmmo` 가 **수량을 전제하지 않는가** — 만든 양(= csv 의 `outputQty`, 스모크에 숫자를 적지 않는다)이
-//     얼마든 가방에 있기만 하면 `terminal` 로 넘어간다.
-// 2026-09-13 (전력 할당 폐지): 새 함선의 발전기는 처음부터 Lv.1 — `generator` 단계는 알려진 즉시(`tutorial:changed`) 조용히 지나가고
-// 시설 관리를 여는 순간 함선 관리 → 작업실이다. 반 박자 포커싱 계측은 그 전환(시설 관리 힌트 → 작업실 행)에서 한다.
-// 2026-09-14 (3트랙): 저장은 **v2** 다 — 트랙별로 갈린다. 이 스모크가 검사하는 것은 **함선 안에서 도는 두 트랙**이고,
-// 트랙 ①(레이드 조작) · ②(함선)는 그 트랙을 구현하는 쪽(world/tutorial · meta/messenger)이
-// 자기 스모크를 더한다. 새 프로필이 함선에 들어오면 raid · ship 은 조용히 `done` 으로 적히고 build 가 시작된다
-// (`TutorialSystem.autoStart` — `pendingShip` 이 없으면 함선 트랙은 켜지지 않는다).
-// 2026-09-18 (사용자 결정 — 증축 안내 · 출격 안내 분리): **트랙은 넷**이다 — `{version:2, tracks:{raid,ship,build,raid2}}`.
-//   `build`「증축 안내」는 `equipGun` 에서 끝나고(**5 단계**), 그 뒤를 `raid2`「출격 안내」(`terminal` · `raid`, 2 단계)가
-//   **저절로** 이어받는다 — `pendingRaid2` (완주했을 때만; 건너뛰었거나 옛 저장이면 조용히 done 으로 적힌다).
-//   단계 id 는 하나도 안 바뀌었으므로 옛 저장의 `terminal` · `raid` (그리고 그리로 접히는 `board` · `planet` · `travel`)는 `load()` 가 `raid2` 로 **옮긴다**.
-// 2026-09-17 (사용자 결정 — 「여러 스텝을 하나의 스텝 내 여러 목표로」): 증축 트랙은 7 단계였다 (2026-09-18 부터 5 + 2) —
-//   intro · manage(시설 관리 → 작업실) · bench(작업대 제작 → 창고 탭 → 배치 → 하우징 모드 닫기) · craftGun(이동 → 작동 → 소총 →
-//   탄약 → 제작창 닫기) · equipGun(Tab → 장착, 닫을 때까지 조용히 기다림 · 딤 없는 포커싱) · terminal(조종석 → 터미널 → 행성 →
-//   워프 대기 → 포드 이동 → 탑승 → Space 준비) · raid(가치 1,000 C 이상 들고 탈출, 한 번). 목표 줄이 순차 공개되고 포커싱은 지금 할
-//   줄을 따라간다. `stowAmmo` 는 없어졌다. 옛 저장의 빠진 id 는 묶인 단계로 옮겨지고 이미 한 줄이 채워진다. 트랙 완료 토스트는 없다.
-//   터미널의 훈련장 버튼 · 준비 경고는 이 트랙 동안 감춰진다 (`training` · `launchWarn`).
+// 2026-09-10: the big craft rework removed `bulk_ammo_medium` (bulk craft, 90 rounds) from the csv — the ammo step is
+// `make_ammo_medium` (6 gunpowder · 2 scrap → 30 rounds). So two more things are nailed down here:
+//   • whether that recipe is **shaped so it can appear in a workbench window** (`station: 'field'` · no `bench`).
+//   • whether `stowAmmo` **assumes no quantity** — whatever amount was made (= the csv's `outputQty`; no number is
+//     written into the smoke), it advances to `terminal` as long as the bag holds some.
+// 2026-09-13 (power allocation removed): a new ship's generator is Lv.1 from the start — the `generator` step passes
+// silently the moment it is announced (`tutorial:changed`), and opening 시설 관리 goes ship management → the workshop.
+// The half-beat focus measurement is taken at that transition (the 시설 관리 hint → the workshop row).
+// 2026-09-14 (three tracks): the save is **v2** — split per track. What this smoke checks is **the two tracks that
+// run inside the ship**; tracks ① (raid controls) · ② (ship) get their own smokes from the side that implements
+// them (world/tutorial · meta/messenger). When a fresh profile enters the ship, raid · ship are written `done`
+// silently and build starts (`TutorialSystem.autoStart` — without `pendingShip` the ship track is never turned on).
+// 2026-09-18 (user's decision — 증축 안내 · 출격 안내 split apart): **there are four tracks** —
+//   `{version:2, tracks:{raid,ship,build,raid2}}`. `build` 「증축 안내」 ends at `equipGun` (**5 steps**) and
+//   `raid2` 「출격 안내」 (`terminal` · `raid`, 2 steps) takes over **on its own** — `pendingRaid2` (only on a
+//   completion; a skipped or old save is written done silently).
+//   Not one step id changed, so `load()` **moves** an old save's `terminal` · `raid` (and the `board` · `planet` ·
+//   `travel` that fold into them) to `raid2`.
+// 2026-09-17 (user's decision — 「여러 스텝을 하나의 스텝 내 여러 목표로」): the build track was 7 steps (5 + 2 from
+//   2026-09-18) — intro · manage (시설 관리 → the workshop) · bench (craft the workbench → the 가구 창고 tab → 배치 →
+//   close ship management) · craftGun (walk → open → the rifle → the ammo → close the craft window) · equipGun
+//   (Tab → equip, waiting silently until it closes · no-dim focus) · terminal (the cockpit → the terminal → the
+//   planet → the warp wait → walk to the pod → board → Space to ready up) · raid (extract carrying 1,000 C or more
+//   of value, once). The objective rows are revealed in sequence and the focus follows the row to do now.
+//   `stowAmmo` is gone. A missing id in an old save is moved to the grouped step with one row already ticked. There
+//   is no track-completion toast.
+//   The terminal's training-range button · the launch warning are hidden while this track runs (`training` ·
+//   `launchWarn`).
 // Usage: node scripts/smoke-tutorial.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -95,9 +105,10 @@ try {
       setInterval(() => { const now = performance.now(); if (now - lastRaf > 100) window.__game.frame(now); }, 33);
       const canvas = document.getElementById('game-canvas');
       Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
-      /* 스포트라이트가 지금 뚫고 있는 구멍. **링(`.tut-spot-ring`)으로 재지 않는다** — 링에는 천천히
-         확대-축소하는 애니메이션(`@keyframes tut-ring`, scale 1 → 1.045)이 걸려 있어 `getBoundingClientRect`
-         가 프레임마다 흔들린다. 네 판이 남긴 사각형은 변형이 없어 `place()` 가 굳힌 정수 모서리 그대로다. */
+      /* The hole the spotlight is cutting right now. **It is never measured off the ring (`.tut-spot-ring`)** — the
+         ring carries a slow scale animation (`@keyframes tut-ring`, scale 1 → 1.045), so its `getBoundingClientRect`
+         wobbles frame to frame. The rectangle the four dim plates leave has no transform, so it is exactly the
+         integer edges `place()` froze. */
       window.__hole = () => {
         const p = [...document.querySelectorAll('.tut-spot-pane')].map((e) => e.getBoundingClientRect());
         if (p.length !== 4) return null;
@@ -105,9 +116,9 @@ try {
         return { left: left.right, right: right.left, top: top.bottom, bottom: bottom.top };
       };
       /**
-       * 그 선택자들에 대해 스포트라이트가 **정확히 옳은 자리**를 뚫고 있나. `parts/Spotlight` 와 같은 규칙으로
-       * 기대 사각형을 만든다: 먼저 찾히는 하나(`union` 이면 찾히는 전부의 합집합) → `PAD`(6 px) 만큼 넓힘 →
-       * floor / ceil 로 정수 모서리 → 화면 밖으로는 안 나간다.
+       * Whether the spotlight is cutting **exactly the right place** for those selectors. The expected rectangle is
+       * built by the same rule as `parts/Spotlight`: the first one found (with `union`, the union of every one
+       * found) → widened by `PAD` (6 px) → floor / ceil to integer edges → never outside the viewport.
        */
       window.__spotOn = (selectors, union = false) => {
         const hole = window.__hole();
@@ -145,25 +156,28 @@ try {
   const P = (fn, arg) => page.evaluate(fn, arg);
   const step = () => P(() => window.__game.ctx.tutorial.step);
   const waitStep = (s) => waitFor(page, (want) => window.__game.ctx.tutorial.step === want, `step ${s}`, 30000, s);
-  /* 2026-09-09: 스포트라이트는 대상이 나타난 뒤 `TUTORIAL_STEP_DELAY_S`(0.5 s) 를 세고서야 켜진다 — 새 화면이 먼저
-     보이고 판 · 링 · 말풍선이 뒤따른다 (`parts/Spotlight.wait`). 그래서 이 스모크는 어디서도 "지금 떠 있나"를
-     곧바로 읽지 않고 **켜질 때까지 기다린다**: `.tut-spot` 이 보이고 · 페이드가 시작됐고(`.tut-spot.is-lit`) ·
-     말풍선이 이 단계의 것일 때. 타임아웃은 그대로 짧게 둬서 정말 안 뜨는 회귀는 여전히 실패한다. */
-  /* 2026-09-09: 스포트라이트는 대상이 나타난 뒤 `TUTORIAL_STEP_DELAY_S`(0.5 s) 를 세고서야 켜진다 — 새 화면이
-     먼저 보이고 판 · 링 · 말풍선이 뒤따른다 (`parts/Spotlight.wait`). 그래서 이 스모크는 어디서도 "지금 떠
-     있나"를 곧바로 읽지 않고 **켜질 때까지 기다린다**: `.tut-spot` 이 보이고 · 페이드가 시작됐고
-     (`.tut-spot.is-lit`) · 말풍선이 이 단계의 것일 때. 타임아웃은 반 박자의 서른 배쯤으로 짧게 둔다 — 카운터가
-     0 을 지나쳐 다시 세는 회귀(2026-09-09 에 고친 그 버그)가 돌아오면 여기서 곧바로 실패해야 한다. */
+  /* 2026-09-09: the spotlight lights only after counting `TUTORIAL_STEP_DELAY_S` (0.5 s) from its target appearing
+     — the new screen shows first and the plates · ring · callout follow (`parts/Spotlight.wait`). So this smoke never
+     reads "is it up right now" straight away; it **waits until it lights**: `.tut-spot` shown · the fade started
+     (`.tut-spot.is-lit`) · the callout belonging to this step. The timeout stays short, so a regression where it
+     really never lights still fails. */
+  /* 2026-09-09: the spotlight lights only after counting `TUTORIAL_STEP_DELAY_S` (0.5 s) from its target appearing
+     — the new screen shows first and the plates · ring · callout follow (`parts/Spotlight.wait`). So this smoke
+     never reads "is it up right now" straight away; it **waits until it lights**: `.tut-spot` shown · the fade
+     started (`.tut-spot.is-lit`) · the callout belonging to this step. The timeout is kept short, about thirty times
+     the half beat — if the regression where the counter runs past 0 and counts again (the bug fixed on 2026-09-09)
+     comes back, it has to fail right here. */
   const waitSpot = (re, label, timeout = 15000) => waitFor(page, (src) => {
     const r = document.querySelector('.tut-spot');
     if (!r || r.hidden || !r.classList.contains('is-lit')) return false;
     return new RegExp(src).test(document.querySelector('.tut-spot-tip')?.textContent ?? '');
   }, label, timeout, re);
   /**
-   * `window.__tutAct()` 가 단계를 넘긴 뒤 **바닥 안내선**이 언제 깔리는지 페이지 안에서 잰다 (왕복 지연이
-   * 0.5 s 를 먹지 않도록 조작 · 판정 · 계측을 한 evaluate 안에서 끝낸다).
-   *   • `immediate` — 조작 직후에도 깔려 있나 (있으면 안 된다: 새 화면이 먼저 보여야 한다)
-   *   • `ms` — 깔리기까지 걸린 시간 (= `TUTORIAL_STEP_DELAY_S`)
+   * Measures inside the page when the **floor guide** is laid down after `window.__tutAct()` advanced the step (the
+   * action · the judgement · the measurement all finish inside one evaluate, so the round-trip latency cannot eat
+   * the 0.5 s).
+   *   • `immediate` — is it laid right after the action (it must not be: the new screen has to show first)
+   *   • `ms` — how long it took to be laid (= `TUTORIAL_STEP_DELAY_S`)
    */
   const measureGuide = () => P(async () => {
     const lit = () => { const g = window.__game.ctx.scene.getObjectByName('TutorialGuide'); return !!g && g.children.length === 3; };
@@ -194,7 +208,7 @@ try {
   await setup();
   await P(() => { try { localStorage.removeItem('scav.s1.tutorial'); } catch { /* off */ } });
 
-  /* ── 1. 자동 시작 + 시작 카드 ────────────────────────────────────────── */
+  /* ── 1. Auto-start + the intro card ──────────────────────────────────── */
   console.log('자동 시작');
   await enterShip();
   await waitStep('intro');
@@ -211,15 +225,18 @@ try {
   ok(intro.popup && intro.title === '튜토리얼' && intro.acts.join(',') === '건너뛰기,시작', '새 프로필로 함선에 들어오면 시작 카드가 뜬다', JSON.stringify(intro.acts));
   ok(intro.blocker && intro.cursor, '시작 카드가 tutorial 블로커 + 소프트 커서를 잡는다', JSON.stringify({ b: intro.blocker, c: intro.cursor }));
   ok(intro.panel, '좌측 상단 목표 패널이 함께 뜬다');
-  // 2026-09-08: 함선에 들어서며 걸린 relock 이 카드에서 커서를 빼앗아 가면 안 된다 (버튼을 누를 수가 없다)
+  // 2026-09-08: the relock raised on entering the ship must not take the cursor away from the card (the buttons
+  // could not be pressed)
   ok(intro.cursorOn, '카드가 뜬 채로 마우스 커서가 살아 있다 (body.cursor-on)');
   ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 5, `tutorial:changed {intro, 1/5} (${JSON.stringify(intro.ev)})`);
   const order = await P(() => window.__game.getSystem('tutorial').constructor && null);
   void order;
 
-  /* 2026-09-17 (B-17): 컷씬이 화면을 가져가면 이 카드는 **닫히지 않고 숨는다** (`shared/cutsceneHide`). 도킹 직전의
-     「모든 UI 닫기」는 이 카드를 못 닫으므로(escape 스택 밖) 컷씬 위에 떠 있었다. 숨는 동안 블로커 · 커서도 함께
-     내려놓아야 한다 — 안 그러면 컷씬 위에 커서가 뜨고 함선의 재락이 막힌다. 끝나면 그대로 돌아온다. */
+  /* 2026-09-17 (B-17): when a cutscene takes the screen this card **hides rather than closes**
+     (`shared/cutsceneHide`). The 「close every UI」 right before docking cannot close this card (it is outside the
+     escape stack), so it used to float over the cutscene. While it hides it has to put the blocker · the cursor down
+     too — otherwise the cursor shows over the cutscene and the ship's relock is blocked. It comes back unchanged
+     when the cutscene ends. */
   const cine = await P(() => {
     const ctx = window.__game.ctx;
     ctx.bus.emit('hub:docking', { stage: 'start', direction: 'dock' });
@@ -244,9 +261,10 @@ try {
   ok(cine.back.popup && cine.back.blocker && cine.back.title === '튜토리얼' && cine.back.step === 'intro',
     '컷씬이 끝나면 같은 카드가 단계를 그대로 두고 돌아온다', JSON.stringify(cine.back));
 
-  /* 2026-09-14 (3트랙): 새 프로필은 **증축 트랙**부터 돈다 — 레이드 · 함선 트랙은 함선에 들어선 순간 끝난 것으로
-     적히고(`autoStart`), HUD 게이트(`hides('hud', …)`)는 레이드 트랙 밖이라 아무것도 감추지 않는다.
-     우측 조작 가이드도 증축 트랙에는 배울 조작이 없어 뜨지 않는다. */
+  /* 2026-09-14 (three tracks): a fresh profile runs the **build track** first — the raid · ship tracks are written
+     done the moment the ship is entered (`autoStart`), and the HUD gates (`hides('hud', …)`) hide nothing, being
+     outside the raid track. The control guide on the right does not come up either: the build track has no control
+     to teach. */
   const tracks = await P(() => {
     const t = window.__game.ctx.tutorial;
     return {
@@ -263,7 +281,7 @@ try {
   ok(tracks.hud.every((h) => h === false), '증축 트랙에서는 HUD 를 하나도 감추지 않는다', JSON.stringify(tracks.hud));
   ok(tracks.controls === true, '우측 조작 가이드는 증축 트랙에서 뜨지 않는다');
 
-  /* ── 2. 게이트가 순서를 강제한다 ────────────────────────────────────── */
+  /* ── 2. The gates enforce the order ─────────────────────────────────── */
   console.log('게이트');
   const gated = await P(() => {
     const t = window.__game.ctx.tutorial;
@@ -295,23 +313,25 @@ try {
   const communityHidden = await P(() => document.querySelector('.community')?.classList.contains('show') ?? null);
   ok(communityHidden === false, '커뮤니티 버튼이 실제로 숨겨진다');
 
-  /* ── 3. 하우징 · 작업실 · 작업대 ─────────────────────────────────────── */
+  /* ── 3. Ship management · the workshop · the workbench ───────────────── */
   console.log('하우징 → 작업실 → 작업대');
   ok(await clickPopup('시작'), '시작 버튼');
   await waitStep('manage');
-  /* 2026-09-14 2차: 목표 패널은 달성 애니메이션이 보이도록 다음 단계의 **목표 줄만** `TUTORIAL_STEP_DELAY_S`(0.5초)
-     동안 붙잡는다 (진행 바 · 트랙 이름은 즉시). 단계 기계는 이미 넘어가 있으므로 여기서 그 반 박자를 기다린다. */
+  /* 2026-09-14 2nd pass: so the tick animation can be seen, the objective panel holds **only the next step's
+     objective rows** for `TUTORIAL_STEP_DELAY_S` (0.5 s) (the progress bar · the track name are immediate). The step
+     machine has already moved on, so that half beat is waited out here. */
   await sleep(700);
   const afterIntro = await P(() => ({
     popup: document.querySelector('.tut-popup').hidden,
     blocker: window.__game.ctx.uiBlockers.has('tutorial'),
-    /* 2026-09-14 2차: `.tut-title` · `.tut-hint` 두 줄이 **체크박스 목표 줄 목록**으로 바뀌었다. 글자는
-       `.tut-obj-txt` 에서 읽는다 — `.tut-obj-label` 은 취소선용으로 같은 글자를 한 겹 더 깔고 있어 두 번 나온다. */
+    /* 2026-09-14 2nd pass: the two lines `.tut-title` · `.tut-hint` became a **list of checkbox objective rows**.
+       The text is read from `.tut-obj-txt` — `.tut-obj-label` lays the same text down a second time for the
+       strike-through, so it appears twice. */
     title: [...document.querySelectorAll('.tut-panel .tut-obj-txt')].map((e) => e.textContent).join(' | '),
   }));
   ok(afterIntro.popup && !afterIntro.blocker && /시설 관리 열기/.test(afterIntro.title ?? ''), '카드가 닫히고 목표가 시설 관리 열기로 바뀐다', JSON.stringify(afterIntro));
-  /* 2026-09-08: 이 단계에는 열린 화면이 없다 — 밝힐 것은 우측 하단에 늘 떠 있는 `시설 관리` 키 힌트
-     (`ui/hud/ShipManageHint`, `.ship-hint`) 다. 어디를 봐야 하는지부터 알려 준다. */
+  /* 2026-09-08: this step has no open screen — what is lit is the `시설 관리` key hint that always sits bottom
+     right (`ui/hud/ShipManageHint`, `.ship-hint`). It says where to look in the first place. */
   await waitSpot('시설 관리', 'spotlight (시설 관리 힌트)');
   const manageSpot = await P(() => {
     const r = window.__hole();
@@ -320,40 +340,44 @@ try {
   });
   ok(/시설 관리/.test(manageSpot.tip) && manageSpot.dx <= 10 && manageSpot.dy <= 10,
     '포커싱이 우측 하단 시설 관리 버튼에 붙는다', JSON.stringify(manageSpot));
-  /* ── 3b. 발전기 단계는 건너뛴다 (2026-09-13, 전력 할당 폐지) ──────────────────
-     새 함선의 발전기는 처음부터 Lv.1 이라 `generator` 단계에 할 일이 없다 — `TutorialSystem.setStep` 이 그 단계를 알리자마자
-     (`tutorial:changed {generator}`) 곧바로 `workshop` 으로 넘긴다. 발전기를 올리는 조작은 어디에도 없다. */
+  /* ── 3b. The generator step is skipped (2026-09-13, power allocation removed) ─
+     A new ship's generator is Lv.1 from the start, so the `generator` step has nothing to do — the moment
+     `TutorialSystem.setStep` announces it (`tutorial:changed {generator}`) it hands straight on to `workshop`. There
+     is no action anywhere that raises the generator. */
   const genPre = await P(() => ({ level: window.__game.ctx.housing.getFacility('generator').level, n: window.__ev['tutorial:changed'].length, step: window.__game.ctx.tutorial.step }));
   ok(genPre.level === 1 && genPre.step === 'manage', `새 함선의 발전기는 이미 Lv.1 이다 (Lv.${genPre.level}, 단계 ${genPre.step})`);
-  // 재료를 채운다 — 작업실 증축에 필요하다
+  // Top the materials up — extending a room into the workshop needs them
   await P(() => {
     const ctx = window.__game.ctx;
     const give = (id, n) => { const max = ctx.loot.getItemDef(id).stackMax ?? 1; let a = 0; while (a < n) { const q = Math.min(max, n - a); if (!ctx.inventory.tryAddItem(ctx.loot.createItem(id, q))) break; a += q; } };
     give('mat_scrap', 40); give('mat_cable', 8); give('mat_alloy', 8);
   });
 
-  /* ── 3b-2. 반 박자 늦게 켜지는 포커싱 (2026-09-09) ──────────────────────
-     시설 관리를 여는 순간 단계가 함선 관리 → (발전기) → 작업실로 넘어가고 다음 대상(`.sm-purpose[data-purpose="workshop"]`)이
-     같은 순간 화면에 뜬다. 그래도 스포트라이트는 단계가 넘어가는 순간 곧바로 접히고, `TUTORIAL_STEP_DELAY_S`(0.5 s)
-     뒤에야 새 자리에서 다시 켜진다 — "새 화면이 먼저 보이고 포커싱이 따라온다". 켜질 때 어두운 판은
-     `--tut-dim-fade`(= `TUTORIAL_DIM_FADE_S`) 동안 서서히 어두워진다 (`.tut-spot.is-lit`).
-     2026-09-13: 발전기 → 작업실 전환이 없어져 계측을 이 전환(시설 관리 힌트 → 작업실 행)으로 옮겼다. */
+  /* ── 3b-2. The focus lights half a beat late (2026-09-09) ───────────────
+     The moment 시설 관리 opens, the step moves ship management → (the generator) → the workshop and the next target
+     (`.sm-purpose[data-purpose="workshop"]`) shows in that same moment. The spotlight still folds away the instant
+     the step moves on and lights again at the new place only `TUTORIAL_STEP_DELAY_S` (0.5 s) later — "the new screen
+     shows first and the focus follows". As it lights, the dim plates darken over `--tut-dim-fade`
+     (= `TUTORIAL_DIM_FADE_S`) (`.tut-spot.is-lit`).
+     2026-09-13: the generator → workshop transition is gone, so the measurement moved to this one (the 시설 관리
+     hint → the workshop row). */
   const relight = await P(async () => {
     const spot = () => document.querySelector('.tut-spot');
     const lit = () => { const r = spot(); return !!r && !r.hidden && r.classList.contains('is-lit'); };
     const sp = () => window.__game.getSystem('tutorial').spotlight;
     const before = lit();
     const t0 = performance.now();
-    window.__game.ctx.housing.openShipManage(0);                       // 2026-09-17: 같은 단계의 다음 줄 (시설 관리 열기 → 작업실 증축)
+    window.__game.ctx.housing.openShipManage(0);                       // 2026-09-17: the same step's next row (시설 관리 열기 → 작업실 증축)
     const acted = window.__game.ctx.housing.shipManageMode === true && window.__game.ctx.tutorial.step === 'manage'
       && window.__game.getSystem('tutorial').done.has('manageOpen');
     const immediate = lit();
     let midway = null, ms = -1, sawPending = false;
     while (performance.now() - t0 < 15000) {
-      /* `Spotlight.pending` 은 **대상이 화면에서 찾힌 뒤에야** 세기 시작한다 (`update` 의 `timer` 가 다음
-         `RETARGET_INTERVAL` 에 걸려야 찾는다) — 그래서 0.3 s 한 점에서 `pending` 을 읽던 옛 판정은 그 첫
-         확인이 늦어지면 `wait -1`(아직 안 셈)을 보고 빨개졌다. 반 박자가 실제로 돌았는지는 **한 번이라도
-         세는 중이 보였는가**로 본다 — 8 ms 마다 보므로 0.5 s 짜리 카운트다운을 놓칠 수 없다. */
+      /* `Spotlight.pending` starts counting **only once the target has been found on screen** (`update`'s `timer`
+         finds it at the next `RETARGET_INTERVAL`) — so the old assertion, which read `pending` at the single 0.3 s
+         point, went red when that first look came late and saw `wait -1` (not counting yet). Whether the half beat
+         really ran is judged by **having seen it counting at least once** — the look happens every 8 ms, so a 0.5 s
+         countdown cannot be missed. */
       if (sp().pending) sawPending = true;
       if (!midway && performance.now() - t0 >= 300) midway = { lit: lit(), pending: sp().pending, wait: Math.round(sp().wait * 1000) };
       if (lit()) { ms = performance.now() - t0; break; }
@@ -370,8 +394,9 @@ try {
     '목표 줄이 넘어가는 순간 포커싱이 곧바로 접힌다 (다음 대상이 이미 화면에 있어도)', JSON.stringify(relight));
   ok(relight.midway && relight.midway.lit === false && relight.sawPending === true,
     `0.3 s 뒤에도 아직 어둡고, 켜지기 전에 반 박자를 세는 구간이 있었다 (0.3 s 시점 남은 ${relight.midway?.wait} ms)`, JSON.stringify(relight));
-  /* 위아래를 모두 못 박는다. 아래는 "곧바로 켜지지 않는다"(≥ 0.3 s), 위는 "언젠가가 아니라 반 박자"(< 2 s —
-     카운터가 0 을 지나쳐 0.5 초를 다시 세던 2026-09-09 의 버그가 돌아오면 여기서 실패한다). */
+  /* Both ends are nailed down. The lower one is "it does not light straight away" (≥ 0.3 s), the upper one is "half
+     a beat, not some day" (< 2 s — if the 2026-09-09 bug where the counter ran past 0 and counted another 0.5 s
+     comes back, it fails here). */
   ok(relight.ms >= 300 && relight.ms < 2000 && /작업실/.test(relight.tip),
     `반 박자(TUTORIAL_STEP_DELAY_S 0.5 s) 뒤에 새 대상에서 다시 켜진다 (${Math.round(relight.ms)} ms, "${relight.tip}")`, JSON.stringify(relight));
   ok(relight.fade === '0.5s', `어두운 판은 --tut-dim-fade 동안 서서히 어두워진다 ("${relight.fade}")`);
@@ -393,14 +418,14 @@ try {
   ok(/작업실/.test(skipped.tip) && !/발전기/.test(skipped.tip), `말풍선은 발전기가 아니라 작업실을 가리킨다 ("${skipped.tip}")`);
   ok(skipped.lifted, '포커싱 중에도 목표 패널은 어두운 판 위에 있다 (건너뛰기 클릭 가능)');
 
-  // 다른 용도는 여전히 거부된다 (엄격 강제)
+  // Any other room purpose is still refused (strictly enforced)
   const wrongPurpose = await P(() => {
     const h = window.__game.ctx.housing;
     return { lounge: h.setRoomPurpose(1, 'lounge'), block: h.purposeBlock(1, 'lounge'), purpose: h.getRoom(1).purpose };
   });
   ok(wrongPurpose.lounge === false && /작업실/.test(wrongPurpose.block ?? '') && wrongPurpose.purpose === 'empty',
     '작업실이 아닌 용도는 거부된다 (사유에 작업실이 나온다)', JSON.stringify(wrongPurpose));
-  // 스포트라이트는 반 박자 뒤에 대상을 찾아 자리를 잡는다 — 말풍선이 바뀔 때까지 기다린다
+  // The spotlight finds its target and settles half a beat later — wait until the callout changes
   await waitSpot('작업실', 'spotlight (작업실)');
   const spot = await P(() => {
     const r = document.querySelector('.tut-spot');
@@ -420,12 +445,13 @@ try {
   ok(wrongFurn.locker === false && wrongFurn.bench === true, '총기 작업대만 제작할 수 있다', JSON.stringify(wrongFurn));
   await waitFor(page, () => window.__game.getSystem('tutorial').done.has('benchCrafted'), 'objective benchCrafted', 15000);
 
-  /* ── 3c. 제작 → 가구 창고 → 배치 (2026-09-08) ───────────────────────── */
-  // 제작은 가구를 **창고**에 넣을 뿐이다 — 배치는 따로 안내한다 (그 전에는 창고 탭이 어두운 판에 덮여 막혔다)
+  /* ── 3c. Crafting → the 가구 창고 → 배치 (2026-09-08) ───────────────── */
+  // Crafting only puts the furniture into the **store** — placing it is guided separately (before that the store tab
+  // was covered by a dim plate and blocked)
   ok(await step() === 'bench', '작업대를 만들어도 같은 단계다 — 다음 줄(가구 창고 탭)이 열린다');
   const stashed = await P(() => ({
     stored: (window.__game.ctx.housing.getStored() ?? []).filter((s) => s.defId === 'furn_bench_gun').reduce((n, s) => n + s.qty, 0),
-    placed: window.__game.ctx.housing.getPlaced().filter((f) => f.room !== 100).length,   // 2026-09-12: 조종석 공용 가구 2점은 늘 놓여 있다
+    placed: window.__game.ctx.housing.getPlaced().filter((f) => f.room !== 100).length,   // 2026-09-12: 2 cockpit pieces stay
   }));
   ok(stashed.stored >= 1 && stashed.placed === 0, '제작한 작업대는 가구 창고에 있고 아직 놓이지 않았다', JSON.stringify(stashed));
   await P(() => window.__game.ctx.housing.setManageRoom(1));
@@ -440,8 +466,9 @@ try {
   await sleep(150);
   const storeCard = await P(() => !!document.querySelector('.sm-store .fcard[data-def-id="furn_bench_gun"]'));
   ok(storeCard, '가구 창고 탭에 작업대 카드가 있다');
-  /* 2026-09-09: 창고 카드 클릭은 **선택만** 한다 — 고스트 배치가 아니다. 놓는 것은 카드 오른쪽의 `배치` 버튼
-     (`.fcard-place`)이고, 그 버튼이 첫 빈 칸에 곧바로 내려놓아 `housing:furniturePlaced` 를 낸다 (튜토리얼 단계는 그 이벤트로 넘어간다). */
+  /* 2026-09-09: clicking a store card **only selects** it — it is not a ghost placement. What puts it down is the
+     `배치` button on the card's right (`.fcard-place`), and that button drops it straight into the first empty cell
+     and emits `housing:furniturePlaced` (the tutorial step advances on that event). */
   await waitFor(page, () => window.__game.getSystem('tutorial').done.has('benchStore'), 'objective benchStore', 10000);
   ok(true, '가구 창고 탭을 누르면 「가구 창고 탭으로 이동」 줄이 달성된다');
   await P(() => document.querySelector('.sm-store .fcard[data-def-id="furn_bench_gun"]').click());
@@ -453,7 +480,7 @@ try {
       sel: window.__game.getSystem('housing').selectedFurniture,
       hl: card?.classList.contains('is-sel') ?? null,
       btn: !!btn, enabled: btn ? !btn.disabled : null, note: card?.querySelector('.fcard-note')?.textContent ?? '',
-      placed: window.__game.ctx.housing.getPlaced().filter((f) => f.room !== 100).length,   // 2026-09-12: 조종석 공용 가구 2점은 늘 놓여 있다
+      placed: window.__game.ctx.housing.getPlaced().filter((f) => f.room !== 100).length,   // 2026-09-12: 2 cockpit pieces stay
     };
   });
   ok(picked.sel === null && picked.hl === true && picked.placed === 0,
@@ -470,8 +497,9 @@ try {
   ok(placed.placed === 1 && placed.ev === 'furn_bench_gun' && placed.stored === 0,
     "'배치' 버튼이 작업대를 작업실 첫 빈 칸에 놓고 housing:furniturePlaced 를 낸다", JSON.stringify(placed));
 
-  /* ── 3d. 하우징 모드 닫기 (2026-09-15 — `manageDone` 이 순서로 돌아왔다) ───────────── */
-  // 배치가 끝나면 `craftGun` 이 아니라 **`manageDone`** 이다 — 관리 모드가 열린 채로는 작업실로 걸어갈 수 없다.
+  /* ── 3d. Closing ship management (2026-09-15 — `manageDone` is back in the order) ──── */
+  // Once the placement is done it is **`manageDone`**, not `craftGun` — with the management mode open there is no
+  // walking to the workshop.
   await waitSpot('하우징 모드 닫기', 'spotlight (하우징 모드 닫기)');
   const closeStep = await P(() => {
     const t = window.__game.ctx.tutorial, h = window.__game.ctx.housing;
@@ -486,7 +514,8 @@ try {
   });
   ok(closeStep.step === 'bench' && closeStep.index === 3 && closeStep.count === 5 && closeStep.manage === true,
     '배치 뒤에는 같은 단계의 하우징 모드 닫기 줄 (3/7) — 관리 모드는 아직 열려 있다', JSON.stringify(closeStep));
-  // 목표 줄은 `{INVENTORY} 하우징 모드 닫기` — 키캡 토큰이 앞에 그려지므로 textContent 는 `Tab 하우징 모드 닫기` 다 (끝만 본다)
+  // The objective row is `{INVENTORY} 하우징 모드 닫기` — the keycap token is drawn in front, so the textContent is
+  // `Tab 하우징 모드 닫기` (only the tail is checked)
   ok(closeStep.objs.length === 4 && closeStep.objs[0] === '총기 작업대 제작' && closeStep.objs[1] === '가구 창고 탭으로 이동'
     && closeStep.objs[2] === '가구 배치' && /하우징 모드 닫기$/.test(closeStep.objs[3]),
     `목표 줄 넷 — 작업대 제작 → 창고 탭 → 배치 → 하우징 모드 닫기 (${closeStep.objs.join(' | ')})`);
@@ -494,14 +523,15 @@ try {
   ok(closeStep.guideLit === false, '하우징 모드가 열려 있는 동안에는 바닥 안내선이 없다');
   ok(closeStep.furnitureOk === null && closeStep.manageExit === false, '작업대 카드는 그대로 허용되고 닫기는 막히지 않는다', JSON.stringify(closeStep));
 
-  /* 2026-09-15: 바닥 안내선의 반 박자(`TUTORIAL_STEP_DELAY_S`)는 **단계가 바뀌는 순간** 무장된다
-     (`TutorialSystem.refreshVisuals` → `Guide.setTarget`, 그 뒤로는 화면과 무관하게 매 프레임 줄어든다).
-     단계를 넘기는 조작은 이제 `closeShipManage()` 라 그 조작에 붙여 한 evaluate 안에서 잰다 (왕복 사이의 시간이
-     끼어들면 판정이 아니라 경주가 된다 — 옛 주석의 교훈 그대로). */
+  /* 2026-09-15: the floor guide's half beat (`TUTORIAL_STEP_DELAY_S`) is armed **the moment the step changes**
+     (`TutorialSystem.refreshVisuals` → `Guide.setTarget`; from there it counts down every frame, whatever the screen
+     does). The action that advances the step is `closeShipManage()` now, so the measurement hangs off that action
+     inside one evaluate (let the round-trip time in between and it stops being a judgement and becomes a race — the
+     lesson of the old comment, unchanged). */
   await P(() => {
     window.__tutAct = () => {
       window.__game.ctx.housing.closeShipManage();
-      return window.__game.ctx.tutorial.step;   // 이 조작이 단계를 넘겼다는 증거
+      return window.__game.ctx.tutorial.step;   // proof that this action advanced the step
     };
   });
   const guideDelay = await measureGuide();
@@ -510,7 +540,8 @@ try {
   ok(guideDelay.ms >= 300 && guideDelay.ms < 2000,
     `바닥 안내선은 스포트라이트와 같은 반 박자 뒤에 깔린다 (${Math.round(guideDelay.ms)} ms)`, JSON.stringify(guideDelay));
 
-  /* 2026-09-15 (사용자 결정): 하우징 모드를 **다시 열면** 안내선이 걷히고(단계는 그대로), 닫으면 반 박자 뒤에 돌아온다. */
+  /* 2026-09-15 (user's decision): **reopening** ship management takes the floor guide down (the step stays), and
+     closing it brings the guide back half a beat later. */
   await P(() => { window.__game.ctx.housing.openShipManage(); });
   await sleep(250);
   const reopened = await P(() => {
@@ -524,9 +555,9 @@ try {
   ok(guideBack.acted === 'craftGun' && guideBack.before === false && guideBack.ms >= 0 && guideBack.ms < 2000,
     `닫으면 안내선이 돌아온다 (${Math.round(guideBack.ms)} ms)`, JSON.stringify(guideBack));
 
-  /* ── 4. 재료 지급 + 제작 게이트 ───────────────────────────────────────── */
+  /* ── 4. The floor grant + the craft gate ──────────────────────────────── */
   console.log('제작');
-  // 2026-09-09: `craftGun` 에서는 바닥 안내선이 작업대를 가리킨다
+  // 2026-09-09: in `craftGun` the floor guide points at the workbench
   await waitStep('craftGun');
   const grant = await P(() => ({
     powder: window.__game.ctx.inventory.countDefAll('mat_gunpowder'),
@@ -534,8 +565,9 @@ try {
     guide: !!window.__game.getSystem('tutorial'),
   }));
   ok(grant.powder >= 20 && grant.notify >= 1, `제작 재료가 한 번 지급된다 (화약 ${grant.powder})`);
-  /* 2026-09-09: 제작은 **작업대 한 번**이라 `craftGun` 부터 소총 · 준중량탄 레시피가 **둘 다** 열려 있다
-     (막힌 레시피는 목록에서 사라지므로, 소총을 만드는 순간 행이 빠지고 탄약 행이 튀어나오면 목록이 흔들린다). */
+  /* 2026-09-09: crafting is **one visit to the workbench**, so from `craftGun` on **both** the rifle recipe and the
+     `준중량탄` recipe are open (a blocked recipe disappears from the list, so if the rifle's row dropped out the
+     moment it was made and an ammo row popped in, the list would jump). */
   const craftGate = await P(() => {
     const inv = window.__game.ctx.inventory, t = window.__game.ctx.tutorial;
     return {
@@ -548,7 +580,7 @@ try {
   ok(craftGate.gateGun === null && craftGate.gateAmmo === null && !!craftGate.gateOther && craftGate.hidesOther,
     '작업대 한 번에 만드므로 소총 · 준중량탄이 둘 다 열려 있고 나머지는 감춘다', JSON.stringify(craftGate));
 
-  /* ── 4b. 바닥 안내선 ──────────────────────────────────────────────────── */
+  /* ── 4b. The floor guide ──────────────────────────────────────────────── */
   console.log('안내선');
   const guide = await P(() => {
     const ctx = window.__game.ctx;
@@ -563,7 +595,7 @@ try {
   });
   ok(guide.inScene && guide.children === 3, `작업대로 가는 안내선이 씬에 있다 (점선 + 빛기둥 + 링, ${guide.children})`, JSON.stringify(guide));
   ok(guide.dist > 2.2, `아직 작업대에서 떨어져 있다 (${guide.dist.toFixed(1)} m)`);
-  // 목표에 붙으면 안내선을 걷는다
+  // Reaching the target takes the guide down
   const arrived = await P(() => {
     const ctx = window.__game.ctx;
     const bench = ctx.interactables.all().find((i) => i.id.startsWith('hub_furn_'));
@@ -573,11 +605,12 @@ try {
   });
   ok(!arrived, '목표에 도착하면 안내선이 걷힌다');
 
-  /* ── 4c. 작업대 한 번에: 소총 → 탄약 → 창 닫기 → 장착 (2026-09-09) ────────
-     제작 흐름은 **작업대 한 번 방문**이다: `craftGun` → `craftAmmo` (같은 창) → `openBag`(창 닫기) →
-     `equipGun` → `stowAmmo`. `openCraft`(가방의 제작 버튼으로 창을 다시 열기)는 그래서 순서에서 빠졌다.
-     제작 중에는 장비 칸이 숨으므로 만든 무기는 **제작 창을 닫고** 장착하고, `equipGun` 은 주무기 I · II 칸과
-     가방을 **합집합**으로 밝힌다 (하나만 밝히면 드래그의 반대편이 어두운 판에 깔린다). */
+  /* ── 4c. One bench visit: rifle → ammo → close → equip (2026-09-09) ───────
+     The craft flow is **one visit to the workbench**: `craftGun` → `craftAmmo` (the same window) → `openBag` (close
+     the window) → `equipGun` → `stowAmmo`. That is why `openCraft` (reopening the window from the bag's craft
+     button) left the order. The equipment slots hide while crafting, so the weapon that was made is equipped **after
+     the craft window closes**, and `equipGun` lights the 주무기 I · II slots and the bag as one **union** (light
+     only one and the other end of the drag lies under a dim plate). */
   console.log('작업대: 소총 → 탄약 → 닫기 → 장착');
   await P(() => window.__game.ctx.inventory.openBenchCraft('gun', 1));
   await sleep(300);
@@ -586,9 +619,11 @@ try {
     return {
       isCraft: document.querySelector('.inv-root').classList.contains('is-craft'),
       equip: css('.inv-equip'), quick: css('.inv-quick'), tabs: css('.inv-root .scr-tabs'),
-      // 2026-09-18: 가치 줄은 격자 오른쪽 열(`.inv-bag-side > .inv-bag-readouts`) 안이라 가방 패널의 직속 자식이 아니다
+      // 2026-09-18: the bag value row sits in the grid's right-hand column (`.inv-bag-side > .inv-bag-readouts`),
+      //   so it is not a direct child of the bag panel
       foot: css('.inv-panel-bag .inv-foot'), craftBtn: css('.inv-bag-craft'),
-      // 2026-09-14 (사용자 결정): `모두 수리` 는 작업대 헤더가 아니라 **가방 필터 줄 맨 왼쪽**(`.inv-repair-open-btn`)이다
+      // 2026-09-14 (user's decision): `모두 수리` is not in the bench header but at the **far left of the bag's
+      //   filter row** (`.inv-repair-open-btn`)
       repairBtn: document.querySelector('.inv-repair-open-btn') ? !document.querySelector('.inv-repair-open-btn').hidden : null,
     };
   });
@@ -597,13 +632,13 @@ try {
     '제작 중에는 장비 · 퀵슬롯 · 화면 탭 · 가방의 제작 버튼/가치가 숨는다', JSON.stringify(crafting));
   ok(crafting.repairBtn === true, '작업대 창에서도 가방 필터 줄의 `모두 수리` 버튼이 보인다');
 
-  /* 소총 행부터. 두 레시피가 같은 창에 함께 떠 있고 스포트라이트만 "지금 만들 것"을 가리킨다. */
+  /* The rifle's row first. Both recipes are up in the same window and only the spotlight points at "what to make now". */
   await waitSpot('돌격소총', 'spotlight (돌격소총 제작)');
   const gunRow = await P(() => {
     const row = document.querySelector('.inv-craft-cell[data-recipe="make_wpn_ar"]');
     const ammo = document.querySelector('.inv-craft-cell[data-recipe="make_ammo_medium"]');
     return {
-      /* 2026-09-15 3차: 레시피 하나하나는 `.inv-craft-cell`, `.inv-craft-row` 는 고른 것의 상세다 */
+      /* 2026-09-15 3rd pass: each recipe is an `.inv-craft-cell`; `.inv-craft-row` is the detail of the chosen one */
       row: !!row, ammo: !!ammo, rows: document.querySelectorAll('.inv-craft-cell').length,
       spot: window.__spotOn(['.inv-craft-row[data-recipe="make_wpn_ar"] .inv-craft-btn', '.inv-craft-cell[data-recipe="make_wpn_ar"]', '.inv-panel-craft']),
     };
@@ -618,8 +653,9 @@ try {
   ok(!!gunUid, '작업대에서 돌격소총을 만든다');
   await waitFor(page, () => window.__game.getSystem('tutorial').done.has('craftGunMade'), 'objective craftGunMade', 15000);
   ok(await step() === 'craftGun', '소총을 만들어도 같은 단계다 — 준중량탄 줄이 열린다 (2026-09-17)');
-  /* 2026-09-09 재료 top-up: 소총이 폐금속을 먹고 나면 준중량탄이 모자란다 — `craftAmmo` 에 들어서는 순간
-     `ensureMaterials` 가 `필요 − 보유` 만큼만 채운다 (숫자는 레시피에서 읽으므로 코드에 없다). */
+  /* 2026-09-09 material top-up: once the rifle has eaten the scrap there is not enough left for the `준중량탄` — the
+     moment `craftAmmo` is entered, `ensureMaterials` tops up exactly `needed − held` (the numbers come from the
+     recipe, so none of them are in the code). */
   const ammoReady = await P(() => ({
     can: window.__game.ctx.inventory.canCraft('make_ammo_medium'),
     powder: window.__game.ctx.inventory.countWhere((d) => d.id === 'mat_gunpowder'),
@@ -636,7 +672,7 @@ try {
   ok(await P(async () => !!(await window.__game.ctx.inventory.craft('make_ammo_medium'))), '같은 창에서 준중량탄을 만든다');
   await waitFor(page, () => window.__game.getSystem('tutorial').done.has('craftAmmoMade'), 'objective craftAmmoMade', 15000);
 
-  /* 소총 · 탄약이 다 만들어진 **뒤에야** 제작 창을 닫는다 (`openBag`). */
+  /* The craft window is closed **only after** the rifle and the ammo are both made (`openBag`). */
   await waitSpot('닫기', 'spotlight (제작 창 닫기)');
   const closeSpot = await P(() => window.__spotOn(['.inv-craft-close', '.inv-panel-craft']));
   ok(closeSpot.exact && closeSpot.sel[0] === '.inv-craft-close',
@@ -645,12 +681,13 @@ try {
   await waitStep('equipGun');
   ok(true, '제작 창을 닫으면 장착 단계로 넘어간다');
 
-  /* 2026-09-16 (사용자 보고 「작업대 창을 닫았는데 가방이 열린다」, `inventory/parts/Crafting.closeCraftWindow`):
-     **작업대가 연 창은 작업대 창**이라 `닫기` 는 제작 열만 접는 것이 아니라 창째 닫는다. 그래서 `equipGun` 은
-     창이 닫힌 채로 시작하고, 밝힐 DOM 이 없으니 스포트라이트는 뜨지 않는다 (`parts/Spotlight` 는 대상을 못 찾으면
-     스스로 접힌다 — 어두운 판만 남아 아무것도 못 누르는 상태를 만들지 않는다). 남은 안내는 「창을 다시 여는 키」
-     하나이고, 그것을 적는 자리는 우측 조작 가이드다 (`model.EQUIP_HINTS`). */
-  await sleep(900);      // 반 박자(`TUTORIAL_STEP_DELAY_S` 0.5 s)를 넘기고도 안 뜨는지 본다 (뜬다면 허공에 링이 걸린 것)
+  /* 2026-09-16 (the user's report 「작업대 창을 닫았는데 가방이 열린다」, `inventory/parts/Crafting.closeCraftWindow`):
+     **a window the bench opened is the bench's window**, so `닫기` does not fold the craft column alone but closes
+     the whole window. `equipGun` therefore starts with the window closed, and with no DOM to light the spotlight
+     never comes up (`parts/Spotlight` folds itself away when it cannot find its target — it never leaves dim plates
+     with nothing pressable under them). The one piece of guidance left is 「the key that reopens the window」, and
+     the place that writes it is the control guide on the right (`model.EQUIP_HINTS`). */
+  await sleep(900);      // checks nothing comes up past the half beat (`TUTORIAL_STEP_DELAY_S` 0.5 s) — if it does, a ring hangs in mid-air
   const afterClose = await P(() => {
     const spot = document.querySelector('.tut-spot');
     const ctl = document.querySelector('.tut-controls');
@@ -670,7 +707,7 @@ try {
     '밝힐 것이 없으면 스포트라이트도 뜨지 않는다 (어두운 판만 남지 않는다)', JSON.stringify(afterClose));
   ok(afterClose.ctlShown && /가방/.test(afterClose.bagRow ?? ''),
     `조작 가이드가 창을 다시 여는 키를 적는다 ("${afterClose.bagRow}")`, JSON.stringify(afterClose));
-  /* 튜토리얼은 인벤토리 탭을 언제나 열어 둔다 (`parts/Gates.blockReason` 의 `screenTab`) — Tab 으로 다시 연다. */
+  /* The tutorial always leaves the inventory tab open (`screenTab` in `parts/Gates.blockReason`) — Tab reopens it. */
   await P(() => {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Tab', key: 'Tab', bubbles: true }));
     document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'Tab', key: 'Tab', bubbles: true }));
@@ -685,26 +722,30 @@ try {
   await waitFor(page, () => window.__game.getSystem('tutorial').done.has('equipOpen'), 'objective equipOpen', 10000);
   ok(true, 'Tab 으로 연 것이 「인벤토리 열기」 줄을 적는다');
 
-  /* 2026-09-09: `equipGun` 은 장비 열 **전체**가 아니라 주무기 I · II 칸 + 가방만 밝힌다 — 보조무기 · 방탄복 ·
-     가방 칸 · 임플란트 칸은 이 단계와 상관없다. 구멍은 언제나 사각형 하나이므로 셋을 감싸는 최소 사각형이
-     되고, `parts/Spotlight.place` 가 `PAD`(6 px)만큼 넓혀 정수 모서리로 굳힌다. */
+  /* 2026-09-09: `equipGun` lights the 주무기 I · II slots + the bag, not the **whole** equipment column — 보조무기 ·
+     방탄복 · the 가방 slot · the implant slots have nothing to do with this step. The hole is always one rectangle,
+     so it becomes the smallest rectangle around the three, which `parts/Spotlight.place` widens by `PAD` (6 px) and
+     freezes on integer edges. */
   await waitSpot('주무기', 'spotlight (주무기 I · II + 창고·가방 카드)');
   const union = await P(() => {
-    /* 2026-09-15 3차 (사용자 결정 「제작품은 함선 창고로」): 만든 소총은 창고에 있으므로 마지막 대상이
-       `.inv-panel-bag` → **`.inv-panel-grids`**(창고 + 가방 한 카드)다. 구멍은 여전히 사각형 하나다. */
-    /* 2026-09-16 (사용자 결정 「창고 | 장비 | 가방」): 창고가 가방 카드 밖(장비 열 왼쪽)으로 나와 마지막 대상이 `.inv-panel-stash` 다. */
+    /* 2026-09-15 3rd pass (user's decision 「제작품은 함선 창고로」): the rifle that was made is in the stash, so the
+       last target is `.inv-panel-bag` → **`.inv-panel-grids`** (stash + bag in one card). The hole is still one
+       rectangle. */
+    /* 2026-09-16 (user's decision 「창고 | 장비 | 가방」): the stash came out of the bag card (left of the equipment
+       column), so the last target is `.inv-panel-stash`. */
     const s = window.__spotOn(['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-stash'], true);
-    /* 세 대상이 정말 구멍 안에 들어왔나. 구멍은 **화면 밖으로는 못 나가므로**(`Spotlight.place` 의 clamp) 이
-       검사는 "인벤토리 창이 화면 안에 선다" 도 함께 본다 — 2026-09-12 에 `.inv-root` 가 세로 가운데 정렬에서
-       `flex-start + padding-top` 으로 바뀌면서 1280×760 함선 창의 가방 패널이 811 px(화면 760)까지 내려가
-       여기서 `bag:false` 로 잡혔다 (`inventory.css` 의 `.inv-bag-scroll` 함선 예산). */
+    /* Whether the three targets really landed inside the hole. The hole **cannot leave the viewport** (the clamp in
+       `Spotlight.place`), so this check also checks "the inventory window stands inside the screen" — on 2026-09-12,
+       when `.inv-root` moved from centring vertically to `flex-start + padding-top`, the bag panel of the 1280×760
+       ship window dropped to 811 px (the screen is 760) and was caught here as `bag:false` (`.inv-bag-scroll`'s ship
+       budget in `inventory.css`). */
     const inside = (sel) => {
       const e = document.querySelector(sel);
       if (!e || !s.hole) return null;
       const b = e.getBoundingClientRect();
       return s.hole.left <= b.left && s.hole.right >= b.right && s.hole.top <= b.top && s.hole.bottom >= b.bottom;
     };
-    // 예전 선택자(장비 열 **전체** + 가방)로는 어떤 구멍이 됐을지 — 지금 것과 같으면 안 된다
+    // What hole the old selectors (the **whole** equipment column + the bag) would have made — it must differ from this one
     const old = window.__spotOn(['.inv-root .inv-equip', '.inv-panel-stash'], true);
     return {
       ...s, three: (s.sel ?? []).length, oldWant: old.want, wholeColumn: old.exact,
@@ -716,7 +757,7 @@ try {
     'equipGun 은 창고 + 주무기 I · II 칸을 한 구멍으로 밝힌다 (합집합)', JSON.stringify(union));
   ok(union.wholeColumn === false,
     '장비 열 **전체**가 아니다 — 보조무기 · 방탄복 · 가방 칸 · 임플란트 칸은 이 단계와 상관없다', JSON.stringify(union));
-  // 2026-09-17 (사용자 결정): 장착 포커싱은 화면 전체를 어둡게 하지 않는다
+  // 2026-09-17 (user's decision): the equip focus does not dim the whole screen
   const noDim = await P(() => {
     const r = document.querySelector('.tut-spot');
     const pane = document.querySelector('.tut-spot-pane');
@@ -724,17 +765,18 @@ try {
   });
   ok(noDim.nodim && /rgba\(4, 6, 9, 0\)/.test(noDim.bg ?? '') && noDim.pe === 'none', '장착 포커싱은 딤 없이 (판이 투명하고 클릭이 통과한다)', JSON.stringify(noDim));
 
-  /* 2026-09-09: 여기까지 오는 동안 실제로 밟은 단계 · 순번이 새 순서 그대로인가 (`openCraft` 는 없다). */
+  /* 2026-09-09: whether the steps · indices really walked so far match the new order (no `openCraft`). */
   const seq = await P(() => window.__ev['tutorial:changed'].filter((e) => e.active).map((e) => ({ s: e.step, i: e.index, n: e.count })));
-  // 2026-09-15: `manageDone`(하우징 모드 닫기)이 `benchPlace` 와 `craftGun` 사이로 돌아왔다 — 17 단계
-  // 2026-09-17: 7 단계 — 묶인 단계 안의 줄 사이에는 단계 전환이 없다 (2026-09-18: 뒤 둘은 `raid2` 로 나가 **5 단계**)
+  // 2026-09-15: `manageDone` (closing ship management) came back between `benchPlace` and `craftGun` — 17 steps
+  // 2026-09-17: 7 steps — there is no step change between the rows inside a grouped step (2026-09-18: the last two
+  //   left for `raid2`, so **5 steps**)
   const WANT = ['intro', 'manage', 'bench', 'craftGun', 'equipGun'];
   ok(seq.map((e) => e.s).join(' ') === WANT.join(' '), `밟은 단계가 새 순서 그대로다 (${seq.map((e) => e.s).join(' ')})`);
   ok(seq.every((e, i) => e.i === i + 1 && e.n === 5) && !seq.some((e) => e.s === 'openCraft'),
     '순번은 1..5 / 5 이고 옛 단계 id 는 순서에 없다', JSON.stringify(seq.slice(-3)));
 
-  /* 2026-09-09: 어두운 판 네 장이 화면을 **빈틈없이** 덮는가. 예전에는 판마다 top/height 를 따로 반올림해서
-     소수점 사각형이면 구멍 위아래에 1 px 짜리 밝은 가로줄이 남았다 (8단계에서 특히 잘 보였다). */
+  /* 2026-09-09: whether the four dim plates cover the screen **with no seam**. Each plate used to round its own
+     top/height, so a fractional rectangle left a 1 px bright band above and below the hole (most visible at step 8). */
   const tiling = await P(() => {
     const p = [...document.querySelectorAll('.tut-spot-pane')].map((e) => e.getBoundingClientRect());
     if (p.length !== 4) return { ok: false, why: `panes=${p.length}` };
@@ -749,14 +791,15 @@ try {
   });
   ok(tiling.ok, '스포트라이트 네 판이 정수 모서리로 빈틈없이 맞물린다 (1 px 띠 없음)', JSON.stringify(tiling));
 
-  /* 2026-09-09: 목표 패널은 인벤토리 창(.inv-root, z 50 + 블러) 위에 **언제나** 있다 (예전에는 포커싱 중에만). */
+  /* 2026-09-09: the objective panel is **always** above the inventory window (.inv-root, z 50 + blur) (it used to be
+     only while the focus was up). */
   const zorder = await P(() => ({
     panel: Number(getComputedStyle(document.querySelector('.tut-panel')).zIndex),
     inv: Number(getComputedStyle(document.querySelector('.inv-root')).zIndex),
   }));
   ok(zorder.panel > zorder.inv, `목표 패널이 인벤토리 창 위에 있다 (${zorder.panel} > ${zorder.inv})`, JSON.stringify(zorder));
 
-  /* 2026-09-09: 주무기 **II** 칸에 넣어도 장착 단계는 끝난다 (`TutorialSystem.onLoadout` — I · II 어느 쪽이든). */
+  /* 2026-09-09: putting it in the 주무기 **II** slot ends the equip step too (`TutorialSystem.onLoadout` — either one). */
   await P((uid) => window.__game.ctx.inventory.equip(uid, 'primary2'), gunUid);
   await waitFor(page, () => window.__game.getSystem('tutorial').done.has('equipSlot'), 'objective equipSlot', 30000);
   await sleep(700);
@@ -768,8 +811,10 @@ try {
       open: window.__game.ctx.inventory.isOpen, spotLit: !!spot && !spot.hidden && spot.classList.contains('is-lit'),
     };
   });
-  // 2026-09-10: 보조무기 칸이 사라져 시작 지급품이 **주무기 I** 에 기관단총을 준다 — 예전처럼 I 칸이 비어 있지 않다.
-  // 2026-09-17 (사용자 결정): 장착해도 **인벤토리를 닫을 때까지** 그 단계에 머문다 (목표 줄 없이) — 포커싱은 걷힌다
+  // 2026-09-10: the 보조무기 slot is gone, so the starter grant puts the SMG in **주무기 I** — that slot is not
+  //   empty the way it used to be.
+  // 2026-09-17 (user's decision): even after equipping, the step stays **until the inventory closes** (with no
+  //   objective row) — the focus is taken down
   ok(equipped.primary2 === 'wpn_ar' && equipped.step === 'equipGun' && equipped.open && !equipped.spotLit,
     '주무기 II 칸에 장착하면 체크가 그어지고 포커싱이 걷히지만, 창이 열려 있는 동안은 같은 단계다 — 그 장착으로 주무기 두 칸이 다 차도 그렇다 (2026-09-18 의 건너뛰기 판정은 **창이 열리는 순간**만 본다)', JSON.stringify(equipped));
   await P(() => window.__game.ctx.inventory.closeAll());
@@ -777,9 +822,10 @@ try {
   ok(true, '인벤토리를 닫으면 조종석 단계다 (탄약을 가방에 넣는 단계는 없다)');
   await sleep(700);
 
-  /* ── 4c. 증축 안내가 끝나고 출격 안내가 저절로 이어진다 (2026-09-18, 사용자 결정) ────────────────────
-     `equipGun` 은 이제 증축 트랙의 **마지막** 단계다. 인벤토리를 닫는 그 순간 그 트랙이 끝나고(`finish` → `pendingRaid2`)
-     **같은 호출 안에서** `autoStart` 가 「출격 안내」를 연다 — 플레이어는 아무것도 누르지 않는다. */
+  /* ── 4c. 증축 안내 ends and 출격 안내 chains on by itself (2026-09-18, user's decision) ──────────────
+     `equipGun` is the **last** step of the build track now. The moment the inventory closes, that track ends
+     (`finish` → `pendingRaid2`) and **inside the same call** `autoStart` opens 「출격 안내」 — the player presses
+     nothing. */
   const chain = await P(() => {
     const t = window.__game.ctx.tutorial;
     return {
@@ -799,10 +845,12 @@ try {
     '저장도 두 트랙으로 갈린다 (증축 done · 출격 terminal)', JSON.stringify(chain.saved?.tracks));
   ok(/조종석으로 이동/.test(chain.objs.join(' ')), `출격 안내의 첫 목표는 조종석으로 이동 (${chain.objs.join(' | ')})`);
 
-  /* ── 4c2. 장착 단계에 할 일이 없으면 지나간다 (2026-09-18, 사용자 보고 「이미 장착했는데도 장착하라고 한다」) ──
-     ① **주무기 두 칸이 다 차 있다** — 넣을 빈 칸이 없으니 들어서는 그 자리에서 지나간다 (`equipGunMoot` · `setStep`).
-     ② **이미 돌격소총을 들었다** — 만든 그 소총(`wpn_ar`)이 아니어도 된다: 계열 · 등급은 csv(`weapons.csv` 의 `class`)가
-        말한다. 이쪽은 단계 진입이 아니라 **인벤토리를 여는 순간** 판정한다 (사용자가 Tab 을 눌러 확인하는 그 자리). */
+  /* ── 4c2. Equip passes with nothing to do (2026-09-18, the report 「이미 장착했는데도 장착하라고 한다」) ───────
+     ① **both 주무기 slots are full** — there is no empty slot to put one in, so it passes the moment it is entered
+        (`equipGunMoot` · `setStep`).
+     ② **an assault rifle is already held** — it need not be the rifle that was made (`wpn_ar`): the class · grade
+        are what the csv says (`class` in `weapons.csv`). This one is judged not on entering the step but **the
+        moment the inventory opens** (right where the player presses Tab to check). */
   const mootFull = await P(() => {
     const ctx = window.__game.ctx;
     const t = ctx.tutorial;
@@ -818,10 +866,13 @@ try {
     const t = ctx.tutorial;
     const sys = window.__game.getSystem('tutorial');
     ctx.inventory.closeAll();
-    // 만든 소총이 아닌 **다른 등급**의 돌격소총 — id 가 달라 `onLoadout` 은 목표로 치지 않는다 (판정은 계열 · class 다)
+    // An assault rifle of **another grade**, not the one that was made — the id differs, so `onLoadout` does not
+    //   count it as the objective (the judgement is the class)
     const arId = ['ar_g2', 'ar_g3', 'ar_g4', 'ar_g5'].map((w) => `wpn_${w}`).find((id) => ctx.loot.getItemDef(id)) ?? null;
-    // 비우는 것은 **창고로** (가방은 이미 거의 차 있다). ⚠ `moveToStash` 는 함선 Tab 창이 열려 있을 때만 받는다
-    //   (`StashOps.moveToStash` 의 `hubMode`) — 닫힌 채로 부르면 조용히 'fail' 이라 두 칸이 그대로 남고, 그러면 진입 판정(두 칸 참)이 먼저 걸려 이 대목이 아예 안 선다.
+    // Emptying them goes **to the stash** (the bag is nearly full already). ⚠ `moveToStash` is accepted only while
+    //   the ship Tab window is open (`hubMode` in `StashOps.moveToStash`) — called with it closed it silently
+    //   returns 'fail', both slots stay full, and then the entry judgement (both slots full) fires first and this
+    //   passage never stands at all.
     if (!ctx.inventory.isOpen) window.__game.getSystem('inventory').toggleBag();
     const l0 = ctx.inventory.getLoadout();
     if (l0.primary) ctx.inventory.moveToStash(l0.primary.uid, { kind: 'slot', slot: 'primary' });
@@ -847,22 +898,25 @@ try {
   ok(mootAr.opened.step === 'terminal' && mootAr.opened.track === 'raid2' && mootAr.opened.open === true,
     '그 상태로 인벤토리를 여는 순간 장착 단계가 통째로 끝난다 (계열 · 등급 무관)', JSON.stringify(mootAr.opened));
 
-  /* ── 4d. 탄약 레시피의 모양 (2026-09-10 제작 대개편; 2026-09-17 `stowAmmo` 단계는 없어졌다) ──────
-     `bulk_ammo_medium`(대량 제작, 90발)이 csv 에서 사라져 `make_ammo_medium`(30발)이 그 자리를 잇는다.
-     두 가지를 못 박는다 — ① 그 레시피가 **작업대 창에 뜰 수 있는 모양**인가 (`station: 'field'` · `bench` 없음 →
-     `getRecipes` 가 bench 모드에서도 싣는다), ② `stowAmmo` 는 "가방에 준중량탄이 있나"만 보므로 **수량과 무관**하다
-     (만들어진 양이 곧 레시피의 `outputQty` 이고, 그 값을 여기서도 csv 에서 읽는다 — 스모크에 숫자를 적지 않는다). */
+  /* ── 4d. The ammo recipe's shape (2026-09-10 the big craft rework; `stowAmmo` went on 2026-09-17) ──────
+     `bulk_ammo_medium` (bulk craft, 90 rounds) left the csv and `make_ammo_medium` (30 rounds) took its place.
+     Two things are nailed down — ① whether that recipe is **shaped so it can appear in a bench window**
+     (`station: 'field'` · no `bench` → `getRecipes` loads it in bench mode too), ② `stowAmmo` only looks at "is
+     there `준중량탄` in the bag", so it is **independent of the quantity** (the amount made is the recipe's
+     `outputQty`, and that value is read from the csv here too — no number is written into the smoke). */
   const ammoRecipe = await P(() => {
     const ctx = window.__game.ctx;
     const r = ctx.loot.getAllRecipes().find((x) => x.id === 'make_ammo_medium');
     return r ? { station: r.station, bench: r.bench ?? null, outputQty: r.outputQty, out: r.outputDefId } : null;
   });
-  /* 2026-09-10 (사용자 결정) — 작업대를 열면 **그 작업대의 레시피만** 보인다. 그래서 현장 레시피도
-     `data/recipes.csv` 에서 자기 작업대를 밝힌다: 탄약은 `station: field` + `bench: gun` 이라
-     어디서든 만들 수 있으면서 총기 작업대 창에도 뜬다 — 튜토리얼의 "같은 창에서 소총 → 탄약" 이 그것에 기댄다. */
+  /* 2026-09-10 (user's decision) — opening a workbench shows **only that workbench's recipes**. So a field recipe
+     names its own bench in `data/recipes.csv` too: the ammo is `station: field` + `bench: gun`, so it can be made
+     anywhere and still appears in the gun workbench's window — the tutorial's "the rifle → the ammo in the same
+     window" leans on that. */
   ok(!!ammoRecipe && ammoRecipe.station === 'field' && ammoRecipe.bench === 'gun' && ammoRecipe.out === 'ammo_medium',
     '탄약 레시피는 field 이면서 총기 작업대 소속이다 (어디서든 제작 + 총기 작업대 창에 표시)', JSON.stringify(ammoRecipe));
-  /* 2026-09-09: 창고에는 튜토리얼이 쓰는 것만 보인다 (`stashItem` 게이트 — 데이터는 그대로, 그리지 않을 뿐) */
+  /* 2026-09-09: the stash shows only what the tutorial uses (the `stashItem` gate — the data is untouched, it is
+     just not drawn) */
   const stashGate = await P(() => {
     const t = window.__game.ctx.tutorial;
     return {
@@ -876,10 +930,10 @@ try {
   await P(() => { window.__game.ctx.inventory.closeAll(); window.__game.ctx.tutorial.goto('craftGun'); });
   await sleep(200);
 
-  /* ── 5. 건너뛰기 확인 카드 ────────────────────────────────────────────── */
-  /* 2026-09-14 2차 (사용자 결정): 패널의 `.tut-skip` 버튼이 없어지고 건너뛰기는 **ESC 메뉴**로 옮겨 갔다
-     (`ui/menus/PauseMenu` — 튜토리얼이 돌고 있으면 `함선으로 귀환` 자리가 `튜토리얼 건너뛰기` 가 된다).
-     그래서 그 경로가 실제로 트랙을 끝내는지를 여기서 본다 — 확인은 `.pause-ask` 의 1초 홀드다. */
+  /* ── 5. The 건너뛰기 confirm card ─────────────────────────────────────── */
+  /* 2026-09-14 2nd pass (user's decision): the panel's `.tut-skip` button is gone and skipping moved to the **ESC
+     menu** (`ui/menus/PauseMenu` — while the tutorial runs, the `함선으로 귀환` entry becomes `튜토리얼 건너뛰기`).
+     So what is checked here is that the path really ends the track — the confirm is `.pause-ask`'s 1 s hold. */
   console.log('건너뛰기 (ESC 메뉴)');
   const pauseSkip = await P(async () => {
     window.__game.ctx.bus.emit('game:paused', { paused: true, freeze: false });
@@ -908,7 +962,7 @@ try {
   });
   ok(askCard.open && /건너뛰기/.test(askCard.title ?? '') && askCard.hold && askCard.danger,
     '경고 팝업 + 1초 홀드 확인 (Enter 로는 확정되지 않는다)', JSON.stringify(askCard));
-  /* 취소하면 하던 단계 그대로다 — 실제로 건너뛰지는 않는다 (아래 6절이 같은 저장을 계속 쓴다). */
+  /* Cancelling leaves the step as it was — nothing is really skipped (6 below keeps using the same save). */
   const cancelled = await P(async () => {
     document.querySelector('.pause-ask')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     const cancel = [...document.querySelectorAll('.pause-ask-foot .ui-btn')].find((b) => /취소/.test(b.textContent ?? ''));
@@ -925,7 +979,7 @@ try {
   ok(cancelled.closed && cancelled.track === 'build', '취소하면 하던 트랙 그대로', JSON.stringify(cancelled));
   ok(await step() === 'craftGun', '취소하면 하던 단계 그대로');
 
-  /* ── 6. 진행이 새로고침을 견딘다 ──────────────────────────────────────── */
+  /* ── 6. The progress survives a reload ────────────────────────────────── */
   console.log('저장');
   const saved = await P(() => JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'));
   ok(saved && saved.version === 2 && saved.tracks?.build?.step === 'craftGun' && saved.granted === true,
@@ -938,8 +992,9 @@ try {
   await sleep(300);
   ok(await step() === 'craftGun', '새로고침 후에도 같은 단계에서 이어진다');
 
-  /* 2026-09-09: `openCraft` 는 순서에서 빠졌지만 id 는 계약(`TutorialStepId`)에 남아 있다 — 그 단계를 들고 있던
-     저장은 자리를 이어받은 `craftAmmo` 로 이어진다 (`Steps.normalizeStep`). 저장이 깨져 처음부터 돌지 않는다. */
+  /* 2026-09-09: `openCraft` left the order but its id stays in the contract (`TutorialStepId`) — a save holding that
+     step continues at `craftAmmo`, which took its place (`Steps.normalizeStep`). The save does not break and start
+     over. */
   await P(() => {
     const s = JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? '{}');
     s.tracks.build.step = 'openCraft';
@@ -958,7 +1013,7 @@ try {
   const staleObjs = await P(() => [...window.__game.getSystem('tutorial').done]);
   ok(['craftGunWalk', 'craftGunOpen', 'craftGunMade'].every((id) => staleObjs.includes(id)) && !staleObjs.includes('craftAmmoMade'),
     '그 자리에서 이미 한 줄(이동 · 작동 · 소총)이 채워진다 — 준중량탄부터 이어진다', JSON.stringify(staleObjs));
-  // 2026-09-17: 묶여 없어진 다른 id 도 — `manageDone` 은 bench 의 마지막 줄 앞까지 채워진 채로
+  // 2026-09-17: and the other ids that vanished into a group — `manageDone` arrives with bench filled to its last row
   await P(() => {
     const s = JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? '{}');
     s.tracks.build.step = 'manageDone';
@@ -969,12 +1024,14 @@ try {
   await enterShip();
   await sleep(300);
   const staleBench = await P(() => ({ step: window.__game.ctx.tutorial.step, done: [...window.__game.getSystem('tutorial').done] }));
-  // 하우징 모드는 새로고침으로 닫혀 있다 → 「하우징 모드 닫기」는 할 일이 없어 그대로 다음 단계 (옛 `manageDone` 의 조용히 지나치기)
+  // The reload left ship management closed → 「하우징 모드 닫기」 has nothing to do, so it goes straight on (the old
+  // `manageDone`'s silent pass)
   ok(staleBench.step === 'craftGun', `manageDone 저장은 bench 로 옮겨지고, 관리 모드가 닫혀 있으면 곧장 craftGun 이다 (${staleBench.step})`, JSON.stringify(staleBench));
-  /* 2026-09-18 (증축 안내 · 출격 안내 분리): 저장된 단계가 **다른 트랙의 것**이 됐다. `board` 는 옛 순서에서 빠져
-     `terminal` 로 접히고, 그 `terminal` 은 이제 「출격 안내」(`raid2`)의 것이다 — 버리면 그 사람의 안내가 통째로
-     사라지므로 `load()` 가 그 트랙으로 **옮기고** 지나온 증축 트랙은 끝난 것으로 적는다 (다시 하지 않는다).
-     그 자리에서 이미 한 줄(`Steps.retiredObjectives`)도 함께 따라온다. */
+  /* 2026-09-18 (증축 안내 · 출격 안내 split apart): a saved step became **another track's**. `board` left the old
+     order and folds into `terminal`, and that `terminal` now belongs to 「출격 안내」 (`raid2`) — throwing it away
+     would lose that player's guidance whole, so `load()` **moves** it to that track and writes the build track it
+     already passed as done (it is not run again). The rows already ticked there (`Steps.retiredObjectives`) come
+     along too. */
   await P(() => {
     const s = JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? '{}');
     s.tracks.build = { step: 'board', done: false };
@@ -1010,17 +1067,17 @@ try {
   await P(() => window.__game.ctx.tutorial.goto('craftGun'));
   await sleep(150);
 
-  /* ── 7. 콘솔 명령 + 남은 단계 ─────────────────────────────────────────── */
+  /* ── 7. The console command + the steps left ──────────────────────────── */
   console.log('콘솔 · 남은 단계');
-  await P(() => window.__game.ctx.tutorial.goto('planet'));   // 2026-09-17: → terminal (2026-09-18: 그 단계는 이제 출격 안내다)
-  // PLANET_IDS[0] = 'amber' 만 허용된다
+  await P(() => window.__game.ctx.tutorial.goto('planet'));   // 2026-09-17: → terminal (2026-09-18: that step is 출격 안내 now)
+  // Only PLANET_IDS[0] = 'amber' is allowed
   const planetGate = await P(() => {
     const hub = window.__game.getSystem('hub');
     return { first: hub.travelBlockReason('amber'), second: hub.travelBlockReason('mossy') };
   });
   ok(planetGate.first === null, `첫 번째 행성은 허용된다 (${JSON.stringify(planetGate.first)})`);
   ok(planetGate.second !== null && /첫 번째/.test(planetGate.second), `그 외 행성은 거부된다 ("${planetGate.second}")`);
-  // 2026-09-15: 게이트 `matchmaking` 은 터미널의 **매칭 탭**째 감춘다 — 탭을 골라도 행성 탭에 머문다
+  // 2026-09-15: the `matchmaking` gate hides the terminal's **매칭 tab** outright — choosing the tab stays on 행성
   const tutTabs = await P(() => {
     const menu = window.__game.getSystem('hub').menu;
     menu.open();
@@ -1032,8 +1089,8 @@ try {
   });
   ok(tutTabs.matchHidden && tutTabs.tab === 'planet' && tutTabs.matchPane === true && tutTabs.arrowsHidden,
     '튜토리얼 중에는 터미널 매칭 탭이 숨고 행성 탭에 머문다 (행성 넘김도 감춘다)', JSON.stringify(tutTabs));
-  /* 2026-09-17: 한 단계 안에서도 순서를 지킨다 — 포드는 「발사 슬롯으로 이동」 줄이 열린 뒤에야 열린다 (목표별 `allow`).
-     훈련장 버튼 · 준비 경고는 증축 트랙 내내 감춰진다. */
+  /* 2026-09-17: the order holds inside a single step too — the pod opens only once the 「발사 슬롯으로 이동」 row is
+     open (`allow` per objective). The training-range button · the ready warning stay hidden for the whole track. */
   const termGate = await P(() => {
     const t = window.__game.ctx.tutorial;
     const it = window.__game.ctx.interactables.all().find((i) => i.id === 'hub_pod_0');
@@ -1057,17 +1114,18 @@ try {
   });
   ok(boardOk.block === null && !/튜토리얼/.test(boardOk.prompt ?? '튜토리얼'), `워프가 끝나 「발사 슬롯으로 이동」이 열리면 포드가 열린다 ("${boardOk.prompt}")`, JSON.stringify(boardOk));
 
-  /* 2026-09-18 (사용자 보고 — 「발사 슬롯에서 준비를 마치면 바닥 안내선이 딴 데를 가리킨다」): 필수 목표를 **전부**
-     끝낸 단계에는 걸어갈 곳도 밝힐 것도 없다. 예전에는 목표 줄이 다 끝나면 단계의 `guide`(조종석) · `spot` 으로
-     되돌아가, 포드에 타고 준비까지 마친 사람에게 「조종석으로 가라」는 선이 발사까지 깔려 있었다.
-     실제로 선을 까는지는 플레이어와 목표 사이의 거리를 타므로(`parts/Guide.update` 의 `GUIDE_ARRIVE`)
-     **안내선의 대상 id** 로 본다. */
+  /* 2026-09-18 (the report 「발사 슬롯에서 준비를 마치면 바닥 안내선이 딴 데를 가리킨다」): a step whose required
+     objectives are **all** done has nowhere to walk to and nothing to light. The step used to fall back to its own
+     `guide` (the cockpit) · `spot` once every objective row was done, so someone already aboard the pod and readied
+     up had a 「walk to the cockpit」 line lying there until launch. Whether the line is really laid depends on the
+     distance between the player and the target (`GUIDE_ARRIVE` in `parts/Guide.update`), so it is judged by **the
+     guide's target id**. */
   const doneStep = await P(() => {
     const sys = window.__game.getSystem('tutorial');
-    const at = sys.guide.targetId;                 // 「발사 슬롯으로 이동 · 탑승」 줄 → 포드
+    const at = sys.guide.targetId;                 // the 「발사 슬롯으로 이동 · 탑승」 row → the pod
     sys.markObjective('boardWalk');
     sys.markObjective('boardOn');
-    const ready = sys.guide.targetId;              // 「시작 준비」 줄 → 걸어갈 곳 없음 (`guide: null`)
+    const ready = sys.guide.targetId;              // the 「시작 준비」 row → nowhere to walk (`guide: null`)
     sys.markObjective('readyHold');
     return {
       at, ready, after: sys.guide.targetId, step: sys.step, track: sys.track,
@@ -1079,7 +1137,7 @@ try {
   ok(doneStep.after === null && doneStep.spot === true && doneStep.step === 'terminal',
     '준비까지 끝나면 안내선도 포커싱도 걷힌다 — 단계의 조종석 안내선으로 되돌아가지 않는다', JSON.stringify(doneStep));
 
-  /* ── 7b. 마지막 레이드 단계 (2026-09-17) — 목표 줄 · 진행 수 · 조작 가이드, 그리고 함선으로 돌아오면 끝 (완료 토스트 없음) ── */
+  /* ── 7b. Last raid step (2026-09-17) — objective row · count · guide, ends back in the ship (no completion toast) ──────── */
   await P(() => window.__game.ctx.tutorial.goto('raid'));
   await sleep(700);
   const raidStep = await P(() => ({
@@ -1103,13 +1161,14 @@ try {
   ok(fold.folded && fold.list === 'none' && /\] ?조작 가이드 표시$/.test(fold.line ?? '') && !fold.hidden,
     `접으면 같은 자리에 「] 조작 가이드 표시」 한 줄만 남는다 ("${fold.line}")`, JSON.stringify(fold));
 
-  /* 2026-09-18 (사용자 결정): 이 단계의 진행 바는 **단계 수가 아니라 전리품 가치**다. 채움은 1 에서 잘리지만 바 위의
-     숫자는 **실제 값**이다 — 1,400 C 를 들고 있는 사람에게 `1,000 C / 1,000 C` 라고 적으면 더 챙긴 것이 없어진 것처럼
-     보인다. 목표 값은 csv(`TUTORIAL_RAID_EXTRACT_VALUE_C`)에서 읽으므로 여기에 숫자를 적지 않는다. */
+  /* 2026-09-18 (user's decision): this step's progress bar measures **the loot value, not the step count**. The fill
+     is clipped at 1 but the number above the bar is the **real value** — writing `1,000 C / 1,000 C` for someone
+     carrying 1,400 C reads as if the extra had disappeared. The goal value is read from the csv
+     (`TUTORIAL_RAID_EXTRACT_VALUE_C`), so no number is written here. */
   const gauge = await P(() => {
     const sys = window.__game.getSystem('tutorial');
-    const ko = (n) => Math.round(n).toLocaleString('ko-KR');     // `shared/formatCredits` 의 자리 구분
-    const en = (n) => Math.round(n).toLocaleString('en-US');     // 목표 줄 꼬리표(`ui/Panel.countText`)
+    const ko = (n) => Math.round(n).toLocaleString('ko-KR');     // the grouping commas of `shared/formatCredits`
+    const en = (n) => Math.round(n).toLocaleString('en-US');     // the objective row's tag (`ui/Panel.countText`)
     const bar = () => {
       const el = document.querySelector('.tut-panel .tut-bar-n');
       return {
@@ -1119,7 +1178,7 @@ try {
     };
     const total = sys.panelInfo()?.gauge?.total ?? 0;
     const zero = bar();
-    const over = Math.round(total * 1.4);                        // 목표를 넘겨 든 사람
+    const over = Math.round(total * 1.4);                        // someone carrying past the goal
     sys.raidValue = over;
     sys.panel.setGauge(sys.raidGauge());
     sys.panel.setCounts(sys.objectiveCounts());
@@ -1135,10 +1194,12 @@ try {
   ok(/scaleX\(1(\.0+)?\)/.test(gauge.full.fill ?? ''), `바의 채움은 1 에서 잘린다 (${gauge.full.fill})`);
   ok((gauge.row ?? '').endsWith(gauge.wantRow), `목표 줄의 꼬리표는 목표 값에서 멈춘다 (${gauge.row})`);
 
-  /* 2026-09-18 (사용자 결정 — 「튜토리얼 레이드에서는 지도에도 목표를 띄운다」): 전술 지도 좌측 열 **맨 위**에 같은 목표가
-     선다 (`ui/map/QuestPanels` 의 튜토리얼 패널, NPC 퀘스트 목록보다 위). 원본은 `ctx.tutorial.panelInfo()` 하나라 두 화면이
-     어긋날 수 없다. 지도 자체는 월드가 있어야 열리므로(`MapScreen.open` 의 `world.ready`) 함선에서는 그 패널만 직접 다시
-     그리고, 「지도가 열렸다」는 사실은 버스로 알린다 — 그동안 떠 있는 목표 패널은 접힌다 (두 벌로 겹치지 않게). */
+  /* 2026-09-18 (user's decision — 「튜토리얼 레이드에서는 지도에도 목표를 띄운다」): the same objectives stand **at
+     the very top** of the tactical map's left column (the tutorial panel in `ui/map/QuestPanels`, above the NPC quest
+     list). There is one source, `ctx.tutorial.panelInfo()`, so the two screens cannot go out of step. The map itself
+     only opens with a world (`world.ready` in `MapScreen.open`), so in the ship only that panel is redrawn directly
+     and 「the map opened」 is announced over the bus — while it is open the floating objective panel folds away (so
+     the same objectives never appear twice). */
   const mapPanel = await P(() => {
     const ctx = window.__game.ctx;
     window.__game.getSystem('hud').map.quests.refresh(true);
@@ -1167,7 +1228,8 @@ try {
   ok(mapPanel.whileOpen === true && mapPanel.afterClose === false,
     '지도가 열려 있는 동안에는 떠 있는 목표 패널이 접힌다 (같은 목표가 두 벌로 겹치지 않게)', JSON.stringify(mapPanel));
   const nNotify = await P(() => window.__ev['ui:notify'].length);
-  // 함선 진입 처리만 부른다 (가짜 `hub:entered` 를 버스에 흘리면 다른 시스템까지 함선에 들어선 줄 안다)
+  // Only the ship-entry handling is called (a fake `hub:entered` on the bus would make every other system think the
+  // ship had been entered)
   await P(() => window.__game.getSystem('tutorial').onHubEntered('personal'));
   await sleep(300);
   const raidEnd = await P((n) => ({
@@ -1176,11 +1238,12 @@ try {
   }), nNotify);
   ok(!raidEnd.active && raidEnd.fin?.skipped === false && raidEnd.fin?.track === 'raid2', '레이드 단계로 함선에 돌아오면 출격 안내가 끝난다 (한 번뿐)', JSON.stringify(raidEnd));
   ok(!raidEnd.toasts.some((t) => /완료/.test(t)), `트랙 완료 토스트는 뜨지 않는다 (${raidEnd.toasts.join(' | ')})`);
-  // 다음 절(건너뛰기)을 위해 **증축** 트랙을 다시 켜고, 출격 트랙은 아직 시작 전으로 되돌린다 (2026-09-18)
+  // For the next section (skipping), the **build** track is turned on again and the launch track is put back to
+  // not-yet-started (2026-09-18)
   await P(() => { const t = window.__game.ctx.tutorial; t.start(); t.goto('craftGun'); window.__game.getSystem('tutorial').save.tracks.raid2 = { step: null, done: false }; });
   await sleep(150);
 
-  /* ── 8. 건너뛰면 모든 제한이 풀린다 ──────────────────────────────────── */
+  /* ── 8. Skipping releases every restriction ──────────────────────────── */
   await P(() => window.__game.ctx.tutorial.skip());
   await sleep(150);
   const after = await P(() => {
@@ -1210,7 +1273,7 @@ try {
   ok(mapEmpty.hidden === true && mapEmpty.info === null,
     '도는 트랙이 없으면 지도의 목표 패널도 그리지 않는다 (퀘스트 목록과 같은 규칙)', JSON.stringify(mapEmpty));
 
-  /* ── 9. 이미 하던 프로필에는 켜지지 않는다 ──────────────────────────── */
+  /* ── 9. It never turns on for a profile already in play ─────────────── */
   console.log('기존 프로필');
   await P(() => { try { localStorage.removeItem('scav.s1.tutorial'); } catch { /* off */ } });
   await page.reload({ waitUntil: 'load' });

@@ -60,9 +60,9 @@ try {
   // 2026-09-07 (커서 rework): the fake is a *realistic* lock — cursor screens really do release it now and the
   // relock is `main.ts`'s job, so a stub that stayed locked forever would hide both halves of the mechanism.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and
+    // locks room purposes · crafting · the terminal · boarding in that order, so it is marked "already finished"
+    // here (the tutorial itself is what scripts/smoke-tutorial.mjs checks).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     window.__lockCalls = { req: 0, exit: 0 };
     window.__lockEl = null;
@@ -78,9 +78,10 @@ try {
   page.on('pageerror', (e) => errors.push(String(e)));
   // fresh profile / stash / bindings
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  // C-9 · X-8 (2026-09-11): 버전 없는 **옛 키 설정 블롭**을 심는다 — `SWAP`(이전 무기)은 목록에서 빠진 액션이고
-  // `RELOAD=V` 는 새 기본 `DIVE=V`(구르기)와 겹친다. 부팅이 리포트를 모으고 타이틀이 한 번 알린 뒤 은퇴 줄을 지워야 한다.
-  // 겹침은 블롭에 남으므로 섹션 2 가 키 설정 화면에서 그 겹침을 보고 `초기화` 로 걷어낸 뒤 원래 검사를 이어 간다.
+  // C-9 · X-8 (2026-09-11): seeds a versionless **old keybind blob** — `SWAP` (`이전 무기`) is an action that left
+  // the list, and `RELOAD=V` clashes with the new default `DIVE=V` (`구르기`). Boot has to collect the report, the
+  // title has to notify once, and the retired line then has to go. The clash stays in the blob, so section 2 sees
+  // it in the key-settings screen, sweeps it away with `초기화` and carries on with the original checks.
   await page.evaluate(() => { localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); localStorage.setItem('scav.keybinds', JSON.stringify({ SWAP: 'KeyX', RELOAD: 'KeyV' })); });
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await waitFor(page, () => !!window.__game?.ctx, 'engine boot');
@@ -118,7 +119,7 @@ try {
     await el.click();
   };
 
-  /* ── 0. 옛 키 설정 리포트 → 타이틀 알림 (C-9 · X-8) ─────────────────── */
+  /* ── 0. Old keybind report → title notice (C-9 · X-8) ───── */
   await waitFor(page, () => !document.querySelector('.menu.title')?.classList.contains('hidden'), 'title shown');
   const kbn = await page.evaluate(() => {
     const n = window.__game.getSystem('hud').keybindNotice;
@@ -140,16 +141,18 @@ try {
   ok(await page.evaluate(() => document.querySelector('.menu.title .kb-notice').hidden && !window.__game.getSystem('hud').keybindNotice.on), '확인 closes the card');
 
   /* ── 1. 설정 → 키 설정: controls diagram ──────────────────────────────
-     2026-09-09: 타이틀은 워드마크 + `게임 시작` / `설정` / `종료` 세 버튼뿐이다. 조작 다이어그램과
-     `키 설정 변경` 은 설정 메뉴의 `키 설정` 구획(`SettingsMenu.buildKeys`)으로 옮겨 갔다. */
+     2026-09-09: the title is nothing but the wordmark + the three buttons `게임 시작` / `설정` / `종료`. The
+     controls diagram and `키 설정 변경` moved into the settings menu's `키 설정` section
+     (`SettingsMenu.buildKeys`). */
   const home = await page.evaluate(() => ({
-    // 2026-09-15: `이어하기` 는 이어할 레이드가 있을 때만 보인다 (`hidden`) — 보이는 버튼만 센다
+    // 2026-09-15: `이어하기` is only shown when there is a raid to resume (`hidden`) — only visible buttons are counted
     buttons: [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].filter((b) => !b.hidden).map((b) => b.textContent),
     noPanel: !document.querySelector('.menu.title .controls-panel'),
     noName: !document.querySelector('.menu.title .ui-input'),
-    // 2026-09-09: 프레임의 scrollWidth 는 재지 않는다 — `.wordmark` 는 마지막 글자의 letter-spacing 을
-    // 음수 오른쪽 마진으로 상쇄하므로 border box 보다 딱 그만큼 넓게 나온다 (보이지 않는 장부상의 넘침).
-    // 실제로 문제가 되는 것은 **페이지가 가로로 스크롤되는가** 와 프레임이 화면 안에 있는가 둘뿐이다.
+    // 2026-09-09: the frame's scrollWidth is not measured — `.wordmark` offsets the last letter's letter-spacing
+    // with a negative right margin, so it reads exactly that much wider than its border box (an overflow on paper
+    // that is never seen). The only two things that really matter are **whether the page scrolls horizontally**
+    // and whether the frame is inside the screen.
     frame: (() => {
       const f = document.querySelector('.menu.title .frame').getBoundingClientRect();
       const d = document.documentElement;
@@ -187,7 +190,8 @@ try {
   /* ── 2. key rebinding overlay ─────────────────────────────────────── */
   await page.evaluate(() => [...document.querySelectorAll('.set-body.keys .ui-btn')].find((b) => b.textContent === '키 설정 변경').click());
   ok(await page.evaluate(() => !document.querySelector('.menu.keybind-menu').hidden), 'key-settings overlay opened');
-  // C-9 · X-8: 옛 블롭의 겹침은 알린 뒤에도 남아 있다 — 키 설정 화면이 같은 두 줄을 겹침으로 칠한다. 초기화로 걷어낸다.
+  // C-9 · X-8: the old blob's clash survives the notice — the key-settings screen paints the same two rows as a
+  // clash. `초기화` sweeps it away.
   const legacy = await page.evaluate(() => [...document.querySelectorAll('.kb-row.conflict .kb-label')].map((n) => n.textContent));
   ok(legacy.length === 2 && legacy.some((l) => l.startsWith('재장전')) && legacy.includes('구르기'), `legacy RELOAD=V still flagged against 구르기 in the key menu (${legacy.join(' / ')})`);
   await page.evaluate(() => [...document.querySelectorAll('.kb-foot .ui-btn')].find((b) => b.textContent.includes('초기화')).click());
@@ -231,9 +235,10 @@ try {
   await keyDown('Escape'); await keyUp('Escape');
   ok(await page.evaluate(() => document.querySelector('.menu.settings-menu').hidden && !document.querySelector('.menu.title').hidden), 'Esc closed 설정, title still up');
 
-  /* ── 2.5 설정 › 서버 설정 (2026-09-10) ───────────────────────────────
-     배포본에서 다른 PC 의 서버로 붙는 유일한 창구다. 여기서 재접속을 **실행하지는 않는다** — 뒤 섹션이
-     쓰는 연결을 끊어 버리므로, 저장 · 검사 · 정규화만 보고 마지막에 저장을 비운다. */
+  /* ── 2.5 설정 › 서버 설정 — the relay address (2026-09-10) ───────────
+     This is the only way into another PC's server from a build. The reconnect is **not run** here — it would cut
+     the connection the later sections use, so only the save · the format check · normalisation are read, and the
+     save is emptied at the end. */
   await page.evaluate(() => [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].find((b) => b.textContent === '설정').click());
   await waitFor(page, () => !document.querySelector('.menu.settings-menu')?.hidden, '설정 메뉴 열림');
   const navLabels = await page.evaluate(() => [...document.querySelectorAll('.menu.settings-menu .set-nav .set-nav-btn')].map((b) => b.textContent));
@@ -243,7 +248,7 @@ try {
     shown: !document.querySelector('.set-body.network')?.hidden,
     input: !!document.querySelector('.set-body.network .set-text'),
     buttons: [...document.querySelectorAll('.set-body.network .set-net-foot .ui-btn')].map((b) => b.textContent),
-    // 아무것도 안 적혀 있으면 세 버튼 전부 잠겨 있다 (바꿀 것이 없다).
+    // with nothing typed in, all three buttons are locked (there is nothing to change).
     locked: [...document.querySelectorAll('.set-body.network .set-net-foot .ui-btn')].every((b) => b.disabled),
     note: document.querySelector('.set-body.network .set-hint')?.textContent ?? '',
     stored: localStorage.getItem('scav.relay'),
@@ -253,7 +258,8 @@ try {
   ok(net0.locked, '빈 칸에서는 세 버튼이 모두 잠겨 있다');
   ok(net0.stored === null, '아직 저장된 주소가 없다');
 
-  // 형식 검사와 정규화는 `shared/net.relayUrlFrom` 하나가 판단한다 (셸 · 서버 배너와 같은 함수).
+  // the format check and normalisation are decided by `shared/net.relayUrlFrom` alone (the same function as the
+  // shell · server banner).
   const rules = await page.evaluate(() => {
     const net = window.__game.ctx.net;
     const bad = net.setRelayOverride('::::');
@@ -264,10 +270,11 @@ try {
   ok(rules.good === true && rules.stored === '192.168.0.12', '주소가 슬롯 접두사 없는 공용 키에 저장된다 (scav.relay)');
   ok(rules.url === 'ws://192.168.0.12:8787/ws', `defaultUrl 이 그 주소로 갈린다 (${rules.url})`);
 
-  // 살아 있는 접속을 끊지 않는 익명 probe: 닿지 않는 주소는 실패로, 지금 서버는 성공으로 돌아온다.
+  // an anonymous probe that does not cut the live connection: an unreachable address comes back as a failure,
+  // the current server as a success.
   const probes = await page.evaluate(async () => {
     const net = window.__game.ctx.net;
-    // TEST-NET-1 (RFC 5737) — 라우팅되지 않는다.
+    // TEST-NET-1 (RFC 5737) — not routed.
     const dead = await net.probeRelay('192.0.2.1');
     net.setRelayOverride('');
     const live = await net.probeRelay();
@@ -298,20 +305,24 @@ try {
       tabs: [...root.querySelectorAll('.scr-tab')].map((b) => `${b.textContent}${b.disabled ? '(off)' : ''}${b.classList.contains('is-on') ? '*' : ''}`).join(' '),
       implantSlot: !!root.querySelector('.inv-slot-implant'),
       order,
-      // 2026-09-14 (사용자 결정): 중앙 하단 안내 알약 바(`.inv-hints`)는 삭제됐다 — 우측 하단 키 가이드와 겹쳤다.
+      // 2026-09-14 (user's decision): the bottom-centre hint pill bar (`.inv-hints`) was deleted — it overlapped
+      // the bottom-right key guide.
       hints: !root.querySelector('.inv-hints'),
       quickRight: (() => { const g = root.querySelector('.inv-grid-bag').getBoundingClientRect(); const q = root.querySelector('.inv-quick').getBoundingClientRect(); return q.left >= g.right - 4; })(),
-      /* 2026-09-15 3차: 장비 | 창고 | 가방 → 2026-09-16 (사용자 결정): **창고 | 장비 | 가방** (장비가 가운데, 세 카드가 맞닿는다). */
-      /* ⚠ 레이아웃 좌표(`offsetLeft`)로 잰다 — 창고 카드는 여는 순간 `inv-slide-in`(translateX −14 px) 중이라
-         `getBoundingClientRect` 는 이음매를 14 px 벌어진 것으로 읽는다. 셋 다 `.inv-layout` 의 직속 카드라 기준이 같다. */
+      /* 2026-09-15 3rd pass: 장비 | 창고 | 가방 → 2026-09-16 (user's decision): **창고 | 장비 | 가방** (equipment in
+         the middle, the three cards touching). */
+      /* ⚠ measured in layout coordinates (`offsetLeft`) — the moment it opens the stash card is mid `inv-slide-in`
+         (translateX −14 px), so `getBoundingClientRect` reads the seam as 14 px apart. All three are direct cards
+         of `.inv-layout`, so they share one origin. */
       layoutRects: (() => { const r = (q) => { const x = root.querySelector(q); return [x.offsetLeft, x.offsetLeft + x.offsetWidth]; }; return { stash: r('.inv-panel-stash'), equip: r('.inv-equip'), grids: r('.inv-panel-grids') }; })(),
       equipMid: (() => { const r = (q) => { const x = root.querySelector(q); return [x.offsetLeft, x.offsetLeft + x.offsetWidth]; }; const s = r('.inv-panel-stash'), e = r('.inv-equip'), g = r('.inv-panel-grids'); return Math.abs(e[0] - s[1]) <= 2 && Math.abs(g[0] - e[1]) <= 2 && s[0] < e[0] && e[0] < g[0]; })(),
     };
   });
-  /* ── 2026-09-09: ESC 는 맨 위 화면 하나를 닫는다 ─────────────────────────
-     2026-09-08 에는 Escape 가 화면을 닫지 않고 일시정지 메뉴를 그 위에 쌓기만 했다. 2026-09-09 에 되돌렸다 —
-     커서가 보이면 사람은 그 창을 ESC 로 닫으려 하고, 닫은 뒤의 재락은 셸이 activation 을 만들어 주거나
-     브라우저의 재개 게이트가 받는다 (`game/escapeKey`, `shared/escape`). 메뉴는 스택이 비어 있을 때만 열린다. */
+  /* ── 2026-09-09: ESC closes exactly one screen, the topmost ───
+     On 2026-09-08 Escape closed no screen at all and only stacked the pause menu on top of it. It was put back on
+     2026-09-09 — with a cursor on screen a person tries to close that window with ESC, and the relock afterwards is
+     either handed an activation by the shell or caught by the browser's resume gate (`game/escapeKey`,
+     `shared/escape`). The menu only opens while the stack is empty. */
   const escOverInv = await page.evaluate(async () => {
     const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
     key('Escape', 'keydown'); key('Escape', 'keyup');
@@ -328,7 +339,8 @@ try {
   ok(!escOverInv.inv, 'ESC 가 열린 가방을 닫는다 (2026-09-09)', JSON.stringify(escOverInv));
   ok(!escOverInv.paused, '그 ESC 로 일시정지 메뉴는 열리지 않는다', JSON.stringify(escOverInv));
   ok(escOverInv.blockers.length === 0 && escOverInv.escSize === 0, 'blocker 도 닫기 스택도 비었다', JSON.stringify(escOverInv));
-  // 닫을 화면이 없을 때만 메뉴 — 그리고 메뉴는 화면 위에 그대로 쌓인다 (2026-09-08 규칙은 메뉴 쪽만 남았다).
+  // the menu only when there is no screen to close — and the menu still stacks on top of a screen (only the menu
+  // half of the 2026-09-08 rule is left).
   await tap('Tab');
   await waitFor(page, () => window.__game.ctx.inventory.isOpen, 'bag re-opened under the menu test');
   await page.evaluate(() => window.__game.ctx.bus.emit('game:paused', { paused: true }));
@@ -363,17 +375,18 @@ try {
   // Phase 8: 함선 joined the strip (시설 업그레이드 inside the Tab screen)
   ok(hubScreen.tabs === '인벤토리* 캐릭터 기업 함선', `screen tabs: ${hubScreen.tabs}` + ' (함선 added in Phase 8)');
   // Phase 9 UI pass: the 전술 임플란트 slot left the 장착 장비 column — it is a section of the 캐릭터 tab now
-  // 전술 임플란트는 `LOADOUT_SLOTS` 의 장비칸이 아니다 — 2026-09-12 부터 장비 격자 안에 살지만 여전히 `.inv-implants`
-  // 블록이고 `.inv-slot-implant` 은 없다 (아래 `impTab` 이 그 자리를 본다)
+  // 전술 임플란트 is not a `LOADOUT_SLOTS` equipment slot — since 2026-09-12 it lives inside the equipment grid,
+  // but it is still an `.inv-implants` block and there is no `.inv-slot-implant` (`impTab` below checks that spot)
   ok(!hubScreen.implantSlot, '전술 임플란트는 장비칸(`.inv-slot-*`)이 아니다');
   ok(hubScreen.equipMid, 'layout: stash | equipment | bag (joined)', JSON.stringify(hubScreen.layoutRects));
   ok(hubScreen.quickRight, 'quick-use rose sits right of the bag grid (≥ 1600 px)');
   ok(hubScreen.hints, 'inventory hint bar is gone (2026-09-14: 키 가이드로 합쳐졌다)');
   await shot('03-hub-tab-screen');
 
-  /* 2026-09-09 — 휠은 또 하나의 가방 공간이다: 시작 키트의 수류탄 · 붕대는 **슬롯 안**에 있고 가방 격자에는
-     탄약만 남는다. 아래 두 검사(가방 → 창고 이동, 함선에서 버리면 창고로)는 서로 다른 두 스택이 필요하므로
-     `unregisterQuick` 으로 수류탄을 가방으로 되돌려 온다 — 그 자체가 새 API 의 검사이기도 하다. */
+  /* 2026-09-09 — the wheel is one more bag space: the starter kit's grenade · bandage sit **inside the slots** and
+     only the ammo is left in the bag grid. The two checks below (bag → stash move, and dropping in the ship going
+     to the stash) need two different stacks, so `unregisterQuick` brings the grenade back into the bag — which is
+     a check of the new API in itself. */
   const wheelVsBag = await page.evaluate(() => {
     const inv = window.__game.getSystem('inventory');
     const wheel = inv.getQuickSlots().map((q) => q?.defId ?? null);
@@ -408,7 +421,7 @@ try {
     return !!b;
   }, label);
 
-  /* 캐릭터 탭 레드닷 (2026-09-08): 쓰지 않은 능력치 포인트가 있으면 탭에 빨간 점이 붙는다 */
+  /* The 캐릭터 tab's red dot (2026-09-08): the tab carries a red dot while there are unspent stat points */
   const dot0 = await page.evaluate(() => {
     const b = [...document.querySelectorAll('.inv-root .scr-tab')].find((x) => x.textContent === '캐릭터');
     return { points: window.__game.ctx.progression.statPoints, alert: b.classList.contains('has-alert') };
@@ -423,13 +436,13 @@ try {
   ok(dot1.points > 0 && dot1.alert && dot1.data === String(dot1.points), '레벨업으로 포인트가 생기면 캐릭터 탭에 레드닷이 붙는다', JSON.stringify(dot1));
   const dot2 = await page.evaluate(() => {
     const p = window.__game.ctx.progression;
-    while (p.statPoints > 0 && p.spendStatPoint('strength')) { /* 다 쓴다 */ }
+    while (p.statPoints > 0 && p.spendStatPoint('strength')) { /* spends them all */ }
     const b = [...document.querySelectorAll('.inv-root .scr-tab')].find((x) => x.textContent === '캐릭터');
     return { points: p.statPoints, alert: b.classList.contains('has-alert') };
   });
   ok(dot2.points === 0 && !dot2.alert, '포인트를 다 쓰면 레드닷이 사라진다', JSON.stringify(dot2));
 
-  /* 캐릭터 탭 (2026-09-08): 임플란트 두 블록이 인벤토리로 빠져 능력치 | 숙련도 두 열만 남았다 */
+  /* The 캐릭터 tab (2026-09-08): the implant blocks moved out into the inventory, leaving the columns 능력치 | 숙련도 */
   ok(await toTab('캐릭터'), '캐릭터 탭으로 전환');
   await sleep(220);
   const charTab = await page.evaluate(() => {
@@ -447,19 +460,21 @@ try {
   ok(await toTab('인벤토리'), '인벤토리 탭으로 복귀');
   await sleep(200);
 
-  /* 전술 임플란트 (2026-09-08 · 2026-09-12 장비 격자 안으로): 슬롯 하나를 누르면 카드 목록 팝업이 뜬다 */
+  /* 전술 임플란트 (2026-09-08 · moved inside the equipment grid on 2026-09-12): pressing the one slot raises the
+     card-list popup */
   const impTab = await page.evaluate(() => ({
     cards: document.querySelectorAll('.inv-imp-pop .inv-imp-card').length,
     inEquip: !!document.querySelector('.inv-equip .inv-implants .inv-imp-slot'),
-    /* 2026-09-12 (사용자 결정 A안): 임플란트 칸은 장비 격자 **아래**가 아니라 격자 **안**의 `implant` 칸이다
-       (주무기 II 아래 · 주머니 왼쪽). 좁은 폭에서 격자가 한 줄로 풀려도 순서가 유지되도록 DOM 에서도
-       `pouch` 칸 바로 앞에 끼워 넣는다 (`ui/InventoryUI` 의 `eqGrid.insertBefore`). */
+    /* 2026-09-12 (user's decision, option A): the implant slot is not **below** the equipment grid but the
+       `implant` slot **inside** it (under 주무기 II · left of the pouch). So the order survives the grid unwrapping
+       into one row at a narrow width, it is inserted right before the `pouch` slot in the DOM too
+       (`eqGrid.insertBefore` in `ui/InventoryUI`). */
     inGrid: !!document.querySelector('.inv-equip > .inv-equip-grid > .inv-implants'),
     beforePouch: document.querySelector('.inv-equip-grid > .inv-implants')?.nextElementSibling?.classList.contains('inv-slot-pouch') ?? false,
     items: !!document.querySelector('.inv-equip .inv-implants .inv-impitems .inv-impi-add'),
     popHidden: document.querySelector('.inv-imp-pop')?.hidden,
   }));
-  // 2026-09-15: 대전차포(`atlauncher`)는 은퇴 — 카드는 5종이고 피커에 그 카드가 없어야 한다
+  // 2026-09-15: the 대전차포 (`atlauncher`) is retired — there are 5 cards and that one must not be in the picker
   ok(impTab.cards === 5 && impTab.inEquip && impTab.popHidden === true,
     `인벤토리 장착 장비 열에 임플란트 칸 + 닫힌 카드 팝업 5종 (${impTab.cards})`);
   ok(await page.evaluate(() => !document.querySelector('.inv-imp-pop .inv-imp-card[data-id="atlauncher"]')
@@ -468,7 +483,7 @@ try {
     '은퇴한 대전차포는 피커 · getAllDefs 에 없고 setEquipped 도 거절한다');
   ok(impTab.inGrid && impTab.beforePouch && impTab.items,
     '임플란트 칸이 장비 격자 **안**(주머니 칸 바로 앞)이고 임플란트 아이템 블록도 함께 있다', JSON.stringify(impTab));
-  // 장착 칸을 누르면 팝업이 열리고, 카드를 고르면 장착 후 닫힌다
+  // pressing the equip slot opens the popup, and picking a card equips it and closes
   await page.evaluate(() => document.querySelector('.inv-equip .inv-implants .inv-imp-slot').click());
   await sleep(120);
   ok(await page.evaluate(() => document.querySelector('.inv-imp-pop').hidden === false), '장착 칸 클릭 → 임플란트 목록 팝업');
@@ -555,7 +570,8 @@ try {
       btn: btn?.textContent ?? null, sticky: btn ? getComputedStyle(btn.parentElement).position : null };
   });
   ok(ship.bg !== 'none' && ship.border !== '0px', `the Tab screen has its own panel background (${ship.border} border)`);
-  // 2026-09-12 (사용자 결정): 기본 개인 함선의 방은 10 → 8 개 (SHIP_ROOM_COUNT — 조종석은 Tab 함선 탭의 방 목록에 들지 않는다)
+  // 2026-09-12 (user's decision): a default personal ship has 10 → 8 rooms (SHIP_ROOM_COUNT — the cockpit is not
+  // in the room list of the Tab screen's 함선 tab)
   ok(ship.cols && ship.facilities.join(',') === 'generator,storage' && ship.rooms === 8, `기본 시설 발전기 · 창고 left, 방 목록 (${ship.rooms}) right (${ship.facilities.join(',')})`);
   ok(ship.pickers === 0 && ship.room0Name === '빈 방', `방 목록 has no 용도 드롭다운, rows read the purpose name ('${ship.room0Name}')`);
   ok(!ship.room0Del, '빈 방 offers no 시설 제거 button (2026-09-07: 방 1 is empty on a new ship)');
@@ -640,7 +656,7 @@ try {
     cw = await corner();
     ok(cw.ship === 'shared' && !cw.hint && !cw.hintDom && cw.community, `shared ship: no 시설 관리 hint, 커뮤니티 shown (${JSON.stringify({ hint: cw.hint, community: cw.community, blockers: cw.blockers })})`);
 
-    /* ── 3c. B-6 (2026-09-11): 서버가 옮겨 준 분대 이동 — 공유 함선 A → B 는 도킹 컷씬 한 번 ──
+    /* ── 3c. B-6 (2026-09-11): a squad move the server made — shared ship A → B is one docking cutscene ──
        The relay's `lobby:left {reason:'moved', to}` + the new `lobby:state` are fed straight into the net system's
        message handler (the shared relay here runs older code). Then the old relay's plain `lobby:left` → `lobby:state`
        pair, which used to finish its undock into the personal ship with a lobby and never dock (measured before the fix). */
@@ -659,8 +675,9 @@ try {
     await page.evaluate((l) => { const net = window.__game.getSystem('net'); net._lobby = l; }, lobbyOf('MOVEAA', 'peer-a'));
     await feedMove([{ t: 'lobby:left', reason: 'moved', to: 'MOVEBB' }, { t: 'lobby:state', lobby: lobbyOf('MOVEBB', 'peer-b') }]);
     let mv = await hubState();
-    /* 2026-09-15 (분대 · 도킹 매칭): 남이 도킹해 둔 로비로 옮겨지면(초대 수락) 곧장이 아니라 **카운트다운 → 페이드 → 도킹** 이다
-       (내가 누른 도킹 · `dockPending` 만 곧장). 여전히 도킹 해제 컷씬은 없다. */
+    /* 2026-09-15 (분대 · 도킹 매칭): being moved into a lobby someone else docked (accepting an invite) is not
+       immediate but **countdown → fade → docking** (only a dock I pressed myself · `dockPending` is immediate).
+       There is still no undock cutscene. */
     ok(mv.cut === null && mv.lobby === 'MOVEBB' && mv.dock.length === 0 && await page.evaluate(() => window.__game.getSystem('hub').squadDockSeconds > 0),
       `moved into a docked lobby: no undock, the squad-dock countdown runs first (${JSON.stringify(mv)})`);
     await waitFor(page, () => window.__game.getSystem('hub').cutscene?.direction === 'dock', 'moved → countdown → docking cutscene', 60000);
@@ -701,7 +718,7 @@ try {
     const f = document.querySelector('.menu.hub-menu .frame');
     return {
       sw: f.scrollWidth, cw: f.clientWidth, sh: f.scrollHeight, ch: f.clientHeight, ov: getComputedStyle(f).overflow, tabs: document.querySelectorAll('.hub-tab').length, panels: document.querySelectorAll('.imp-list, .rep-list').length,
-      // 2026-09-15: 상단 탭은 인벤토리 Tab 화면과 같은 `.scr-tab` 두 장 (행성 / 매칭)
+      // 2026-09-15: the top tabs are the same two `.scr-tab` as the inventory Tab screen (행성 / 매칭)
       topTabs: [...document.querySelectorAll('.menu.hub-menu .hub-tabs .scr-tab')].map((b) => b.textContent),
     };
   });
@@ -736,7 +753,7 @@ try {
   });
   ok(art.installed && art.blanket, 'the procedural cursor art is generated into a data: image and applied to everything', JSON.stringify(art));
   ok(art.mirrored > 10, `every stylesheet cursor affordance is mirrored onto the game art (${art.mirrored} selectors)`);
-  // A click in 커서 모드 belongs to the UI: it must never reach the gameplay button set (which would fire the gun).
+  // A click in cursor mode belongs to the UI: it must never reach the gameplay button set (which would fire the gun).
   const clickGate = await page.evaluate(() => {
     window.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true, clientX: 500, clientY: 400 }));
     const seen = window.__game.ctx.input.wasMousePressed(0) || window.__game.ctx.input.isMouseDown(0);
@@ -756,7 +773,7 @@ try {
   ok(afterTerm.cursor === false && afterTerm.mode === false, 'closing the terminal leaves 커서 모드');
   ok(afterTerm.locked, 'the pointer lock is back the moment the last cursor owner leaves (main.ts relock)');
 
-  /* 2026-09-10: Alt 커서는 제거됐다 — Alt 는 커서도 blocker 도 만들지 않고, 락도 그대로다. */
+  /* 2026-09-10: the Alt cursor was dropped — Alt makes neither a cursor nor a blocker, and the lock is untouched. */
   const alt = await page.evaluate(async () => {
     const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
     key('AltLeft', 'keydown'); key('AltLeft', 'keyup');
@@ -774,7 +791,7 @@ try {
   // The menu only closes on 게임으로 돌아가기 (in the browser) — a second Escape is inert on it.
   const pauseEsc = await page.evaluate(async () => {
     const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
-    // 스택이 빈 상태의 Escape 가 메뉴를 연다 (터미널은 위에서 닫혔다).
+    // an Escape on an empty stack opens the menu (the terminal was closed above).
     key('Escape', 'keydown'); key('Escape', 'keyup');
     await new Promise((r) => setTimeout(r, 120));
     window.__game.frame(performance.now());
@@ -793,7 +810,7 @@ try {
 
   /* 2026-09-08: an unlock we did not ask for **is** the Escape key — the browser eats the keydown to free the
      cursor, so `pointerlockchange` is the only evidence the player pressed it. `Input.onUserUnlock` → `main.ts` →
-     `input:pointerLockLost` → the 일시정지 메뉴, in one press. A release *we* made (a screen taking 커서 모드) is
+     `input:pointerLockLost` → the 일시정지 메뉴, in one press. A release *we* made (a screen taking cursor mode) is
      marked and must stay silent. */
   const lost = await page.evaluate(async () => {
     const ctx = window.__game.ctx;
@@ -807,9 +824,9 @@ try {
     document.dispatchEvent(new Event('pointerlockchange'));
     for (let i = 0; i < 4; i++) window.__game.frame(performance.now() + i * 20);
     const afterSelf = up();
-    /* 2026-09-09 (LOCK_BOUNCE_GRACE_MS): 우리가 방금 요청한 락이 **곧바로** 튕겨 나오는 것은 플레이어가 아니라
-       전체화면 Chrome · 데스크톱 셸이다 (하우징 모드를 Tab 으로 닫으면 ESC 메뉴가 뜨던 문제). 메뉴는 안 뜨고
-       다음 제스처를 기다리는 재시도만 걸린다. */
+    /* 2026-09-09 (LOCK_BOUNCE_GRACE_MS): a lock just requested that bounces **straight back** is not the player but
+       fullscreen Chrome · the desktop shell (the bug where closing housing mode with Tab raised the ESC menu). No
+       menu opens — only a retry waiting for the next gesture is raised. */
     ctx.input.requestPointerLock();
     window.__lockEl = document.getElementById('game-canvas');
     document.dispatchEvent(new Event('pointerlockchange'));
@@ -874,7 +891,7 @@ try {
     await new Promise((r) => setTimeout(r, 120));
     const retried = input.lastLockRequest !== at;
     input.exitPointerLock();
-    /* 2026-09-10: 그리고 Escape 를 처리하는 동안의 요청은 **브라우저에 나가지 않는다**. */
+    /* 2026-09-10: and a request made while Escape is being handled **never goes out to the browser**. */
     input.exitPointerLock();
     key('Escape', 'keydown');
     const atEsc = input.lastLockRequest;
@@ -890,8 +907,8 @@ try {
   ok(relock.retried && !relock.disarmed, 'any other key retries the lock and disarms the wait', JSON.stringify(relock));
   ok(relock.deferredByEsc, 'Escape 직후의 재요청은 미뤄진다 (Chromium 이 그 락을 곧바로 도로 가져간다)', JSON.stringify(relock));
 
-  /* 2026-09-07: 좌클릭으로 카메라 되찾기 — a click on the 3D canvas while the camera wants the lock but does not
-     have it re-requests it **and is swallowed**, so the recapture click never fires the weapon. */
+  /* 2026-09-07: taking the camera back with a left click — a click on the 3D canvas while the camera wants the
+     lock but does not have it re-requests it **and is swallowed**, so the recapture click never fires the weapon. */
   const clickBack = await page.evaluate(async () => {
     const input = window.__game.ctx.input;
     const faked = Object.getOwnPropertyDescriptor(Document.prototype, 'pointerLockElement');
@@ -931,8 +948,8 @@ try {
     await waitSim(0.3);
   };
   await page.evaluate(() => window.__game.ctx.implants.setEquipped('barrier'));
-  // 2026-09-10: 보조무기(3번)가 사라졌으므로 "무기 키가 임플란트를 집어넣는다" 는 주무기 II 로 검사한다.
-  // 창고의 돌격소총을 주무기 II 에 올려 두 자루를 만든다 (starter 는 주무기 I 에 기관단총만 준다).
+  // 2026-09-10: the secondary weapon (slot 3) is gone, so "a weapon key stows the implant" is checked on 주무기 II.
+  // The 돌격소총 from the stash goes into 주무기 II to make two guns (the starter only gives a 기관단총 in 주무기 I).
   const secondGun = await page.evaluate(() => {
     const inv = window.__game.ctx.inventory, sys = window.__game.getSystem('inventory');
     const it = sys.getStashItems().find((x) => x.defId === 'wpn_ar') ?? sys.getStashItems().find((x) => x.defId === 'wpn_sg');
@@ -941,7 +958,8 @@ try {
   });
   ok(!!secondGun, `주무기 II 에 두 번째 총을 올렸다 (${secondGun})`);
   await startMission(42);
-  /* 2026-09-10: 임플란트 표시는 크로스헤어 왼쪽의 `.implant-gauge` 가 아니라 **화면 중앙 하단**의 `.imp-hud` 다. */
+  /* 2026-09-10: the implant display is not `.implant-gauge` left of the crosshair but `.imp-hud` at the
+     **bottom centre** of the screen. */
   ok(await page.evaluate(() => !!document.querySelector('.imp-hud') && !document.querySelector('.imp-hud').hidden && document.querySelector('.imp-hud').dataset.implant === 'barrier'), 'implant hud shown for 배리어');
   const gaugePos = await page.evaluate(() => { const r = document.querySelector('.imp-hud').getBoundingClientRect(); return { cx: r.left + r.width / 2, mid: innerWidth / 2, top: r.top, cy: innerHeight / 2 }; });
   ok(Math.abs(gaugePos.cx - gaugePos.mid) < 40 && gaugePos.top > gaugePos.cy, 'implant hud sits bottom-centre (under the crosshair, below the stamina bar)', JSON.stringify(gaugePos));
@@ -983,8 +1001,9 @@ try {
   await page.evaluate(() => window.__game.ctx.implants.setEquipped('dash'));
   await startMission(44);
   /*
-   * 2026-09-10: 충전은 이제 칸(`.seg`) 셋이 아니라 **썸네일 안 우측 하단의 숫자**(`.ib-ch`) 하나다.
-   * 가득이면 평범하게(`accent` · `dim` 없음), 하나라도 쓰면 아래에서 강조색이 차오른다(`accent`).
+   * 2026-09-10: charges are no longer three cells (`.seg`) but one **number at the bottom right inside the
+   * thumbnail** (`.ib-ch`). Full is drawn plainly (no `accent` · `dim`); spend even one and the accent colour
+   * fills in from below (`accent`).
    */
   const dash0 = await page.evaluate(() => { const h = document.querySelector('.imp-hud'); return { ch: h.querySelector('.ib-ch').textContent, accent: h.classList.contains('accent'), dim: h.classList.contains('dim'), charges: window.__game.ctx.implants.charges }; });
   ok(dash0.ch === '3' && dash0.charges === 3 && !dash0.accent && !dash0.dim, `dash hud: 충전 3/3, 평범 표기 (${dash0.ch})`, JSON.stringify(dash0));

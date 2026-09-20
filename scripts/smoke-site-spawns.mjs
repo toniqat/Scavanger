@@ -1,18 +1,24 @@
-// 거점 스폰 자리 스모크 (2026-09-13, 행성별 적 팩션 — world-sites).
+// Site spawn spots smoke (2026-09-13, the per-planet enemy factions — world-sites).
 //
-// `WorldRef.getSiteSpawnPoints(siteId, place, count, minGap, seed)` · `getRuinSites()` 를 여러 시드 × 행성에서 잰다.
-// 스폰 감독(enemies)이 `world:ready` 에서 호스트로 부르는 질의라, 여기서는 **돌려준 자리가 정말 설 수 있는 자리인가**만 본다.
+// It measures `WorldRef.getSiteSpawnPoints(siteId, place, count, minGap, seed)` · `getRuinSites()` over several
+// seeds × planets. The spawn director (enemies) calls these queries as the host on `world:ready`, so all that is
+// looked at here is **whether the spots handed back really are spots a body can stand in**.
 //
-// 검사 (맵마다):
-//   1. 연구소 · 전진기지마다 실내 ≥ 1 · 실외 ≥ 2
-//   2. 실내 자리: `structureAt(x, z)` 가 그 건물 · 층 바닥 높이(`nav.levels`) · 바깥벽 안쪽 · 잠긴 방 밖 · 몸(0.45) 충돌 없음(< 0.05 m) ·
-//      머리 위 1.8 m 여유 · 정문에서 몸 반지름 flood fill 로 **걸어서 닿는다** (`smoke-structure-reach` 와 같은 식)
-//   3. 실외 자리: 발자국 바깥 · 맵 안 · 선로 중심선에서 `RAIL_CLEARANCE_M` 밖 · 다른 구조물 안이 아님 · 충돌 없음 · 머리 위 여유 · 땅 위
-//   4. 선로 플랫폼(있으면): 실내 = 데크 윗면 · 데크 사각형 안 · 충돌 없음, 실외 ≥ 1
-//   5. 폐허 전초: `getRuinSites()` 가 비지 않고 id 가 `outpost_<i>`, 실내 = 바닥판 안 · 반경 안 · 충돌 없음, 실외 ≥ 1
-//   6. 불시착 함선(있으면): 실내가 있으면 충돌 없음 · 동체 안, 실외 ≥ 1
-//   7. 결정성: 같은 인자 두 번 = 같은 좌표, `minGap` 을 지킨다, count 를 넘지 않는다, 질의가 장애물 수를 바꾸지 않는다
-//   8. 모르는 id · count 0 → [], 훈련장 → [] · getRuinSites() = []
+// Checks (per map):
+//   1. Every lab · outpost has indoor ≥ 1 · outdoor ≥ 2
+//   2. An indoor spot: `structureAt(x, z)` is that building · a floor height (`nav.levels`) · inside the outer wall ·
+//      outside the locked room · no body (0.45) collision (< 0.05 m) · 1.8 m of headroom · **reached on foot** by a
+//      body-radius flood fill from the front door (the same way as `smoke-structure-reach`)
+//   3. An outdoor spot: outside the footprint · inside the map · outside `RAIL_CLEARANCE_M` of the rail centreline ·
+//      not inside another structure · no collision · headroom · on the ground
+//   4. Rail platforms (where there are any): indoor = the deck top face · inside the deck rectangle · no collision,
+//      outdoor ≥ 1
+//   5. Ruined outposts: `getRuinSites()` is not empty and the ids are `outpost_<i>`, indoor = inside the floor
+//      plate · inside the radius · no collision, outdoor ≥ 1
+//   6. The crashed ship (where there is one): with indoor spots, no collision · inside the hull, outdoor ≥ 1
+//   7. Determinism: the same arguments twice = the same coordinates, `minGap` is kept, `count` is never exceeded,
+//      and a query does not change the obstacle count
+//   8. An unknown id · count 0 → [], the training range → [] · getRuinSites() = []
 //
 // Usage: node scripts/smoke-site-spawns.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -21,13 +27,14 @@ import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
-/** [시드, 행성] — 행성마다 한 번 이상, 선로 · 2층 · 잠긴 방 · 불시착 함선이 나올 때까지. */
+/** [seed, planet] — every planet at least once, until a rail · 2F · a locked room · a crashed ship turn up. */
 const RUNS = [[21, 'amber'], [7, 'tundra'], [1234, 'mossy'], [42, 'ashen'], [99, 'crimson'], [555, 'amber'], [808, 'tundra'], [2026, 'mossy'], [31337, 'ashen'], [11, 'crimson']];
-/* 2026-09-14 — 예전에는 다섯 판을 돈 뒤 「거점 종류가 다 나왔으면 그만」(`enough()`)이었다. 그 조기 종료가 seed 21 의
- * 연구소 2층 실내 자리 미도달을 숨기고 있었다. 이제 열 판을 끝까지 돌고 실패는 마지막에 한 번에 요약한다. */
+/* 2026-09-14 — it used to run five rounds and then 「stop once every site kind has turned up」 (`enough()`). That
+ * early exit was hiding an unreached indoor spot on seed 21's lab second floor. Now all ten rounds are run to the
+ * end and the failures are summarised once at the end. */
 const MAX_RUNS = RUNS.length;
 const WANT = { lab: 3, outpost: 3, platform: 2, ruin: 8, twoFloor: 2, locked: 1, wreck: 1 };
-/** 한 맵의 모든 질의에 걸린 시간 상한(ms) — world:ready 에서 한 번 치르는 비용이다. */
+/** The cap (ms) on the time all of one map's queries take — a cost paid once on `world:ready`. */
 const MAP_MS_MAX = 4000;
 
 const CHROME = [
@@ -50,7 +57,7 @@ async function waitFor(page, fn, label, timeout = 90000, arg) {
   throw new Error(`timeout waiting for ${label}`);
 }
 
-/** 브라우저 안: 거점마다 질의하고 검사 재료를 한 줄씩 돌려준다. */
+/** Inside the browser: it queries per site and hands back one row of check material each. */
 function probe({ seed }) {
   const ctx = window.__game.ctx, w = ctx.world;
   const V3 = ctx.camera.position.constructor;
@@ -79,7 +86,7 @@ function probe({ seed }) {
     }
     return best;
   };
-  /** 몸 반지름 flood fill (정문 안쪽에서, 발자국 밖으로 나가지 않고) — smoke-structure-reach 와 같은 식. */
+  /** A body-radius flood fill (from inside the front door, staying in the footprint) — as smoke-structure-reach. */
   const reachSet = (nav) => {
     const c = Math.cos(nav.yaw), sn = Math.sin(nav.yaw);
     const toW = (lx, lz) => [nav.cx + lx * c - lz * sn, nav.cz + lx * sn + lz * c];
@@ -111,7 +118,7 @@ function probe({ seed }) {
     }
     return { seen, toL: (x, z) => { const dx = x - nav.cx, dz = z - nav.cz; return [dx * c + dz * sn, -dx * sn + dz * c]; } };
   };
-  /** 자리 v 가 flood fill 칸(같은 격자 · 같은 반 뼘 높이, 이웃 한 칸까지)에 들었나. */
+  /** Is spot v inside a flood fill cell (the same grid · the same half-step height, one neighbouring cell over). */
   const reached = (rs, v) => {
     if (!rs.seen || rs.seen.size === 0) return false;
     const [lx, lz] = rs.toL(v.x, v.z);
@@ -121,7 +128,7 @@ function probe({ seed }) {
     }
     return false;
   };
-  /** 같은 인자 두 번 = 같은 좌표. */
+  /** The same arguments twice = the same coordinates. */
   const twice = (id, place, count, gap, s) => {
     const a = w.getSiteSpawnPoints(id, place, count, gap, s);
     const b = w.getSiteSpawnPoints(id, place, count, gap, s);
@@ -130,8 +137,9 @@ function probe({ seed }) {
 
   const rows = [];
   const navs = new Map(ws.structures.debugNav().map((n) => [n.id, n.nav]));
-  /* 스폰 감독이 world:ready 에서 이미 물어 캐시가 데워져 있을 수 있다 — 그 답을 적어 두고 캐시를 비운 뒤 다시 물어
-   * ① 차가운 첫 질의 비용을 재고 ② 처음부터 다시 계산해도 같은 좌표인지 본다. */
+  /* The spawn director may already have asked on `world:ready` and warmed the cache — that answer is noted down,
+   * the cache is cleared and it is asked again, to ① measure the cold first query's cost and ② see whether a
+   * recompute from scratch gives the same coordinates. */
   const warm = new Map(w.getStructures().map((d) => [d.id, JSON.stringify(w.getSiteSpawnPoints(d.id, 'indoor', 4, 1.2, seed).map(round))]));
   const canReset = typeof ws.siteSpawns?.reset === 'function';
   if (canReset) ws.siteSpawns.reset();
@@ -146,8 +154,10 @@ function probe({ seed }) {
     const big = w.getSiteSpawnPoints(def.id, 'indoor', 40, 1.2, seed + 1);
     const out8 = w.getSiteSpawnPoints(def.id, 'outdoor', 8, 1.5, seed + 2);
     const spread = out8.length === 8 ? { d: +out8[0].distanceTo(out8[4]).toFixed(2) } : null;
-    /* 실내 후보 전체 (world 내부 캐시 — 시드와 무관한 목록). 고르기가 첫 자리 곁으로 모이므로 돌려준 자리만 보면 한 층만 보인다 —
-     * 후보 전체를 같은 기준으로 검사하고 층 수도 거기서 센다. 캐시 이름이 바뀌었으면 돌려준 자리로 대신한다. */
+    /* Every indoor candidate (world's internal cache — a list independent of the seed). The picking clusters
+     * around the first spot, so looking only at the spots handed back shows a single floor — the whole candidate
+     * list is checked against the same rules and the floor count is taken from it. If the cache was renamed, the
+     * spots handed back stand in for it. */
     const cache = ws.siteSpawns?.indoorCache?.get(def.id) ?? null;
     const all = cache ?? big;
     const rs = def.kind === 'wreck' ? null : reachSet(nav);
@@ -196,7 +206,7 @@ function probe({ seed }) {
     });
   }
 
-  // 선로 플랫폼
+  // Rail platforms
   const platRows = [];
   for (const pl of w.getRailLines()[0]?.platforms ?? []) {
     const f = { cx: pl.position.x, cz: pl.position.z, yaw: pl.yaw };
@@ -224,7 +234,7 @@ function probe({ seed }) {
     platRows.push({ id: pl.id, indoor: indoor.pts.length, outdoor: outdoor.pts.length, same: indoor.same && outdoor.same, gap: gapOk(indoor.pts, 1.2), bad });
   }
 
-  // 폐허 전초
+  // Ruined outposts
   const ruins = w.getRuinSites();
   const ruinRows = [];
   const sites = ws.outposts.getSites();
@@ -293,7 +303,7 @@ try {
 
   const seen = { lab: 0, outpost: 0, platform: 0, ruin: 0, twoFloor: 0, locked: 0, wreck: 0 };
   const enough = () => Object.entries(WANT).every(([k, v]) => seen[k] >= v);
-  const failedRuns = new Map();       // seed → 그 판에서 난 실패 수 (마지막 요약용)
+  const failedRuns = new Map();       // seed → how many failures that round had (for the closing summary)
   let runs = 0;
   for (const [seed, planet] of RUNS) {
     if (runs >= MAX_RUNS) break;
@@ -357,7 +367,7 @@ try {
   if (failedRuns.size > 0) console.log(`  --   실패가 난 시드: ${[...failedRuns].map(([s, n]) => `${s} (${n})`).join(' · ')}`);
   ok(enough(), `거점 종류가 충분히 나왔다 (원하는 수 ${JSON.stringify(WANT)})`, JSON.stringify(seen));
 
-  // 8. 훈련장 → 빈 답
+  // 8. The training range → empty answers
   await page.evaluate(() => { const ctx = window.__game.ctx; ctx.missionMode = 'training'; ctx.bus.emit('game:newMission', { seed: 5, mode: 'training' }); });
   await waitFor(page, () => window.__game.ctx.world.mode === 'training' && window.__game.ctx.world.ready, 'training world', 30000);
   const training = await page.evaluate(() => {

@@ -1,5 +1,6 @@
-// Screenshot-only helper for the 2026-09-07 UI/UX pass: 캐릭터 3열 + 임플란트 picker, 제작 열 (함선 / 레이드),
-// 기업 화면 (거래 / 계약 / 퀘스트). Writes PNGs to scripts/shots/uiux-*.png — no assertions, no exit code.
+// Screenshot-only helper for the 2026-09-07 UI/UX pass: the character screen's 3 columns + the implant picker,
+// the craft column (ship / raid), the corporation screen (trade / contracts / quests). Writes PNGs to
+// scripts/shots/uiux-*.png — no assertions, no exit code.
 // Usage: node scripts/shots-uiux.mjs [http://localhost:5273/]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -24,11 +25,11 @@ const browser = await puppeteer.launch({
 try {
   const page = await browser.newPage();
   await page.setViewport({ width: 1920, height: 1080 });
-  await quietViteHmr(page);   // 2026-09-11 (C-71): 촬영 도중 남의 저장으로 페이지가 새로고침되지 않게
+  await quietViteHmr(page);   // 2026-09-11 (C-71): another editor's save must not reload the page mid-shoot
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. A new profile starts the tutorial on its own and
+    // it locks room purposes · crafting · the terminal · boarding in that order, so it is seeded here as
+    // "already done" (the tutorial itself is what scripts/smoke-tutorial.mjs checks).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -49,7 +50,7 @@ try {
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await sleep(1200);
 
-  /* 1. 인벤토리 임플란트 칸 + 캐릭터 탭 2열 (2026-09-08: 임플란트가 인벤토리로 이사) */
+  /* 1. the inventory implant slots + the `캐릭터` tab in 2 columns (2026-09-08: implants moved into the inventory) */
   await page.evaluate(() => window.__game.ctx.inventory.toggleBag());
   await sleep(400);
   await shot('01-ship-inventory');
@@ -62,7 +63,7 @@ try {
   await sleep(400);
   await shot('02-character-2col');
 
-  /* 2. 기업 탭 */
+  /* 2. the `기업` tab */
   await tab('기업');
   await sleep(500);
   await page.evaluate(() => { const m = window.__game.ctx.meta; m.addCredits(20000, 'shot'); m.addRep('helix', 900, 'shot'); });
@@ -81,9 +82,9 @@ try {
   await page.evaluate(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]')?.click());
   await sleep(300);
   await shot('06-corp-contracts');
-  // 2026-09-14: 기업 퀘스트 탭 삭제 (퀘스트는 메신저) — 07 번은 비워 둔다
+  // 2026-09-14: the corporation quest tab was removed (quests live in the messenger) — number 07 is left empty
 
-  /* 3. 제작 열 (함선) */
+  /* 3. the craft column (ship) */
   await tab('인벤토리');
   await sleep(300);
   await page.evaluate(() => window.__game.ctx.inventory.openBenchCraft('gun', 2));
@@ -94,7 +95,7 @@ try {
   await page.evaluate(() => window.__game.ctx.inventory.closeAll());
   await sleep(200);
 
-  /* 4. 제작 열 (레이드) */
+  /* 4. the craft column (raid) */
   await page.evaluate(() => window.__game.ctx.bus.emit('game:newMission', { seed: 12345 }));
   await sleep(2500);
   await page.evaluate(() => window.__game.ctx.inventory.toggleBag());

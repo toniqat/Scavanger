@@ -30,7 +30,7 @@ if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 
 const kb = (n) => (n / 1024).toFixed(0).padStart(5) + ' KB';
 
-/* .png 하나마다 같은 이름의 .webp — 원본이 더 새것일 때만 다시 만든다 (--force 로 무시) */
+/* One .webp per .png, same name — remade only when the source is newer (--force ignores that) */
 const jobs = readdirSync(DIR)
   .filter((f) => f.toLowerCase().endsWith('.png'))
   .filter((f) => !ONLY.size || ONLY.has(f.replace(/\.png$/i, '')))
@@ -48,7 +48,7 @@ try {
 
   for (const j of jobs) {
     const src = readFileSync(j.png);
-    /* PNG 를 data: URL 로 넘긴다 — file:// 이미지는 캔버스를 오염시켜 toDataURL 이 막힌다 */
+    /* The PNG goes in as a data: URL — a file:// image taints the canvas and blocks toDataURL */
     const out = await page.evaluate(async (b64, quality) => {
       const img = new Image();
       img.src = 'data:image/png;base64,' + b64;
@@ -63,7 +63,7 @@ try {
 
     const buf = Buffer.from(out.b64, 'base64');
     before += src.length;
-    /* 더 작을 때만 쓴다 — 아니면 app.js 의 폴백이 원본 .png 를 그대로 쓴다 */
+    /* Written only when it is smaller — otherwise app.js's fallback keeps using the original .png */
     if (buf.length >= src.length) {
       after += src.length; skipped++;
       console.log(`  skip  ${j.name.padEnd(26)} ${kb(src.length)} → webp 가 더 큼`);

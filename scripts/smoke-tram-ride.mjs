@@ -1,18 +1,25 @@
-// 전차 위의 적 · 적 시체 스모크 (2026-09-11, C-18).
+// Enemies · enemy corpses on a tram smoke (2026-09-11, C-18).
 //
-// 왜 있나: 적은 발판 질의가 없어 달리는 전차 데크 위에서 벽에 밀리거나 바닥에 남겨졌고, 전차 위에서 죽은 적의 시체는
-// 사망 지점(허공)에 고정됐다. 이제 적 · 시체가 플레이어와 같은 `shared/ride.ts` 규약으로 탄다 (`enemies/ai/Ride.ts`).
+// Why it exists: enemies had no standing query, so on a running tram deck they were pushed into walls or left on the
+// ground, and the corpse of an enemy killed on the tram was pinned to its death spot (mid-air). Enemies · corpses
+// now ride by the same `shared/ride.ts` convention as the player (`enemies/ai/Ride.ts`).
 //
-// 검사 (선로가 있는 첫 시드에서):
-//   1. 데크에 세운 적이 탑승을 잡고(`carrier`), 전차가 수십 m 달리는 동안 **차량 로컬 자리**를 지킨다 · 데크 높이에 서 있다
-//   2. 탄 적의 `velocity` 는 로컬 속도다 — 전차 속도로 흔들리지 않는다 (보행 애니메이션 · 발소리) · 전차에 치이지 않는다
-//   3. 데크 위에서 죽은 로그의 시체가 전차와 함께 가고, 수색 상호작용(`corpse:<id>`) 자리도 몸을 따라간다
-//   4. 로그 강하 목표: 전차 컨테이너 구역(`tram_*`)은 가장 가까운 플랫폼으로 바뀌고, 다른 구역은 그대로다
-//   5. 리플리카 탑승 예측: 권한을 내리고(`setAuthority(false)`) 호스트처럼 스냅샷을 먹이면, 보간 지연(0.12 s × 전차 속도)
-//      만큼 뒤처지지 않고 데크의 같은 자리에 그려진다
-//   6. (C-63, 3 과 4 사이) 달리는 전차에서 차량 부피를 벗어난 적이 하차 관성으로 진행 방향으로 밀려 간다 ·
-//      선로 발판 위(데크보다 0.35 m 낮다)에 선 적도 치인다 · 전차 위 분대원 시체의 `pcorpse` 와이어에 `ride` 가 실리고,
-//      받는 쪽은 보간 지연만큼 뒤진 `p`(전차 밖) 대신 그 `ride` 로 후미에 타서 따라간다 (리스너 · add 순서 둘 다)
+// Checks (on the first seed with a rail line):
+//   1. An enemy stood on the deck takes the ride (`carrier`) and holds its **vehicle-local spot** over tens of
+//      metres of travel · it stands at deck height
+//   2. A riding enemy's `velocity` is the local velocity — it is not shaken by the tram's speed (the walk animation ·
+//      footsteps) · and the tram does not run it over
+//   3. The corpse of a rogue killed on the deck travels with the tram, and the looting interaction (`corpse:<id>`)
+//      spot follows the body
+//   4. Rogue drop targets: a tram container site (`tram_*`) is swapped for the nearest platform, other sites stay
+//   5. Replica ride prediction: with the authority dropped (`setAuthority(false)`) and snapshots fed in like a
+//      host's, the body is drawn at the same spot on the deck instead of lagging behind by the interpolation delay
+//      (0.12 s × the tram's speed)
+//   6. (C-63, between 3 and 4) An enemy that leaves the vehicle volume on a running tram is carried on in the travel
+//      direction by dismount inertia · an enemy standing on the rail deck (0.35 m below the tram deck) is run over
+//      too · a squadmate corpse on the tram carries `ride` on its `pcorpse` wire, and the receiving side boards the
+//      rear with that `ride` instead of the `p` that lags by the interpolation delay (outside the tram) — in the
+//      listener-first and the add-first order alike
 //
 // Usage: node scripts/smoke-tram-ride.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -41,7 +48,7 @@ async function waitFor(page, fn, label, timeout = 90000, arg) {
   }
   throw new Error(`timeout waiting for ${label}`);
 }
-/** 실시간이 아니라 시뮬레이션 시간으로 기다린다. */
+/** Waits on simulation time rather than the wall clock. */
 async function waitSim(page, seconds) {
   const t0 = await page.evaluate(() => window.__game.ctx.time);
   await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${seconds}s`, 120000, t0 + seconds);
@@ -85,7 +92,8 @@ try {
     console.log(`seed ${seed}`);
     tested = true;
 
-    // 플레이어를 전차에서 먼 모서리로 — 세운 적이 플레이어를 보고 달려가지 않게 (hellpod 가 끝날 때까지 다시 시도)
+    // The player goes to the corner furthest from the tram so the enemies stood there do not spot it and run
+    // (retried until the hellpod is done)
     await waitFor(page, () => {
       const ctx = window.__game.ctx, t = ctx.world.getTrams()[0], p = ctx.player;
       const V3 = ctx.camera.position.constructor;
@@ -94,8 +102,9 @@ try {
       return Math.hypot(p.position.x - far.x, p.position.z - far.z) < 2;
     }, 'player teleported away', 30000);
 
-    /* ── 1 · 2 · 3 준비: 정차한 전차 데크 한가운데(승강구 사이 — 캐비닛이 없다)에 전사를 세우고, 조금 앞에 로그를 세워
-       곧바로 죽인다 (로그 시체는 늘 수색 가능 = 상호작용이 등록된다). 전사는 제자리에 서 있게 배회 타이머를 막는다. */
+    /* ── 1 · 2 · 3 setup: a warrior is stood in the middle of the stopped tram's deck (between the doorways —
+       no cabinets there) and a rogue a little ahead of it, then killed at once (a rogue corpse is always lootable =
+       the interaction is registered). The warrior's wander timer is blocked so it stays put. */
     const setup = await page.evaluate(() => {
       const ctx = window.__game.ctx, w = ctx.world;
       const es = window.__game.getSystem('enemies');
@@ -145,7 +154,8 @@ try {
     ok(!!before.rider && before.rider.carrier, '데크에 선 적이 탑승 발판을 잡는다 (carrier)', JSON.stringify(before.rider));
     ok(!!before.victim && before.victim.carrier, '데크 위 시체도 탑승 발판을 잡는다', JSON.stringify(before.victim));
 
-    // 운전실 콘솔로 출발 — 알림 1 s + 가속 3 s 를 지나 최고 속도에서 한동안 달린 뒤 잰다
+    // Start it from the cab console — measured after the 1 s announcement + 3 s of acceleration and a while
+    // at top speed
     await page.evaluate(() => { window.__game.ctx.interactables.all().find((i) => i.id === 'rail:tram_rail_0:console')?.interact(); });
     for (let i = 0; i < 16; i++) {
       await waitSim(page, 0.5);
@@ -173,8 +183,9 @@ try {
       ok(dCorpse < 0.2, `C-18: 수색 상호작용 자리가 시체를 따라간다 (Δ ${dCorpse.toFixed(2)} m)`, JSON.stringify({ corpse: after.corpse, body: after.victim.p }));
     } else ok(false, 'C-18: 시체와 수색 자리가 남아 있다', JSON.stringify(after));
 
-    /* ── C-63 (2026-09-11): 적 하차 관성 · 선로 발판 위 적 치임 · 분대원 시체 와이어 탑승 ─────────────────
-       전차가 최고 속도로 달리는 동안만 의미가 있다 (아니면 건너뛴다). 뒤의 4 · 5 가 쓸 주행 시간을 아끼려고 1.3 s 안에 끝낸다. */
+    /* ── C-63 (2026-09-11): dismount inertia · rail-deck hits · a corpse by wire ───
+       It means something only while the tram runs at top speed (otherwise it is skipped). It finishes inside 1.3 s
+       to save the running time 4 · 5 below need. */
     if (after.speed > 8 && after.state === 'moving') {
       const c63a = await page.evaluate(() => {
         const ctx = window.__game.ctx, w = ctx.world, mgr = ctx.corpses;
@@ -192,26 +203,28 @@ try {
         const c = Math.cos(t.yaw), s = Math.sin(t.yaw);
         const at = (lx, lz, y) => new V3(t.position.x + lx * c - lz * s, y, t.position.z + lx * s + lz * c);
         const local = (p) => { const dx = p.x - t.position.x, dz = p.z - t.position.z; return [dx * c + dz * s, -dx * s + dz * c]; };
-        // 하차 관성용 적: 데크 뒤쪽 가운데 줄 (캐비닛은 옆벽에 붙어 있다)
+        // The enemy for the dismount inertia: the centre line toward the rear of the deck (the cabinets sit
+        // against the side walls)
         const jp = at(-3, 0, t.position.y);
         const jumper = es.debugSpawn('warrior', jp, false);
         if (jumper) { jumper.position.copy(jp); jumper.wanderTimer = 1e9; jumper.aware = false; jumper.state = 'idle'; R.jumper = jumper.id; }
-        // 시체 와이어: 보낸 쪽(A)은 후미 끝에서 죽었다. 받는 쪽은 보간 지연만큼 뒤(전차 밖)의 p 를 받는다
+        // The corpse wire: the sending side (A) died at the rear end. The receiving side gets a `p` that lags
+        // by the interpolation delay (outside the tram)
         const lx = -R.halfLen + 0.4;
         const a = mgr.add('pcorpse:smokeA:1', 'smokeA', 'A', at(lx, 0, t.position.y), 0.3, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 0);
         const wire = a.toWire();
         const lag = at(lx - 1.5, 0, t.position.y);
         const p = [lag.x, lag.y, lag.z];
-        // B: 리스너가 먼저 (ride 를 적어 두고 add 가 쓴다)
+        // B: the listener first (it notes the ride down and add uses it)
         const wB = { ...wire, id: 'pcorpse:smokeB:1', owner: 'smokeB', p };
         mgr.noteWireRide(wB);
         const b = mgr.add(wB.id, 'smokeB', 'B', lag.clone(), wire.yaw, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 0);
-        // C: 시체가 먼저 서고(p 로는 못 탄다) 리스너가 뒤에 다시 태운다
+        // C: the corpse stands first (it cannot board from `p`) and the listener boards it afterwards
         const wC = { ...wire, id: 'pcorpse:smokeC:1', owner: 'smokeC', p };
         const cc = mgr.add(wC.id, 'smokeC', 'C', lag.clone(), wire.yaw, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 0);
         const cBefore = cc.riding;
         mgr.noteWireRide(wC);
-        // D: ride 없는 옛 와이어 — 같은 p 로는 전차를 놓친다 (C-63 이전의 틈, 참고용)
+        // D: an old wire with no ride — the same `p` misses the tram (the gap before C-63, for reference)
         const d = mgr.add('pcorpse:smokeD:1', 'smokeD', 'D', lag.clone(), wire.yaw, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 0);
         R.corpseLx = lx;
         return {
@@ -247,13 +260,14 @@ try {
         const sp = floor ? Math.hypot(floor.velocity.x, floor.velocity.z) : 0;
         const out = { boarded: !!j && !!j.carrier, speed: sp };
         if (j && sp > 1) {
-          // 옆으로 차량 부피(단면 + RIDE_EDGE_MARGIN) 밖 — 걸어서 내린 것과 같다
+          // Sideways out of the vehicle volume (the cross-section + RIDE_EDGE_MARGIN) — the same as walking off
           const off = at(-3, R.halfWid + 2.5);
           j.position.set(off.x, w.getSurfaceY(off.x, off.z, t.position.y), off.z);
           R.kickFrom = [j.position.x, j.position.z];
           R.kickDir = [floor.velocity.x / sp, floor.velocity.z / sp];
         }
-        // 선로 발판 위, 전차 바로 앞 (발이 데크보다 TRAM_HIT_FLOOR_CLEAR … RIDE_FOOT_DROP 아래 띠)
+        // On the rail deck, right in front of the tram (feet in the band TRAM_HIT_FLOOR_CLEAR …
+        // RIDE_FOOT_DROP below the deck)
         const ah = at(R.halfLen + 5, 0);
         const y = w.getSurfaceY(ah.x, ah.z, t.position.y - 0.2);
         out.band = t.position.y - y;
@@ -306,7 +320,7 @@ try {
       } else console.log(`  --   선로 발판 치임 검사 건너뜀 (띠 ${kick.band.toFixed(2)} m · 전차 ${kick.speed.toFixed(1)} m/s)`);
     } else console.log(`  --   C-63 검사 건너뜀 (전차 ${after.state}, ${after.speed.toFixed(1)} m/s)`);
 
-    /* ── 4. 로그 강하 목표 ─────────────────────────────────────────── */
+    /* ── 4. Rogue drop targets ───────────────────────────────── */
     const drop = await page.evaluate(() => {
       const ctx = window.__game.ctx, w = ctx.world;
       const es = window.__game.getSystem('enemies');
@@ -324,7 +338,7 @@ try {
     ok(drop.isNearestPlatform, `C-18: 전차 구역 강하 목표 = 가장 가까운 플랫폼 (${drop.nearestD.toFixed(1)} m 떨어진)`, JSON.stringify(drop));
     ok(drop.sameForStructure, 'C-18: 전차가 아닌 구역은 조사 지점 그대로', JSON.stringify(drop));
 
-    /* ── 5. 리플리카 탑승 예측 ─────────────────────────────────────── */
+    /* ── 5. Replica ride prediction ────────────────────────── */
     const repStart = await page.evaluate(() => {
       const ctx = window.__game.ctx, w = ctx.world;
       const es = window.__game.getSystem('enemies');
@@ -352,7 +366,7 @@ try {
     for (let i = 0; i < 24; i++) {
       await feed();
       await waitSim(page, 0.1);
-      if (i < 8) continue;   // 링 버퍼가 차고 블렌드가 올라올 때까지
+      if (i < 8) continue;   // until the ring buffer fills and the blend comes up
       const m = await page.evaluate(() => {
         const ctx = window.__game.ctx, w = ctx.world;
         const es = window.__game.getSystem('enemies');
@@ -367,7 +381,8 @@ try {
         const c = Math.cos(t.yaw), s = Math.sin(t.yaw);
         const dx = r.position.x - t.position.x, dz = r.position.z - t.position.z;
         const [lx, lz] = window.__smokeRide.local;
-        // 예측 없이 보간만 했다면 그려졌을 자리 (NET_INTERP_DELAY 0.12 — src/shared/net.ts) — 예측이 실제로 일을 하는지의 근거
+        // Where it would be drawn with interpolation alone and no prediction (NET_INTERP_DELAY 0.12 —
+        // src/shared/net.ts) — the evidence that the prediction really does work
         const pose = { x: 0, y: 0, z: 0, yaw: 0 };
         r.netBuf.sampleAt(ctx.time - 0.12, pose);
         const rx = pose.x - t.position.x, rz = pose.z - t.position.z;

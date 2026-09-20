@@ -1,7 +1,7 @@
-// Single-player smoke test for Phase 12 (enemies): 총알 추적 (`reportShot` → watch → advance → give up, refresh, far
-// shot ignored, replica forwards `shotq`, host handles `shotq`, training no-op), 배리어 충돌 (a bug walking into a
-// monkeypatched shield stops at it, `implant:barrierBumped`, retargets the carrier) + 정면 흡수 (a melee absorbed by
-// `absorbFrontalAttack` never reaches the player), and the 정찰 x-ray silhouette (`setXray`).
+// Single-player smoke test for Phase 12 (enemies): shot tracking (`reportShot` → watch → advance → give up, refresh, far
+// shot ignored, replica forwards `shotq`, host handles `shotq`, training no-op), the barrier bump (a bug walking into a
+// monkeypatched shield stops at it, `implant:barrierBumped`, retargets the carrier) + the frontal absorb (a melee absorbed
+// by `absorbFrontalAttack` never reaches the player), and the recon x-ray silhouette (`setXray`).
 // `ctx.implants.resolveBarrierCollision / absorbFrontalAttack` are monkeypatched: the implants folder owns the real ones.
 // Usage: node scripts/smoke-enemy-alert.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
@@ -44,9 +44,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and locks
+    // room purposes · crafting · the terminal · boarding in that order, so it is marked "already done" here
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -184,7 +184,7 @@ try {
     const ctx = window.__game.ctx; const sys = window.__sys; const V = window.__V; const world = ctx.world;
     const e = sys.find(window.__R);
     // Move the player past the 60 m sight but inside the 120 m widened cone, on a line the rogue can see along.
-    // 2026-09-08: sweep 64 headings × three radii. Since the 바위 엄폐 fix `world.raycast` uses each prop's
+    // 2026-09-08: sweep 64 headings × three radii. Since the 「rock cover」 fix `world.raycast` uses each prop's
     // `shotRadius` / `shotHeight` — the *visible* rock, wider and taller than the movement cylinder — so a coarse
     // 16-heading sweep at a single 90 m radius can come up empty on a dense seed and strand the whole scenario.
     const pp = ctx.player.position;
@@ -342,7 +342,7 @@ try {
   });
   ok(hostq && hostq.afterBad === 0 && hostq.afterBad2 === 0 && hostq.alerted === 1 && hostq.investigating, `host handles a peer's shotq (bad r / bad h rejected, valid one alerts)`, JSON.stringify(hostq));
 
-  /* ── 배리어 충돌: a bug walking into a (monkeypatched) shield stops at it ─────────────────────────────────── */
+  /* ── the barrier bump: a bug walking into a (monkeypatched) shield stops at it ───────────────────────── */
   console.log('배리어 충돌 + retarget');
   const imp = await P(() => !!window.__game.ctx.implants && 'resolveBarrierCollision' in window.__game.ctx.implants && 'absorbFrontalAttack' in window.__game.ctx.implants);
   ok(imp, 'ctx.implants exposes resolveBarrierCollision + absorbFrontalAttack (contract)');
@@ -398,7 +398,7 @@ try {
   ok(held.bumps >= 1 && held.bumps <= 2 * 3.5 + 2, `barrierBumped throttled to ≤ 2 Hz per enemy (${held.bumps} in ~3.5 s)`);
   ok(held.target === 'local' && held.owner === 'local' && held.until > held.t && held.aware, `retargeted onto the carrier for ~6 s (barrierUntil +${(held.until - held.t).toFixed(1)} s)`);
 
-  /* ── 정면 흡수: absorbFrontalAttack true → the melee never lands on the player ─────────────────────────────── */
+  /* ── the frontal absorb: absorbFrontalAttack true → the melee never lands on the player ────────────────── */
   console.log('정면 근접공격 흡수');
   // 2026-09-09: the bite damage is balance data (data/enemies.csv `attackDamage`, halved for bugs) — read it, never hard-code it.
   const BITE = (() => {

@@ -1,11 +1,16 @@
-// Phase 7 game-flow smoke (solo, synthetic net events): solo death → 레이드 실패 (`game:raidFailed` + `game:over`, no respawn,
-// auto return to the ship after RAID_FAILED_AUTO_RETURN_S), 훈련장 enter / death-respawn / exit with the inventory snapshot
-// restored and no XP / settlement / threat, rejoin restore (`net:raidLoaded` blob + `net:ghostRestore` alive / dead) and the
-// `NET_GHOST_RESTORE_TIMEOUT_S` hellpod fallback, extraction consoles absent when the world has no pads.
-// 2026-09-09: 자동 부활 폐지 — 죽은 몸으로 복귀해도 카운트다운이 없고 `game:respawn` 은 무력하다 (구조선만이 되살린다).
-// 2026-09-11: 사망 시 임플란트의 망가진 짝이 시체로 (`stripImplantsForCorpse` + `spawnLocalCorpse`) · 전차 위 시체가 전차에 실려 간다.
-// 2026-09-11 (E-5): 솔로 레이드 복귀 — 정상 새로고침 · 1 초 역행은 복귀, 미래 savedAt · clockHigh 역행 · 저장 키 삭제(+ 로드아웃 raidSeed)는 레이드 실패.
-// 2026-09-13: 자발적 귀환 — 일시정지 메뉴 `함선으로 귀환` 경고 팝업 → 1초 홀드 → 사망 → 사망 연출 뒤 개인 함선 (소지품 0 · 레이드 실패와 같은 결산).
+// Phase 7 game-flow smoke (solo, synthetic net events): solo death → raid failure (`game:raidFailed` + `game:over`,
+// no respawn, auto return to the ship after RAID_FAILED_AUTO_RETURN_S), training range enter / death-respawn / exit
+// with the inventory snapshot
+// restored and no XP / settlement / threat, rejoin restore (`net:raidLoaded` blob + `net:ghostRestore` alive / dead)
+// and the `NET_GHOST_RESTORE_TIMEOUT_S` hellpod fallback, extraction consoles absent when the world has no pads.
+// 2026-09-09: the automatic respawn is gone — rejoining with a dead body gets no countdown and `game:respawn` is
+//   inert (only a rescue drop revives).
+// 2026-09-11: on death an implant's broken twin goes to the corpse (`stripImplantsForCorpse` + `spawnLocalCorpse`) ·
+//   a corpse on the tram rides along with it.
+// 2026-09-11 (E-5): the solo raid resume — a normal reload and a 1 s step back resume; a savedAt in the future, a
+//   clockHigh step back and a deleted save key (+ the loadout's raidSeed) are a raid failure.
+// 2026-09-13: the voluntary return — the 일시정지 메뉴's `함선으로 귀환` warning popup → a 1 s hold → death → the
+//   personal ship after the death animation (0 items carried · the same settlement as a raid failure).
 // Usage: node scripts/smoke-raidflow.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -44,9 +49,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts on its own on a fresh profile and
+    // locks room purpose · craft · terminal · boarding in that order, so it is marked "already done" here
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs checks).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor trap); the script fakes `pointerLockElement`.
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
@@ -104,7 +109,7 @@ try {
     await waitSim(0.3);
   };
   const giveUp = async () => {
-    // 2026-09-08: solo lethal damage no longer goes through 전투불능, so the give-up state is entered directly.
+    // 2026-09-08: solo lethal damage no longer goes through the downed state, so the give-up state is entered directly.
     await P(() => window.__game.ctx.player.enterDowned());
     await waitSim(0.3);
     await keyDown('Space'); await waitSim(2.2); await keyUp('Space');
@@ -242,8 +247,8 @@ try {
   await waitSim(0.5);
   st = await P(() => { const ctx = window.__game.ctx; return { phase: ctx.phase, pending: ctx.rejoinPending, restored: window.__spy.restoreState.length, state: window.__spy.restoreState[0]?.state, ra: window.__ev['game:respawnAvailable'].at(-1)?.seconds, failed: window.__ev['game:raidFailed'].length }; });
   ok(st.restored === 1 && st.state === 2 && st.phase === 'playing' && !st.pending, 'dead ghost restored → playing (spectate), rejoinPending cleared', JSON.stringify(st));
-  // 2026-09-09: 자동 부활이 사라졌다. 죽은 몸으로 복귀하면 관전 상태에 그대로 머무르고,
-  // 30초 카운트다운도 `game:respawn` 도 더는 아무것도 하지 않는다 — 되살아나는 길은 분대원의 구조선뿐이다.
+  // 2026-09-09: the automatic respawn is gone. Rejoining with a dead body stays in the spectate state, and neither
+  // the 30 s countdown nor `game:respawn` does anything any more — the only way back is a squadmate's rescue drop.
   ok(st.ra === undefined, 'dead ghost → no respawn countdown (자동 부활 폐지)', `${st.ra}`);
   ok(st.failed === 0, 'a dead restore alone is not a raid failure (solo path is bypassed)', `${st.failed}`);
   await P(() => { window.__game.ctx.timeScale = 10; });
@@ -274,7 +279,7 @@ try {
   ok(await P(() => !window.__game.ctx.player.isDead && window.__game.ctx.player.hp > 0), 'fallback: player alive after the hellpod drop');
   ok((await P(() => window.__spy.saveRaid.length)) === 0, 'saveRaid never called outside a multiplayer raid session');
 
-  /* 2026-09-09 (ESC 닫기): Escape closes the **top open screen** and opens the 일시정지 메뉴 only when there is
+  /* 2026-09-09 (the ESC close): Escape closes the **top open screen** and opens the 일시정지 메뉴 only when there is
      nothing to close (`shared/escape` → `game/escapeKey`). The menu itself is unchanged in the browser — it stacks
      over whatever is open and 게임으로 돌아가기 is the only way out of it (the shell also closes it on Escape). */
   console.log('2026-09-09: ESC 닫기 ↔ 일시정지 ↔ 아이템 창 (메뉴는 위에 쌓인다)');
@@ -418,9 +423,10 @@ try {
   await P(() => window.__game.ctx.bus.emit('game:abort', {}));
   await waitFor(page, () => window.__game.ctx.phase === 'menu', 'abort (extraction)', 20000);
 
-  /* 2026-09-11 (C-12 사용자 결정): 사망하면 장착 임플란트가 몸에서 빠지고 **망가진 짝**이 시체로 간다.
-     (C-18): 달리는 전차 위에서 죽은 시체는 전차에 실려 간다. 사망 → 시체 흐름은 멀티에서만 돌므로
-     (`game/parts/Death.onLocalDied`) 그 흐름이 부르는 함수 `CorpseNet.spawnLocalCorpse` 를 직접 부른다. */
+  /* 2026-09-11 (C-12 user's decision): on death the equipped implants come off the body and their **broken twins**
+     go to the corpse. (C-18): a corpse that died on a moving tram rides along with it. The death → corpse flow runs
+     only in multiplayer (`game/parts/Death.onLocalDied`), so the function that flow calls,
+     `CorpseNet.spawnLocalCorpse`, is called directly. */
   console.log('2026-09-11: 사망 → 임플란트 망가진 짝 · 전차 위 시체');
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub (implants)');
@@ -521,7 +527,8 @@ try {
     const pDrift = l1 && l0 ? Math.hypot(l1.plx - l0.plx, l1.plz - l0.plz) : Infinity;
     ok(l1 && pDrift < 0.3 && Math.abs(l1.pdy) < 0.3, `the idle player on the deck rides the tram with it (drift ${pDrift.toFixed(3)} m, Δy ${l1?.pdy?.toFixed(2)})`, JSON.stringify({ l0, l1 }));
   }
-  /* 2026-09-16 (사용자 결정 — 빈 시체 제거): 빈손으로 선 시체 · 다 털린 시체는 CORPSE_EMPTY_REMOVE_DELAY_S 뒤 가라앉아 사라진다 */
+  /* 2026-09-16 (user's decision — removing empty corpses): a corpse that stood empty-handed and a corpse looted
+     clean sink and are gone CORPSE_EMPTY_REMOVE_DELAY_S later */
   console.log('2026-09-16: 빈 시체 제거 (플레이어 시체)');
   await waitFor(page, () => window.__game.ctx.phase === 'playing' && !window.__game.ctx.player.isDropping, 'playing (empty corpses)', 60000);
   const K16 = await P(async () => { const m = await import('/src/shared/constants.ts'); return { delay: m.CORPSE_EMPTY_REMOVE_DELAY_S, sink: m.CORPSE_EMPTY_SINK_S }; });
@@ -567,7 +574,8 @@ try {
   await P(() => window.__game.ctx.bus.emit('game:abort', {}));
   await waitFor(page, () => window.__game.ctx.phase === 'menu', 'abort (implants)', 20000);
 
-  /* 2026-09-11 (C-12 후속, 사용자 결정): **솔로 사망**은 시체가 없으므로 장착 임플란트를 짝 없이 완전히 잃는다. */
+  /* 2026-09-11 (C-12 follow-up, user's decision): a **solo death** leaves no corpse, so the equipped implants are
+     lost outright, with no twin. */
   console.log('2026-09-11: 솔로 사망 → 임플란트 완전 손실');
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub (solo death)');
@@ -590,7 +598,7 @@ try {
   await waitFor(page, () => window.__game.ctx.phase === 'menu', 'abort (solo death)', 20000);
 
   /*
-   * 2026-09-11 (E-5, 오프라인 방어 1–3): the solo raid resume no longer trusts the local clock blindly and a deleted save
+   * 2026-09-11 (E-5, offline defence 1–3): the solo raid resume no longer trusts the local clock blindly and a deleted save
    * key no longer brings the pre-raid kit back. Every case reloads the page; the storage is edited by a script that runs
    * on the *new* document before the game boots (after the old page's page-hide saves), exactly like a player editing it
    * between two sessions.
@@ -628,7 +636,7 @@ try {
   };
   /**
    * Reboot and tell what the first frames did: resumed into `seed`, or failed (marker + kit gone), or nothing.
-   * 2026-09-15 (타이틀 이어하기): the boot stops at the title now — a fresh save shows `이어하기` (`offered`), which this presses.
+   * 2026-09-15 (title resume): the boot stops at the title now — a fresh save shows `이어하기` (`offered`), which this presses.
    */
   const outcomeAfter = async (seed) => {
     const t0 = Date.now();
@@ -643,7 +651,7 @@ try {
         continue;
       }
       const disk = await stored();
-      // 레이드 실패 = `game:abort` → the kit (with its marker) was reset and saved
+      // a raid failure = `game:abort` → the kit (with its marker) was reset and saved
       if (s && s.phase === 'menu' && disk.raidSeed === null && !disk.kitHasMark) return { kind: 'failed', offered, ...disk };
       await sleep(150);
     }
@@ -671,7 +679,7 @@ try {
   });
   out = await outcomeAfter(41);
   ok(out.kind === 'resumed', 'E-5: a save 1 s in the future (NTP step back) still resumes', JSON.stringify(out));
-  // ③ a save 10 min in the future (played with the clock ahead, set it back) → stale → 레이드 실패, kit lost
+  // ③ a save 10 min in the future (played with the clock ahead, set it back) → stale → raid failure, kit lost
   await rebootWith(() => {
     const k = 'scav.s1.soloraid'; const s = JSON.parse(localStorage.getItem(k));
     s.savedAt = Date.now() + 10 * 60_000; localStorage.setItem(k, JSON.stringify(s));
@@ -690,7 +698,7 @@ try {
   out = await outcomeAfter(42);
   ok(out.kind === 'failed' && out.raidSeed === null && !out.kitHasMark, 'E-5: a boot 10 min before clockHigh (clock moved back) → stale even with a 1 s old save', JSON.stringify(out));
 
-  // ⑤ the save key deleted while the loadout still carries the marker → the same 레이드 실패
+  // ⑤ the save key deleted while the loadout still carries the marker → the same raid failure
   await soloRaidWithMark(43);
   await rebootWith(() => { localStorage.removeItem('scav.s1.soloraid'); });
   out = await outcomeAfter(43);
@@ -707,7 +715,8 @@ try {
   ok(out.phase === 'menu' && out.kitHasMark && out.raidSeed === null,
     'E-5 (measured hole): without the marker a deleted save key boots to the title with the carried kit — the marker is what closes it (editing the loadout document itself stays possible offline)', JSON.stringify(out));
 
-  // ⑦ 2026-09-15 (타이틀 이어하기 · 레이드 포기): 레이드가 남은 타이틀 — `이어하기`(강조) 위 · 붉은 `게임 시작` 아래 → 포기 팝업 → 1초 홀드
+  // ⑦ 2026-09-15 (title resume · abandon): the title with a raid left over — `이어하기` (lit) on top, the red
+  //   `게임 시작` below → the abandon popup → a 1 s hold
   console.log('2026-09-15: 타이틀 이어하기 · 레이드 포기 (솔로)');
   await soloRaidWithMark(46);
   await rebootWith(null);
@@ -758,13 +767,15 @@ try {
     && tvDisk.solo === null && tvDisk.raidSeed === null && !tvDisk.kitHasMark && tv3.raids === tv0.raids + 1,
     '레이드 포기(1초 홀드): 사망 정산(레이드 +1) · 세이브 · 킷 표식 · 들고 있던 킷이 사라지고 `이어하기` 가 없어져 `게임 시작` 이 원래대로', JSON.stringify({ tv3, tvDisk }));
 
-  // 2026-09-13: 자발적 귀환 — 일시정지 메뉴 `함선으로 귀환` → 경고 팝업 → 1초 홀드 → 그 자리에서 사망 → 사망 연출 뒤 개인 함선 (솔로 = 전부 잃음)
+  // 2026-09-13: the voluntary return — the 일시정지 메뉴's `함선으로 귀환` → the warning popup → a 1 s hold → death
+  //   on the spot → the personal ship after the death animation (solo = everything is lost)
   console.log('자발적 귀환 (솔로)');
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub (return)', 60000);
   await P(() => { const ctx = window.__game.ctx; ctx.missionMode = 'raid'; ctx.bus.emit('game:newMission', { seed: 45 }); });
   await waitFor(page, () => window.__game.ctx.phase === 'playing' && !window.__game.ctx.player.isDropping, 'playing (return)', 60000);
-  // E-5 위에서 페이지를 여러 번 다시 띄웠으므로 부팅 때 건 `window.__ev` 는 없다 — 이 절의 기록기를 여기서 건다
+  // E-5 above reloaded the page several times, so the `window.__ev` hooked at boot is gone — this section's
+  // recorder is hooked here
   const ret0 = await P(() => {
     const ctx = window.__game.ctx;
     const rec = window.__ret = { died: 0, over: 0, hub: [] };

@@ -41,9 +41,9 @@ try {
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and locks
+    // room purposes · crafting · the terminal · boarding in that order, so it is marked "already done" here
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -110,7 +110,7 @@ try {
   ok(st.armed === null && (await lastEv('stratagem:armed'))?.id === null, 'G tap again puts the call away');
   await keyDown('KeyG'); await waitSim(0.4);
   ok((await lastEv('stratagem:wheelChanged'))?.open === true, 'G hold opens the wheel');
-  // 2026-09-09: STRATAGEM_ORDER = N 궤도 폭격 · E 보급품 투하 · S 트라이포드 투하 · W 구조선 투하
+  // 2026-09-09: STRATAGEM_ORDER = N `궤도 폭격` · E `보급품 투하` · S `트라이포드 투하` · W `구조선 투하`
   await mouseMove(60, 0); await waitSim(0.1);
   ok((await lastEv('stratagem:wheelChanged'))?.hover === 'supply_drop', 'drag right → hover E = supply_drop', JSON.stringify(await lastEv('stratagem:wheelChanged')));
   await mouseMove(-60, 60); await waitSim(0.1);
@@ -132,11 +132,11 @@ try {
   st = await state();
   const called = await lastEv('stratagem:called');
   ok(called?.kind === 'supply_drop' && st.calls === 1 && st.armed === null && st.targeting === false, 'LMB confirms: stratagem:called, disarmed, targeting off', JSON.stringify({ st, called }));
-  /* 2026-09-10: 공유 쿨타임 값이 바뀌었다 — 구조선 30 · 보급품/트라이포드 90 · 궤도 폭격 120 (data/stratagems.csv). */
+  /* 2026-09-10: the shared cooldown values changed — `구조선` 30 · `보급품`/`트라이포드` 90 · `궤도 폭격` 120 (data/stratagems.csv). */
   ok(st.cooldown > 89 && st.total === 90 && (await ev('stratagem:cooldown')).length >= 1, 'shared cooldown 90 s started', JSON.stringify(st));
   await key('KeyG');
   ok((await state()).armed === null && (await ev('ui:notify')).some((n) => /재충전/.test(n.text)), 'arming refused while on cooldown (ui:notify)', JSON.stringify(await ev('ui:notify')));
-  /* 2026-09-10 (사용자 결정): 쿨타임 중에는 **휠 자체가 열리지 않는다** — 고를 수 있는 칸이 하나도 없기 때문이다. */
+  /* 2026-09-10 (user's decision): **the wheel itself does not open** during a cooldown — there is not one sector to choose. */
   await keyDown('KeyG'); await waitSim(0.5);
   const coolWheel = await lastEv('stratagem:wheelChanged');
   ok(coolWheel?.open === false && !(await S((s) => s.wheelOpen)),
@@ -276,8 +276,8 @@ try {
     return { asClient, a, b };
   });
   ok(ans.asClient.length === 0, 'a non-host ignores stratq sync');
-  // 2026-09-09: 같은 답장에 구조선 잔여 횟수(`rescue count`)가 한 통 더 실린다. 그래서 개수가 아니라
-  // **strat sync 가 정확히 하나 있고 전부 요청자에게만 간다**로 잰다.
+  // 2026-09-09: the same answer carries one more message, the rescue drop's count left (`rescue count`). So this is
+  // measured not by a total but as **exactly one strat sync, with every message going to the requester alone**.
   const stratSyncs = ans.a.filter((s) => s.msg?.t === 'strat' && s.msg.ev === 'sync');
   const aMsg = stratSyncs[0]?.msg;
   ok(stratSyncs.length === 1 && ans.a.every((s) => s.to === 'PEER') && Array.isArray(aMsg?.calls), 'host answers stratq sync with one strat sync to the requester', JSON.stringify(ans.a));

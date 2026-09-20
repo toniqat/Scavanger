@@ -249,11 +249,13 @@ try {
     const K = await window.__imp('/src/shared/constants.ts');
     const CR = await window.__imp('/src/shared/craftRefund.ts');
     /*
-     * 2026-09-16 (사용자 결정 「숙련은 재료 환급에만 관여」): 제작이 끝나면 환급 굴림이 **둘**이다 —
-     * 제작 숙련(재료 한 개씩) + 연구 숙련(1회분마다), 지급과 토스트는 한 번(`Crafting.refundAfterCraft`).
-     * 이 절이 보는 것은 **연구 쪽**이므로 제작 숙련을 0 으로 내려 ①을 꺼 둔다 (`craftRefundChance(0) === 0`).
-     * 예전에 여기서 제작 숙련을 12 까지 올렸던 것은 옛 `skillRequired` 게이트 때문인데, `data/recipes.csv` 의
-     * 그 열은 이제 전부 0 이라 올릴 이유가 없다. 둘이 겹쳤을 때 한 줄로 합쳐지는지는 아래 `refundAfterCraft` 가 본다.
+     * 2026-09-16 (user's decision 「숙련은 재료 환급에만 관여」): when a craft finishes there are **two** refund rolls —
+     * the crafting skill (one per material unit) + the research skill (one per run), and the grant and the toast
+     * happen once (`Crafting.refundAfterCraft`). What this section watches is the **research side**, so the crafting
+     * skill is dropped to 0 to switch ① off (`craftRefundChance(0) === 0`). Raising the crafting skill to 12 here in
+     * the past was for the old `skillRequired` gate, and that column in `data/recipes.csv` is all 0 now, so there is
+     * no reason to raise it. Whether the two fold into one line when they overlap is what `refundAfterCraft` below
+     * checks.
      */
     prog.addSkillXpRaw('crafting', -1e6);
     const r = ctx.loot.getAllRecipes().find((x) => x.id === 'extract_min');
@@ -283,7 +285,8 @@ try {
   if (setup.error) ok(false, 'research refund setup', setup.error);
   else {
     ok(setup.can, 'extract_min is craftable at 추출기 Lv.3 with 2 runs of materials', JSON.stringify(setup));
-    // 2026-09-16: 제작 숙련 0 = 환급 없음. 이 절이 연구 쪽만 보려면 이 성질이 참이어야 한다 (`shared/craftRefund.ts`)
+    // 2026-09-16: crafting skill 0 = no refund. This section can only watch the research side while that property
+    // holds (`shared/craftRefund.ts`)
     ok(setup.skill === 0 && setup.chance0 === 0 && setup.chanceMax > 0 && setup.refundable === true,
       'craftRefundChance(0) === 0 (skill 0 → 제작 숙련 환급 없음), > 0 at SKILL_LEVEL_MAX; extract_min is refundable gear-free', JSON.stringify(setup));
     const runCraft = (count) => page.evaluate(async (n) => {
@@ -313,9 +316,11 @@ try {
     ok(b.made && JSON.stringify(b.after) === JSON.stringify(expB) && b.notes.length === 0, 'chance 0: nothing comes back, no toast', JSON.stringify({ b, expB }));
     ok(b.xp.length === 1 && b.xp[0][1] === setup.xpConst, 'research XP still paid on a failed roll', JSON.stringify(b.xp));
     /*
-     * 2026-09-16 — **두 굴림이 겹쳐도 지급과 토스트는 한 번.** 위 두 경우는 제작 숙련을 0 으로 꺼 두고 연구 쪽만 봤다.
-     * 여기서는 둘 다 켜고 `refundAfterCraft` 를 `rng: () => 0` 으로 직접 부른다 (게임 경로는 `Math.random` 이라 결과가
-     * 굴림마다 달라진다): 0 은 어떤 확률보다도 작으므로 **재료 한 개도 빠짐없이** 돌아오고, 기대값이 한 줄로 정해진다.
+     * 2026-09-16 — **even when the two rolls overlap, the grant and the toast happen once.** The two cases above
+     * switched the crafting skill off at 0 and watched only the research side. Here both are on and
+     * `refundAfterCraft` is called directly with `rng: () => 0` (the game path uses `Math.random`, so the outcome
+     * differs on every roll): 0 is below any chance, so **not one material unit is left behind** and the expected
+     * value is pinned to a single line.
      */
     const merged = await page.evaluate(async () => {
       const ctx = window.__game.ctx, inv = ctx.inventory, prog = ctx.progression;
@@ -323,8 +328,8 @@ try {
       const CR = await window.__imp('/src/shared/craftRefund.ts');
       const K = await window.__imp('/src/shared/constants.ts');
       const r = ctx.loot.getAllRecipes().find((x) => x.id === 'extract_min');
-      prog.addSkillXpRaw('crafting', 1e9);                     // 제작 숙련 최대 → ① 이 켜진다
-      window.__refundStub.chance = 1; window.__refundStub.frac = 0.5;   // 연구 ② 도 켠다
+      prog.addSkillXpRaw('crafting', 1e9);                     // the crafting skill at maximum → ① switches on
+      window.__refundStub.chance = 1; window.__refundStub.frac = 0.5;   // research ② switches on too
       const cost = inv.craftCost(r);
       const before = Object.fromEntries(cost.map((c) => [c.defId, inv.countDefAll(c.defId)]));
       const n0 = window.__ev['ui:notify'].length;

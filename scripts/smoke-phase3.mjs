@@ -40,9 +40,9 @@ try {
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and locks
+    // room purposes · crafting · the terminal · boarding in that order, so it is marked "already done" here
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -104,12 +104,12 @@ try {
   await keyDown('KeyG'); await waitSim(0.5);
   let wheel = await lastEv('stratagem:wheelChanged');
   ok(wheel && wheel.open === true, 'G hold opens the ship-call wheel', JSON.stringify(wheel));
-  // 2026-09-09: STRATAGEM_ORDER = N 궤도 폭격 · E 보급품 투하 · S 트라이포드 투하 · W 구조선 투하
+  // 2026-09-09: STRATAGEM_ORDER = N `궤도 폭격` · E `보급품 투하` · S `트라이포드 투하` · W `구조선 투하`
   await P(() => { window.__game.ctx.input.mouseDX += 80; });
   await waitSim(0.2);
   wheel = await lastEv('stratagem:wheelChanged');
   ok(wheel && wheel.hover === 'supply_drop', 'drag right hovers 보급품 투하 (E)', JSON.stringify(wheel));
-  // back to N for the top-view section (the only remaining topview call is 궤도 폭격)
+  // back to N for the top-view section (the only remaining topview call is `궤도 폭격`)
   await P(() => { const i = window.__game.ctx.input; i.mouseDX -= 80; i.mouseDY -= 80; });
   await waitSim(0.2);
   wheel = await lastEv('stratagem:wheelChanged');
@@ -172,8 +172,10 @@ try {
   await waitFor(page, () => window.__ev['stratagem:landed'].some((e) => e.kind === 'structure_drop'), 'structures landed', 240000);
   await waitSim(2.5);
   await P(() => { window.__game.ctx.timeScale = 1; });
-  // 2026-09-13: 구조물 창문 유리(`world/structures/parts/Glass` — id `glass:…`)도 destructible 이다. 착지점 12 m 안에 창 달린 건물이 서면
-  // 유리를 구조물로 세고, 첫 destructible 로 유리를 집어 깨는 순간 `o.destructible` 이 사라져 `.hp` 에서 던졌다 — 함선 호출 구조물만 센다.
+  // 2026-09-13: a structure's window glass (`world/structures/parts/Glass` — id `glass:…`) is destructible too. With a
+  // building that has windows standing within 12 m of the landing spot the glass was counted as a structure, and picking
+  // the glass as the first destructible threw on `.hp` the moment breaking it removed `o.destructible` — only the ship
+  // call's own structures are counted.
   const obs = await P((t) => { const w = window.__game.ctx.world; const near = w.getObstaclesNear(t[0], t[2], 12); const isCover = (o) => o.destructible && !String(o.destructible.id).startsWith('glass:'); return { total: near.length, destructible: near.filter(isCover).length, count: window.__game.getSystem('stratagems').structureCount }; }, target);
   ok(obs.destructible === 5 && obs.count === 5, '5 destructible cover obstacles registered in the world', JSON.stringify(obs));
   const destroyed = await P((t) => { const w = window.__game.ctx.world; const o = w.getObstaclesNear(t[0], t[2], 12).find((x) => x.destructible && !String(x.destructible.id).startsWith('glass:')); const id = o.destructible.id; o.destructible.onDamage(500); const hpMid = o.destructible.hp; o.destructible.onDamage(5000); const still = w.getObstaclesNear(t[0], t[2], 12).some((x) => x.destructible && x.destructible.id === id); return { hpMid, still, count: window.__game.getSystem('stratagems').structureCount }; }, target);
@@ -182,7 +184,7 @@ try {
   ok((await ev('structure:destroyed')).length === 1 && (await ev('structure:damaged')).length >= 1, 'structure:damaged / destroyed emitted');
 
   console.log('supply drop');
-  /* 2026-09-08: a solo death is instant now (no 전투불능 bleed-out), and a dead player stops the world / stratagem
+  /* 2026-09-08: a solo death is instant now (no downed bleed-out), and a dead player stops the world / stratagem
      update — the two long `timeScale 4` waits below would then hang on `stratagem:landed` / `stratagem:ended`.
      The airstrike section above is the one that needs live enemies; from here the field is quiet on purpose. */
   await P(() => {
@@ -209,10 +211,12 @@ try {
     return { active: ctx.isGameplayActive(), phase: ctx.phase, dead: p.isDead, downed: p.isDowned, hp: Math.round(p.hp), blockers: [...ctx.uiBlockers] }; });
   ok(afterLoot.active, 'gameplay active again after closing the loot window', JSON.stringify(afterLoot));
 
-  /* ── 2026-09-12: 준비 연출 — 쿨타임이 끝나는 순간 플래시 + 준비된 동안 글로우, 무전 차임 (거절 환불은 약한 플래시 · 무음) ──
-   * `stratagem:ready` 는 게임플레이 페이즈에서만 나간다. 예전에는 이 구간이 레이저 **뒤**에 있었는데, 레이저 구간이 timeScale 4 로
-   * 수십 초를 흘리는 동안 플레이어가 죽어 함선으로 돌아가면 이벤트가 하나도 안 나와 5개가 한꺼번에 빨갛게 됐다(verify:all 1회).
-   * 게임플레이가 확인된 바로 여기서 잰다. */
+  /* ── 2026-09-12: the ready presentation — flash, glow, radio chime ─────────────────
+   * A flash the moment the cooldown ends + a glow while it is ready; a refusal refund is a weak flash · silent.
+   * `stratagem:ready` goes out in a gameplay phase only.
+   * This stretch used to sit **after** the laser, and when the player died while the laser stretch ran tens of
+   * seconds by at timeScale 4 and went back to the ship, not one event came out and five checks went red together
+   * (once in verify:all). It is measured right here, where gameplay is confirmed. */
   console.log('ready flash');
   const rdy0 = await P(async () => {
     const ctx = window.__game.ctx, s = window.__game.getSystem('stratagems'), audio = window.__game.getSystem('audio');
@@ -250,9 +254,10 @@ try {
   await P(() => { window.__game.getSystem('stratagems').debugCooldownReset?.(); });   // the laser below calls on a clean cooldown
 
   console.log('laser');
-  // 2026-09-09 (적 체력 ×2): 이 구간은 timeScale 4 로 수십 초를 흘려보내는데, 앞선 폭격에서 살아남은 벌레가
-  // 그 사이에 플레이어를 물어 죽이면 레이드가 실패해 함선으로 돌아가고 호출 목록이 통째로 비워진다 —
-  // 레이저가 제 시간에 끝나는지와는 아무 상관 없는 실패다. 주변을 비우고 체력을 채운 뒤 잰다.
+  // 2026-09-09 (enemy hp ×2): this stretch runs tens of seconds by at timeScale 4, and if a bug that survived the
+  // airstrike above bites the player to death in the meantime the raid fails, it goes back to the ship and the call list
+  // is emptied whole — a failure with nothing at all to do with whether the laser ends on time. The area is cleared and
+  // hp filled before it is measured.
   await P(() => {
     const ctx = window.__game.ctx;
     ctx.enemies.setThreatLevel(0);

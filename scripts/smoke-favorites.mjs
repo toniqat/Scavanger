@@ -65,10 +65,11 @@ try {
       const canvas = document.getElementById('game-canvas');
       Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
       /**
-       * 2026-09-16 (사용자 결정 「목록은 우리가 그린다」, `src/shared/dropdown.ts`) — 필터는 더 이상 네이티브
-       * `<select>` 가 아니므로 `.value =` 로 몰 수 없다. 사람이 하는 그대로 **트리거를 눌러 목록을 펼치고
-       * 항목을 클릭한다**. 목록(`.dd-pop`)은 `document.body` 바로 아래에 **열려 있는 동안만** 있으므로 창
-       * 안에서 찾지 않는다. 항목은 글자로 고른다 (`★ 즐겨찾기` 처럼 글리프 + 이름).
+       * 2026-09-16 (user's decision 「목록은 우리가 그린다」, `src/shared/dropdown.ts`) — the filter is no longer a
+       * native `<select>`, so it cannot be driven with `.value =`. It is done the way a person does it: **press
+       * the trigger to open the list and click an option**. The list (`.dd-pop`) sits directly under
+       * `document.body` and only **while it is open**, so it is not looked for inside the window. An option is
+       * picked by its text (a glyph + the name, like `★ 즐겨찾기`).
        */
       window.__pickFilter = (scope, label) => {
         const dd = document.querySelector(`${scope} .inv-filter-sel`);
@@ -78,7 +79,7 @@ try {
         if (!pop) throw new Error(`filter list did not open at ${scope}`);
         const opt = [...pop.querySelectorAll('.dd-opt')].find((b) => b.textContent.includes(label));
         if (!opt) throw new Error(`no filter option ${label}`);
-        opt.click();                             // 고르면 목록은 스스로 닫힌다
+        opt.click();                             // picking one closes the list on its own
         if (document.querySelector('.dd-pop')) throw new Error('filter list stayed open after a pick');
       };
       window.__ev = {};

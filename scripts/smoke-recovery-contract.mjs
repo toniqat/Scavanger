@@ -1,12 +1,17 @@
-// 2026-09-12 (§5-2, 사용자 결정): 아이템 회수 계약 — **이번 레이드에서 얻은 아이템만** 센다.
-//   ① 함선에서 계약 수락 + 가져온 크레딧 칩 2 (표식 없음) → 레이드: 범위(시드 · 계약 아이템) · 가져온 것은 0 개 · 그대로 정산하면 incomplete + 진행도 0
-//   ② 실제 상자 굴림은 표식이 찍힌다 · 계약 아이템(표식)이 든 컨테이너 창에서 사선 띠 · 가방으로 가져오면 가져온 스택과 **안 합쳐진다**
-//      (빠른 이동 · 드래그 미리보기 swap · mergeInto 0) · 띠는 표식 스택에만 · 개수 = 표식 단위만 · HUD 진행도
-//   ③ 표식 칩을 주우면 표식 스택에 합쳐진다 · 나누기는 표식을 물려받는다 · 자동 정렬도 두 분류를 지킨다
-//   ④ 레이드 blob 왕복 · 픽업 와이어(rf) 왕복 + 줍기 · 시체 와이어(rf) 왕복 · 로드아웃 문서에는 rf 가 없다
-//   ⑤ 다른 아이템(폐금속): 표식 + 가져온 것은 합쳐지고 결과는 표식 없음 (양쪽 순서)
-//   ⑥ 표식 5 개로 정산 → success · game:complete 가 표식을 지운다 → 함선: 합치기 가능 · 띠 없음 · 다시 수락하면 진행도 0 · 함선에서는 진행도가 0 으로 돌아온다
-//   ⑦ 훈련장: 범위 없음 · 상자 굴림에 표식 없음
+// 2026-09-12 (§5-2, user's decision): the item recovery contract — it counts **only items found in this raid**.
+//   ① accept the contract in the ship + 2 brought 크레딧 칩 (no mark) → raid: the scope (seed · contract item) ·
+//      0 brought units count · settling as it is gives incomplete + progress 0
+//   ② a real crate roll stamps the mark · the ribbon in the container window on a contract item (marked) ·
+//      brought into the bag it **does not merge** with the brought stack (quick move · drag preview swap ·
+//      mergeInto 0) · the ribbon on the marked stack only · the count = marked units only · HUD progress
+//   ③ a picked-up marked chip merges into the marked stack · a split inherits the mark · 자동 정렬 keeps the two
+//      kinds apart too
+//   ④ the raid blob round-trips · the pickup wire (rf) round-trips + picking it back up · the corpse wire (rf)
+//      round-trips · the loadout document carries no rf
+//   ⑤ another item (폐금속): marked + brought merge and the result is unmarked (both orders)
+//   ⑥ settling with 5 marked → success · game:complete strips the marks → ship: merging possible · no ribbon ·
+//      re-accepting starts at progress 0 · in the ship the progress snaps back to 0
+//   ⑦ the training range: no scope · crate rolls carry no mark
 // Usage: node scripts/smoke-recovery-contract.mjs [http://localhost:5273/]   (vite dev server; the relay socket is parked)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -64,7 +69,7 @@ try {
     Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
   });
   const waitSim = async (sec) => { const t0 = await P(() => window.__game.ctx.time); await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${sec}s`, 120000, t0 + sec); };
-  const DEF = 'cred_chip';   // nomad_chips: 크레딧 칩 5 개, stackMax 5, 1×1, 신뢰도 0
+  const DEF = 'cred_chip';   // nomad_chips: 5 × 크레딧 칩, stackMax 5, 1×1, 신뢰도 0
   /** Every stack of `defId` on the body (bag + wheel + pouch) with its mark. */
   const stacks = (defId) => P((d) => {
     const inv = window.__game.getSystem('inventory');

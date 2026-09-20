@@ -1,9 +1,9 @@
-// 버그 굴착 스폰 (2026-09-13 — src/enemies: Enemy.startEmerge · ai/Burrow · parts/Burrow · fx/BurrowFx) 단독 스모크 — 릴레이 없이 싱글 플레이로 돈다.
-// 검사: ① 월드 생성 때의 첫 배치는 파고 나오지 않는다 ② 레이드 중 상시 순찰(AmbientSpawner)은 파고 나온다
-//       ③ debugSpawnBurrow: 그림(리그)이 땅속에서 시작 · 분진 방출기 · burrow_emerge 소리 · 가까우면 약한 흔들림
-//       ④ 올라오는 동안 맞는다 · 움직이지 않는다 · 공격하지 않는다 ⑤ BURROW_EMERGE_S 뒤 다 올라와 싸운다
-//       ⑥ 여러 마리가 한꺼번에 올라와도 흔들림은 한 번 ⑦ 멀면 흔들림이 없다 ⑧ 리플리카 `ee spawn.em` 도 같은 굴착 (em 없으면 없음)
-//       ⑨ 땅굴벌레가 뱉은 몸(startSpat): 와이어 힌트 4 · 포물선 · 착지.
+// Bug burrow spawns (2026-09-13 — src/enemies: Enemy.startEmerge · ai/Burrow · parts/Burrow · fx/BurrowFx) — a standalone smoke, single player, without a relay.
+// Checks: ① the initial placement made with the world does not dig out ② an ambient patrol mid-raid (AmbientSpawner) does
+//       ③ debugSpawnBurrow: the drawn body (the rig) starts underground · the dust emitters · the burrow_emerge sound · a weak shake close by
+//       ④ it can be hit while rising · it does not move · it does not attack ⑤ BURROW_EMERGE_S later it is fully up and fights
+//       ⑥ several rising on one frame still give one shake ⑦ far away there is no shake ⑧ a replica `ee spawn.em` digs out the same way (nothing without em)
+//       ⑨ a body the sandworm spat (startSpat): wire hint 4 · the arc · the landing.
 // Usage: node scripts/smoke-burrow.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -19,7 +19,7 @@ const CHROME = [
 if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
-// 계약 값은 csv 에서 읽는다 (브라우저 안에서 상수를 import 할 수 없다)
+// The contract values are read from csv (a constant cannot be imported inside the browser)
 const CONST = Object.fromEntries(readFileSync(new URL('../data/constants.csv', import.meta.url), 'utf8').split(/\r?\n/)
   .filter((l) => l && !l.startsWith('#')).map((l) => l.split(',')).filter((c) => c.length >= 2).map((c) => [c[0], Number(c[1])]));
 const EMERGE_S = CONST.BURROW_EMERGE_S;
@@ -84,12 +84,12 @@ try {
   await waitSim(0.3);
   ok(await P(() => window.__sys.isAuthority), 'single-player authority');
 
-  /* ── 1. 첫 배치 ────────────────────────────────────────────────────────── */
+  /* ── 1. the initial placement ───────────────────────────────────────── */
   console.log('첫 배치');
   const initial = await P(() => window.__ev.spawned.filter((s) => s.faction === 'bug').map((s) => s.emergeDur));
   ok(initial.length > 0 && initial.every((d) => d === 0), `월드 생성 때의 벌레 ${initial.length}마리는 파고 나오지 않는다`, JSON.stringify(initial.slice(0, 8)));
 
-  /* ── 2. 상시 순찰 ──────────────────────────────────────────────────────── */
+  /* ── 2. the ambient patrol ─────────────────────────────────────────── */
   console.log('상시 순찰 (AmbientSpawner)');
   await P(() => { const sys = window.__sys; sys.killAll(); window.__game.ctx.enemies.setThreatLevel(1); window.__ambFrom = window.__ev.spawned.length; });
   let ambient = null;
@@ -101,7 +101,7 @@ try {
   ok(!!ambient && ambient.every((s) => Math.abs(s.emergeDur - EMERGE_S) < 1e-6), `레이드 중 순찰은 BURROW_EMERGE_S(${EMERGE_S}s) 동안 파고 나온다 (${ambient ? ambient.length : 0}마리)`, JSON.stringify(ambient && ambient.slice(0, 4)));
   await P(() => { window.__sys.killAll(); window.__game.ctx.enemies.setThreatLevel(0); window.__sys.spawner.timer = 1e9; });
 
-  /* ── 3. 굴착 시작 ──────────────────────────────────────────────────────── */
+  /* ── 3. the dig-in starts ──────────────────────────────────────────── */
   console.log('굴착 시작 (debugSpawnBurrow)');
   await waitSim(SHAKE_GAP_S + 0.2);
   const s3 = await P(() => {
@@ -122,7 +122,7 @@ try {
   ok(!!s3 && s3.audio, '소리 burrow_emerge');
   ok(!!s3 && s3.shakes === 1, `8 m 앞 굴착 = 약한 흔들림 한 번 (BURROW_SHAKE_RADIUS ${SHAKE_RADIUS} m; ${s3 && s3.shakes})`);
 
-  /* ── 4. 올라오는 동안 ──────────────────────────────────────────────────── */
+  /* ── 4. while it rises ───────────────────────────────────────────── */
   console.log('올라오는 동안');
   const s4 = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const e = sys.byId.get(window.__w);
@@ -146,7 +146,7 @@ try {
   ok(s4b.t > 0 && s4b.moved < 0.05, `올라오는 동안 움직이지 않는다 (emergeT ${s4b.t.toFixed(2)}, moved ${s4b.moved.toFixed(3)})`);
   ok(s4b.attacked === 0, '올라오는 동안 공격하지 않는다');
 
-  /* ── 5. 다 올라온 뒤 ───────────────────────────────────────────────────── */
+  /* ── 5. once it is fully up ───────────────────────────────────────── */
   console.log('다 올라온 뒤');
   await waitSim(EMERGE_S * 0.6);
   const s5 = await P(() => { const e = window.__sys.byId.get(window.__w); return { t: e.emergeT, dur: e.emergeDur, dy: Math.abs(e.rig.root.position.y - e.position.y) }; });
@@ -156,7 +156,7 @@ try {
   ok(s5b > 0, `다 올라온 뒤에는 공격한다 (enemy:attacked ×${s5b})`);
   await P(() => { const e = window.__sys.byId.get(window.__w); if (e && e.state !== 'dead') e.kill(false); window.__game.ctx.player.heal(200); });
 
-  /* ── 6. 흔들림 중복 없음 ───────────────────────────────────────────────── */
+  /* ── 6. no duplicate shake ──────────────────────────────────────── */
   console.log('흔들림은 겹치지 않는다');
   await waitSim(SHAKE_GAP_S + 0.2);
   const s6 = await P(() => {
@@ -179,7 +179,7 @@ try {
   ok(s7.spawned && s7.d === 0, `70 m 밖 굴착은 흔들지 않는다 (${s7.d})`);
   await P(() => { const sys = window.__sys; for (const e of sys.active) if (e.active && e.state !== 'dead') e.kill(false); });
 
-  /* ── 8. 리플리카 ───────────────────────────────────────────────────────── */
+  /* ── 8. the replica ────────────────────────────────────────────────── */
   console.log('리플리카 (ee spawn.em)');
   const s8 = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const pp = ctx.player.position;
@@ -198,7 +198,7 @@ try {
   ok(s8b === 0, `리플리카도 1초 뒤 다 올라온다 (${s8b})`);
   await P(() => { window.__sys.setAuthority(true); for (const e of window.__sys.active) if (e.active && e.state !== 'dead') e.kill(false); });
 
-  /* ── 9. 뱉어진 몸 ──────────────────────────────────────────────────────── */
+  /* ── 9. the spat body ──────────────────────────────────────────────── */
   console.log('뱉어진 몸 (startSpat)');
   const s9 = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const V = window.__V; const pp = ctx.player.position;
@@ -208,7 +208,7 @@ try {
     const from = new V(e.position.x, e.position.y + 8, e.position.z);
     const tx = bx + (bx > pp.x ? 6 : -6), tz = pp.z + 2;
     const to = new V(tx, ctx.world.getHeightAt(tx, tz), tz);
-    // 착지 순간의 위치를 잡는다 — 착지하자마자 chase 로 달려 나가므로 1 초 뒤에 재면 이미 몇 m 옮겨 가 있다 (리드 2026-09-13)
+    // Captures the position at the moment of landing — it runs off in chase the instant it lands, so measuring a second later already finds it metres away (the lead, 2026-09-13)
     window.__sp = { id: e.id, to: [to.x, to.y, to.z], landed: null };
     if (!sys.__landWrap) {
       const orig = sys.burrowLanded.bind(sys);
@@ -226,7 +226,7 @@ try {
   const s9c = await P(() => { const e = window.__sys.byId.get(window.__sp.id); const to = window.__sp.to; const L = window.__sp.landed; return { air: e.airborne, t: e.spatT, d: L ? Math.hypot(L[0] - to[0], L[1] - to[2]) : 99, hint: window.__sys.debugHint(e.id), state: e.state }; });
   ok(!s9c.air && s9c.t === 0 && s9c.d < 0.8 && s9c.hint !== 4, `착지점에 내려앉는다 (d ${s9c.d.toFixed(2)}, hint ${s9c.hint}, ${s9c.state})`);
 
-  /* ── 10. 굴착음은 한 마리마다 (2026-09-16) ─────────────────────────────── */
+  /* ── 10. one dig-in sound per body (2026-09-16) ───────────────── */
   console.log('벌레 소리 (2026-09-16)');
   await P(() => { const sys = window.__sys; for (const e of sys.active) if (e.active && e.state !== 'dead') e.kill(false); });
   await waitSim(CONST.BURROW_EMERGE_BATCH_S + 1.0);
@@ -250,8 +250,8 @@ try {
   ok(s10.maxVoices >= 1 && s10.maxVoices <= CONST.BURROW_EMERGE_VOICE_CAP, `동시 굴착음 보이스 ≤ BURROW_EMERGE_VOICE_CAP ${CONST.BURROW_EMERGE_VOICE_CAP} (최대 ${s10.maxVoices})`);
   await P(() => { const sys = window.__sys; for (const e of sys.active) if (e.active && e.state !== 'dead') e.kill(false); });
 
-  /* ── 11. 벌레 발소리 — 곁에서만, 무리가 쌓이지 않게 ─────────────────────── */
-  // 벌레가 걷는 동안의 발소리를 모은다: id · 크기 · 카메라 거리 · 그 순간 bug_steps 보이스 수
+  /* ── 11. bug footsteps — close by, no stacking ─────────── */
+  // Collects the footsteps while a bug walks: id · volume · distance from the camera · the bug_steps voice count at that moment
   await P(() => {
     const ctx = window.__game.ctx; const audio = window.__game.getSystem('audio'); const V = window.__V;
     const cam = new V();
@@ -301,7 +301,7 @@ try {
   const big = await walkBugs('behemoth', 1, 16, 2.0);
   ok(big.n >= 1 && big.ids.every((id) => id === 'bug_step_giant') && big.maxD <= CONST.BUG_STEP_GIANT_RANGE_M + 0.5, `베헤모스 = bug_step_giant, BUG_STEP_GIANT_RANGE_M ${CONST.BUG_STEP_GIANT_RANGE_M} m 안 (${big.n} 걸음, ${big.ids.join(',')}, 최대 ${big.maxD.toFixed(1)} m)`);
 
-  /* ── 12. 포탄 낙하음 — 착탄 리드 전에 시작, 착탄 · 요격에 끊긴다 ──────────── */
+  /* ── 12. the incoming whistle — lead in, cut on impact ─ */
   const FLIGHT = CONST.SHELL_FLIGHT_TIME, LEAD = CONST.SHELL_INCOMING_LEAD_S;
   const fireFake = (sid, off) => P(({ sid, off, flight }) => {
     const ctx = window.__game.ctx; const V = window.__V; const pp = ctx.player.position;

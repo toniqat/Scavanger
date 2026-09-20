@@ -1,12 +1,12 @@
 // Single-client smoke test for the tactical kit: boots the game, walks it into a mission and exercises
 // implants, gadgets, gear/weight, melee, roll, gathering, field crafting and progression (91 checks; Phase 12 added the
-// 3.2 m shield width, `resolveBarrierCollision` / `absorbFrontalAttack`, the 실드 배쉬 via a synthetic LMB and the
-// one-shot 정찰 in a third mission; 2026-09-11 the explicit 오버차지 flag (C-3) and the bash knockback through the
+// 3.2 m shield width, `resolveBarrierCollision` / `absorbFrontalAttack`, the shield bash via a synthetic LMB and the
+// one-shot recon in a third mission; 2026-09-11 the explicit overcharge flag (C-3) and the bash knockback through the
 // contract `EnemyManagerRef.pushBack` (C-1); 2026-09-12 → 115: ready moments / sounds, dash 11.25 m + wall clamp,
 // `refillAll`, and a fourth mission for the grapple cooldown refund; 2026-09-14 → 119: grapple cooldown 31.2 s / cancel floor
 // 3.9 s, and the body-swept dash — a ground-floor window intact + broken stops it inside, a front doorway and a low box step pass,
 // each compared with a real PlayerController walking the same line; 2026-09-16: the crouched "low roll" ends crouched with the
-// crouch blend held, no roll while prone / standing up from prone (API and V key), and `selfMovedMeters` + 운반 XP count walking
+// crouch blend held, no roll while prone / standing up from prone (API and V key), and `selfMovedMeters` + `운반` hauling XP count walking
 // and the own roll but not an attached carrier (liftoff), an impulse flight or the dash).
 // Usage: node scripts/smoke-tactical.mjs [http://localhost:5273/]
 // Requires `npm run dev` (or `npm run dev:all`) to be running.
@@ -73,9 +73,9 @@ try {
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and locks
+    // room purposes · crafting · the terminal · boarding in that order, so it is marked "already done" here
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -123,18 +123,18 @@ try {
   ok(cat.packCount >= 8, `bag defs: ${cat.packCount}`);
   ok(JSON.stringify(cat.packPerks) === '["none","tactical"]', `bag perks ${JSON.stringify(cat.packPerks)}`);
   ok(cat.quickSlotMax >= 8, `tactical bag grants 8+ quick slots (${cat.quickSlotMax})`);
-  // 2026-09-11: +3 (원격 지뢰 · 지상 드론 · 공중 드론)
-  /* 2026-09-15 2차: 옛 가젯 「화염수류탄」(gad_incendiary)이 화염 수류탄으로 합쳐지며 하나 줄고(-1),
-     `ItemCategory 'grenade'` 폐지로 수류탄 2종이 이 카테고리로 들어왔다(+2). */
-  /* 2026-09-15 (땅굴벌레): 진동 장치 `gad_thumper` 가 13번째 가젯이다 */
+  // 2026-09-11: +3 (the remote mine · the ground drone · the air drone)
+  /* 2026-09-15, 2nd pass: the old gadget 「화염수류탄」 (gad_incendiary) was merged into the incendiary grenade, which
+     takes one away (-1), and dropping `ItemCategory 'grenade'` brought the two grenades into this category (+2). */
+  /* 2026-09-15 (the sandworm): the thumper `gad_thumper` is the 13th gadget */
   ok((cat.byCat.gadget ?? 0) === 15, `15 gadget items — 가젯 13 + 수류탄 2 (${cat.byCat.gadget})`);
   ok((cat.byCat.herb ?? 0) >= 3, `herb items (${cat.byCat.herb})`);
   ok(cat.recipes >= 10, `craft recipes: ${cat.recipes}`);
   ok(cat.weighted, 'every item def carries a weight');
 
   /* ── progression ──────────────────────────────────────────────────── */
-  // 2026-09-16 (사용자 결정 「채광 숙련」): 숙련 수를 박아 두면 숙련이 늘 때마다 여기가 빨개진다 —
-  // `shared/progression.STAT_IDS` · `SKILL_IDS` 가 원본이므로 프로필이 그 목록을 **그대로** 채웠는지를 본다.
+  // 2026-09-16 (user's decision 「채광 숙련」): pinning the skill count down turns this red every time a skill is added —
+  // `shared/progression.STAT_IDS` · `SKILL_IDS` are the source, so this looks at whether the profile filled **exactly** those lists.
   const prog = await page.evaluate(async () => {
     const { STAT_IDS, SKILL_IDS } = await import('/src/shared/progression.ts');
     const p = window.__game.ctx.progression, d = p.derived;
@@ -147,7 +147,7 @@ try {
 
   /* ── implants: equipping is a ship-only action ────────────────────── */
   const implantIds = await page.evaluate(() => window.__game.ctx.implants.getAllDefs().map((d) => d.id));
-  // 2026-09-15: 대전차포 (`atlauncher`) retired — five selectable implants, and the retired id is not among them
+  // 2026-09-15: the `대전차포` (`atlauncher`) retired — five selectable implants, and the retired id is not among them
   ok(implantIds.length === 5 && !implantIds.includes('atlauncher'), `5 implants (no atlauncher): ${implantIds.join(',')}`);
 
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
@@ -188,10 +188,10 @@ try {
   ok(locked.refused && locked.still === 'dash', 'implant swap refused during a raid');
 
   /* ── gather nodes ─────────────────────────────────────────────────── */
-  // 2026-09-08: the node list now also carries 고철 더미 (`kind: 'salvage'`, `mat_scrap`) — check both families
+  // 2026-09-08: the node list now also carries salvage piles (`kind: 'salvage'`, `mat_scrap`) — check both families
   const gather = await page.evaluate(() => {
     const n = window.__game.ctx.world.getGatherNodes();
-    // 2026-09-11 (연구실): 같은 목록에 토양 · 씨앗 · 표본도 있다 — 아래 `herb_` 단언이 있으므로 약초만 고른다
+    // 2026-09-11 (the lab): soil · seeds · samples are on the same list — the `herb_` assertion below means only herbs are picked
     const herbs = n.filter((g) => g.kind === 'herb');
     const salvage = n.filter((g) => g.kind === 'salvage');
     return {
@@ -222,7 +222,7 @@ try {
     inv.tryAddItem(item);
     const done = inv.equip(item.uid, 'armor');
     ctx.player.update(0.6, ctx);   // PlayerGear re-reads the inventory on the next tick
-    /* 2026-09-10: 방탄복은 피해 감소가 아니라 실드(추가 체력)를 준다 — `damageReduction` 은 계약으로만 남아 늘 0 이다. */
+    /* 2026-09-10: armor gives a shield (extra hp), not damage reduction — `damageReduction` survives as a contract field only and is always 0. */
     return { done, shield: ctx.player.maxShield };
   });
   ok(armor.done && armor.shield > 0, `armor equipped, shield +${armor.shield}`);
@@ -242,7 +242,7 @@ try {
   ok(rollStarted && rolled.moved > 3.0, `roll covered ${rolled.moved.toFixed(2)} m of the 4.2 m arc`);
   ok(rolled.rolling === false && rolled.stance === 'stand', `roll ended back in a standing stance (${rolled.stance})`);
 
-  /* ── 2026-09-16: 낮은 구르기 · 엎드려서는 못 구른다 · 제 힘으로 움직인 거리 (운반 숙련) ───────────────────── */
+  /* ── 2026-09-16: the low roll · no roll while prone · self-propelled metres ────── */
   // A per-frame trace around PlayerSystem.update (Engine calls `s.update(dt, ctx)` on the instance); `__pre` runs before it.
   await page.evaluate(() => {
     const G = window.__game, ps = G.getSystem('player');
@@ -254,7 +254,7 @@ try {
       const k = this.controller;
       window.__trace.push({ t: c.time, g: k.grounded, odo: this.selfMovedMeters, roll: k.rolling, cb: this.crouchBlend, st: this._stance, x: k.position.x, z: k.position.z });
     };
-    // 운반 XP accrues only at 조금 무거움 or worse — progression reads the state straight off this event
+    // `운반` hauling XP accrues only at `조금 무거움` or worse — progression reads the state straight off this event
     G.ctx.bus.emit('inventory:weightChanged', { weight: 1, capacity: 1, ratio: 0.8, state: 'light' });
   });
   // a global (a `const` inside eval stays local to that eval): later `__carry(...)` calls resolve to window.__carry
@@ -403,7 +403,7 @@ try {
   ok(dash.max === 3, 'dash carries 3 charges');
   ok(dash.after === dash.before - 1, `dash consumed a charge (${dash.before}→${dash.after})`);
   ok(dashMoved > 2, `dash teleported ${dashMoved.toFixed(2)} m`);
-  // 2026-09-16: the dash is implant movement — no self-propelled metres, no 운반 XP; then drop the trace and the fake weight state
+  // 2026-09-16: the dash is implant movement — no self-propelled metres, no `운반` hauling XP; then drop the trace and the fake weight state
   const dashOdo = await page.evaluate(() => {
     const G = window.__game, ctx = G.ctx, d = window.__dashOdo;
     const out = { odo: ctx.player.selfMovedMeters - d.odo, carry: ctx.progression.getSkill('carry') + ctx.progression.getSkillProgress('carry') - d.carry };
@@ -641,7 +641,7 @@ try {
       if (d.category === 'gadget') ctx.inventory.tryAddItem(ctx.loot.createItem(d.id, 3));
     }
   });
-  // Full health on the spot first, and 화염수류탄 **last**: its fire zone is friendly-fire by design and lands a few
+  // Full health on the spot first, and the `화염수류탄` **last**: its fire zone is friendly-fire by design and lands a few
   // metres ahead of a standing player, so with the current starter gear the burn downed the player partway through
   // the loop — and a downed player is refused **silently** (`deny(null)`), so every later `use()` returned false.
   await page.evaluate(() => {
@@ -650,7 +650,7 @@ try {
   });
   await gameSleep(page, 0.3);
   const thrown = {};
-  /* 2026-09-15 2차: `incendiary` 는 아이템 없는 내부 정의가 되어 `use()` 가 거절한다 — 던지는 가젯 셋만 본다. */
+  /* 2026-09-15, 2nd pass: `incendiary` became an internal def with no item, so `use()` refuses it — only the three thrown gadgets are looked at. */
   for (const id of ['smokeGrenade', 'lureGrenade', 'domeShield']) {
     thrown[id] = await page.evaluate((g) => {
       const ctx = window.__game.ctx;
@@ -755,7 +755,7 @@ try {
   });
   ok(enemyApi, 'EnemyManagerRef tactical-kit methods present');
 
-  /* ── 2026-09-11 (C-3): 오버차지는 명시 플래그 — applyBoost 가 setOvercharged 를 같이 건다, 키 이름 추론은 없다 ── */
+  /* ── 2026-09-11 (C-3): overcharge is an explicit flag applyBoost also sets ────────────── */
   const oc = await page.evaluate(() => {
     const ctx = window.__game.ctx, p = ctx.player, im = ctx.implants;
     const before = p.isOvercharged;
@@ -886,7 +886,7 @@ try {
   ok(wide.peer === false, 'absorbFrontalAttack for an unknown peer owner → false');
   ok(wide.stillUp, 'the shield is still raised after the absorbed hit');
 
-  /* ── Phase 12: 실드 배쉬 — LMB while the shield is raised ── */
+  /* ── Phase 12: the shield bash — LMB, shield up ──────── */
   const bashArm = await page.evaluate(() => {
     const ctx = window.__game.ctx;
     // gameplay mouse input is gated on the pointer lock: fake it (see the requestPointerLock stub above)
@@ -971,7 +971,7 @@ try {
   ok(follow2.active === false && follow2.carried === false && follow2.down === null, 'Q again lowers the shield (getBarrierPose → null)');
   ok(follow2.events[follow2.events.length - 1] === false, 'implant:barrierCarried {up:false} emitted on lower');
 
-  /* ── 2026-09-12: ImplantsRef.refillAll (안정제) lifts a collapse lockout, fills the shield (and the overcharge pool) ── */
+  /* ── 2026-09-12: ImplantsRef.refillAll (`안정제`) lifts a collapse lockout, fills the shield (+ overcharge pool) ────── */
   const refillBar = await page.evaluate(async () => {
     const ctx = window.__game.ctx, im = ctx.implants, sys = window.__game.getSystem('implants');
     const K = await import('/src/shared/constants.ts');
@@ -985,7 +985,7 @@ try {
     im.refillAll();
     const after = { lockout: im.barrierLockout, hp: im.barrierHp, max: im.barrierMaxHp, charges: im.charges, cd: im.cooldownRemaining, oc: sys.ocEnergy, ocMax: K.IMPLANT_OVERCHARGE_ENERGY };
     const major = document.querySelector('.imp-hud').classList.contains('rdy-major');
-    im.activate();                                  // no longer refused as 재충전 중
+    im.activate();                                  // no longer refused as `재충전 중`
     const up = im.barrierCarried;
     im.activate();
     return { locked, after, ready: window.__ready.slice(n0), major, up, down: !im.barrierCarried };
@@ -996,7 +996,7 @@ try {
   ok(refillBar.ready.length === 1 && refillBar.ready[0].refill === true && refillBar.ready[0].full === true && refillBar.major, `refillAll is a ready moment: implant:ready {refill, full} + .rdy-major (${JSON.stringify(refillBar.ready)})`);
   ok(refillBar.up && refillBar.down, 'the refilled shield can be raised again at once');
 
-  /* ── 정찰 (Phase 12): instant, one wide pulse, revealed to us + the squad ── */
+  /* ── recon (Phase 12): instant, one wide pulse, shared with the squad ──── */
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (scan)');
   const eqScan = await page.evaluate(() => {
@@ -1060,7 +1060,7 @@ try {
   ok(scanRefill.cd0 > 20 && scanRefill.after.cd === 0 && scanRefill.after.charges === 1 && scanRefill.casts === 2 && scanRefill.ready.length === 1 && scanRefill.ready[0].refill,
     `refillAll on a 정찰 cooling ${scanRefill.cd0.toFixed(1)} s: cooldown 0, charge back, second cast goes out (${scanRefill.casts} casts)`);
 
-  /* ── 2026-09-12: 갈고리 — cooldown 24 s, refund when a use ends, 안정제 mid-flight ── */
+  /* ── 2026-09-12: the grapple — cooldown 24 s, refund on use end, `안정제` ──────── */
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (grapple)');
   ok(await page.evaluate(() => { const im = window.__game.ctx.implants; return im.setEquipped('grapple') && im.equipped === 'grapple'; }), '갈고리 equipped in the ship');
@@ -1074,7 +1074,7 @@ try {
     const readyAtStart = window.__ready.length - window.__readyMark;
     const fresh = () => { sys.cdRemaining = 0; sys.chargesLeft = 1; };
     // A. Q while the hook is still flying (castGrapple → releaseGrapple(false)) → 90 %, at least 3 s left.
-    //    The multiplier is read before the fire: its `implant:activated` awards 임플란트 숙련 XP, which can lower it.
+    //    The multiplier is read before the fire: its `implant:activated` awards implant-skill XP, which can lower it.
     fresh();
     const mul0 = ctx.progression?.derived?.implantCooldownMul ?? 1;
     sys.fireGrapple();
@@ -1094,7 +1094,7 @@ try {
     };
     const B0 = pull(0), B20 = pull(20), B6 = pull(6);
     const hud = { text: document.querySelector('.imp-refund')?.textContent ?? null, rf: document.querySelector('.imp-hud').classList.contains('rf-flash') };
-    // C. 안정제 while the hook flies: cooldown 0, the hook keeps flying, the release after it refunds nothing
+    // C. the `안정제` while the hook flies: cooldown 0, the hook keeps flying, the release after it refunds nothing
     fresh(); sys.fireGrapple();
     const nC = refunds.length;
     im.refillAll();
@@ -1109,7 +1109,7 @@ try {
     return { def: im.getDef('grapple').cooldown, mul: mul0, readyAtStart, A, B0, B6, B20, C, D, hud };
   });
   const near = (a, b) => Math.abs(a - b) < 1e-6;
-  // 2026-09-14: 갈고리 +30 % — 24 → 31.2 s, the cancel floor 3 → 3.9 s (refund ratios unchanged)
+  // 2026-09-14: the grapple +30 % — 24 → 31.2 s, the cancel floor 3 → 3.9 s (refund ratios unchanged)
   ok(near(g.def, 31.2) && near(g.A.total, 31.2 * g.mul) && near(g.A.before, g.A.total),
     `IMPLANT_GRAPPLE_COOLDOWN 31.2: right after the fire ${g.A.before?.toFixed(2)} s of ${g.A.total?.toFixed(2)} s (×${g.mul?.toFixed(3)})`);
   ok(g.readyAtStart === 0, `no implant:ready from the ship / the grapple mission start (${g.readyAtStart})`);
@@ -1151,7 +1151,7 @@ try {
   const programs1 = await page.evaluate(() => window.__game.ctx.renderer.info.programs?.length ?? -1);
   // Phase 12 raised the bound 70 → 95: the script now runs three missions and spawns two bug types (scavenger, warrior)
   // whose materials compile on first sight (~71 measured). The check still catches unbounded growth (the old grenade hitch).
-  // 2026-09-15 95 → 100: the 땅굴벌레 director no longer pre-rolls — its base chance is > 0 on every threat, so the worm rig is
+  // 2026-09-15 95 → 100: the sandworm director no longer pre-rolls — its base chance is > 0 on every threat, so the worm rig is
   // prewarmed (`Director.prewarm`) in every planet raid and its 3 programs always count (98 measured, was 95).
   ok(programs1 - programs0 < 100, `shader programs ${programs0} → ${programs1} after every tactical FX fired`);
 

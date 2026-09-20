@@ -1,4 +1,4 @@
-// 2026-09-13 탈출 개편 smoke (solo, no relay): 20 s ship call · touchdown hull colliders (8 world boxes, rays stop at the
+// The 2026-09-13 extraction rework smoke (solo, no relay): 20 s ship call · touchdown hull colliders (8 world boxes, rays stop at the
 // hull, a body in a side slab is pushed out) · the enemy-only doorway (`ctx.extraction.keepEnemyOut`) · interior switch →
 // uncancellable 10 s departure grace (`extraction:departureStarted` / `departureTick`, boarding still possible) → liftoff
 // aboard (phase liftoff · camera override · `ui:cinematic` + `.hud.cinematic` · hull colliders gone once it climbs ·
@@ -298,7 +298,7 @@ try {
     const inBay = window.__shipPoint(0.6, -2.2, 0);
     const outside = window.__shipPoint(0, 9, 0);
     outside.y = ctx.world.getSurfaceY(outside.x, outside.z, outside.y + 0.5);
-    // 2026-09-16: 아이템 한 개씩 — 빈손 시체는 1초 뒤 가라앉아 사라진다 (빈 시체 제거), 여기서는 함선에 실려 가야 한다
+    // 2026-09-16: one item each — an empty-handed corpse sinks and goes a second later (empty corpses removed), and here they have to be carried away on the ship
     gf.corpses.add('pcorpse:smokeA:1', 'smokeA', '분대원A', inBay, 0, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 1);
     gf.corpses.add('pcorpse:smokeB:1', 'smokeB', '분대원B', outside, 0, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 2);
     const a = gf.corpses.get('pcorpse:smokeA:1'), b = gf.corpses.get('pcorpse:smokeB:1');

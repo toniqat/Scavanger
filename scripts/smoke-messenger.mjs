@@ -1,9 +1,9 @@
-// 2026-09-14 메신저 UI smoke (src/ui/menus/messenger — docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+// 2026-09-14 messenger UI smoke (src/ui/menus/messenger — docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
 //
 // The P panel that replaced the 커뮤니티 panel: thumbnail unread badge, the three tabs (대화 · 친구 · 퀘스트), the 대화 tab's
 // mixed list (NPC · 개인 대화 · 단체방, recency, filters, room invites), an NPC conversation with quest cards (수락 / 생각해보지),
 // a 개인 대화 conversation (send · read), a 단체방 (history + older page, blocked lines hidden, say, members drawer, invite /
-// rename / kick / leave with the 1초 홀드), 방 만들기, the 친구 tab's 개인 대화 jump, the 퀘스트 tab (납품 · 완료 보고 · 보류 수락 →
+// rename / kick / leave with the 1 s hold), 방 만들기, the 친구 tab's 개인 대화 jump, the 퀘스트 tab (납품 · 완료 보고 · 보류 수락 →
 // 대화), `ui:openMessenger`, the NPC toast, Tab / Escape, ship-only gating, screenshots at 1280×720 and 1920×1080, and a last
 // pass against the **real** `ctx.meta.npc` / `ctx.net.rooms` when they exist.
 //
@@ -153,7 +153,8 @@ try {
     mk('q_active', 'npc_raven', '연구소 뒷조사', 'active', [obj('q_active', 0, 'deliver', 2, '회로 기판 2개 납품'), obj('q_active', 1, 'discover', 1, '연구소 발견')], NOW - 3600000);
     Object.assign(Q.q_active.objectives[0], { progress: 1, have: 3, blocked: null });
     Object.assign(Q.q_active.objectives[1], { progress: 1, done: true });
-    // 2026-09-14 3차: 「생각해볼게」 은퇴 — 이 줄은 이제 **아직 수락하지 않은 제안**이고 대화창 카드로만 보인다.
+    // 2026-09-14 3rd pass: 「생각해볼게」 retired — this row is now **an offer not yet accepted** and shows only as
+    // a conversation card.
     mk('q_def', 'npc_raven', '장부 복사', 'offered', [obj('q_def', 0, 'search', 3, '전진기지 컨테이너 3개 조사')], NOW - 7200000);
     mk('q_done', 'npc_han_seojin', '첫 거래', 'complete', [obj('q_done', 0, 'deliver', 1, '합금 판 1개 납품')], NOW - 86400000);
     Object.assign(Q.q_done.objectives[0], { progress: 1, done: true, blocked: null });
@@ -176,12 +177,12 @@ try {
         { at: NOW - 7200000, from: 'npc', text: '레이븐입니다. 조용히 끝낼 일이 있어요.' },
         { at: NOW - 3600000, from: 'quest', questId: 'q_active' },
         { at: NOW - 3599000, from: 'me', text: '맡겠습니다.' },
-        // 아직 수락하지 않은 제안 — 2026-09-14 3차부터 이 카드는 **대화창에만** 있다
+        // An offer not yet accepted — from the 2026-09-14 3rd pass this card lives **only in the conversation**
         { at: NOW - 60000, from: 'quest', questId: 'q_def' },
       ],
     };
     const unread = { npc_han_seojin: 2, npc_raven: 0 };
-    /** NPC → 아직 고르지 않은 대사 선택지 (2026-09-14). 이 스모크는 비워 둔다. */
+    /** NPC → the dialogue choices not yet picked (2026-09-14). This smoke leaves them empty. */
     const CHOICES = {};
     const emitQ = (q, prev) => bus.emit('npc:questChanged', { id: q.def.id, npc: q.def.npc, state: q.state, prev });
     window.__npc = {
@@ -189,13 +190,14 @@ try {
         return Object.keys(NPCS).map((id) => ({ npc: NPCS[id], at: MSG[id].at(-1).at, unread: unread[id], preview: '…' })).sort((a, b) => b.at - a.at);
       },
       getMessages(id) { return MSG[id] ?? []; },
-      /* 2026-09-14 (대사 선택지): `NpcQuestRef` 에 둘이 늘었다 — 스텸에 없으면 `ChatTab.threadDataKey` 가
-         던져 대화가 통째로 안 그려진다. 여기서는 선택지를 쓰지 않으므로 빈 목록이다. */
+      /* 2026-09-14 (dialogue choices): two more landed on `NpcQuestRef` — missing from the stub,
+         `ChatTab.threadDataKey` throws and the whole conversation goes undrawn. The choices are unused here, so the
+         list is empty. */
       getPendingChoices(id) { return CHOICES[id] ?? []; },
       chooseIntro(id, i) { call('npc.chooseIntro', `${id}:${i}`); if (!CHOICES[id]?.[i]) return false; CHOICES[id] = []; return true; },
       markRead(id) { call('npc.markRead', id); unread[id] = 0; bus.emit('npc:unreadChanged', { total: this.unreadTotal }); },
       get unreadTotal() { return Object.values(unread).reduce((s, n) => s + n, 0); },
-      /* 2026-09-14 3차 (사용자 결정): 퀘스트 목록에는 **받은 것만** — offered · deferred 는 빠진다. */
+      /* 2026-09-14 3rd pass (user's decision): the quest list holds **only what was taken** — offered · deferred drop out. */
       getQuests() { return Object.values(Q).filter((q) => q.state === 'active' || q.state === 'complete'); },
       getQuest(id) { return Q[id] ?? null; },
       accept(id) {
@@ -210,7 +212,7 @@ try {
         bus.emit('npc:message', { npc: q.def.npc, entry: { at: Date.now(), e: prev === 'deferred' ? 'brief' : 'accept', q: id } });
         return true;
       },
-      /* 은퇴 (2026-09-14 3차) — 계약에만 남는 이름이고 아무것도 하지 않는다. */
+      /* Retired (2026-09-14 3rd pass) — a name left in the contract only; it does nothing. */
       defer(id) { call('npc.defer', id); return false; },
       deliver(id, index) {
         call('npc.deliver', id, index);
@@ -315,7 +317,7 @@ try {
   await waitSim(0.4);
 
   console.log('thumbnail badge');
-  // npc 2 + 개인 대화 2 (친구하나 1 · 차단됨 1 — the mirror's own count) + 단체방 1 + 방 초대 1 + 친구 요청 1
+  // npc 2 + private chats 2 (친구하나 1 · 차단됨 1 — the mirror's own count) + group room 1 + room invite 1 + friend request 1
   await waitFor(page, () => window.__hud().messengerUnreadBadge === 7, 'badge 7', 8000).catch(() => {});
   let th = await P(() => ({
     badge: window.__hud().messengerUnreadBadge, dot: document.querySelector('.cm-dot').textContent, hidden: document.querySelector('.cm-dot').hidden,
@@ -367,12 +369,13 @@ try {
   ok(npcView.title === '한서진' && npcView.sub.includes('헬릭스'), 'the head names the NPC, title and corp', JSON.stringify(npcView));
   ok(npcView.bubbles.length === 4, 'NPC and my bubbles are drawn', JSON.stringify(npcView.bubbles));
   const offerCard = npcView.cards.find((c) => c.id === 'q_offer');
-  // 2026-09-14 3차 (사용자 결정): 「생각해보지」 버튼이 없어졌다 — 카드에는 [수락] 하나뿐이다.
+  // 2026-09-14 3rd pass (user's decision): the 「생각해보지」 button is gone — the card carries [수락] alone.
   ok(offerCard && offerCard.acts.join('|') === 'accept' && offerCard.chips === 4, 'the offered quest card carries 수락 only (생각해보지 retired) and its reward chips', JSON.stringify(npcView.cards));
   ok(npcView.cards.find((c) => c.id === 'q_ready')?.acts.join('|') === 'tab', 'an accepted quest card only links to the 퀘스트 tab', JSON.stringify(npcView.cards));
-  // 2026-09-14 3차: 하단 안내(NPC 에게는 퀘스트 카드로 답합니다)와 머리의 bio 한 줄이 빠졌다
+  // 2026-09-14 3rd pass: the bottom note (`NPC 에게는 퀘스트 카드로 답합니다`) and the one bio line in the head are gone
   ok(npcView.input && !npcView.note && npcView.bio === null, 'no input box, no 퀘스트 카드 note, no bio line', JSON.stringify(npcView));
-  // 2026-09-14 3차: 초상 테두리 radial + 우하단 레벨 배지, 신뢰도 현황은 머리줄 중앙 우측
+  // 2026-09-14 3rd pass: a radial border on the portrait + a level badge bottom right, the trust readout
+  // centre-right in the header row
   ok(npcView.ring === 1 && npcView.lv !== null && npcView.trustRight === 1, 'the head portrait carries the trust radial + level badge, gauge moved centre-right', JSON.stringify(npcView));
   ok(await hasCall('npc.markRead:npc_han_seojin'), 'opening the conversation marks it read', JSON.stringify(await calls()));
   await waitFor(page, () => window.__hud().messengerUnreadBadge === 5, 'badge 5', 3000).catch(() => {});
@@ -480,7 +483,7 @@ try {
   ok(fr.tab === 'friends' && fr.col && fr.cards === 3, 'the 친구 tab hosts the social column', JSON.stringify(fr));
   await P(() => document.querySelector('.ms-page.friends .sc-section.friends .sc-card').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 700, clientY: 400 })));
   let menu = await P(() => [...document.querySelectorAll('.sc-menu:not([hidden]) .sc-mi')].map((b) => `${b.dataset.act}:${b.querySelector('.l').textContent}`));
-  // 2026-09-15 (분대 · 도킹 매칭): 같이 하기 → 분대 초대 (invite only)
+  // 2026-09-15 (squads · dock matching): 같이 하기 → 분대 초대 (invite only)
   ok(menu.join('|') === 'play:분대 초대|whisper:개인 대화|remove:친구 삭제|block:차단', 'the card menu: 분대 초대 / 개인 대화 / 친구 삭제 / 차단', JSON.stringify(menu));
   await click('.sc-menu:not([hidden]) .sc-mi[data-act="whisper"]');
   await waitSim(0.2);
@@ -494,7 +497,8 @@ try {
     rows: [...document.querySelectorAll('.ms-qrow')].map((r) => r.dataset.quest), sel: window.__ms().quests.selectedId,
     badge: document.querySelector('.ms-tab[data-tab="quests"] .ms-badge')?.textContent,
   }));
-  // 2026-09-14 3차 (사용자 결정): 목록에는 **받은 것만** — 제안(offered) 은 대화창 카드에만 있다.
+  // 2026-09-14 3rd pass (user's decision): the list holds **only what was taken** — an offer (offered) lives on
+  // the conversation card alone.
   ok(qt.groups.join('|') === 'active:진행 중 2|complete:완료 1', 'groups 진행 중 · 완료 (제안 · 보류 그룹 없음)', JSON.stringify(qt));
   ok(qt.rows.join('|') === 'q_ready|q_active' && qt.sel === 'q_ready', '보고 가능 first, 완료 collapsed, the first active one selected', JSON.stringify(qt));
   ok(!qt.rows.includes('q_offer') && !qt.rows.includes('q_def'), '제안 받은 퀘스트는 퀘스트 탭에 뜨지 않는다', JSON.stringify(qt.rows));
@@ -519,7 +523,7 @@ try {
   await waitSim(0.2);
   det = await P(() => ({ report: document.querySelector('.ms-qdetail [data-act="report"]')?.disabled, deliver: document.querySelectorAll('.ms-qdetail [data-act="deliver"]').length }));
   ok(await hasCall('npc.deliver:q_active,0') && det.report === false && det.deliver === 0, '납품 → npc.deliver, the objective fills and 완료 보고 wakes', JSON.stringify(det));
-  /* ── 제안 수락은 **대화창 카드**로만 (2026-09-14 3차) + 타이핑 연출 ────────── */
+  /* ── an offer is accepted on the card (2026-09-14 3rd pass) + typing reveal ── */
   await click('.ms-tab[data-tab="chat"]');
   await waitSim(0.2);
   await click('.ms-row[data-key="npc:npc_raven"]');
@@ -527,7 +531,7 @@ try {
   await click('.ms-qcard[data-quest="q_def"] [data-act="accept"]');
   await waitSim(0.2);
   ok(await hasCall('npc.accept:q_def'), '대화창 카드의 수락 → npc.accept');
-  // 새 NPC 말풍선은 `...` 를 거쳐 나타난다 (최대 2초) — 글자가 붙을 때까지 기다린다
+  // A new NPC bubble arrives through `...` (up to 2 s) — this waits until the text lands
   await waitFor(page, () => [...document.querySelectorAll('.ms-tbody .ms-msg.in .ms-bubble')].at(-1)?.textContent === '좋아요, 짧게 설명하죠.', 'typing bubble resolves', 8000).catch(() => {});
   const acc = await P(() => ({
     mine: [...document.querySelectorAll('.ms-tbody .ms-msg.out .ms-bubble')].at(-1)?.textContent,
@@ -586,7 +590,8 @@ try {
   ok(await P(() => !window.__hud().isCommunityOpen), 'Escape closes it');
   await P(() => window.__game.ctx.bus.emit('npc:message', { npc: 'npc_han_seojin', entry: { at: Date.now(), e: 'intro' } }));
   await waitSim(0.2);
-  // 2026-09-16 (사용자 결정): 새 NPC 메시지는 토스트가 아니라 버튼의 빨간 점이 튀어오른다 (무슨 메시지인지는 열어야 안다)
+  // 2026-09-16 (user's decision): a new NPC message pops the button's red dot instead of toasting (what it says
+  // is known only on opening)
   const popped = await P(() => ({ toasts: window.__notifs(), dotHidden: document.querySelector('.cm-dot').hidden, transform: document.querySelector('.cm-dot').style.transform }));
   ok(!popped.toasts.some((t) => t.startsWith('✉')), 'a new NPC message no longer toasts', JSON.stringify(popped.toasts));
   ok(popped.dotHidden || popped.transform !== '', 'the red dot pops instead (when there is an unread badge)', JSON.stringify(popped));

@@ -1,13 +1,13 @@
-// 2026-09-14 메신저 · NPC 퀘스트 엔진 (`ctx.meta.npc`, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — 싱글 플레이, 릴레이 소켓은 막는다.
-//   ① 함선: 첫 연락(intro) · 조건 없는 NPC 의 첫 퀘스트 제안 · 대화 말풍선 풀이 · 읽음
-//   ② 보류(생각해보지) → 퀘스트 탭 수락(brief) · 중복 수락/보류 거절
-//   ③ 나눠 납품 · 미완 보고 거절 · 완료 보고 보상(크레딧 · 아이템 · 시스템 줄) · 다음 제안(선행 퀘스트)
-//   ④ 목표 문구 (계열 · 행성)
-//   ⑤ 레이드: 추적 목록(행성 조건) · 막타 계열 · 남의 킬 무시 · 상호작용 · 발견+조사 chain · 탈출 회수 · 레이드 끝 되돌림
-//      + 실제 배관: `withLocalGunHit` → Enemy.takeDamage → `enemy:killed.weaponClass` (총기 / 계열 없음 / 지속 피해),
-//        스캐너 상호작용 → `world:interacted`, 구조물 컨테이너 → `crate:open.zoneKind`
-//   ⑥ 함선에서 보고 · 채굴 인가 퀘스트 → getQuestState 대응 · 코인 해금
-//   ⑦ 저장 v2 · 새로고침 · 깨진 npc 저장 정리
+// 2026-09-14 messenger · NPC quest engine (`ctx.meta.npc`, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — single player, the relay socket is parked.
+//   ① the ship: first contact (intro) · the first quest offer from an NPC with no requirement · the conversation bubbles · read marks
+//   ② deferring (생각해보지) → accepting from the 퀘스트 tab (brief) · a repeated accept / defer refused
+//   ③ split deliveries · an unfinished report refused · the completion report's rewards (credits · items · the system row) · the next offer (a prerequisite quest)
+//   ④ objective labels (weapon class · planet)
+//   ⑤ the raid: the tracked list (planet requirement) · the last hit's weapon class · somebody else's kill ignored · interaction · the discover+search chain · the recover objective at extraction · the raid-end rollback
+//      + the real plumbing: `withLocalGunHit` → Enemy.takeDamage → `enemy:killed.weaponClass` (a gun / no class / damage over time),
+//        a scanner interaction → `world:interacted`, a structure container → `crate:open.zoneKind`
+//   ⑥ reporting in the ship · the mining permit quest → getQuestState mapping · the coin unlock
+//   ⑦ save v2 · reload · a broken npc save cleaned up
 // Usage: node scripts/smoke-npc-quests.mjs [http://localhost:5273/]
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -92,7 +92,7 @@ try {
   await boot();
   await enterHub();
 
-  /* ── ① 연락 · 제안 ─────────────────────────────────────────────────────── */
+  /* ── ① contact · offers ────────────────────────────────────────────────── */
   console.log('① 첫 연락 · 제안');
   const tables = await P(async () => {
     const sh = await import('/src/shared/index.ts');
@@ -111,7 +111,8 @@ try {
     if (!npc) return null;
     const q = sh.NPC_QUEST_DEFS.find((x) => x.npc === npc.id);
     const r = window.__game.ctx.meta.npc;
-    /* 2026-09-14 3차: 첫 연락은 인사 → **선택지** → 본론 → 제안이다. 답하기 전에는 제안이 오지 않는다. */
+    /* 2026-09-14 3rd pass: first contact is greeting → **choices** → the main point → the offer. No offer comes
+       before an answer. */
     const pending = r.getPendingChoices(npc.id);
     const beforeChoice = r.getQuest(q.id)?.state ?? null;
     const chose = pending.length ? r.chooseIntro(npc.id, 0) : false;
@@ -136,9 +137,9 @@ try {
   ok((await ev('npc:unreadChanged')).length > 0, 'npc:unreadChanged emitted');
   ok(await P(() => window.__game.getSystem('meta').npcQuests.evaluate()) === false, 'a second evaluate adds nothing (one pending offer per NPC)');
 
-  /* ── ② 「생각해볼게」 은퇴 · 수락 ─────────────────────────────────────────
-   * 2026-09-14 3차 (사용자 결정): 선택지가 없어져 `defer()` 는 아무것도 하지 않는다 (계약에만 남는 이름).
-   * 퀘스트 목록(`getQuests()`)도 `offered` 를 그리지 않는다 — 대화창 카드가 그 자리다. */
+  /* ── ② 「생각해볼게」 retired · accepting ─────────────────────────────────
+   * 2026-09-14 3rd pass (user's decision): the choice is gone, so `defer()` does nothing (a name left in the contract
+   * only). The quest list (`getQuests()`) does not draw `offered` either — the conversation card is its place. */
   console.log('② 「생각해보지」 은퇴 · 수락');
   const defer = await P((q) => {
     const r = window.__game.ctx.meta.npc;
@@ -159,7 +160,7 @@ try {
   ok(reacc.again === false && reacc.deferActive === false, 'accept / defer on an active quest → false (no abandon path)');
   ok((await ev('npc:questChanged')).some((e) => e.id === Q0 && e.state === 'active' && e.prev === 'offered'), 'npc:questChanged {active, prev offered}');
 
-  /* ── ③ 납품 · 보고 ─────────────────────────────────────────────────────── */
+  /* ── ③ delivery · the report ───────────────────────────────────────────── */
   console.log('③ 나눠 납품 · 완료 보고');
   const QD = await P(async () => {
     const sh = await import('/src/shared/index.ts');
@@ -201,7 +202,7 @@ try {
     ok(await P((a) => window.__game.ctx.meta.npc.report(a.id), QD) === false, 'a completed quest cannot be reported twice');
   }
 
-  /* ── ④ 목표 문구 ──────────────────────────────────────────────────────── */
+  /* ── ④ objective labels ───────────────────────────────────────────────── */
   console.log('④ 목표 문구');
   const labels = await P(async () => {
     const sh = await import('/src/shared/index.ts');
@@ -214,7 +215,7 @@ try {
   if (labels.weap) ok(/(으로|로) .+ \d+(명|마리) 처치$/.test(labels.weap.label), `kill label: ${labels.weap.label}`);
   if (labels.plan) ok(labels.plan.label.startsWith(`${labels.plan.planet} · `), `planet label: ${labels.plan.label}`);
 
-  /* ── ⑤ 레이드 목표 ─────────────────────────────────────────────────────── */
+  /* ── ⑤ raid objectives ─────────────────────────────────────────────────── */
   console.log('⑤ 레이드 목표');
   const picks = await P(async () => {
     const sh = await import('/src/shared/index.ts');
@@ -271,7 +272,7 @@ try {
   ok(ikInfo.objectives[ikKill].progress >= Math.min(ikInfo.objectives[ikKill].target, kwTarget + 2), 'the same kills also fed the plain humanoid objective', JSON.stringify(ikInfo.objectives[ikKill]));
   if (picks.pl) ok((await quest(picks.pl)).objectives.every((o) => o.progress === 0), 'the other-planet quest counted nothing');
 
-  // 실제 배관: withLocalGunHit → takeDamage → enemy:killed.weaponClass
+  // the real plumbing: withLocalGunHit → takeDamage → enemy:killed.weaponClass
   const plumb = await P(async () => {
     const ctx = window.__game.ctx;
     const es = window.__game.getSystem('enemies');
@@ -297,7 +298,7 @@ try {
   ok(plumb.gun === 'SG', 'real kill inside withLocalGunHit(SG) → enemy:killed.weaponClass SG', JSON.stringify(plumb));
   ok(plumb.plain === null && plumb.dot === null && plumb.scopeAfter === null, 'no scope → null · a DoT finishing blow → null · scope restored', JSON.stringify(plumb));
 
-  // 상호작용: 실제 스캐너 → world:interacted, 그리고 목표
+  // interaction: a real scanner → world:interacted, and the objective
   const ikInt = ikInfo.def.objectives.findIndex((o) => o.kind === 'interact');
   const scan = await P(() => {
     const it = window.__game.ctx.interactables.all().find((i) => /^struct:.+:scan$/.test(i.id));
@@ -314,7 +315,7 @@ try {
   ok(ikAfter.objectives[ikInt].done, 'interact objective confirmed', JSON.stringify(ikAfter.objectives[ikInt]));
   if (ikAfter.objectives.every((o) => o.done)) ok((await ev('npc:questReady')).some((e) => e.id === picks.ik), `${picks.ik} ready (npc:questReady)`);
 
-  // 발견 + 조사 chain
+  // the discover + search chain
   const chain = await P((chains) => {
     const ctx = window.__game.ctx;
     const sts = ctx.world.getStructures();
@@ -332,7 +333,7 @@ try {
     ok(c1.objectives[di].progress === 1 && !c1.objectives[di].done, 'discover filled but not confirmed while its chain partner is empty', JSON.stringify(c1.objectives[di]));
     const real = await P((a) => {
       const ctx = window.__game.ctx;
-      // 구조물 컨테이너의 상호작용 id = `container:<구조물 id>_<c|b|l><n>` (world/structures/parts/Containers)
+      // a structure container's interaction id = `container:<structure id>_<c|b|l><n>` (world/structures/parts/Containers)
       const it = ctx.interactables.all().find((i) => i.id.startsWith(`container:${a.st}_`) && typeof i.interact === 'function');
       if (!it) return null;
       window.__ev['crate:open'] = [];
@@ -354,7 +355,7 @@ try {
     ok(c1.objectives[di].done && c1.objectives[si].done, 'the last search confirms discover + search together', JSON.stringify(c1.objectives));
   }
 
-  // 회수: 이 레이드에서 얻은 계열 총기
+  // recover: a gun of that class found in this raid
   const recDef = await P((cls) => {
     const l = window.__game.ctx.loot;
     return l.getAllItemDefs().find((d) => d.weaponId && !d.retired && l.getWeaponDef(d.weaponId)?.weaponClass === cls && !l.getWeaponDef(d.weaponId)?.unique)?.id ?? null;
@@ -373,7 +374,7 @@ try {
   const rec1 = (await quest(picks.kw)).objectives[kwRec];
   ok(rec1.progress === 1 && !rec1.done, 'recover shows 1 (found only) but is not confirmed before extraction', JSON.stringify(rec1));
 
-  // 레이드 끝 되돌림 대상: SG 킬 일부
+  // what the raid-end rollback targets: some of the SG kills
   const sgInfo = await quest(picks.sg);
   const sgKill = sgInfo.def.objectives.findIndex((o) => o.kind === 'kill' && o.weapon === 'SG');
   const sgEnemy = sgInfo.def.objectives[sgKill].enemy === 'humanoid' ? 'raider' : sgInfo.def.objectives[sgKill].enemy === 'bug' ? 'warrior' : (sgInfo.def.objectives[sgKill].enemy === 'named' ? 'rogue_heavy' : sgInfo.def.objectives[sgKill].enemy);
@@ -382,7 +383,7 @@ try {
   const sgMid = (await quest(picks.sg)).objectives[sgKill];
   ok(sgMid.progress === Math.min(sgMid.target, sgBefore + 2) && !sgMid.done, `SG kills in progress (${sgMid.progress}/${sgMid.target})`, JSON.stringify(sgMid));
 
-  // 탈출 정산
+  // the extraction settlement
   await clearEv();
   await P(() => window.__game.ctx.meta.settleMission({ ...window.__game.ctx.stats, extracted: true, mode: 'raid' }));
   const kwSettled = await quest(picks.kw);
@@ -400,7 +401,7 @@ try {
   await enterHub();
   await P((uid) => window.__game.ctx.inventory.takeItem?.(uid), rec.uid);
 
-  /* ── ⑥ 보고 · 채굴 인가 ──────────────────────────────────────────────── */
+  /* ── ⑥ the report · the mining permit ────────────────────────────────── */
   console.log('⑥ 함선 보고 · 채굴 인가');
   const repKw = await P((id) => { const r = window.__game.ctx.meta.npc; return { ok: r.report(id), state: r.getQuest(id).state }; }, picks.kw);
   ok(repKw.ok && repKw.state === 'complete', `report ${picks.kw} in the ship`, JSON.stringify(repKw));
@@ -427,11 +428,11 @@ try {
     if (permit.unlocked !== 'n/a') ok(permit.unlocked === true, `coin ${permit.coin} unlocked by the NPC permit quest`, JSON.stringify(permit));
   }
 
-  /* ── ⑦ 저장 · 새로고침 · 정리 ────────────────────────────────────────── */
+  /* ── ⑦ saving · reload · cleanup ─────────────────────────────────────── */
   console.log('⑦ 저장 · 새로고침');
   const snap = await P((n) => { const r = window.__game.ctx.meta.npc; window.__game.ctx.meta.save(); return { msgs: r.getMessages(n).length, quests: r.getQuests().map((q) => `${q.def.id}:${q.state}`).sort(), unread: r.unreadTotal }; }, NPC0);
   const saved = await P(() => { try { return JSON.parse(localStorage.getItem('scav.s1.meta')); } catch { return null; } });
-  // 2026-09-14 3차: `getQuests()` 는 offered 를 빼므로 저장된 퀘스트 수는 그보다 **크거나 같다**
+  // 2026-09-14 3rd pass: `getQuests()` drops offered, so the saved quest count is **greater than or equal to** it
   ok(saved && saved.v === 2 && saved.npc && Object.keys(saved.npc.quests).length >= snap.quests.length && Array.isArray(saved.npc.log[NPC0]), 'localStorage meta v2 carries npc contacts / log / quests',
     JSON.stringify(saved && { v: saved.v, quests: Object.keys(saved.npc?.quests ?? {}).length }));
   await page.reload({ waitUntil: 'load' });

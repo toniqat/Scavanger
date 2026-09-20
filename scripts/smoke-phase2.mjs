@@ -1,6 +1,6 @@
 // Single-player smoke test for Phase 2: downed / bleed / give-up / respawn, quick-use wheel, stim in hand, grenade cooking.
 // Phase 9: `player:giveUpProgress` (rises during the Space hold, a single -1 on release / death).
-// Phase 10: the 회복약 (was 스팀) is used with a HEAL_HOLD_S (2 s) LMB hold — a tap only starts / cancels the gauge
+// Phase 10: the healing item (once the stim) is used with a HEAL_HOLD_S (2 s) LMB hold — a tap only starts / cancels the gauge
 // (`heal:holdChanged`).
 // Usage: node scripts/smoke-phase2.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
@@ -43,9 +43,9 @@ try {
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and locks
+    // room purposes · crafting · the terminal · boarding in that order, so it is marked "already done" here
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -96,16 +96,16 @@ try {
   ok(qs.n === 2, 'common bag → 2 usable quick slots (N and S per the unlock order)', `${qs.n}`);
   const qsEv = await ev('inventory:quickSlotsChanged');
   ok(qsEv.length > 0 && qsEv[qsEv.length - 1].active === 2, 'inventory:quickSlotsChanged emitted with active count');
-  // 2026-09-09 — the wheel is its own container: the starter 붕대 / 수류탄 live in their slots and are **not** in the
+  // 2026-09-09 — the wheel is its own container: the starter `붕대` / `수류탄` live in their slots and are **not** in the
   // bag grid, so their uids come from `getQuickSlots()` (`getAllItems()` is the bag grid alone).
   const setRes = await P(() => {
     const inv = window.__game.ctx.inventory;
-    const stim = inv.getQuickSlots()[4]?.uid ?? null;   // 시작 키트가 S 에 올려 둔 붕대
-    const gun = inv.getLoadout().primary;   // 2026-09-10: 보조무기 칸 제거 → 주무기로 검사
+    const stim = inv.getQuickSlots()[4]?.uid ?? null;   // the `붕대` the starter kit put in S
+    const gun = inv.getLoadout().primary;   // 2026-09-10: the secondary weapon slot was removed → checked on the primary
     const inBag = inv.getAllItems().some((i) => i.defId === 'heal_bandage' || i.defId === 'grenade_frag');
     const bagBefore = inv.getAllItems().length;
     const lockedRefused = !inv.setQuickSlot(2, stim);
-    const moveOk = inv.setQuickSlot(0, stim);           // 이미 휠에 있는 스택 → 두 칸 맞바꾸기
+    const moveOk = inv.setQuickSlot(0, stim);           // a stack already on the wheel → the two slots swap
     return { inBag, lockedRefused, moveOk, bagUntouched: inv.getAllItems().length === bagBefore,
       gunRefused: !inv.setQuickSlot(4, gun.uid), slots: inv.getQuickSlots().map((s) => s?.defId ?? null) };
   });
@@ -114,13 +114,14 @@ try {
   ok(setRes.moveOk && setRes.slots[0] === 'heal_bandage' && setRes.slots[4] === 'grenade_frag' && setRes.bagUntouched,
     'setQuickSlot on a wheel uid swaps the two slots (bag untouched)', JSON.stringify(setRes));
   ok(setRes.gunRefused, 'a weapon cannot go into a quick slot');
-  // back to 수류탄 N / 붕대 S for the wheel tests below (a second swap)
+  // back to `수류탄` N / `붕대` S for the wheel tests below (a second swap)
   await P(() => { const inv = window.__game.ctx.inventory; inv.setQuickSlot(0, inv.getQuickSlots()[4].uid); });
   const restored = await P(() => window.__game.ctx.inventory.getQuickSlots().map((s) => s?.defId ?? null));
   ok(restored[0] === 'grenade_frag' && restored[4] === 'heal_bandage', 'swapped back: 수류탄 N, 붕대 S', JSON.stringify(restored));
 
-  /* 2026-09-15 (사용자 결정): 핑 버튼을 누르고 있는 동안 카메라가 돌지 않는다 (`H` · `T` 휠과 같다). 락은 `mouseDX` 를
-     소비하지 않으므로 좌/우 분류는 그대로여야 하고, 놓기 · `PING_HOLD_MAX`(1.2 s) 초과에서 풀린다. */
+  /* 2026-09-15 (user's decision): the camera does not turn while the ping button is held (the same as the `H` · `T`
+     wheels). The lock does not consume `mouseDX`, so the left / right classification must be unchanged, and it releases
+     on the release · past `PING_HOLD_MAX` (1.2 s). */
   console.log('ping hold locks the camera');
   const look = () => P(() => ({ locked: window.__game.getSystem('player').lookLocked, yaw: window.__game.ctx.player.yaw }));
   await waitSim(0.4);
@@ -182,7 +183,7 @@ try {
   ok(qe && qe.item && qe.item.defId === 'heal_bandage' && qe.index === 4, 'release equips the stim', JSON.stringify(qe));
   const hpBefore = await P(() => window.__game.ctx.player.hp);
   const stimBefore = await P(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'heal_bandage'));
-  // 2026-09-07: 붕대는 5초 홀드 (`ItemDef.heal.useTime`) — 짧은 탭은 소모하지 않는다
+  // 2026-09-07: the `붕대` is a 5 s hold (`ItemDef.heal.useTime`) — a short tap consumes nothing
   const useTime = await P(() => window.__game.ctx.loot.getItemDef('heal_bandage')?.heal?.useTime ?? null);
   ok(useTime === 5, '붕대 사용 시간 5초 (ItemDef.heal.useTime)', String(useTime));
   await mouseDown(0); await waitSim(0.4); await mouseUp(0);
@@ -213,7 +214,7 @@ try {
   await waitSim(0.2); await keyUp('KeyT'); await waitSim(0.3);
   qe = await lastEv('quick:equipped');
   ok(qe && qe.item && qe.item.defId === 'grenade_frag' && qe.index === 0, 'wheel N → grenade in hand', JSON.stringify(qe));
-  /* 2026-09-15 2차 (`ItemCategory 'grenade'` 폐지): 수류탄도 `category: 'gadget'` 이라 카테고리로는 못 센다 — `ItemDef.grenade` 가 가른다. */
+  /* 2026-09-15, 2nd pass (`ItemCategory 'grenade'` dropped): a grenade is `category: 'gadget'` too, so the category cannot count them — `ItemDef.grenade` is what tells them apart. */
   const gBefore = await P(() => window.__game.ctx.inventory.countWhere((d) => d.grenade !== undefined));
   await mouseDown(0);
   await waitSim(0.3);
@@ -236,15 +237,16 @@ try {
   ok(gAfter === gBefore - 1, 'grenade stack −1', `${gBefore} → ${gAfter}`);
   await waitSim(2.5);
   ok((await ev('grenade:exploded')).length >= 1, 'cooked grenade explodes within its shortened fuse');
-  // 2026-09-10: 보조무기가 사라져 starter 는 주무기 I 에 기관단총을 준다 — 1 이 총으로 돌아가는 키다
+  // 2026-09-10: the secondary weapon is gone, so the starter puts the `기관단총` in `주무기` I — 1 is the key that goes back to the gun
   await key('Digit1', 0.08); await waitSim(0.6);
   qe = await lastEv('quick:equipped');
   const weq = await lastEv('weapon:equipped');
   ok(qe && qe.item === null && weq && weq.slot === 'primary', '1 returns to the 주무기', JSON.stringify({ qe, weq }));
 
   console.log('downed / revive');
-  /* 2026-09-08 — 1인 분대에서는 치명타가 곧 사망이라(일으켜 줄 사람이 없다) 전투불능은 `enterDowned()` 로 직접
-     만든다. 즉사 규칙 자체는 이 스크립트 끝의 `1인 분대: 치명타 = 즉사` 절이 새 임무에서 확인한다. */
+  /* 2026-09-08 — in a one-person squad a lethal hit is death outright (nobody is coming to lift the body), so the downed
+     state is made by hand with `enterDowned()`. The instant-death rule itself is confirmed on a fresh mission by the
+     `1인 분대: 치명타 = 즉사` section at the end of this script. */
   await P(() => window.__game.ctx.player.enterDowned());
   await waitSim(0.3);
   let st = await P(() => { const p = window.__game.ctx.player; return { downed: p.isDowned, dead: p.isDead, downHp: p.downHp, hp: p.hp, stance: p.stance, canUse: p.canUseWeapons() }; });
@@ -270,15 +272,16 @@ try {
   const hud = await P(() => ({
     wheel: !!document.querySelector('.qwheel'),
     cook: !!document.querySelector('.cook'),
-    // 2026-09-07: the 회복약 / 수류탄 pills under the health bar are gone (the counts live in the right-hand column).
+    // 2026-09-07: the `회복약` / `수류탄` pills under the health bar are gone (the counts live in the right-hand column).
     noPills: !document.querySelector('.vitals .pill'),
   }));
   ok(hud.wheel, 'quick wheel element exists');
   ok(hud.cook, 'cook gauge element exists');
   ok(hud.noPills, 'no 회복약 / 수류탄 pills under the health bar any more');
 
-  /* 2026-09-15 (사용자 결정): 장착한 방탄복을 요청(휠클릭 · 메뉴)하면 실드가 조금이라도 비었을 때 「실드 충전 필요」,
-     가득이거나 장착하지 않은 방탄복이면 평범한 `<이름> 필요`. 메뉴 이름도 같은 조건으로 「실드 충전 요청」. */
+  /* 2026-09-15 (user's decision): requesting the equipped armor (a wheel click · the menu) reads 「실드 충전 필요」 as
+     soon as the shield is short by anything; with it full, or on armor that is not equipped, it is the plain
+     `<이름> 필요`. The menu entry follows the same condition and reads 「실드 충전 요청」. */
   console.log('armor request → shield recharge');
   const armorReq = await P(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory, p = ctx.player;
@@ -355,13 +358,13 @@ try {
   await P(() => { window.__game.ctx.timeScale = 1; });
   st = await P(() => { const inv = window.__game.ctx.inventory; return { phase: window.__game.ctx.phase, primary: inv.getLoadout().primary?.defId, stims: inv.countWhere((d) => d.id === 'heal_bandage') }; });
   ok(st.phase === 'hub', 'back in the ship after the failure', st.phase);
-  // 2026-09-07: a failed raid loses the kit — the player re-equips from the 함선 창고 (기본 지급품 is there)
+  // 2026-09-07: a failed raid loses the kit — the player re-equips from the ship stash (the starter grant is there)
   ok(st.primary === undefined && st.stims === 0, '레이드 실패 후 장비를 잃는다 (창고에서 재장비)', JSON.stringify(st));
 
-  /* ── 1인 분대: 치명타 = 즉사 (2026-09-08) ───────────────────────────────────
-     전투불능은 분대원이 일으켜 세울 시간을 주는 상태다. 혼자라면 올 사람이 없어서 피 흘리며 기어다니는 시간만
-     남으므로 `player/parts/Vitals.onLethal` 이 바로 `die()` 로 간다 (퍽 `auto_revive` 만 예외).
-     이 임무는 죽는 것이 목적이라 스크립트 맨 끝에 둔다. */
+  /* ── a one-person squad: a lethal hit = instant death (2026-09-08) ──
+     Downed is the state that gives squadmates time to lift the body. Alone nobody is coming, so all that is left is time
+     spent bleeding and crawling, and `player/parts/Vitals.onLethal` goes straight to `die()` (the perk `auto_revive` is
+     the only exception). Dying is the point of this mission, so it sits at the very end of the script. */
   console.log('1인 분대: 치명타 = 즉사');
   await P(() => { window.__ev['player:downed'] = []; window.__ev['player:died'] = []; });
   await P(() => window.__game.ctx.bus.emit('game:newMission', { seed: 12 }));
@@ -370,8 +373,8 @@ try {
   await waitSim(0.3);
   const solo = await P(() => {
     const p = window.__game.ctx.player, d = window.__game.ctx.progression?.derived;
-    if (d?.perks) d.perks.auto_revive = false;    // 재기동 회로가 있으면 혼자라도 쓰러진다 (그게 퍽의 전부다)
-    if (d) d.gritChance = 0;                      // 인내가 1 hp 를 남기면 치명타가 아니게 된다
+    if (d?.perks) d.perks.auto_revive = false;    // with `재기동 회로` the body goes down even alone (that is the whole perk)
+    if (d) d.gritChance = 0;                      // if `인내` leaves 1 hp it stops being a lethal hit
     p.takeDamage(9999);
     return { downed: p.isDowned, dead: p.isDead, hp: p.hp, downedEv: window.__ev['player:downed'].length, diedEv: window.__ev['player:died'].length };
   });

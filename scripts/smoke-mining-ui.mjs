@@ -1,17 +1,24 @@
-// Single-player smoke test for the **암호화폐 채굴 화면 · 가구 모델** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — 에이전트 ④:
-// housing/ui/mining + hub/interiors/FurnitureMining). 채굴 규칙 · 지갑 · 매매 자체는 smoke-mining 류(에이전트 ③)의 몫이고,
-// 여기서는 화면이 계약을 제대로 부르고 그리는지를 본다.
-//  1. 함선 · 채굴 시설에 메인 컴퓨터 1 · 연산 클러스터 2 를 제작 · 배치 → 두 모델이 씬에 서고 **점광원 개수가 그대로**,
-//     프로세서를 꽂으면 켜진 코어 재질(`mining-core-lit`) 메시가 생긴다 (광원 없이).
-//  2. 연산 클러스터 화면: 프로세서 칸 9 · 레일 2 · 코인 8(잠김 4) · `ui:miningToggled` · **놓은 그 칸에 끌어온 그 인스턴스**(내구도
-//     그대로 · 빼면 그대로 돌아온다) · 이미 찬 칸 · 가득 · 프로세서 아닌 것 거절 · 우클릭 = 가방 · 더블클릭 = 창고로 1개 ·
-//     코인 지정 · 진행도 있을 때 다른 코인 = 1초 홀드 경고(취소하면 그대로) · 잠긴 코인 거절 ·
-//     레일 전환 · Tab / Esc 닫기 · 가구 상호작용(`interact()`)이 이 화면을 연다.
-//     2026-09-16 (사용자 결정 — 연산 코어 폐지): 꽂히는 것은 `mat_processor` 이고 칸은 개수가 아니라 **칸마다의 남은 내구도**다.
-//  3. 메인 컴퓨터: 현황 줄 2(누르면 클러스터 화면) · 지갑 줄 8(지갑 단위 표기) · 거래소 — **스텁 `ctx.net.crypto`** 로 watch 참조 계수
-//     (지갑 · 거래소 탭에서만) · requestHistory · 차트 그리기(캔버스 픽셀) · 호버 OHLC · 기간 · 봉/선 · 매매 버튼이 견적 사유로 막힘 ·
-//     짧게 누르면 거래 없음 · 1초 홀드 = `tradeCrypto(coin, side, units)` 한 번 + 토스트 · 잠긴 코인 = 매매 잠김 · 오프라인 문구 · Tab 닫기 ·
-//     없는 컴퓨터 토스트.
+// Single-player smoke test for the **crypto mining screens · furniture models** (2026-09-13, docs/DECISIONS.md
+// 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — agent ④: housing/ui/mining + hub/interiors/FurnitureMining).
+// The mining rules · the wallet · trading itself belong to the smoke-mining family (agent ③); what is checked here
+// is whether the screens call the contract properly and draw it:
+//  1. Crafting · placing 1 main computer · 2 compute clusters in the ship's mining facility → both models stand in
+//     the scene and **the point-light count is unchanged**, and mounting a processor creates meshes with the lit core
+//     material (`mining-core-lit`) (with no light).
+//  2. The compute cluster screen: 9 processor cells · 2 rail rows · 8 coins (4 locked) · `ui:miningToggled` · **the
+//     dragged instance lands in the cell it was dropped on** (durability unchanged · it comes back unchanged when
+//     pulled) · an already-filled cell · full · a non-processor refused · right-click = bag · double-click = one to
+//     the stash · picking a coin · another coin while progress is running = a 1 s hold warning (cancelling leaves it
+//     alone) · a locked coin refused · switching rails · Tab / Esc closes · the furniture interaction (`interact()`)
+//     opens this screen.
+//     2026-09-16 (user's decision — the compute core dropped): what mounts is `mat_processor`, and a cell is not a
+//     count but **the durability left in each cell**.
+//  3. The main computer: 2 status rows (pressing one opens the cluster screen) · 8 wallet rows (the wallet unit
+//     notation) · the exchange — the watch reference count through a **stubbed `ctx.net.crypto`** (on the wallet ·
+//     exchange tabs only) · requestHistory · drawing the chart (canvas pixels) · the hover OHLC · the range ·
+//     candles/line · the trade button blocked by a quote reason · a short press trades nothing · a 1 s hold =
+//     `tradeCrypto(coin, side, units)` once + a toast · a locked coin = trading locked · the offline line · Tab
+//     closes · the missing-computer toast.
 // Usage: node scripts/smoke-mining-ui.mjs [http://localhost:5273]   (needs `npm run dev`)   SMOKE_SHOTS=1 → scripts/logs/mining-ui-*.png
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -122,13 +129,13 @@ try {
   const bagQty = (id) => H((d) => window.__game.ctx.inventory.getAllItems().filter((i) => i.defId === d).reduce((a, i) => a + i.qty, 0), id);
   const stashQty = (id) => H((d) => window.__game.ctx.inventory.getStashItems().filter((i) => i.defId === d).reduce((a, i) => a + i.qty, 0), id);
 
-  /* ══ 1. 채굴 시설 · 모델 · 광원 ═══════════════════════════════════════════ */
+  /* ══ 1. The mining facility · models · lights ═════════════════════ */
   console.log('채굴 시설 · 모델');
   for (const [id, n] of [['mat_scrap', 40], ['mat_alloy', 30], ['mat_cable', 30], ['mat_circuit', 20]]) await giveStash(id, n);
   const ROOM = 3;
   await H((room) => {
     const h = window.__game.ctx.housing;
-    h.state.generatorLevel = 5;                        // 채굴 시설 = 발전기 Lv.5 (2026-09-13 최대)
+    h.state.generatorLevel = 5;                        // the mining facility = generator Lv.5 (the 2026-09-13 maximum)
     h.state.rooms[room].purpose = 'mining';
     h.changed('smoke');
   }, ROOM);
@@ -147,7 +154,8 @@ try {
   const c2P = await placeFurn(ROOM, 'furn_compute_cluster');
   ok(pcP.uid && c1P.uid && c2P.uid, '메인 컴퓨터 1 · 연산 클러스터 2 제작 + 배치', JSON.stringify({ pcP, c1P, c2P }));
   const PC = pcP.uid, C1 = c1P.uid, C2 = c2P.uid;
-  // 2026-09-13 (전력 할당 폐지): 할당 단계 없음 — 메인 컴퓨터가 있으면 클러스터에 가동 사유가 없다
+  // 2026-09-13 (power allocation dropped): there is no allocation step — with a main computer present nothing blocks
+  // a cluster's operation
   const op = await H((u) => ({ block: window.__game.ctx.housing.furnitureOperationalBlock(u), api: typeof window.__game.ctx.housing.setPowerAllocation }), c1P.uid);
   ok(op.block === null && op.api === 'undefined', `전력 할당 없음 — 클러스터 가동 사유 없음 (${JSON.stringify(op)})`);
   await waitSim(0.4);
@@ -159,10 +167,11 @@ try {
   ok(models0.cl.every((m) => m.lit === 0), '코어 없는 클러스터 = 켜진 코어 칸 없음');
   await shot('01-room');
 
-  /* ══ 2. 채굴 탭 (옛 연산 클러스터 화면) ═══════════════════════════════════
-     2026-09-14 (사용자 결정): 연산 클러스터 화면과 메인 컴퓨터 화면이 **한 창**(`.menu.mining-screen`)으로 합쳐졌고
-     상단 가로 탭 넷(`nav.mn-tabs > button.mn-tab[data-tab]`)이 배치를 갈아 끼운다. 코인은 버튼 8칸 줄이 아니라
-     현황 칸의 **드롭다운**(`.mn-cp` / `.mn-cp-btn` → `.mn-cpi[data-coin]`)이 고르고, 코어는 **한 번에 하나**씩 꽂힌다. */
+  /* ══ 2. The mining tab (the old compute cluster screen) ═══════
+     2026-09-14 (user's decision): the compute cluster screen and the main computer screen merged into **one window**
+     (`.menu.mining-screen`), and four horizontal tabs along the top (`nav.mn-tabs > button.mn-tab[data-tab]`) swap the
+     layout. A coin is picked from a **dropdown** in the status cell (`.mn-cp` / `.mn-cp-btn` → `.mn-cpi[data-coin]`)
+     rather than a row of 8 buttons, and cores mount **one at a time**. */
   console.log('채굴 탭 (연산 클러스터)');
   await H((u) => window.__game.ctx.housing.openComputeCluster(u), C1);
   await waitFor(page, () => document.querySelector('.menu.mining-screen') && !document.querySelector('.menu.mining-screen').hidden, 'mining screen', 5000);
@@ -170,7 +179,7 @@ try {
   const dom = await H(() => {
     const r = document.querySelector('.menu.mining-screen');
     const cp = r.querySelector('.mn-cp-btn');
-    cp?.click();                                            // 코인 드롭다운을 펼쳐 목록을 센다
+    cp?.click();                                            // opens the coin dropdown to count the list
     const coins = r.querySelectorAll('.mn-cpi[data-coin]:not(.mn-cpi-clear)').length;
     const locked = r.querySelectorAll('.mn-cpi.is-locked').length;
     window.__game.ctx.housing.miningScreen.cluster['picker'].close();
@@ -193,11 +202,13 @@ try {
   ok(dom.title === '연산 클러스터 1', `제목 = 레일 번호 (${dom.title})`);
   ok(await H(() => window.__toggles.some((t) => t.open && t.page === 'cluster')), 'ui:miningToggled {open, page: cluster}');
 
-  /* 2026-09-16 (사용자 결정 — 연산 코어 폐지): 칸에 꽂는 것은 **프로세서**(2×1 · 내구도 500)다. 칸을 지정한 드롭은
-     `insertClusterProcessor(uid, cell, item.uid)` — **끌어온 그 인스턴스**가 **놓은 그 칸**에 들어간다. 프로세서는 저마다
-     내구도가 달라 「아무거나 다음 빈 칸」이 더 이상 같은 결과가 아니기 때문이다 (인덱스가 곧 화면 격자의 칸). */
+  /* 2026-09-16 (user's decision — the compute core dropped): what goes into a cell is a **processor** (2×1 ·
+     durability 500). A drop that names a cell is `insertClusterProcessor(uid, cell, item.uid)` — **the dragged
+     instance** goes into **the cell it was dropped on**. Processors differ in durability, so 「아무거나 다음 빈 칸」 is
+     no longer the same outcome (the index is the screen grid's cell). */
   const hasCoreApi = await H(() => typeof window.__game.ctx.housing.insertClusterProcessor === 'function' && !!window.__game.ctx.loot.getItemDef('mat_processor'));
-  /* `ClusterPage.dropOn` 은 `mountStationGrids` 의 `onTake` 와 같은 경로다 (격자 타일을 프로세서 칸에 떨어뜨린 것). */
+  /* `ClusterPage.dropOn` is the same path as `mountStationGrids`'s `onTake` (a grid tile dropped onto a processor
+     cell). */
   const dropVia = (defId, sel) => H(({ defId, sel }) => {
     const ctx = window.__game.ctx;
     const p = ctx.housing.miningScreen?.cluster;
@@ -207,7 +218,8 @@ try {
     p.dropOn(item, t);
     return { ok: true };
   }, { defId, sel });
-  /** 드롭할 인스턴스를 **uid 로** 고른다 — 「끌어온 그것이 그 칸에 들어간다」를 내구도로 확인하는 길. */
+  /** Picks the instance to drop **by uid** — the way to confirm by durability that the dragged one lands in that
+      cell. */
   const dropUid = (uid, sel) => H(({ uid, sel }) => {
     const ctx = window.__game.ctx;
     const p = ctx.housing.miningScreen?.cluster;
@@ -229,7 +241,7 @@ try {
   } else {
     const DUR_MAX = await H(() => window.__game.ctx.loot.getItemDef('mat_processor').durabilityMax ?? 0);
     ok(DUR_MAX > 0, `프로세서는 내구도를 가진 아이템이다 (최대 ${DUR_MAX})`);
-    // 2026-09-14 (사용자 결정): 아이템이 2×1 이고 드롭 · 더블클릭 · 우클릭은 **한 개씩** 옮긴다
+    // 2026-09-14 (user's decision): the item is 2×1 and a drop · double-click · right-click moves **one at a time**
     await giveStash('mat_processor', 3);
     const stackBefore = await countAll('mat_processor');
     const d1 = await dropVia('mat_processor', '.mining-screen .mn-core[data-core="4"]');
@@ -239,8 +251,9 @@ try {
       && cells1[4] === DUR_MAX && cells1.every((v, i) => i === 4 || v === null),
     `빈 칸에 드롭 → 한 개만, **놓은 그 칸**(4번)에 꽂힌다 (${JSON.stringify(cells1)}) ${JSON.stringify(d1)}`);
 
-    /* 2026-09-16 (사용자 결정): 칸은 개수가 아니라 **그 칸의 남은 내구도**다 — 끌어온 인스턴스의 내구도가 칸에 그대로 적히고,
-       빼면 그대로 돌아온다 (닳은 것만 골라 빼서 작업대로 가져가는 길). */
+    /* 2026-09-16 (user's decision): a cell is not a count but **the durability left in that cell** — the dragged
+       instance's durability is written into the cell as it is, and comes back unchanged when pulled (the way to pull
+       only the worn ones and take them to a bench). */
     const WORN = Math.max(1, Math.round(DUR_MAX * 0.24));
     const wornUid = await giveWorn(WORN);
     const d2 = await dropUid(wornUid, '.mining-screen .mn-core[data-core="7"]');
@@ -285,8 +298,9 @@ try {
     ok((await coresOf(C1)) === 7 && (await stashQty('mat_processor')) === stash0 + 1, '더블클릭 → 프로세서 1개 빼기 (함선 창고 먼저)');
   }
 
-  /* 코인 지정 — 2026-09-14 부터 현황 칸의 드롭다운(`CoinPicker`)이다: 버튼을 누르면 목록이 펼쳐지고 줄을 누른다.
-     잠긴 코인도 목록에 남고 딤드이며, 누르면 사유 토스트만 난다. */
+  /* Picking a coin — since 2026-09-14 it is a dropdown in the status cell (`CoinPicker`): pressing the button opens
+     the list and a row is clicked. A locked coin stays in the list, dimmed, and clicking it only raises a reason
+     toast. */
   const coins = await H(() => (window.__game.ctx.housing.getCryptoCoins?.() ?? []).map((c) => ({ id: c.def.id, unlocked: c.unlocked, reason: c.lockReason })));
   const open = coins.filter((c) => c.unlocked), locked = coins.filter((c) => !c.unlocked);
   const coinOf = (u) => H((u) => window.__game.ctx.housing.getComputeCluster?.(u)?.coinId ?? null, u);
@@ -300,7 +314,7 @@ try {
     ok((await coinOf(C1)) === open[0].id, `드롭다운에서 코인 선택 → setClusterCoin (${open[0].id})`);
     const stat = await H(() => [...document.querySelectorAll('.mining-screen .mn-stat')].filter((r) => !r.hidden && !r.classList.contains('mn-stat-coin')).map((r) => `${r.querySelector('.k').textContent}=${r.querySelector('.v').textContent}`));
     ok(stat.some((s) => /^채굴 주기=.*(시간|분|초)/.test(s)) && stat.some((s) => s.startsWith('주기당 채굴=')), `상태 줄 (${stat.join(' | ')})`);
-    // 진행도가 있는 척 → 다른 코인 = 홀드 경고, 취소하면 그대로
+    // pretending progress is running → another coin = the hold warning, and cancelling leaves it alone
     await H(() => {
       const h = window.__game.ctx.housing;
       const real = h.getComputeCluster.bind(h);
@@ -323,16 +337,16 @@ try {
     await H(() => window.__game.ctx.housing.miningScreen.cluster['picker'].close());
   }
   await shot('02-cluster');
-  // 레일 전환
+  // switching rails
   await H((u) => document.querySelector(`.mining-screen .hs-rail-item[data-uid="${u}"]`)?.click(), C2);
   await sleep(60);
   ok(await H((u) => window.__game.ctx.housing.clusterScreen.currentUid === u && document.querySelector('.mining-screen .hs-station-head .title')?.textContent === '연산 클러스터 2', C2), '레일 → 클러스터 2');
-  // Tab 닫기
+  // Tab closes
   await tap('Tab');
   await sleep(80);
   ok(await H(() => document.querySelector('.menu.mining-screen').hidden), 'Tab → 채굴 화면 닫힘');
   ok(await H(() => window.__toggles.some((t) => !t.open && t.page === 'cluster')), 'ui:miningToggled {open: false}');
-  // 가구 상호작용 → 화면 · Esc 닫기
+  // the furniture interaction → the screen · Esc closes
   const viaInteract = await H((u) => {
     const i = window.__game.ctx.interactables.all().find((x) => x.id === `hub_furn_${u}`);
     if (!i) return 'no interactable';
@@ -345,9 +359,9 @@ try {
   await waitFor(page, () => document.querySelector('.menu.mining-screen').hidden, 'Esc closes mining screen', 5000).catch(() => null);
   ok(await H(() => document.querySelector('.menu.mining-screen').hidden), 'Esc → 채굴 화면 닫힘');
 
-  /* ══ 3. 메인 컴퓨터 ═══════════════════════════════════════════════════════ */
+  /* ══ 3. The main computer ════════════════════════════════════════════ */
   console.log('메인 컴퓨터');
-  // 스텁 시세 (릴레이를 막은 스모크 — 서버 시세 대신)
+  // the stubbed quotes (the smoke parked the relay — in place of the server's quotes)
   await H(() => {
     const ctx = window.__game.ctx;
     const s = window.__cryptoStub = { watch: 0, unwatch: 0, req: [] };
@@ -385,7 +399,8 @@ try {
   const pc = await H(() => {
     const r = document.querySelector('.menu.mining-screen');
     return {
-      // 2026-09-14: 옛 좌측 레일 탭(`.hs-rail .hs-tab`)은 창 상단의 가로 탭 넷이 됐다
+      // 2026-09-14: the old left-rail tabs (`.hs-rail .hs-tab`) became the four horizontal tabs at the top of the
+      // window
       tabs: [...r.querySelectorAll('nav.mn-tabs > button.mn-tab')].map((t) => t.textContent),
       active: r.querySelector('.mn-tab.is-on')?.dataset.tab,
       rows: r.querySelectorAll('.mn-crow[data-uid]').length,
@@ -399,13 +414,14 @@ try {
   });
   ok(pc.tabs.join('|') === '채굴|클러스터 현황|지갑|거래소' && pc.active === 'clusters', `상단 탭 넷 · 메인 컴퓨터로 열면 「클러스터 현황」 (${pc.tabs.join('|')})`);
   ok(pc.rows === 2 && !pc.gridsShown && !pc.railShown && !pc.upgrade, `현황 줄 2 · 격자 · 레일 숨김 · 업그레이드 없음 (${JSON.stringify(pc)})`);
-  // 2026-09-16 (사용자 결정 — 연산 코어 폐지): 셋째 칸 이름이 「코어」 → 「프로세서」다. 전력 칸은 2026-09-13 부터 그대로 없다.
+  // 2026-09-16 (user's decision — the compute core dropped): the third column is named 「프로세서」 instead of 「코어」.
+  // The power column has been gone since 2026-09-13.
   ok(pc.head === '클러스터|코인|프로세서|이번 주기|상태', `현황 머리줄 = 프로세서 칸 · 전력 칸 없음 (${pc.head})`);
   ok(pc.watch === 0 && pc.toggled, `현황 탭은 시세를 구독하지 않는다 · ui:miningToggled computer (watch ${pc.watch})`);
   const rowText = await H(() => document.querySelector('.mining-screen .mn-crow[data-uid] .mn-ccores')?.textContent ?? '');
   ok(/\d\/9/.test(rowText), `현황 줄 코어 n/9 (${rowText})`);
   await shot('03-computer-clusters');
-  // 줄 클릭 → 그 클러스터의 채굴 탭 (2026-09-14: 창을 닫지 않고 탭만 바꾼다)
+  // clicking a row → that cluster's mining tab (2026-09-14: the window stays open, only the tab changes)
   await H((u) => document.querySelector(`.mining-screen .mn-crow[data-uid="${u}"]`)?.click(), C2);
   await sleep(80);
   ok(await H((u) => {
@@ -415,7 +431,7 @@ try {
   await tap('Tab');
   await sleep(60);
 
-  // 지갑
+  // the wallet
   await H((u) => window.__game.ctx.housing.openMiningComputer(u, 'wallet'), PC);
   await sleep(80);
   const wallet = await H(() => {
@@ -427,7 +443,7 @@ try {
   ok(wallet.units === '2.500 SCRP' && /크레딧/.test(wallet.value ?? ''), `보유 2.500 SCRP · 평가액 (${wallet.units} · ${wallet.value})`);
   ok(wallet.watch === 1, `지갑 탭 = 시세 구독 1 (${wallet.watch})`);
 
-  // 거래소
+  // the exchange
   await H(() => document.querySelector('.mining-screen .mn-tab[data-tab="exchange"]')?.click());
   await waitFor(page, () => window.__game.ctx.housing.miningComputer.chart.debug.candles > 0, 'chart candles', 5000).catch(() => null);
   await sleep(120);
@@ -463,7 +479,8 @@ try {
   await H(() => document.querySelector('.mining-screen .mn-seg-btn[data-mode="line"]')?.click());
   ok(await H((d0) => window.__game.ctx.housing.miningComputer.chart.currentMode === 'line' && window.__game.ctx.housing.miningComputer.chart.debug.draws > d0, draws0), '봉 → 선 모드 다시 그리기');
 
-  // 매매 — 견적 사유로 막히는 홀드 버튼 (스텁 시세를 방금 받은 것으로 — 오래된 시세는 따로 본다)
+  // trading — the hold button blocked by a quote reason (with the stubbed quotes just received; a stale quote is
+  // checked separately)
   const freshPrices = (ageMs = 0) => H((age) => { const ctx = window.__game.ctx; ctx.net.crypto.pricesAt = Date.now() - age; ctx.bus.emit('net:cryptoPrices', { at: ctx.net.crypto.pricesAt }); }, ageMs);
   await freshPrices();
   const trade = () => H(() => {
@@ -504,7 +521,7 @@ try {
   const mid = await H(() => ({ trades: window.__trades.slice(), s: { ...window.__cryptoStub }, label: document.querySelector('.mining-screen .mn-hold-label').textContent }));
   ok(mid.trades.length === 1 && mid.trades[0].coin === x.coin && mid.trades[0].side === 'buy' && mid.trades[0].units === 500, `1초 홀드 → tradeCrypto 한 번 (${JSON.stringify(mid.trades)})`);
   ok(mid.s.watch === subT0.watch + 1 && mid.label === '처리 중…', `거래 답을 기다리는 동안 시세 구독을 하나 더 쥔다 (watch ${subT0.watch} → ${mid.s.watch} · ${mid.label})`);
-  await H(() => document.querySelector('.mining-screen .mn-tab[data-tab="clusters"]')?.click());   // 답이 오기 전에 탭을 바꾼다
+  await H(() => document.querySelector('.mining-screen .mn-tab[data-tab="clusters"]')?.click());   // the tab is switched before the answer arrives
   await sleep(40);
   const midTab = await H(() => ({ ...window.__cryptoStub }));
   ok(midTab.watch - midTab.unwatch === 1, `탭을 바꿔도 거래 구독은 남는다 (watch ${midTab.watch} · unwatch ${midTab.unwatch})`);
@@ -525,7 +542,7 @@ try {
   ok(!t.disabled && t.label === '매도', '매도 쪽으로 바꾸면 「매도」');
   await H(() => { const h = window.__game.ctx.housing; h.cryptoQuote = h.__realQuote; h.tradeCrypto = h.__realTrade; delete h.__realQuote; delete h.__realTrade; });
 
-  // 잠긴 코인 = 차트는 보이고 매매는 잠김
+  // a locked coin = the chart shows but trading is locked
   if (locked.length) {
     await H((id) => document.querySelector(`.mining-screen .mn-xrow[data-coin="${id}"]`)?.click(), locked[0].id);
     await sleep(120);
@@ -534,7 +551,7 @@ try {
     ok(t.locked && t.disabled && t.block === (locked[0].reason ?? '잠긴 코인입니다'), `잠긴 코인 → 매매 잠김 + 사유 (${t.block})`);
     ok(lockedChart.req && !lockedChart.msg, '잠긴 코인도 차트 이력을 요청하고 그린다');
   }
-  // 탭 전환 → 구독 해제, 다시 거래소 → 다시 구독
+  // switching tabs → unsubscribes, back to the exchange → subscribes again
   const sub0 = await H(() => ({ ...window.__cryptoStub }));
   await H(() => document.querySelector('.mining-screen .mn-tab[data-tab="clusters"]')?.click());
   await sleep(40);
@@ -543,7 +560,7 @@ try {
   await sleep(40);
   const sub2 = await H(() => ({ ...window.__cryptoStub }));
   ok(sub1.unwatch === sub0.unwatch + 1 && sub1.watch === sub0.watch && sub2.watch === sub0.watch + 1, `현황 탭 → 구독 해제 · 거래소 → 다시 구독 (${JSON.stringify({ sub0, sub1, sub2 })})`);
-  // 오프라인 (열린 코인으로 돌아가서 — 잠긴 코인이면 잠김 사유가 먼저다)
+  // offline (back on an unlocked coin — on a locked one the lock reason comes first)
   await H((id) => document.querySelector(`.mining-screen .mn-xrow[data-coin="${id}"]`)?.click(), x.coin);
   await sleep(60);
   await H(() => { const ctx = window.__game.ctx; ctx.net.crypto.available = false; ctx.bus.emit('net:cryptoPrices', { at: Date.now() }); });
@@ -555,14 +572,14 @@ try {
   await H(() => document.querySelector('.mining-screen .mn-tab[data-tab="clusters"]')?.click());
   await sleep(40);
   ok(await H(() => document.querySelectorAll('.mining-screen .mn-crow[data-uid]').length === 2), '오프라인이어도 현황 탭은 그대로');
-  // Tab 닫기 → 구독 해제 · 이벤트
+  // Tab closes → unsubscribes · the event
   await H(() => { window.__game.ctx.net.crypto.available = true; document.querySelector('.mining-screen .mn-tab[data-tab="exchange"]')?.click(); });
   await sleep(40);
   await tap('Tab');
   await sleep(80);
   const closed = await H(() => ({ hidden: document.querySelector('.menu.mining-screen').hidden, s: { ...window.__cryptoStub }, ev: window.__toggles.some((t) => !t.open && t.page === 'computer') }));
   ok(closed.hidden && closed.ev && closed.s.watch === closed.s.unwatch, `Tab → 컴퓨터 닫힘 · 구독 전부 해제 (${JSON.stringify(closed.s)})`);
-  // interact() → 메인 컴퓨터
+  // interact() → the main computer
   const pcInteract = await H((u) => {
     const i = window.__game.ctx.interactables.all().find((x) => x.id === `hub_furn_${u}`);
     if (!i) return 'no interactable';
@@ -577,7 +594,7 @@ try {
   await sleep(30);
   ok((await lastNotify()) === '메인 컴퓨터가 없습니다', '없는 메인 컴퓨터 → 토스트');
 
-  // 모델 스크린샷 — 가까이 (플레이어 카메라 덮어쓰기) + 시설 관리 카메라
+  // model screenshots — close up (the player camera overridden) + the ship management camera
   if (SHOTS) {
     for (const [name, off] of [['06-models-near', [2.4, 1.3, 0.9]], ['07-models-near-b', [2.2, 1.6, -1.6]]]) {
       const framed = await H(({ C1, PC, off }) => {

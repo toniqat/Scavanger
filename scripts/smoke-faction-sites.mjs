@@ -1,12 +1,12 @@
-// 행성별 인간형 팩션 — 거점 점거 (src/enemies/SiteGroups.ts) · 네임드 확률 단독 스모크, 릴레이 없이 싱글 플레이로 돈다 (2026-09-13).
-// 검사 (행성 threat 1 / 2 / 3 × 시드 여러 개):
-//   threat 1 — 연구소 · 전진기지마다 안드로이드 2–3그룹(실내 ≥ 1, 그룹당 1–2명), 플랫폼 · 폐허 비어 있음, 로그 · 레이더 · 분대장 없음
-//   threat 2 — 안드로이드 없음, 연구소 · 전진기지 전부 점거(로그 또는 레이더, 실내 1 + 실외 1, 그룹당 ≥ 3명), 플랫폼 · 폐허는 로그,
-//              분대장 ≤ 1 (로그 그룹의 leader, 나머지 escortOf = 분대장)
-//   threat 3 — 로그 · 안드로이드 없음, 거점은 전부 레이더
-//   공통 — 불시착 함선은 거점이 아니다 · 레이더 그룹은 우회조 정확히 한 명 · 다른 그룹은 0 · 분대 id 유일 · 적의 site / squadId / role 이
-//          기록과 같다 · **상자 경비가 없다**(시작 인간형은 전부 거점 그룹 또는 네임드 분대) · 같은 시드 + 행성 = 같은 배치 ·
-//          네임드 굴림 확률 = NAMED_ROGUE_CHANCE_BY_THREAT (0 / 0.25 / 0.5) · 나온 네임드는 팩션 레이더
+// Humanoid factions per planet — site occupation (src/enemies/SiteGroups.ts) · the named chance. A standalone smoke, single player, without a relay (2026-09-13).
+// Checks (planet threat 1 / 2 / 3 × several seeds):
+//   threat 1 — 2–3 android groups at every lab · outpost (indoor ≥ 1, 1–2 per group), the platforms · ruins empty, no rogue · raider · squad leader
+//   threat 2 — no android, every lab · outpost occupied (rogue or raider, 1 indoor + 1 outdoor, ≥ 3 per group), the platforms · ruins hold rogues,
+//              squad leaders ≤ 1 (the leader of a rogue group, the rest escortOf = the squad leader)
+//   threat 3 — no rogue · android, every site is raiders
+//   common — a crashed ship is not a site · a raider group has exactly one flanker · every other group has none · squad ids are unique · an enemy's site / squadId / role
+//          match the record · **there are no crate guards** (every humanoid a raid starts with belongs to a site group or a named squad) · the same seed + planet = the same placement ·
+//          the named roll chance = NAMED_ROGUE_CHANCE_BY_THREAT (0 / 0.25 / 0.5) · a named that comes out is faction raider
 // Usage: node scripts/smoke-faction-sites.mjs [http://localhost:5273/]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -22,7 +22,7 @@ const CHROME = [
 if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
-/* ── 계약 값 (data/planets.csv 의 threat · data/tables.csv) — 브라우저 안 상수를 import 할 수 없어 옮겨 적는다 ── */
+/* ── contract values (threat in data/planets.csv · data/tables.csv), copied here ─────────── */
 const PLANETS = [
   { id: 'amber', threat: 1 },
   { id: 'tundra', threat: 2 },
@@ -142,16 +142,16 @@ try {
       const members = groups.flatMap((g) => g.members.map((m) => ({ ...m, squadId: g.squadId, faction: g.faction, siteId: g.siteId, site: g.site, place: g.place })));
       const byId = new Map(s.humanoids.map((h) => [h.id, h]));
 
-      // 적 자체가 기록과 같다
+      // The enemies themselves match the record
       const mismatch = members.filter((m) => { const h = byId.get(m.id); return !h || h.site !== m.site || h.squadId !== m.squadId || h.role !== m.role || h.type !== m.type; });
       ok(mismatch.length === 0, `${tag}: 거점 멤버의 site · squadId · role · type 이 기록과 같다 (${members.length})`, JSON.stringify(mismatch.slice(0, 3)));
       const ids = groups.map((g) => g.squadId);
       ok(new Set(ids).size === ids.length && ids.every((x) => x > 0), `${tag}: 분대 id 가 유일하다 (${ids.length})`);
-      // 상자 경비가 없다: 시작 인간형은 거점 멤버 · 네임드 · 네임드 분대뿐
+      // No crate guards: the humanoids a raid starts with are site members · a named · a named's squad and nothing else
       const memberIds = new Set(members.map((m) => m.id));
       const stray = s.humanoids.filter((h) => !memberIds.has(h.id) && !NAMED_TYPES.includes(h.type) && !(h.escortType && NAMED_TYPES.includes(h.escortType)));
       ok(stray.length === 0, `${tag}: 상자 경비 · 거점 밖 인간형이 없다`, JSON.stringify(stray.slice(0, 3)));
-      // 우회조
+      // The flanker
       const badFlank = groups.filter((g) => {
         const n = g.members.filter((m) => m.role === 'flanker').length;
         return g.faction === 'raider' ? n !== 1 : n !== 0;
@@ -171,7 +171,7 @@ try {
         agg.t2Samples += def.threat === 2 ? 1 : 0;
         ok(!types.has('android'), `${tag}: 안드로이드가 없다 (${allTypes})`);
         ok(labOut.every((r) => r.groups.length === 2 && r.groups.filter((g) => g.place === 'indoor').length === 1), `${tag}: 거점마다 실내 1 + 실외 1`, JSON.stringify(labOut.map((r) => r.groups.map((g) => g.place))));
-        // 2026-09-13 후속 결정: 플랫폼 · 폐허 그룹은 2–3명 (SITE_OUTLYING_GROUP_SIZE_*), 연구소 · 전진기지는 3–4명 그대로
+        // 2026-09-13, a follow-up decision: a platform · ruin group is 2–3 (SITE_OUTLYING_GROUP_SIZE_*), a lab · outpost stays 3–4
         const OUTLYING_SIZE = { 1: [1, 2], 2: [2, 3], 3: [2, 3] };
         const rangeOf = (g) => (g.site === 'platform' || g.site === 'ruin' ? OUTLYING_SIZE : SIZE)[def.threat];
         const small = groups.filter((g) => g.members.length < rangeOf(g)[0] || g.members.length > rangeOf(g)[1]);
@@ -201,12 +201,12 @@ try {
           ok(!types.has('rogue') && !types.has('rogue_boss'), `${tag}: 로그 · 로그 분대장이 없다 (${allTypes})`);
         }
       }
-      // 실내 그룹이 실제로 건물 안에 섰나 (world 질의가 있을 때만 — 대체 경로는 느슨하다)
+      // Did the indoor group really stand inside the building (only where the world query exists — the fallback path is looser)
       for (const g of groups.filter((x) => x.place === 'indoor' && (x.site === 'lab' || x.site === 'outpost'))) {
         agg.indoorTotal++;
         if (g.members.some((m) => (byId.get(m.id) || {}).inside === g.siteId)) agg.indoorInside++;
       }
-      // 네임드 굴림
+      // The named roll
       const n = s.named;
       ok(n && n.rolled && n.threat === def.threat && Math.abs(n.chance - NAMED_CHANCE[def.threat]) < 1e-9, `${tag}: 네임드 확률 = ${NAMED_CHANCE[def.threat]} (threat ${n && n.threat}, chance ${n && n.chance})`);
       if (n && n.placed) {

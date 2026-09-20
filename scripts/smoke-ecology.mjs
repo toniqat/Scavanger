@@ -1,12 +1,13 @@
-// Single-player smoke test for Phase 11 §3-5 (world + enemies): 행성 생태계.
+// Single-player smoke test for Phase 11 §3-5 (world + enemies): the planet ecosystem.
 // Per planet: `ctx.world.planet` / `world:ready.planet`, the biome named by `PlanetDef.biome` (no longer the seeded
-// draw), 채집 herb weights + `gatherDensity` node count, the ambient / wave compositions drawn from `eco.bugs` with
+// draw), the gather herb weights + `gatherDensity` node count, the ambient / wave compositions drawn from `eco.bugs` with
 // every pre-Phase-11 threat gate intact, `pressure` on the population cap, `maxArtillery` / `maxBehemoth`, the humanoid
 // site-group factions by planet threat (2026-09-13: crate guards and eco.rogues / eco.boss are retired), and determinism
 // (same seed + same planet = the same world and the same site-group placement).
-// 2026-09-11 (온실 개편): 행성별 **토양 더미** (`planets.csv` 의 soils · soilNodes) — 개수 · 종류 · 시드 결정성.
-// 2026-09-14 (벌레 난이도): 행성 threat 별 벌레 최대 체력 배수(권위 · 리플리카 · 승격 · 인간형/땅굴벌레/훈련장 제외), 실효 생태계 가중치 ·
-// 상한, 같은 생태계에 threat 1/2/3 을 얹은 순찰 N 개의 대형 벌레 몫 · 순찰 베헤모스 · 중형 몫 (`data/tables.csv` 를 직접 읽는다).
+// 2026-09-11 (the greenhouse rework): the per-planet **soil piles** (`planets.csv` soils · soilNodes) — count · kinds · seed determinism.
+// 2026-09-14 (bug difficulty): the bug max-hp multiplier per planet threat (authority · replica · promotion; humanoids / the
+// sandworm / the training range excluded), the effective ecosystem weights · caps, and, over N patrols drawn from one ecosystem
+// with threat 1/2/3 laid on it, the large-bug share · patrol behemoths · the medium share (reads `data/tables.csv` directly).
 // No planet (and a training) must behave exactly as before. Drives `window.__game` only — no console, no relay.
 // Usage: node scripts/smoke-ecology.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
@@ -37,12 +38,14 @@ async function waitFor(page, fn, label, timeout = 60000, arg) {
 
 /* ── contract mirrored here (src/shared/planets.ts + constants.ts) ─────────────────────────────────────────────── */
 const GATHER_NODES_PER_MISSION = 34;
-/* 폐금속 공급 (2026-09-08): 고철 더미 — `SALVAGE_NODES_PER_MISSION` 와 같이 유지한다 */
+/* Scrap supply (2026-09-08): the salvage piles — kept in step with `SALVAGE_NODES_PER_MISSION` */
 const SALVAGE_NODES_PER_MISSION = 7;
 /** Ambient population cap before `pressure`: `12 + 24 × threat`. */
 const capBase = (threat) => 12 + 24 * threat;
-/* 2026-09-09: `hazards` 도 planets.csv 를 그대로 옮긴 것이다 — 독성 포자가 후보인 행성에만 거대 버섯 군락이 선다.
-   2026-09-11 (품종 확장 A-11): `soils` 에 염류 · 포자 토양이 늘었다. planets.csv 의 soils 열을 고치면 여기도 같이 고친다. */
+/* 2026-09-09: `hazards` is copied straight from planets.csv too — only a planet where toxic spores are a candidate grows
+   giant mushroom groves.
+   2026-09-11 (variety expansion A-11): saline · spore soils were added to `soils`. Editing the soils column of planets.csv
+   means editing this too. */
 const PLANETS = [
   { id: 'amber', threat: 1, biome: 'amber', bugs: { scavenger: 4, hunter: 2, toxic: 2, warrior: 1, artillery: 1 }, pressure: 0.85, rogues: 1.4, boss: true, maxArtillery: 1, maxBehemoth: 0, herbs: { herb_ashleaf: 3, herb_bloodroot: 1, herb_glowcap: 0.5 }, gatherDensity: 0.7, soils: { soil_humus: 2, soil_ash: 1, soil_saline: 1 }, soilNodes: 5, hazards: ['sandstorm','storm_eye'] },
   { id: 'tundra', threat: 2, biome: 'tundra', bugs: { scavenger: 3, hunter: 4, toxic: 2, charger: 2, warrior: 2 }, pressure: 1, rogues: 0.8, boss: false, maxArtillery: 1, maxBehemoth: 1, herbs: { herb_bloodroot: 2, herb_ashleaf: 2, herb_glowcap: 1 }, gatherDensity: 0.9, soils: { soil_frost: 4, soil_humus: 1 }, soilNodes: 6, hazards: ['blizzard','storm_eye'] },
@@ -55,7 +58,7 @@ const GROUP_TYPES = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'tox
 /** The pre-Phase-11 ambient ladder gates — a weighted draw may never open one. */
 const ambientOpen = { scavenger: () => true, hunter: () => true, warrior: (t) => t > 0.25, spewer: (t) => t > 0.3, toxic: (t) => t >= 0.4, charger: (t) => t > 0.5, behemoth: () => false };
 const waveOpen = { scavenger: () => true, hunter: () => true, warrior: (i) => i >= 2, spewer: (i) => i >= 2, toxic: (i) => i >= 2, charger: (i) => i >= 3, behemoth: (i) => i >= 3 };
-/* 2026-09-14: 벌레 난이도 (행성 threat) — data/tables.csv 를 그대로 읽는다 (index 0 = threat 1 … 2 = threat 3) */
+/* 2026-09-14: bug difficulty (planet threat) — reads data/tables.csv as it stands (index 0 = threat 1 … 2 = threat 3) */
 const csvLines = (file) => readFileSync(new URL(`../data/${file}`, import.meta.url), 'utf8').split(/\r?\n/).filter((l) => l && !l.startsWith('#'));
 const table = (name) => csvLines('tables.csv').map((l) => l.split(',')).filter((c) => c[0] === name).sort((a, b) => Number(a[1]) - Number(b[1])).map((c) => Number(c[2]));
 const BUG_HP_MUL = table('BUG_HP_MUL_BY_THREAT');
@@ -64,9 +67,9 @@ const MID_MUL = table('MID_BUG_WEIGHT_MUL_BY_THREAT');
 const PATROL_BEHEMOTH = table('PATROL_BEHEMOTH_BY_THREAT');
 const ART_BONUS = table('ARTILLERY_CAP_BONUS_BY_THREAT');
 const BEH_BONUS = table('BEHEMOTH_CAP_BONUS_BY_THREAT');
-/** enemies.csv 의 기본 hp (숫자 칸만 — 식이 들어간 줄은 쓰지 않는다). */
+/** The base hp out of enemies.csv (numeric cells only — a row carrying a formula is not used). */
 const BASE_HP = Object.fromEntries(csvLines('enemies.csv').slice(1).map((l) => l.split(',')).filter((c) => /^\d+(\.\d+)?$/.test(c[2] ?? '')).map((c) => [c[0], Number(c[2])]));
-/** 순찰 게이트 — 베헤모스는 `PATROL_BEHEMOTH_BY_THREAT` 가 켜진 행성에서만 차저와 같은 게이트로 열린다. */
+/** The patrol gates — a behemoth opens on the charger's gate only on a planet where `PATROL_BEHEMOTH_BY_THREAT` is on. */
 const ambientGateOpen = (t, threat, planetThreat) => (t === 'behemoth' && PATROL_BEHEMOTH[planetThreat - 1] > 0 ? threat > 0.5 : !!ambientOpen[t] && ambientOpen[t](threat));
 
 const browser = await puppeteer.launch({
@@ -80,9 +83,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and locks
+    // room purposes · crafting · the terminal · boarding in that order, so it is marked "already done" here
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -117,12 +120,13 @@ try {
     window.__snap = () => {
       const ctx = window.__game.ctx;
       const w = ctx.world;
-      // 2026-09-08: 고철 더미(`kind: 'salvage'`)도 같은 목록에 있다 — 생태계 수치는 약초만 센다
-      // 2026-09-11 (온실 개편): 토양 더미(`kind: 'soil'`)도 같은 목록이다 — 개수는 planets.csv 의 soilNodes 다
+      // 2026-09-08: salvage piles (`kind: 'salvage'`) are on the same list — the ecosystem numbers count herbs only
+      // 2026-09-11 (the greenhouse rework): soil piles (`kind: 'soil'`) are on that list too — their count is soilNodes in planets.csv
       const all = w.getGatherNodes();
-      // 2026-09-09: 거대 버섯 군락에 딸린 채집 버섯(`grove_*`)은 재해가 심는 것이라 생태계 밀도와 무관하다.
-      // 2026-09-11 (연구실): 씨앗 군락 · 미확인 표본도 같은 목록이라 **약초만** 센다 (kind 로 고른다 —
-      // 종류가 늘 때마다 제외 목록을 늘리면 한 번은 빠뜨린다).
+      // 2026-09-09: the gather mushrooms (`grove_*`) that come with a giant mushroom grove are planted by the hazard, so
+      // they have nothing to do with the ecosystem density.
+      // 2026-09-11 (the lab): seed groves and unidentified samples are on the same list, so **only herbs** are counted
+      // (picked by kind — growing an exclusion list every time a kind is added misses one sooner or later).
       const nodes = all.filter((n) => n.kind === 'herb' && !n.id.startsWith('grove_'));
       const groveNodes = all.filter((n) => n.id.startsWith('grove_')).length;
       const soilNodes = all.filter((n) => n.kind === 'soil');
@@ -136,16 +140,16 @@ try {
         nodes: nodes.length, herbs, groveNodes,
         soil: soilNodes.length, soils,
         soilSig: soilNodes.map((n) => `${n.id}:${n.defId}:${n.position.x.toFixed(3)},${n.position.z.toFixed(3)}`).join('|'),
-        // 고철만 센다 — `all.length - nodes.length` 로 빼면 군락 버섯까지 고철로 잡힌다 (2026-09-09)
+        // Counts salvage only — subtracting with `all.length - nodes.length` catches the grove mushrooms as salvage too (2026-09-09)
         salvage: all.filter((n) => n.kind === 'salvage').length,
         nodeSig: nodes.map((n) => `${n.id}:${n.defId}:${n.position.x.toFixed(3)},${n.position.z.toFixed(3)}`).join('|'),
-        // 2026-09-11 (C-20): 고철 더미의 부가 코어 (생성 때 시드로 정해진다) + 약초에는 절대 붙지 않는다
+        // 2026-09-11 (C-20): the salvage pile's bonus core (fixed at generation from the seed) + it never attaches to a herb
         salvageSig: all.filter((n) => n.kind === 'salvage').map((n) => `${n.id}:${n.qty}:${(window.__worldSys.gather.debugBonusOf(n.id) || { qty: 0 }).qty}`).join('|'),
         coreNodes: all.filter((n) => n.kind === 'salvage' && window.__worldSys.gather.debugBonusOf(n.id)).map((n) => n.id),
         herbBonus: all.filter((n) => n.kind !== 'salvage' && window.__worldSys.gather.debugBonusOf(n.id)).length,
         eco: window.__sys.debugEcology,
         guards: window.__sys.debugGuardCount(),
-        // 2026-09-13: 상자 경비 → 행성 threat 별 거점 그룹 (자세한 검사는 smoke-faction-sites). 여기서는 threat · 결정성만 본다.
+        // 2026-09-13: crate guards → the site groups per planet threat (smoke-faction-sites checks them in detail). Only threat · determinism here.
         sites: (() => {
           const d = window.__sys.debugSites();
           return d ? { threat: d.threat, sig: JSON.stringify(d.sites.map((x) => [x.siteId, x.faction, x.groups.map((g) => g.members.map((m) => `${m.type}:${m.x.toFixed(2)},${m.z.toFixed(2)}`))])) } : null;
@@ -194,9 +198,9 @@ try {
   ok(base.biome !== null && PLANETS.some((p) => p.biome === base.biome), `the biome still comes from the seeded draw (${base.biome})`);
   ok(base.eco === null, 'no ecosystem is in force (debugEcology null)');
   ok(base.nodes === GATHER_NODES_PER_MISSION, `herb node count is the plain GATHER_NODES_PER_MISSION (${base.nodes})`);
-  // 폐금속 공급 (2026-09-08): 고철 더미는 생태계와 무관하게 행성마다 같은 수로 깔린다
+  // Scrap supply (2026-09-08): salvage piles are laid down in the same number on every planet, ecosystem or not
   ok(base.salvage === SALVAGE_NODES_PER_MISSION, `고철 더미 count is SALVAGE_NODES_PER_MISSION (${base.salvage})`);
-  // 온실 개편 (2026-09-11): 토양은 **행성이 정한다** — 행성이 없으면 흙더미도 없다
+  // The greenhouse rework (2026-09-11): the soil is **decided by the planet** — with no planet there is no soil pile either
   ok(base.soil === 0, `no planet → 토양 더미 없음 (${base.soil})`);
   const baseCap = await P(() => window.__caps(0.5));
   ok(baseCap.cap === Math.round(capBase(0.5)), `ambient cap is 12 + 24 × threat with no planet (${baseCap.cap} @ ${baseCap.threat})`);
@@ -206,7 +210,7 @@ try {
     `ambient patrols keep the old type set, no behemoth (${baseAmbient.join(',')})`);
   ok((baseComp.wave[3].behemoth ?? 0) > 0 && (baseComp.wave[0].behemoth ?? 0) === 0 && (baseComp.wave[1].toxic ?? 0) === 0,
     'wave gates unchanged: behemoth from wave 3, no toxic before wave 2', JSON.stringify({ w0: baseComp.wave[0], w1: baseComp.wave[1], w3: baseComp.wave[3] }));
-  // 2026-09-13: 상자 경비 폐지 — 행성이 없으면 threat 1 = 거점은 안드로이드뿐이다 (로그 · 레이더 · 분대장 없음)
+  // 2026-09-13: crate guards dropped — with no planet, threat 1 = the sites hold androids only (no rogue · raider · squad leader)
   ok(base.sites && base.sites.threat === 1 && base.guards.rogues === 0 && base.guards.raiders === 0 && !base.guards.boss,
     `no planet = threat 1: androids only at the sites (${base.guards.androids} androids, ${base.guards.rogues} rogues, ${base.guards.raiders} raiders)`);
 
@@ -220,13 +224,15 @@ try {
     ok(s.biome === def.biome, `${def.id}: biome is the one PlanetDef names (${s.biome})`);
     const want = Math.max(1, Math.round(GATHER_NODES_PER_MISSION * def.gatherDensity));
     ok(s.nodes === want, `${def.id}: ${want} herb nodes from gatherDensity ${def.gatherDensity} (got ${s.nodes})`);
-    /* 2026-09-09: 독성 포자가 후보인 행성에는 거대 버섯 군락이 서고 그 주위에 채집 버섯이 심긴다.
-       군락 버섯은 생태계 밀도(위 단언)와 무관한 별도 노드이고 id 가 `grove_` 로 시작한다. */
+    /* 2026-09-09: a planet where toxic spores are a candidate grows giant mushroom groves with gather mushrooms planted
+       around them. A grove mushroom is a separate node, unrelated to the ecosystem density (the assertion above), and its
+       id starts with `grove_`. */
     const wantsGroves = (def.hazards ?? []).includes('spores');
     ok(wantsGroves ? s.groveNodes > 0 : s.groveNodes === 0,
       `${def.id}: 군락 버섯 ${wantsGroves ? '있음' : '없음'} (${s.groveNodes})`);
-    /* 온실 개편 (2026-09-11): 토양 더미는 `soilNodes` 개가 정확히 서고, 그 행성의 `soils` 밖 아이템은 절대 안 나온다.
-       흙더미는 저지대(분지)를 노리지만 자리가 모자라면 개활지로 흩어지므로 개수만은 늘 맞아야 한다. */
+    /* The greenhouse rework (2026-09-11): exactly `soilNodes` soil piles stand, and no item outside that planet's `soils`
+       ever comes out. A soil pile aims for low ground (a basin) but scatters over open ground when there are not enough
+       spots, so the count at least must always match. */
     ok(s.soil === def.soilNodes, `${def.id}: 토양 더미 ${def.soilNodes}개 (got ${s.soil})`);
     const allowedSoils = Object.keys(def.soils);
     const gotSoils = Object.keys(s.soils);
@@ -240,7 +246,7 @@ try {
     ok(s.eco && s.eco.pressure === def.pressure && s.eco.rogues === def.rogues && s.eco.boss === def.boss
       && s.eco.maxArtillery === def.maxArtillery && s.eco.maxBehemoth === def.maxBehemoth && s.eco.gatherDensity === def.gatherDensity,
       `${def.id}: the ecosystem reached enemies/ intact`, JSON.stringify(s.eco));
-    // 2026-09-14: 벌레 난이도 — 행성 threat 칸의 체력 배수 · 대형/중형 가중치 배수 · 포병/베헤모스 상한 보너스가 실효 생태계에 얹혔다
+    // 2026-09-14: bug difficulty — the planet threat row's hp multiplier · large/medium weight multipliers · artillery/behemoth cap bonuses are laid on the effective ecosystem
     {
       const k = def.threat - 1;
       const wantW = (t) => (def.bugs[t] ?? 0) * (['charger', 'behemoth', 'artillery'].includes(t) ? BIG_MUL[k] : ['warrior', 'spewer'].includes(t) ? MID_MUL[k] : 1);
@@ -273,7 +279,7 @@ try {
     const behemoths = comp.wave[7].behemoth ?? 0;
     ok(def.maxBehemoth > 0 && def.bugs.behemoth > 0 ? behemoths > 0 : behemoths === 0,
       `${def.id}: behemoths in late waves ${def.bugs.behemoth > 0 && def.maxBehemoth > 0 ? 'appear' : 'never appear'} (${behemoths})`);
-    // 2026-09-13: eco.rogues · eco.boss 는 은퇴했다 (계약 필드라 위에서 값만 비교). 인간형 팩션은 행성 threat 가 정한다.
+    // 2026-09-13: eco.rogues · eco.boss are retired (contract fields, so only their values are compared above). The planet threat decides the humanoid faction.
     const g = s.guards;
     const factionOk = def.threat === 1 ? g.rogues === 0 && g.raiders === 0
       : def.threat === 2 ? g.androids === 0 && g.rogues + g.raiders > 0
@@ -282,10 +288,12 @@ try {
       `${def.id}: threat ${def.threat} → site factions (androids ${g.androids} · rogues ${g.rogues} · raiders ${g.raiders} · boss ${g.boss})`);
   }
 
-  /* ── 2026-09-14: 벌레 난이도 (행성 threat) ───────────────────────────────
-   * ① 팩션 bug 최대 체력 × BUG_HP_MUL_BY_THREAT (땅굴벌레 · 인간형 제외) — 권위 스폰 · 리플리카(스냅샷 · ee spawn) · 승격 hp 상한이 같은 값
-   * ② 대형 벌레 비중: 같은 행성 원본 생태계에 threat 1 / 2 / 3 을 얹어 순찰 N 개를 굴리면 차저 + 베헤모스 몫이 오르고, 베헤모스는
-   *    PATROL_BEHEMOTH_BY_THREAT 가 켜진 칸에서만 나온다 · 중형 슬롯의 전사 + 스퓨어 몫이 오른다 · 포병 상한 / 굴착 확률이 오른다 */
+  /* ── 2026-09-14: bug difficulty (planet threat) ───────────────────
+   * ① faction bug max hp × BUG_HP_MUL_BY_THREAT (the sandworm · humanoids excluded) — the authority spawn, the replica
+   *    (snapshot · ee spawn) and the promotion hp cap all give the same value
+   * ② the large-bug share: laying threat 1 / 2 / 3 on one planet's own ecosystem and rolling N patrols raises the charger +
+   *    behemoth share, and a behemoth comes out only in a row where PATROL_BEHEMOTH_BY_THREAT is on · the warrior + spewer
+   *    share of the medium slots rises · the artillery cap / the dig-in chance rise */
   console.log('bug difficulty by planet threat (2026-09-14)');
   const spawnHp = (types) => P((types) => {
     const sys = window.__sys; const p = window.__game.ctx.player.position;
@@ -311,7 +319,7 @@ try {
       `threat 3 (ashen): warrior ${BASE_HP.warrior} → ${w('warrior', 3)} · scavenger ${w('scavenger', 3)} (${hpRow(t3)})`);
     ok(t3.raider && t3.raider.maxHp === BASE_HP.raider && t3.sandworm && t3.sandworm.maxHp === BASE_HP.sandworm,
       `threat 3: humanoids and the sandworm are not scaled (raider ${t3.raider && t3.raider.maxHp} · sandworm ${t3.sandworm && t3.sandworm.maxHp})`);
-    // 리플리카 시점: 스냅샷이 처음 본 id · `ee spawn` 둘 다 같은 최대 체력 — 승격해도 호스트 hp 가 옛 최대 체력에 잘리지 않는다
+    // The replica's view: an id the snapshot saw first and `ee spawn` both give the same max hp — on promotion the host's hp is not clamped to the old max hp
     const rep = await P((hp) => {
       const sys = window.__sys; const ctx = window.__game.ctx; const p = ctx.player.position;
       const y = ctx.world.getHeightAt(p.x + 44, p.z + 44);
@@ -335,7 +343,7 @@ try {
     ok(rep.authority && rep.promoted && rep.promoted.hp === w('warrior', 3) && rep.promoted.maxHp === w('warrior', 3),
       `promotion keeps the host's hp ${w('warrior', 3)} (not clamped to ${BASE_HP.warrior})`, JSON.stringify(rep.promoted));
 
-    // 구성: 같은 원본 생태계(ashen) × threat 1 / 2 / 3, ramp threat 0.7 (8 분 뒤 최대치)
+    // Composition: one source ecosystem (ashen) × threat 1 / 2 / 3, ramp threat 0.7 (the maximum after 8 minutes)
     const N = 6000;
     const sample = (n) => P((n) => {
       const sys = window.__sys; const out = { live: sys.debugBugTuning() };
@@ -387,15 +395,15 @@ try {
   const d2 = await gen(404, 'ashen');
   ok(d1.biome === d2.biome && d1.nodes === d2.nodes, `same seed + planet → same biome / node count (${d1.biome}, ${d1.nodes})`);
   ok(d1.nodeSig === d2.nodeSig && d1.nodeSig.length > 0, 'same seed + planet → identical herb ids and positions');
-  // 온실 개편 (2026-09-11): 흙더미도 시드 결정적이다 (와이어가 없으므로 모두가 같은 자리를 봐야 한다)
+  // The greenhouse rework (2026-09-11): the soil piles are seed-deterministic too (there is no wire, so everyone must see the same spots)
   ok(d1.soilSig === d2.soilSig && d1.soilSig.length > 0, 'same seed + planet → identical 토양 더미 ids and positions', `${d1.soilSig} vs ${d2.soilSig}`);
   ok(d1.sites && d2.sites && d1.sites.sig === d2.sites.sig && d1.sites.sig.length > 2, `same seed + planet → identical site-group placement (${d1.guards.raiders} raiders, boss ${d1.guards.boss})`);
   const other = await gen(404, 'mossy');
   ok(other.nodeSig !== d1.nodeSig, 'a different planet on the same seed gives a different herb mix');
 
-  /* ── 2026-09-11 (C-20): 고철 더미 부가 코어 ─────────────────────────────
-   * 생성 때 미션 시드로 정해지고(같은 시드 = 같은 노드에 같은 코어), 약초에는 붙지 않으며, 수확하면 폐금속과
-   * 코어가 **둘 다** 들어오되 `gather:collected` 는 한 번뿐이다 (제작 XP 1회). */
+  /* ── 2026-09-11 (C-20): the salvage pile's bonus core ───────────
+   * Fixed at generation from the mission seed (the same seed = the same core on the same node), never attached to a herb,
+   * and harvesting hands over **both** the scrap and the core while `gather:collected` fires once only (one craft XP). */
   console.log('고철 더미 부가 코어 (C-20)');
   ok(d1.salvageSig === d2.salvageSig && d1.salvageSig.length > 0, 'same seed + planet → identical salvage qty + bonus core per node', `${d1.salvageSig} vs ${d2.salvageSig}`);
   let coreTotal = d1.coreNodes.length, salvTotal = d1.salvage, herbBonus = d1.herbBonus + other.herbBonus;
@@ -406,7 +414,7 @@ try {
     if (!coreSeed && s.coreNodes.length > 0) coreSeed = { seed, planet: 'ashen', id: s.coreNodes[0] };
   }
   ok(herbBonus === 0, `약초 · 군락 버섯에는 부가 결과가 없다 (${herbBonus})`);
-  // 0.15 × 77 ≈ 11.6 — 1 ~ 30 이면 확률이 살아 있고 전부/전무가 아니다
+  // 0.15 × 77 ≈ 11.6 — 1 to 30 means the chance is alive and it is neither all nor nothing
   ok(coreTotal >= 1 && coreTotal <= 30, `부가 코어가 확률로 붙는다 (고철 ${salvTotal}개 중 ${coreTotal}개, GATHER_SALVAGE_CORE_CHANCE 0.15)`);
   if (coreSeed) {
     await gen(coreSeed.seed, coreSeed.planet);
@@ -442,7 +450,7 @@ try {
   ok(train.nodes === 0, 'the arena still has no gather nodes');
   ok(train.salvage === 0, 'the arena has no 고철 더미 either');
   ok(train.soil === 0, 'the arena has no 토양 더미 either');
-  // 2026-09-14: 훈련장은 행성이 없다 = threat 1 칸 — 벌레 체력 배수 없음 (행성을 ashen 으로 불러도)
+  // 2026-09-14: the training range has no planet = the threat 1 row — no bug hp multiplier (even when called with planet ashen)
   const trainHp = await spawnHp(['warrior']);
   const trainTuning = await P(() => window.__sys.debugBugTuning());
   ok(trainHp.warrior && trainHp.warrior.maxHp === BASE_HP.warrior && trainTuning.threat === 1 && trainTuning.hpMul === 1,

@@ -49,9 +49,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. A new profile starts the tutorial on its own and
+    // it locks room purposes · crafting · the terminal · boarding in that order, so it is seeded here as
+    // "already done" (the tutorial itself is what scripts/smoke-tutorial.mjs checks).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -61,7 +61,7 @@ try {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.hub, 'boot');
-  // Phase 11: a launch slot refuses boarding while the ship has no 목표 행성, so give this profile one up front
+  // Phase 11: a launch slot refuses boarding while the ship has no target planet, so give this profile one up front
   // (the planet itself is `smoke-planets`' business; here it only has to be set so the READY-panel block can board).
   await page.evaluate(() => { try { localStorage.removeItem('scav.s1.ship'); localStorage.removeItem('scav.s1.loadout'); localStorage.removeItem('scav.s1.training'); localStorage.setItem('scav.s1.planet', 'mossy'); } catch {} });
   await page.goto(BASE, { waitUntil: 'load' });
@@ -94,16 +94,17 @@ try {
   const P = (fn, arg) => page.evaluate(fn, arg);
 
   /* ── 1. personal ship: the terminal's 시뮬레이션 훈련장 section ─────────────── */
-  // 2026-09-12 (사용자 결정): the 시뮬레이션실 and its `furn_sim_hub` are retired — the arena is entered from the ship
-  // terminal on **both** ships, solo included. Open the terminal and press 시작.
+  // 2026-09-12 (user's decision): the 시뮬레이션실 and its `furn_sim_hub` are retired — the arena is entered
+  // from the ship terminal on **both** ships, solo included. Open the terminal and press 시작.
   console.log('personal ship · terminal training entry');
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
   await waitSim(0.3);
   await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').interact());
   await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open');
-  // 2026-09-15 (분대 · 도킹 매칭, 사용자 결정): 섹션이 아니라 행성 탭 **우하단 버튼**(`.hub-train`, 상태 줄 `.hub-train-state`)이고 안내 줄은 없다
-  // 2026-09-15 2차: 푸터 안이 아니라 푸터 **위** 제 줄(`.hub-train-row`)이다
+  // 2026-09-15 (squad · docking matchmaking, user's decision): not a section but a **bottom-right button** on
+  // the 행성 tab (`.hub-train`, state line `.hub-train-state`), and there is no hint line
+  // 2026-09-15, 2nd pass: not inside the footer but on its own row **above** it (`.hub-train-row`)
   const solo = await P(() => {
     const btn = document.querySelector('.menu.hub-menu .hub-train-row .ui-btn.hub-train');
     const simHubs = window.__game.ctx.interactables.all().filter((i) => /훈련장/.test(i.getPrompt?.() ?? '')).length;
@@ -116,7 +117,8 @@ try {
 
   /* ── 2. enter the training ───────────────────────────────────────────────── */
   console.log('training arena');
-  // 2026-09-15 (사용자 결정): 버튼은 곧장 들어가지 않고 확인 카드를 띄운다 — 클릭 확정(홀드 아님) · 초기 포커스 `취소` · Tab/Escape 취소
+  // 2026-09-15 (user's decision): the button does not enter straight away but raises a confirm card — a click
+  // confirm (not a hold) · initial focus `취소` · Tab / Escape cancels
   const confirm0 = await P(() => {
     const n0 = window.__ev['game:newMission'].length;
     document.querySelector('.menu.hub-menu .ui-btn.hub-train')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -194,7 +196,7 @@ try {
   ok(obj && /시뮬레이션 훈련장/.test(obj.text) && /명중 0/.test(obj.subText ?? '') && /고정 표적/.test(obj.subText ?? ''), `ui:objective "${obj?.text}" / "${obj?.subText}"`);
   const wr = await lastEv('world:ready');
   ok(wr && wr.seed === w0.seed, 'world:ready emitted with the seed');
-  /* 2026-09-08 — **강하 시퀀스 없음**: the arena is a room on the ship, not a planet, so there is no hellpod and no
+  /* 2026-09-08 — **no drop sequence**: the arena is a room on the ship, not a planet, so there is no hellpod and no
      'deploying' phase (which would also never end here — `player:landed` only comes out of the pod). The player is
      simply standing at the spawn and the phase is 'playing' the moment the world is ready. And a contract accepted
      back at the ship does not follow them onto the range (`ui/hud/ContractPanel`). */
@@ -241,7 +243,8 @@ try {
   });
   ok(q.clamp[0] <= 31.55 && q.clamp[1] <= 31.55, `resolveCollision clamps inside the walls (${q.clamp.map((n) => n.toFixed(2))})`);
   ok(q.down && Math.abs(q.down[0]) < 0.01 && q.down[1] === 1 && !q.down[2], `raycast down hits the floor (y ${q.down?.[0]}, n.y ${q.down?.[1]})`);
-  // 2026-09-15 (사용자 결정): no ceiling, invisible walls — rays pass the boundary, bodies are clamped at any height
+  // 2026-09-15 (user's decision): no ceiling, invisible walls — rays pass the boundary, bodies are clamped at
+  // any height
   ok(q.clampHigh[0] <= 31.55 && q.clampHigh[2] >= -31.55 && q.clampHigh[1] === 30, `resolveCollision clamps at 30 m up too (${q.clampHigh.map((n) => n.toFixed(2))})`);
   ok(q.wall === null, `raycast +X passes the invisible wall (${q.wall})`);
   ok(q.ceil === null, `raycast up finds no ceiling (${q.ceil})`);
@@ -289,7 +292,7 @@ try {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     let equipped = true;
     if (!inv.getLoadout().primary) {
-      // the furniture-material section above filled the 5×3 bagless grid — clear it, put a 가방 on, then the 돌격소총
+      // the furniture-material section above filled the 5×3 bagless grid — clear it, put a bag on, then the 돌격소총
       for (const it of [...inv.getAllItems()]) inv.takeItem(it.uid);
       const b = ctx.loot.createItem('bag_common');
       equipped = inv.tryAddItem(b) && inv.equip(b.uid, 'bag');
@@ -353,9 +356,10 @@ try {
     const from = t0.position.clone(); from.set(t0.position.x, 1.4, t0.position.z + 8);
     const dir = from.clone(); dir.set(0, 0, -1);
     const h = ctx.world.raycast(from, dir, 60);
-    /* 넘어진 표적 **전부**를 센다: 연사는 `bloomSpread` 로 퍼지고 총알은 스윕 발사체라(2026-09-14) 옆 레인의
-       표적이 같이 맞는 판이 있다 — 그래도 이 절의 주제는 「진짜 총이 표적 0 을 destructible 경로로 넘어뜨린다」다.
-       그래서 절대 수(14 · 격추 1)가 아니라 **넘어진 수와 맞아떨어지는지**를 본다. */
+    /* Counts **every** target that went down: a burst spreads by `bloomSpread` and bullets are swept
+       projectiles (2026-09-14), so there are runs where a target in the next lane is hit as well — the subject
+       of this section is still 「a real gun knocks target 0 down through the destructible path」.
+       So it checks **that the numbers agree with how many went down**, not absolute ones (14 · knockdowns 1). */
     const down = [];
     for (let i = 0; i < 12; i++) { const s = a.getTargetState(i); if (s?.down) down.push(i); }
     return { down: t0.down, hp: t0.hp, knock: a.knockdowns, boardX: board?.rotation.x ?? 0, through: h ? (h.obstacle?.destructible?.id ?? 'env') : 'none',
@@ -556,7 +560,7 @@ try {
   ok(restored.count === 0 && !restored.item, `rack weapon gone after the exit restore (${restored.count})`);
   ok(restored.training === null, 'ctx.world.training null outside the arena');
 
-  /* ── 4b. 발사 준비 패널 (Phase 10, solo personal ship) ────────────────────
+  /* ── 4b. the READY panel (Phase 10, solo personal ship) ─────────────
      The panel appears as soon as a launch slot is filled, holds `HUB_READY_BLOCKER` + the software cursor **only**
      while WE are boarded (never `exitPointerLock`), right-click opens the modeless 분대원 장비 popup, and E
      closes the popup before it un-boards (2026-09-08: Escape is the 일시정지 메뉴 everywhere). The solo launch countdown is HUB_LAUNCH_COUNTDOWN (3 s), so this block
@@ -567,7 +571,8 @@ try {
     blocker: window.__game.ctx.uiBlockers.has('ready'),
   }));
   ok(readyHidden.hidden === true && !readyHidden.blocker, 'READY panel hidden with every slot empty (no blocker)');
-  // 2026-09-08: 출격 준비 경고가 먼저 뜬다 (기본 지급품에는 주무기가 없다) — 확인하고 그대로 탑승한다
+  // 2026-09-08: the launch readiness warning comes up first (the starter grant carries no primary weapon) —
+  // confirm it and board anyway
   await P(() => {
     window.__game.ctx.interactables.all().find((i) => i.id === 'hub_pod_0')?.interact();
     const warn = document.querySelector('.launch-warn');
@@ -592,9 +597,10 @@ try {
   ok(/^Lv\. \d+$/.test(boarded.lv), `cell 0 carries the level chip (${boarded.lv})`);
   ok(boarded.blocker && boarded.cursor === true, `boarded panel holds the 'ready' blocker + the software cursor (cursor ${boarded.cursor})`);
   ok(boarded.toggled?.open === true, 'hub:readyPanelToggled {open:true}');
-  /* C-42 (2026-09-11): 초상화 색(슬롯) 변경은 모델을 새로 짓는다. 옛 모델을 먼저 dispose 하면 같은 셰이더 프로그램이
-     지워졌다가 **다시 컴파일**된다 — 보조 렌더러의 프로그램 id 집합이 그대로여야 한다 (개수가 아니라 id: 지웠다 다시
-     만들면 개수는 같아도 id 가 바뀐다). 두 번째 WebGL 컨텍스트가 없는 환경이면 건너뛴다. */
+  /* C-42 (2026-09-11): changing a portrait's colour (slot) builds the model anew. Disposing the old model
+     first wipes the same shader program and it is **compiled again** — the secondary renderer's set of program
+     ids has to stay the same (ids, not the count: delete and rebuild and the count matches while the ids
+     change). Skipped where there is no second WebGL context. */
   const portraitPrograms = () => P(() => {
     const p = window.__game.getSystem('hub')?.ready?.portraits;
     if (!p?.renderer?.info?.programs || !p.cells?.[0]?.model) return null;
@@ -663,8 +669,9 @@ try {
     await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open');
     const readMenu = () => P(() => {
       const btn = document.querySelector('.menu.hub-menu .ui-btn.hub-train');
-      // 2026-09-15: 분대 초상은 터미널 **매칭 탭**(`.hmt-`, `ui/MatchTab`)이다 — 탭이 보일 때만 갱신되므로 잠깐 바꿔 읽고
-      // 행성 탭으로 돌려놓는다 (훈련장 버튼은 행성 탭에만 보인다). 옛 매칭 팝업(`.hm-match` · `.crew-row`)은 없어졌다.
+      // 2026-09-15: squad portraits are the terminal's **매칭 tab** (`.hmt-`, `ui/MatchTab`) — it refreshes only
+      // while the tab is shown, so the tab is switched for a moment, read, and put back on the 행성 tab (the
+      // training button shows on the 행성 tab only). The old match popup (`.hm-match` · `.crew-row`) is gone.
       const menu = window.__game.getSystem('hub').menu;
       menu.setTab('match');
       const st = (sel) => { const b = document.querySelector(sel); return b ? { hidden: b.hidden, disabled: b.disabled } : null; };
@@ -712,8 +719,9 @@ try {
       window.__game.ctx.bus.emit('net:lobbyUpdated', { lobby: net._lobby });
     });
     await waitSim(0.2);
-    // 2026-09-16 (사용자 결정): 발사 슬롯 패널은 **내가 앉았을 때만** 뜬다 — 예전에는 원격 멤버(또는 들인 안드로이드)가
-    // 슬롯을 채우기만 해도 떴다. 블로커 · 소프트웨어 커서는 예전과 같이 내가 앉았을 때만 잡힌다.
+    // 2026-09-16 (user's decision): the launch slot panel shows **only while the local player is seated** — it
+    // used to show as soon as a remote member (or a recruited android) merely filled a slot. The blocker · the
+    // software cursor are taken only while the local player is seated, as before.
     const remoteReady = await P(() => {
       const root = document.querySelector('.hub-ready');
       const c0 = root?.querySelector('.hr-cell[data-slot="0"]');
@@ -734,8 +742,10 @@ try {
     ok(m2.label === '임무 진행 중' && m2.disabled === true, `raid running → "${m2.label}" disabled`);
     const refused = await P(() => { const n0 = window.__ev['ui:notify'].length; const r = window.__game.getSystem('hub').startTraining(); return { r, notes: window.__ev['ui:notify'].slice(n0).map((n) => n.text) }; });
     ok(refused.r === false && refused.notes.some((t) => /임무 진행 중/.test(t)), `startTraining refused during a raid (${refused.notes.join(' | ')})`);
-    // 2026-09-15 (분대 · 도킹 매칭): 도킹 전 분대 — 훈련장 `분대 대기 중` 잠김, 분대원은 매칭 버튼이 잠기고 `분대 떠나기` 가 보인다.
-    // 버스 이벤트 없이 터미널만 다시 그린다 — `net:lobbyUpdated` 를 쏘면 hub 의 분대 도킹 규칙(flow)이 함선을 바꾼다.
+    // 2026-09-15 (squad · docking matchmaking): a squad before docking — training locked as `분대 대기 중`, and a
+    // member gets the match button locked and `분대 떠나기` shown.
+    // Only the terminal is redrawn, with no bus event — firing `net:lobbyUpdated` makes hub's squad docking
+    // rule (flow) change the ship.
     const und = await P(() => {
       const net = window.__game.getSystem('net');
       const saved = net._lobby;

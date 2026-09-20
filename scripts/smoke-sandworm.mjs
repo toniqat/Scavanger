@@ -1,11 +1,11 @@
-// 땅굴벌레 이벤트 (2026-09-13 — src/enemies/sandworm/Director · models/WormModel · fx/BurrowFx, 등장 판정 개편 2026-09-15) 단독 스모크 — 릴레이 없이 싱글 플레이로 돈다.
-// 검사: ⓪ 누적 확률제: 위협 배수 표(SANDWORM_BASE_CHANCE_BY_THREAT) · threat 1 = 어린 개체 · 솔로 0 % · 2명 light 40 m 낮음 · 3명 heavy 20 m 높음 ·
-//       유인 가산 · 달리지 않으면 0 · 호스트가 SANDWORM_CHECK_S 마다 검사 · WorldRef.burrowGroundOk (구조물 · 패드 · 둥지 = false, 맨땅 = true)
-//       ① 전조: debugSandworm → 전조 상태 · sandworm:warning · 토스트 「지상이변 발생」 · 전조 링 · 전조 중 재호출 거부
-//       ② 흔들림이 약하게 시작해 강해진다 ③ SANDWORM_WARN_S 뒤 분출: sandworm:erupted · 최대 체력 2000–3000 굴림 · 플레이어 피해 + 넉백 ·
-//       파고 나오는 무리 · 땅굴벌레가 솟아오른다 ④ 버그 뱉기 ⑤ 뱉기 단계가 끝나면 독극물 ⑥ 처치 → enemy:killed · 시체 · 보스급 전리품
-//       ⑦ 뱉기 중에 먼저 죽이면 더 뱉지 않는다 ⑧ 리플리카: wormWarn · spawn(em) · wormErupt(hp · spit · ty) · wormSpit 포물선 → 승격해도 최대 체력 · 뱉기 이어감
-//       ⑨ 탈출 디펜스 웨이브 제거 ⑩ 위협 1 어린 개체: 체력 750 · 70 % 반경 · 스캐빈저만 · 시체 표 ⑪ 진동 장치 sandworm:summon: 곧장 전조 · 두 번째는 무시.
+// The sandworm event (2026-09-13 — src/enemies/sandworm/Director · models/WormModel · fx/BurrowFx; the appearance rules reworked 2026-09-15) — a standalone smoke, single player, without a relay.
+// Checks: ⓪ the cumulative chance: the threat multiplier table (SANDWORM_BASE_CHANCE_BY_THREAT) · threat 1 = the young one · solo 0 % · two at light over 40 m is low · three at heavy within 20 m is high ·
+//       the lure adds to it · nothing unless they sprint · the host checks every SANDWORM_CHECK_S · WorldRef.burrowGroundOk (structure · pad · nest = false, bare ground = true)
+//       ① the omen: debugSandworm → the omen state · sandworm:warning · the toast 「지상이변 발생」 · the omen ring · a second call during the omen is refused
+//       ② the shake starts weak and grows ③ the eruption SANDWORM_WARN_S later: sandworm:erupted · a max hp rolled 2000–3000 · damage to the player + knockback ·
+//       the eruption pack digs out · the sandworm rises ④ it spits bugs ⑤ acid once the spit phase ends ⑥ the kill → enemy:killed · the corpse · boss-grade loot
+//       ⑦ killing it mid-spit stops the spitting ⑧ the replica: wormWarn · spawn(em) · wormErupt(hp · spit · ty) · a wormSpit arc → promotion keeps the max hp · the spitting carries on
+//       ⑨ the extraction defence waves are gone ⑩ the threat 1 young one: hp 750 · 70 % radius · scavengers only · its corpse table ⑪ the thumper's sandworm:summon: the omen at once · a second call ignored.
 // Usage: node scripts/smoke-sandworm.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -21,7 +21,7 @@ const CHROME = [
 if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
-/* ── 계약 값 — csv 에서 읽는다 ── */
+/* ── contract values ──── */
 const csvLines = (f) => readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8').split(/\r?\n/).filter((l) => l && !l.startsWith('#'));
 const CONST = Object.fromEntries(csvLines('constants.csv').map((l) => l.split(',')).filter((c) => c.length >= 2).map((c) => [c[0], Number(c[1])]));
 const table = (name) => csvLines('tables.csv').map((l) => l.split(',')).filter((c) => c[0] === name).sort((a, b) => Number(a[1]) - Number(b[1])).map((c) => Number(c[2]));
@@ -100,7 +100,7 @@ try {
   await waitFor(page, () => !window.__game.ctx.player.isDropping, 'hellpod exit', 10000);
   await waitSim(0.3);
 
-  /* ── 0. 누적 확률제 ────────────────────────────────────────────────────── */
+  /* ── 0. the cumulative chance ─────────────────────────────────────── */
   console.log('누적 확률제 (SANDWORM_BASE_CHANCE_BY_THREAT · 자격 인원 · 거리 · 유인 · 땅 검사)');
   const plan0 = await P(() => window.__sys.debugSandwormState.plan);
   const baseThreat = plan0.threat;
@@ -117,7 +117,7 @@ try {
     if (!r) { ok(false, `threat ${t} 행성이 planets.csv 에 있다`); continue; }
     ok(r.threat === Number(t) && near(r.base, BASE_CHANCE[Number(t) - 1]) && r.type === (t === '1' ? 'sandworm_weak' : 'sandworm'), `threat ${t} → 배수 ${BASE_CHANCE[Number(t) - 1]} · ${r.type} (${r.base} · ${r.type})`);
   }
-  // 검사 한 번의 확률 — 순수 계산 (threat 3 기준)
+  // The chance of a single check — pure computation (measured against threat 3)
   const chance = await P(() => {
     const sys = window.__sys; const L = 'light', H = 'heavy';
     const m = (x, z, ws, sprint = true) => ({ x, z, ws, sprint });
@@ -147,13 +147,13 @@ try {
     `3명 heavy · 20 m 안 = ${threeHeavyExpected}/검사 → 몇 번 안에 거의 확실 (${chance.threeHeavyNear.p.toFixed(3)})`);
   ok(chance.fourHeavyNear >= chance.threeHeavyNear.p && chance.threeHeavyNearT1 < chance.threeHeavyNear.p, `인원이 많을수록 · 위협이 높을수록 높다 (4명 ${chance.fourHeavyNear} ≥ 3명 ${chance.threeHeavyNear.p} > threat 1 ${chance.threeHeavyNearT1})`);
   ok(near(chance.twoLightFarLure, Math.min(1, twoLightFarExpected + P_LURE)), `유인 수류탄 +${P_LURE} (${chance.twoLightFarLure.toFixed(3)})`);
-  // 호스트가 CHECK_S 마다 실제로 검사한다 — 솔로라 p 0, 검사 횟수는 는다
+  // The host really does check every CHECK_S — solo, so p is 0 while the check count grows
   await P((id) => { window.__sys.sandworm.onWorldReady(id, null, false); }, PLANET_BY_THREAT['3']);
   await waitSim(CHECK_S * 2.5);
   const live = await P(() => window.__sys.debugSandwormState);
   ok(live.plan.checks >= 2 && !!live.plan.last && live.plan.last.candidates === 1 && live.plan.last.p === 0 && !live.done && !live.warning,
     `호스트가 ${CHECK_S} s 마다 검사한다 — 솔로: 후보 1 · p 0 · 전조 없음 (checks ${live.plan.checks})`);
-  // 땅 검사
+  // The ground test
   const ground = await P((r) => {
     const w = window.__game.ctx.world; const pp = window.__game.ctx.player.position;
     const s = w.getStructures()[0]; const pad = w.getExtractionPoints()[0]; const nest = w.getNestPositions()[0];
@@ -175,14 +175,14 @@ try {
   ok(ground.pad !== true && ground.nest !== true, `burrowGroundOk: 탈출 패드 · 둥지 = false (${ground.pad}, ${ground.nest})`);
   ok(ground.free >= 1 && ground.obstaclesAtFree === 0, `burrowGroundOk: 강하 지점 240 m 안에 맨땅이 있고 그 원에는 콜라이더가 없다 (${ground.free}/${ground.tried}, 콜라이더 ${ground.obstaclesAtFree})`);
 
-  // 이벤트를 재는 스모크다 — 플레이어가 버티게 계속 치료한다 (피해는 enemy:attacked 로 센다)
+  // This smoke measures events — the player is healed continuously so they hold out (the damage is counted through enemy:attacked)
   await P(() => { window.__heal = setInterval(() => { const p = window.__game.ctx.player; if (p && !p.isDead) p.heal(100); }, 200); });
 
-  /* ── 1. 전조 (성체 — threat 3 으로 둔 채) ──────────────────────────────── */
+  /* ── 1. the omen (the adult — left at threat 3) ────────────────── */
   console.log('전조 (debugSandworm)');
   const f = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const pp = ctx.player.position;
-    for (const e of sys.active) if (e.active && e.state !== 'dead') e.kill(false);   // 첫 배치가 끼어들지 않게
+    for (const e of sys.active) if (e.active && e.state !== 'dead') e.kill(false);   // so the initial placement does not get in the way
     window.__spot = [pp.x, pp.z];
     const started = sys.debugSandworm({ spitS: 5 });
     const again = sys.debugSandworm({});
@@ -198,14 +198,14 @@ try {
   try { toast = await waitFor(page, () => [...document.querySelectorAll('.notif')].some((n) => /지상이변 발생/.test(n.textContent || '')), '토스트', 6000); } catch { toast = false; }
   ok(toast, '우측 토스트 「지상이변 발생」');
 
-  /* ── 2. 흔들림 ─────────────────────────────────────────────────────────── */
+  /* ── 2. the shake ───────────────────────────────────────────────────── */
   await waitSim(WARN - 0.4);
   const ramp = await P((t0) => window.__ev.shake.filter((s) => s.t >= t0).map((s) => s.i), f.time);
   const head = ramp.slice(0, 5), tail = ramp.slice(-5);
   const mean = (a) => a.reduce((x, y) => x + y, 0) / Math.max(1, a.length);
   ok(ramp.length >= 12 && mean(tail) > mean(head) * 2, `흔들림이 약하게 시작해 강해진다 (${ramp.length}회, 처음 ${mean(head).toFixed(3)} → 끝 ${mean(tail).toFixed(3)})`);
 
-  /* ── 3. 분출 ───────────────────────────────────────────────────────────── */
+  /* ── 3. the eruption ─────────────────────────────────────────────────── */
   console.log('분출');
   await waitSim(0.7);
   const s3 = await P(() => {
@@ -227,10 +227,10 @@ try {
   ok(s3.displaced > 1, `넉백으로 밀려났다 (${s3.displaced.toFixed(2)} m)`);
   ok(s3.burst >= Math.min(2, BURST[0]), `분출 무리가 파고 나온다 (${s3.burst} / 표 ${BURST[0]})`);
 
-  /* ── 4. 뱉기 ───────────────────────────────────────────────────────────── */
+  /* ── 4. the spit ─────────────────────────────────────────────────────── */
   console.log('버그 뱉기');
   await P(() => {
-    // 착지한 벌레는 치운다 (플레이어를 지키고 생존 상한을 비운다) — 날아가는 몸 · 파고 나오는 몸은 남긴다
+    // Clears the bugs that have landed (it keeps the player alive and frees the population cap) — bodies in flight and bodies digging out are left alone
     window.__cull = setInterval(() => {
       for (const e of window.__sys.active) if (e.active && e.state !== 'dead' && e.type !== 'sandworm' && e.type !== 'sandworm_weak' && e.spatT === 0 && e.emergeT === 0) e.kill(false);
     }, 400);
@@ -244,7 +244,7 @@ try {
   ok(s4.emerging === false, '다 솟아올랐다');
   ok(s4.spit >= 1 && s4.spawned >= 1, `입에서 버그를 뱉는다 (volleys ${s4.spit}, 뱉어진 ${s4.spawned})`);
 
-  /* ── 5. 독극물 ─────────────────────────────────────────────────────────── */
+  /* ── 5. the acid ────────────────────────────────────────────────────── */
   console.log('독극물 단계');
   let acid = 0;
   for (let k = 0; k < 20 && acid === 0; k++) { await waitSim(0.5); acid = await P(() => window.__sys.debugSandwormState.acidVolleys); }
@@ -252,7 +252,7 @@ try {
   const rooted = await P(() => { const e = window.__sys.byId.get(window.__sys.debugSandwormState.worms[0].id); return { moved: Math.hypot(e.position.x - window.__spot[0], e.position.z - window.__spot[1]), state: e.state }; });
   ok(rooted.moved < 0.5, `움직이지 않는다 (${rooted.moved.toFixed(2)} m, ${rooted.state})`);
 
-  /* ── 6. 처치 ───────────────────────────────────────────────────────────── */
+  /* ── 6. the kill ─────────────────────────────────────────────────────── */
   console.log('처치 · 시체');
   const s6 = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const id = sys.debugSandwormState.worms[0].id;
@@ -261,20 +261,21 @@ try {
     const corpse = sys.corpses.get(id);
     const rolled = ctx.loot.rollCorpse('sandworm');
     const loot = rolled.map((i) => i.defId);
-    // 2026-09-16: 표본은 계열 × 등급으로 갈리므로 id 대신 **등급**을 본다 (`data/loot_corpses.csv` 가 적을 등급별로 나눴다)
+    // 2026-09-16: a sample splits by family × rarity, so the **rarity** is read instead of the id (`data/loot_corpses.csv` split the enemies by rarity)
     const specs = rolled.filter((i) => !!ctx.loot.getItemDef(i.defId)?.sample).map((i) => ({ id: i.defId, qty: i.qty, rarity: ctx.loot.getItemDef(i.defId).rarity }));
     return { dead: e.state === 'dead', killed: window.__ev.killed.filter((k) => k.id === id), corpse: !!corpse, loot, specs, name: ctx.enemies.enemyDisplayName('sandworm') };
   });
   ok(s6.dead && s6.killed.length === 1 && s6.killed[0].by === 'local', 'enemy:killed (by local) — 킬 · 계약은 기존 경로');
   ok(s6.corpse, '늘 수색되는 시체가 남는다 (CORPSE_LOOT_CHANCE 1)');
-  /* 2026-09-17 (사용자 결정): 성체 땅굴벌레의 표본은 **미확인 세포만 3–4 개, 개당 III 40 % / IV 60 %**
-     (`data/loot_corpse_samples.csv`). 행성 없는 `rollCorpse` 라 서사 이상 게이트가 없다 — 등급 섞임은 시드마다 다르므로 계열 · 등급 범위 · 개수만 본다. */
+  /* 2026-09-17 (user's decision): an adult sandworm's samples are **unidentified cells only, 3–4 of them, each III 40 % /
+     IV 60 %** (`data/loot_corpse_samples.csv`). This `rollCorpse` has no planet, so the epic+ gate does not apply — the
+     mix of rarities differs per seed, so only the family · the rarity range · the count are looked at. */
   const s6n = s6.specs.reduce((n, s) => n + s.qty, 0);
   ok(s6.loot.includes('mat_bio_sample') && s6n >= 3 && s6n <= 4 && s6.specs.every((s) => /^spec_cell_[34]$/.test(s.id)),
     `보스급 전리품: 생체 조직 + 미확인 세포 III/IV 3–4 개만 (${s6.specs.map((s) => `${s.id}×${s.qty}`).join(', ')})`);
   ok(s6.name === '땅굴벌레', `표시 이름 「땅굴벌레」 (${s6.name})`);
 
-  /* ── 7. 먼저 죽이면 더 뱉지 않는다 ─────────────────────────────────────── */
+  /* ── 7. killing it first stops the spitting ─────────────────── */
   console.log('뱉기 중 처치');
   await P(() => window.__game.ctx.player.heal(200));
   const s7a = await P(() => window.__sys.debugSandworm({ spitS: 30 }));
@@ -292,7 +293,7 @@ try {
   ok(s7b === s7.volleys, `죽은 뒤로는 뱉지 않는다 (${s7.volleys} → ${s7b})`);
   await P(() => { for (const e of window.__sys.active) if (e.active && e.state !== 'dead') e.kill(false); });
 
-  /* ── 10. 위협 1 어린 개체 ──────────────────────────────────────────────── */
+  /* ── 10. the threat 1 young one ──────────────────────────────────── */
   console.log('위협 1 어린 개체 (sandworm_weak)');
   await P(() => window.__game.ctx.player.heal(200));
   const w0 = await P((id) => {
@@ -325,7 +326,7 @@ try {
     const sys = window.__sys; const st = sys.debugSandwormState;
     const w = st.worms[0];
     const wp = w ? sys.byId.get(w.id).position : window.__game.ctx.player.position;
-    // 분출 무리(링 6–14 m) · 뱉어진 몸(입에서) 만 — 멀리서 파고 나오는 상시 순찰은 세지 않는다
+    // The eruption pack (the 6–14 m ring) · the spat bodies (out of the mouth) only — an ambient patrol digging out further away is not counted
     const spawned = window.__ev.spawned.slice(window.__wsp0).filter((s) => s.type !== 'sandworm_weak' && Math.hypot(s.x - wp.x, s.z - wp.z) <= 20);
     const lt = window.__game.ctx.loot;
     const rolled = lt.rollCorpse('sandworm_weak');
@@ -335,13 +336,13 @@ try {
     return { spawned: spawned.length, types: [...new Set(spawned.map((s) => s.type))], spit: st.spitVolleys, loot, specs, corpse: w ? !!sys.corpses.get(w.id) : false };
   });
   ok(w2.spawned >= 2 && w2.types.length === 1 && w2.types[0] === 'scavenger', `어린 개체는 분출 무리 · 뱉기 모두 스캐빈저만 (${w2.spawned} 마리: ${w2.types.join(', ')})`);
-  // 2026-09-17: 어린 개체 = 미확인 세포만 3–4 개, 개당 II 60 % / III 40 % (`data/loot_corpse_samples.csv`)
+  // 2026-09-17: the young one = unidentified cells only, 3–4 of them, each II 60 % / III 40 % (`data/loot_corpse_samples.csv`)
   const w2n = w2.specs.reduce((n, s) => n + s.qty, 0);
   ok(w2.corpse && w2.loot.includes('mat_bio_sample') && w2n >= 3 && w2n <= 4 && w2.specs.every((s) => /^spec_cell_[23]$/.test(s.id)),
     `시체 표 sandworm_weak: 생체 조직 + 미확인 세포 II/III 3–4 개만 (${w2.specs.map((s) => `${s.id}×${s.qty}`).join(', ')})`);
   await P(() => { clearInterval(window.__cull); for (const e of window.__sys.active) if (e.active && e.state !== 'dead') e.kill(false); });
 
-  /* ── 11. 진동 장치 sandworm:summon ─────────────────────────────────────── */
+  /* ── 11. the thumper's sandworm:summon ─────────────────────────────── */
   console.log('진동 장치 (sandworm:summon)');
   await P(() => window.__game.ctx.player.heal(200));
   const su = await P(() => {
@@ -364,7 +365,7 @@ try {
   ok(su2.worms === 1, `부른 자리에서 분출했다 (erupted ${su2.erupted})`);
   await P(() => { for (const e of window.__sys.active) if (e.active && e.state !== 'dead') e.kill(false); });
 
-  /* ── 8. 리플리카 → 승격 ────────────────────────────────────────────────── */
+  /* ── 8. the replica → promotion ──────────────────────────────────── */
   console.log('리플리카 → 승격');
   const s8 = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const pp = ctx.player.position;
@@ -379,7 +380,7 @@ try {
     sys.replicaMgr.onEvent({ t: 'ee', ev: 'spawn', id: 950002, ty: 'scavenger', p: [x, y + 9, z], yaw: 0 });
     sys.replicaMgr.onEvent({ t: 'ee', ev: 'wormSpit', id: 950001, from: [x, y + 9, z], b: [[950002, x + 8, ctx.world.getHeightAt(x + 8, z), z]], T: 1.1 });
     const bug = sys.byId.get(950002);
-    // 어린 개체도 리플리카가 자기 리그로 세운다 (ee spawn.ty) — 늦은 합류 sync 도 같은 경로
+    // The replica builds the young one on its own rig too (ee spawn.ty) — a late joiner's sync takes the same path
     sys.replicaMgr.onEvent({ t: 'ee', ev: 'spawn', id: 950003, ty: 'sandworm_weak', p: [x + 30, ctx.world.getHeightAt(x + 30, z), z], yaw: 0, em: 1.4 });
     sys.replicaMgr.onEvent({ t: 'ee', ev: 'wormErupt', id: 950003, p: [x + 30, ctx.world.getHeightAt(x + 30, z), z], r: 8.4, hp: 750, spit: 5, sy: 1, ty: 'sandworm_weak' });
     const weak = sys.byId.get(950003);
@@ -412,7 +413,7 @@ try {
   ok(s8d >= 1, `새 호스트가 이어서 뱉는다 (+${s8d})`);
   await P(() => { for (const e of window.__sys.active) if (e.active && e.state !== 'dead') e.kill(false); });
 
-  /* ── 9. 탈출 디펜스 웨이브 제거 ────────────────────────────────────────── */
+  /* ── 9. the extraction defence waves are gone ────────────────── */
   console.log('탈출 디펜스 웨이브 제거');
   await P(() => { const ctx = window.__game.ctx; window.__wave0 = window.__ev.wave; ctx.bus.emit('extraction:activated', { pointId: 'smoke', position: ctx.player.position.clone(), duration: 60 }); });
   await waitSim(4.5);

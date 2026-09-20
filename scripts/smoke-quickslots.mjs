@@ -40,9 +40,9 @@ try {
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts on its own in a new profile
+    // and locks room purposes · crafting · the terminal · boarding in that order, so it is marked here as
+    // "already finished" (the tutorial itself is covered by scripts/smoke-tutorial.mjs).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -85,16 +85,18 @@ try {
   });
   const addToBag = (defId, qty = 1) => page.evaluate(([d, n]) => window.__game.ctx.inventory.tryAddItem(window.__game.ctx.loot.createItem(d, n)), [defId, qty]);
   /*
-   * 2026-09-14: `tryAddItem` 은 **주운 것**의 경로라 빈 휠 칸이 있으면 소모품이 그리로 간다 (`parts/AutoQuick`).
-   * 「가방 격자에 있는 스택」을 전제로 하는 검사는 **받은 것**의 경로(`tryAddItemAnywhere` — 상점 · 제작 · 수확)로
-   * 넣는다. 자동 장착 자체는 바로 아래 절이 따로 검사한다.
+   * 2026-09-14: `tryAddItem` is the **picked-up** path, so a consumable goes to a free wheel cell when there is
+   * one (`parts/AutoQuick`). A check that assumes 「a stack in the bag grid」 puts it in through the
+   * **handed-over** path (`tryAddItemAnywhere` — shop · craft · harvest). The auto quick-slot itself is checked
+   * by the section just below.
    */
   const addToBagGrid = (defId, qty = 1) => page.evaluate(([d, n]) => window.__game.ctx.inventory.tryAddItemAnywhere(window.__game.ctx.loot.createItem(d, n)) === 'bag', [defId, qty]);
   /** A quick-usable stim that is **not** the starter 붕대 — since `tryAddItem` merges into matching wheel stacks
    *  first, only a different def is guaranteed to land in the bag grid. */
   const HERB = 'heal_bandage_herb';
-  // 2026-09-12: 가방 격자는 `.inv-bag-scroll` 안에서 스크롤하므로(고정 12줄 틀) 타일이 보이는 자리에 있다고
-  //   가정하지 않는다 — `smoke-inventory-p6` 의 `centre` 와 같이 먼저 보이게 한 뒤 잰다 (보이면 아무 일도 안 한다).
+  // 2026-09-12: the bag grid scrolls inside `.inv-bag-scroll` (a fixed 12-row frame), so a tile is never assumed
+  //   to be in view — it is scrolled into view first and then measured, as `smoke-inventory-p6`'s `centre` does
+  //   (with a visible tile it does nothing).
   const centre = async (sel) => page.evaluate((s) => {
     const el = document.querySelector(s);
     if (!el) return null;
@@ -233,7 +235,7 @@ try {
   const survivors = await bagDef(HERB);
   ok(n === herbMax && s[4] === null && survivors.length === 1 && survivors[0].uid === sibling.uid,
     'a wheel stack consumed to 0 empties its slot; the sibling bag stack is not promoted into it', JSON.stringify({ n, s4: s[4], survivors }));
-  // takeItem (상점 판매 · 건네주기) reaches the wheel too: it decrements the slot and clears it at 0
+  // takeItem (a shop sale · handing over) reaches the wheel too: it decrements the slot and clears it at 0
   await page.evaluate((u) => window.__game.ctx.inventory.setQuickSlot(4, u), sibling.uid);
   await addToBag(HERB, 2);   // tops the wheel stack up to 3 (same path as the pickup above)
   s = await slots();
@@ -261,9 +263,9 @@ try {
   ok((await ev('inventory:itemRemoved')).length === removedDrop + 1 && (await ev('inventory:quickSlotsChanged')).length > qEvDrop,
     'the wheel drop emits inventory:itemRemoved + inventory:quickSlotsChanged');
   ok((await bagDef('grenade_frag')).length === 0 && (await slots()).every((x) => x === null), 'the 수류탄 is gone from the player entirely');
-  /* ── 2026-09-14 (사용자 결정): 소모품 퀵슬롯 **자동 장착** — 전역 규칙 (`inventory/parts/AutoQuick`).
-   * 주운 소모품은 빈 휠 칸이 있으면 그리로 간다. 이미 같은 종류가 휠에 있으면 빈 칸을 새로 먹지 않고,
-   * 휠에 못 올리는 종류는 평소대로 가방이다. */
+  /* ── 2026-09-14 (user's decision): consumables get an **auto quick-slot** — a global rule
+   * (`inventory/parts/AutoQuick`). A picked-up consumable goes to a free wheel cell. When the same kind is
+   * already on the wheel it never takes a new cell, and a kind the wheel cannot hold goes to the bag as usual. */
   console.log('auto quick-slot (2026-09-14)');
   s = await slots();
   ok(s.every((x) => x === null), '앞 절이 휠을 비워 둔 상태에서 시작한다', JSON.stringify(s));
@@ -282,7 +284,7 @@ try {
   s = await slots();
   ok(!s.some((x) => x?.defId === 'mat_scrap') && (await bagDef('mat_scrap')).length > 0,
     '휠에 못 올리는 종류는 평소대로 가방이다', JSON.stringify(s));
-  // 뒤의 검사를 위해 휠 · 가방을 다시 비운다
+  // empty the wheel and the bag again for the checks that follow
   await page.evaluate(() => {
     const inv = window.__game.ctx.inventory;
     for (const it of inv.quickItems()) inv.dropItem(it.uid);
@@ -290,7 +292,7 @@ try {
   });
   await sleep(80);
 
-  // the other route still works: 가방으로 되돌린 뒤 버리기
+  // the other route still works: move it back into the 가방, then drop it
   ok(await addToBagGrid('grenade_frag', 1), 'a fresh 수류탄 into the bag grid (받은 것의 경로 — 자동 장착을 타지 않는다)');
   const nade2 = (await bagDef('grenade_frag'))[0];
   ok((await page.evaluate((u) => window.__game.ctx.inventory.registerQuick(u), nade2.uid)) === 'ok', 'registerQuick moves it onto the wheel');
@@ -446,7 +448,7 @@ try {
   await page.keyboard.press('Escape');
   await sleep(100);
 
-  /* ── 2026-09-12: 같은 아이템 퀵슬롯 합치기 · 넘친 수량은 커서에 남는다 (real mouse) ─────────────────────────── */
+  /* ── 2026-09-12: merging into a same-item quick slot · the remainder stays on the cursor (real mouse) ── */
   console.log('quick merge + held remainder');
   /** Park `bagQty` 약초 붕대 in one bag stack and `wheelQty` on wheel cell S (index 4) — placed directly, so no auto-merge. */
   const setupMerge = (bagQty, wheelQty) => page.evaluate(([herb, bq, wq]) => {
@@ -466,11 +468,12 @@ try {
   }, HERB);
   const dragState = () => page.evaluate(() => { const d = window.__game.getSystem('inventory').ui?.drag; return d ? { held: !!d.held, qty: d.qty, uid: d.uid, from: d.from.kind, ghost: !!document.querySelector('.inv-ghost') } : null; });
   /*
-   * 2026-09-12 — **가방 격자는 스크롤 영역이다.** 창이 짧으면 격자가 `.inv-bag-scroll` 안에서 스크롤한다
-   * (1280×760 함선 창의 보이는 높이는 264 px = 4.7줄, 기본 가방은 6줄 336 px; 2026-09-18 부터 격자는 장착한
-   * 가방 크기 그대로다). 그래서 좌표를 격자 원점에서 **계산**하면 바닥 줄이 스크롤 밖 — 퀵슬롯 로제트 위를
-   * 찍게 된다. 고른 칸(`.inv-cell`, `.inv-cells` 는 row-major CSS 격자다)을 **먼저 보이게 스크롤한 뒤 실제로
-   * 재서**, 사람이 하는 것과 같게 만들고 바닥 줄에 정말 놓을 수 있는지까지 함께 본다.
+   * 2026-09-12 — **the bag grid is a scroll area.** In a short window the grid scrolls inside `.inv-bag-scroll`
+   * (in a 1280×760 ship window the visible height is 264 px = 4.7 rows, while the default bag is 6 rows /
+   * 336 px; since 2026-09-18 the grid is exactly the equipped bag). So **computing** the coordinates from the
+   * grid origin puts the bottom row outside the scroll — the click lands on the quick-slot rosette. The chosen
+   * cell (`.inv-cell`; `.inv-cells` is a row-major CSS grid) is therefore **scrolled into view first and then
+   * really measured**, which is what a person does and also checks that the bottom row can really be dropped on.
    */
   const freeBagCell = () => page.evaluate(() => {
     const g = window.__game.getSystem('inventory').getGrid('bag');
@@ -480,7 +483,8 @@ try {
       const el = cells[y * g.cols + x];
       if (!el) {
         const gel = document.querySelector('.inv-grid-bag'), r = gel.getBoundingClientRect();
-        const c = parseFloat(getComputedStyle(gel).getPropertyValue('--inv-cell'));   // 2026-09-14: 칸은 창 높이를 탄다
+        // 2026-09-14: the cell follows the window height
+        const c = parseFloat(getComputedStyle(gel).getPropertyValue('--inv-cell'));
         return { x: r.left + x * (c + 2) + c / 2, y: r.top + y * (c + 2) + c / 2, cx: x, cy: y, scrolled: false };
       }
       el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -556,11 +560,13 @@ try {
   await sleep(250);
   ok(!(await page.evaluate(() => window.__game.ctx.inventory.isOpen)), 'bag closed');
 
-  /* ── 2026-09-11 C 배치 (inventory · items) ─────────────────────────────────────────────────────────── */
+  /* ── 2026-09-11 the C batch (inventory · items) ──────────────────────────────────────────────────── */
   console.log('C-5 · C-36 · C-16 · C-12');
-  // C-5: 전설 전술 가방은 퀵슬롯 8 (휠은 8방향 — 9 는 로더가 `max: QUICK_SLOTS` 로 거절한다)
+  // C-5: the legendary tactical bag has 8 quick slots (the wheel is 8-way — the loader refuses 9 with
+  //   `max: QUICK_SLOTS`)
   ok(await page.evaluate(() => window.__game.ctx.loot.getItemDef('bag_legendary_tac')?.bag?.quickSlots === 8), 'bag_legendary_tac defines 8 quick slots (C-5)');
-  // C-36: 가방 내구도 — 새 가방은 가득, 레이드당 한 번만 닳고, 0 이어도 격자 · 퀵슬롯은 그대로, 수리비는 재료
+  // C-36: bag durability — a new bag is full, it wears once per raid, at 0 the grid · quick slots are unchanged,
+  //   and the repair costs materials
   const wear = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory, loot = ctx.loot;
     const def = loot.getItemDef('bag_rare');
@@ -575,12 +581,12 @@ try {
     const first = inv.wearBagForRaid();
     const afterFirst = b.durability;
     const second = inv.wearBagForRaid();
-    // 레이드 중 교체해도 한 번 — 다른 가방으로 바꿔 한 번 더 불러도 깎이지 않는다
+    // still once even when swapped mid-raid — calling it again after equipping another bag takes nothing off
     const b2 = loot.createItem('bag_common');
     inv.tryAddItem(b2); inv.equip(b2.uid, 'bag');
     const swapped = inv.wearBagForRaid();
     const b2dur = b2.durability;
-    // 0 까지 깎아도 격자 크기 · 퀵슬롯 수는 def 그대로 (효과 없음), 수리비는 재료
+    // worn down to 0, the grid size · quick-slot count stay as the def says (no effect); the repair costs materials
     inv.equip(b.uid, 'bag');
     b.durability = 0;
     const size = inv.getBagSize();
@@ -599,7 +605,7 @@ try {
     'a bag at 0 durability keeps its grid and quick slots', JSON.stringify(wear.size));
   ok(wear.repair.length > 0 && wear.info > 0, `a worn bag's repair costs materials, never free (${JSON.stringify(wear.repair)})`, JSON.stringify(wear));
 
-  // C-16: 이미 떠 있는 같은 컨테이너를 다시 열면 아무 일도 없다 (재표시 · 이벤트 없음)
+  // C-16: re-opening a container that is already on screen does nothing (no re-show, no events)
   const reopen = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     const pos = ctx.player.position.clone();
@@ -620,7 +626,7 @@ try {
   ok(reopen.whileOpen.opened === 1 && reopen.whileOpen.shown === 1, 'C-16: re-opening the container already on screen is ignored (1 containerOpened, 1 inventory:opened)', JSON.stringify(reopen));
   ok(reopen.reopened.opened === 2 && reopen.reopened.first === false && reopen.reopened.shown === 2, 'C-16: after closing, the same id opens again with first: false', JSON.stringify(reopen));
 
-  // C-12: 시체 격자는 모자라면 행을 늘려 전부 담는다 (예전에는 넘치는 것이 사라졌다)
+  // C-12: a corpse grid grows rows when it runs short so that everything fits (the overflow used to disappear)
   const overflow = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     const items = Array.from({ length: 96 }, () => ctx.loot.createItem('imp_broken_strength_1'));
@@ -632,8 +638,9 @@ try {
   });
   ok(overflow.placed === 96 && overflow.cols === 10 && overflow.rows >= 10, `C-12: an overfull corpse grows rows instead of dropping items (${overflow.placed} in ${overflow.cols}×${overflow.rows})`, JSON.stringify(overflow));
 
-  // C-12 + C-36: 사망 — 장착 가방이 먼저 닳고, 임플란트의 망가진 짝이 시체 목록에 합쳐진다. progression 쪽 구현이
-  // 아직 없어도 동작해야 하므로 여기서는 `stripImplantsForCorpse` 를 잠시 대신 세운다 (구현 자체는 progression 스모크 몫).
+  // C-12 + C-36: death — the equipped bag wears first, and the implants' broken pairs are merged into the corpse
+  // list. It has to work even before `progression` implements it, so `stripImplantsForCorpse` is stubbed here for
+  // a moment (the implementation itself belongs to the progression smoke).
   const strip = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory, prog = ctx.progression;
     const bag = inv.getLoadout().bag;
@@ -657,7 +664,7 @@ try {
 
   /* ── 2026-09-11 C-60 · C-61 (inventory) ────────────────────────────────────────────────────────────── */
   console.log('C-60 · C-61');
-  // C-60: 행이 늘어난 시체 창은 패널 안에서 세로로 스크롤한다. 보통 상자는 모양이 그대로다.
+  // C-60: a corpse window with extra rows scrolls vertically inside the panel. A plain crate keeps its shape.
   const c60plain = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     inv.openContainerItems('crate:c60:plain', [ctx.loot.createItem('mat_scrap', 2)], ctx.player.position.clone(), '상자');
@@ -673,7 +680,7 @@ try {
   });
   // 2026-09-14: the **height** is what this asserts (no vertical scroll, no gutter). The widths matched only while the
   // grid happened to be wider than the panel header; on a short window the cell shrank (`labels.gridCellForHeight`) and
-  // the header — 제목 + 모두 가져가기 — became the wider of the two, which is not a scroll and not a regression.
+  // the header — the title + 모두 가져가기 — became the wider of the two, which is not a scroll and not a regression.
   ok(c60plain && !plain.overflow && !plain.gutter && plain.sw >= plain.gw - 0.5 && Math.abs(plain.sh - plain.gh) < 0.5,
     'C-60: a plain crate does not scroll — its viewport is exactly as tall as the grid box', JSON.stringify(plain));
   const c60 = await page.evaluate(() => {
@@ -702,7 +709,8 @@ try {
     return { inside: v.hitTest(x, sc.bottom - 4, 0), hidden: v.hitTest(x, sc.bottom + 12, 0), hiddenPad: v.cellForGhost(x - 27, sc.bottom - 15, 1, 1, x, sc.bottom + 12) };
   }, sc0);
   ok(clip.inside === true && clip.hidden === false && clip.hiddenPad === null, 'C-60: rows scrolled out of view are not a drop target (hitTest clips to the viewport, no edge tolerance there)', JSON.stringify(clip));
-  // 2026-09-12: 가방 격자가 스크롤 영역이 됐으므로 먼저 보이게 하고, 건너뛰기 판정도 **위쪽**으로 벗어난 경우를 함께 본다
+  // 2026-09-12: the bag grid became a scroll area, so it is scrolled into view first, and the skip test also
+  //   covers a tile that is out of view **above** the area
   const aPos = await page.evaluate((uid) => { const e = document.querySelector(`.inv-grid-bag .inv-tile[data-uid="${uid}"]`); if (!e) return null; e.scrollIntoView({ block: 'nearest', inline: 'nearest' }); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, c60.a);
   if (!aPos || aPos[0] > 1275 || aPos[1] > 755 || aPos[0] < 5 || aPos[1] < 5) {
     console.log(`  skip C-60 drag checks — the bag tile is off screen (${JSON.stringify(aPos)})`);
@@ -721,8 +729,9 @@ try {
     await page.mouse.move(x, sc0.bottom + 10, { steps: 4 });
     await sleep(1000);
     const bottom = await scroller();
-    // 2026-09-14: 보폭은 창 높이를 타는 칸 크기에서 뽑는다 (`labels.gridCellForHeight`) — 56 · 27 을 적어 두지 않는다.
-    //   마지막 줄의 빈 칸(아이템 196개 = 마지막 줄 x 0..5 만 찬다)을 노린다.
+    // 2026-09-14: the pitch is taken from the cell size, which follows the window height
+    //   (`labels.gridCellForHeight`) — 56 · 27 are not written down. It aims at a free cell on the last row
+    //   (196 items = only x 0..5 of the last row are filled).
     const drop = [8, c60.rows - 1];
     const cell = await page.evaluate(([cx, cy]) => {
       const el = document.querySelector('.inv-grid-container'), g = el.getBoundingClientRect();
@@ -745,8 +754,9 @@ try {
   }
   await page.evaluate(() => window.__game.ctx.inventory.closeAll());
 
-  // C-61: 가방 레이드 1회 소모 표시가 레이드 세션 상태에 실린다 (시드 도장). 순서: world:ready → applyRaidState 가 실제 순서이고,
-  // 반대 순서(blob 이 먼저)도 같은 레이드의 복귀(`rejoinPending`)면 표시가 산다. 옛 blob · 다른 시드 blob 은 false.
+  // C-61: the once-per-raid bag wear mark rides in the raid session state (stamped with the seed). The real order
+  // is world:ready → applyRaidState; the reverse order (the blob first) also keeps the mark when it is a rejoin
+  // into the same raid (`rejoinPending`). An old blob · a blob from another seed give false.
   const c61 = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     const saved = { seed: inv.missionSeed, pending: ctx.rejoinPending };

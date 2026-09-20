@@ -1,11 +1,12 @@
-// 안드로이드 분대원 — 봇 로비 멤버 smoke (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」).
-// 두 헤드리스 클라이언트가 **이 스크립트가 직접 띄운** 릴레이(9896, 임시 프로필 저장소)에 붙는다 — 공용 릴레이(8787, 옛 코드일 수
-// 있다)는 건드리지 않는다. 여기서 보는 것은 `src/net` 과 `server/` 의 계약뿐이다 (조종실 슬롯 연출 · 몸 · AI 는 hub/allies 의 스모크).
-//   1. 분대장이 `setAndroidBay(bay, true)` 로 세 기를 들인다 → 로비 멤버로 `bot`·`bay`·`ready`·`recruitedAt` 이 실려 온다.
-//   2. 봇은 **사람이 아니다** — `net:peerJoined` 도, `RemotePlayerRef` 도 생기지 않는다.
-//   3. 사람이 합류하면 **가장 늦게 들어온 기**가 슬롯으로 돌아간다 — 새로 온 사람까지 `net:androidReturned {human_joined}` 를 받는다.
-//   4. 분대원이 부르면 `net:error not_host`, 분대가 가득 차면 `net:error full` + 요청자에게만 `net:androidReturned {full}`.
-//   5. 돌려보내기(`recruit:false`)로 명단이 줄고, 사람이 나가면 `net:peerLeft` 는 그 사람 하나뿐이다.
+// Android squadmates — bot lobby member smoke (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」).
+// Two headless clients attach to a relay **this script starts itself** (9896, a temp profile store) — the shared relay
+// (8787, which may be running older code) is left alone. What is checked here is only the contract of `src/net` and
+// `server/` (the cockpit bay presentation · the bodies · the AI belong to hub/allies' own smokes).
+//   1. the leader recruits three units with `setAndroidBay(bay, true)` → they arrive as lobby members carrying `bot`·`bay`·`ready`·`recruitedAt`.
+//   2. a bot is **not a person** — neither a `net:peerJoined` nor a `RemotePlayerRef` appears.
+//   3. when a human joins, **the latest recruited unit** goes back to its bay — the newcomer is told `net:androidReturned {human_joined}` too.
+//   4. a member asking gets `net:error not_host`; a full squad gets `net:error full` + `net:androidReturned {full}` to the requester only.
+//   5. dismissal (`recruit:false`) shrinks the roster, and when a human leaves `net:peerLeft` names that person alone.
 // Usage: node scripts/smoke-android-lobby.mjs [http://localhost:5273/]   (needs vite; starts and stops its own relay)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -19,7 +20,9 @@ import os from 'node:os';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
-// ⚠ 2026-09-20: 원래 8896 였는데 이 개발 PC 의 WinNAT 이 **8800–8899** 를 통째로 예약해 bind 가 EACCES 로 죽고, 스모크가 「포트가 비어 있어야 한다」로 오진단해 항상 실패했다 (`netsh interface ipv4 show excludedportrange protocol=tcp`). 9896 는 그 범위 밖이다 — `smoke-netlink` 이 같은 날 9885 · 9886 으로 옮긴 것과 같은 이유다.
+// ⚠ 2026-09-20: it was 8896 until this dev PC's WinNAT reserved **8800–8899** whole, so the bind died with EACCES and the
+// smoke misdiagnosed it as 「the port must be free」 and always failed (`netsh interface ipv4 show excludedportrange protocol=tcp`).
+// 9896 is outside that range — the same reason `smoke-netlink` moved to 9885 · 9886 the same day.
 const RELAY_PORT = Number(process.env.ANDROID_LOBBY_RELAY_PORT ?? 9896);
 const RELAY_URL = `ws://127.0.0.1:${RELAY_PORT}/ws`;
 const CHROME = [
@@ -159,7 +162,7 @@ try {
     await waitFor(page, () => window.__game.ctx.net.connected && !!window.__game.ctx.net.localId, `${tag} connected`, 60000);
   }
 
-  /* ── 1. 분대장이 조종실 슬롯 3칸을 채운다 ─────────────────────────────── */
+  /* ── 1. the leader fills the three cockpit bays ───────────────────────── */
   console.log('leader recruits three androids');
   await S(A, () => window.__game.ctx.net.createLobby());
   const code = await waitFor(A, () => window.__game.ctx.net.lobby?.code ?? null, 'A leads a lobby', 20000);
@@ -175,14 +178,14 @@ try {
   ok(new Set(a.bots.map((b) => b.slot)).size === 3 && !a.bots.some((b) => b.slot === 0),
     `androids take real lobby slots of their own (${a.bots.map((b) => b.slot).join(',')})`);
 
-  /* ── 2. 봇은 사람이 아니다 ───────────────────────────────────────────── */
+  /* ── 2. a bot is not a person ────────────────────────────────────────── */
   await sleep(1200);   // several snapshot periods: a peer would have made a remote ref by now
   a = await state(A);
   ok(a.joined.length === 0, `recruiting an android is no peer join (net:peerJoined ${JSON.stringify(a.joined)})`);
   ok(a.remotes.length === 0, `and creates no RemotePlayerRef (${JSON.stringify(a.remotes)})`);
   ok(a.err.length === 0, `no net:error on the way (${JSON.stringify(a.err)})`);
 
-  /* ── 3. 사람이 이긴다: 가장 늦게 들어온 기가 슬롯으로 돌아간다 ─────────── */
+  /* ── 3. the human wins: the latest unit goes back to its bay ───────────── */
   console.log('a human joins the full squad');
   await marks(A); await marks(B);
   await S(B, (c) => window.__game.ctx.net.joinLobby(c), code);
@@ -198,7 +201,7 @@ try {
   ok(a.joined.length === 1 && !a.joined[0].startsWith('android:'), `exactly one net:peerJoined, for the person (${JSON.stringify(a.joined)})`);
   ok(!b.remotes.some((id) => id.startsWith('android:')), `androids never become remote players on the joiner either (${JSON.stringify(b.remotes)})`);
 
-  /* ── 4. 분대원은 부를 수 없고, 가득 차면 요청자만 되돌림을 듣는다 ──────── */
+  /* ── 4. a member cannot recruit; full → only the requester is told ─────── */
   console.log('refusals');
   await marks(A); await marks(B);
   await S(B, () => window.__game.ctx.net.setAndroidBay(0, false));
@@ -216,7 +219,7 @@ try {
   ok(b.returned.length === 0, `the "full" notice reaches the requester only (B saw ${JSON.stringify(b.returned)})`);
   ok(a.bots.length === 2, `and the roster is untouched (${a.bots.length})`);
 
-  /* ── 5. 돌려보내기 · 사람이 나가기 ───────────────────────────────────── */
+  /* ── 5. dismissal · a human leaving ──────────────────────────────────── */
   console.log('dismiss and leave');
   await marks(A);
   await S(A, () => window.__game.ctx.net.setAndroidBay(0, false));

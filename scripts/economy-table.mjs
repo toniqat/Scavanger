@@ -1,18 +1,20 @@
 /**
- * 서버 크레딧 검증용 **경제 표** — 생성 · 검산 · 최신 여부 (2026-09-11, E-4 ⑦).
+ * The **economy table** the server validates credits against — build · check · staleness (2026-09-11, E-4 ⑦).
  *
- * 릴레이는 `credits:tx {delta, reason}` 의 금액을 `server/economy.gen.json` 으로 검사한다 (`server/Economy.ts`).
- * 릴레이는 Vite csv 로더를 못 돌리고 `ItemDef.value` 는 `src/items/` 가 파생하므로(무기 등급 단계 · 방탄복 공식 ·
- * 망가진 임플란트 나눗셈 …), 표는 **클라이언트와 같은 코드**를 헤드리스 Vite 로 읽어서 만든다 — 규칙을 여기에
- * 다시 적지 않는다. `scripts/data-check.mjs` 가 이미 띄운 Vite 서버를 넘겨받아 부른다:
+ * The relay checks the amount in `credits:tx {delta, reason}` against `server/economy.gen.json`
+ * (`server/Economy.ts`). The relay cannot run the Vite csv loader and `ItemDef.value` is derived by
+ * `src/items/` (the weapon grade steps · the armor formula · the broken-implant division …), so the table is
+ * built by reading **the same code the client reads** through a headless Vite — the rules are not written out
+ * again here. `scripts/data-check.mjs` calls it with the Vite server it has already started:
  *
- *   npm run data:check              표가 csv 와 같은지 검사 (다르면 실패 + 고치는 명령 안내)
- *   npm run data:check -- --write   표를 다시 만들어 쓴다 → 커밋한다
+ *   npm run data:check              checks the table against the csv (a mismatch = fail + the command to fix it)
+ *   npm run data:check -- --write   rebuilds and writes the table → commit it
  *
- * 검산(`problems`)은 표를 쓴 뒤에도 매번 돈다: 표의 가격 식(`credits.tableBuyPrice` · `tableSellPrice` ·
- * `tableMinBuyPrice`)이 게임의 `shared/meta.buyPriceOf` · `sellPriceOf` · 상점(`meta/Rules.buildShop`) · 수리비
- * (`implantRepairFee`)와 **모든 아이템 × 모든 신뢰도 레벨 × 모든 수량**에서 같은 값인지, 상점이 파는 모든 물건이
- * 표에 있는지, 모든 사유 문자열이 64자 안에서 문법을 왕복하는지.
+ * The check (`problems`) runs every time, including after the table has been written: whether the table price
+ * formulas (`credits.tableBuyPrice` · `tableSellPrice` · `tableMinBuyPrice`) give the same value as the game
+ * (`shared/meta.buyPriceOf` · `sellPriceOf` · the shop `meta/Rules.buildShop` · the repair fee
+ * `implantRepairFee`) for **every item × every 신뢰도 level × every quantity**, whether everything the shop
+ * sells is in the table, and whether every reason string round-trips through the grammar within 64 characters.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -42,7 +44,8 @@ export async function buildEconomyTable(server) {
     if (target) repairFees.push([d.id, rules.implantRepairFee(target)]);
   }
   const contracts = shared.CONTRACT_DEFS.map((c) => [c.id, c.creditsReward]);
-  // 2026-09-14: 기업 퀘스트 폐지 — `quest:<id>` 는 NPC 퀘스트의 크레딧 보상이다 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」)
+  // 2026-09-14: corp quests were dropped — `quest:<id>` is an NPC quest credit reward
+  //   (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」)
   const quests = shared.NPC_QUEST_DEFS.filter((q) => (q.rewards.credits ?? 0) > 0).map((q) => [q.id, q.rewards.credits]);
 
   const table = {
@@ -55,10 +58,12 @@ export async function buildEconomyTable(server) {
     shopPriceMinMul: shared.SHOP_PRICE_MIN_MUL,
     sellPriceMul: shared.SELL_PRICE_MUL,
     repLevelMax: shared.REP_LEVEL_MAX,
-    /* 2026-09-13: 탐사 차량 요금 범위 (`rover:<from>:<to>`) — 경로 거리는 시드마다 달라 릴레이는 범위만 본다 */
+    /* 2026-09-13: the rover fare range (`rover:<from>:<to>`) — the route distance differs per seed, so the
+       relay only checks the range */
     roverFareMin: shared.ROVER_FARE_MIN,
     roverFareMax: shared.ROVER_FARE_MAX,
-    /* 2026-09-13: 암호화폐 — 릴레이의 시세 시뮬레이션(`server/CryptoMarket.ts`)과 `cbuy:` · `csell:` 검증이 읽는다 */
+    /* 2026-09-13: crypto — read by the relay's quote simulation (`server/CryptoMarket.ts`) and by the `cbuy:` ·
+       `csell:` validation */
     crypto: {
       unitsPerCoin: shared.CRYPTO_UNITS_PER_COIN,
       fee: shared.CRYPTO_TRADE_FEE,
@@ -69,7 +74,8 @@ export async function buildEconomyTable(server) {
         ? { basePrice: d.basePrice, volatility: d.volatility, unlockQuest: d.unlockQuest }
         : { basePrice: d.basePrice, volatility: d.volatility }])),
     },
-    /* 2026-09-14: 정보상 — `intel:<planet>:<code>` 의 금액을 릴레이가 **같은 `intelCost`** 로 검산한다 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+    /* 2026-09-14: the intel broker — the relay checks the `intel:<planet>:<code>` amount with **the same
+       `intelCost`** (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
     intel: {
       options: sortedObject(shared.INTEL_OPTION_DEFS.map((d) => [d.id, { baseCost: d.baseCost, maxTier: d.maxTier }])),
       tierMul: shared.INTEL_COST_TABLE.tierMul,
@@ -110,16 +116,18 @@ export async function checkEconomyTable(server, table) {
     }
   }
 
-  /* 상점이 파는 모든 줄이 표에 있고 같은 값이어야 한다 — 없으면 그 구매가 서버에서 거절된다. */
+  /* Every row the shop sells must be in the table at the same value — a missing one makes the server refuse
+     that purchase. */
   const all = itemsMod.ITEM_DEFS;
   for (const corp of Object.values(shared.CORP_DEFS)) {
     for (const lv of levels) {
       for (const line of rules.buildShop(corp, all, lv, Number.MAX_SAFE_INTEGER, true, (id) => weapons.getWeaponDef(id))) {
         const it = table.items[line.def.id];
         if (!it) { push(`${corp.id} Lv.${lv}: 상점이 파는 ${line.def.id} 가 표에 없다 (value ${line.def.value})`); continue; }
-        /* 2026-09-16 (사용자 결정): 탄약 매대 칸은 **풀 스택**이라 한 칸 값이 `표 × 묶음 수`다 (`Rules.shopQtyOf`).
-           표 자체는 한 개 값 그대로 둔다 — 릴레이의 `buy:` 검사는 "이 값보다 적게 내지 않았나"라는 하한이므로
-           묶음 값(더 큰 값)은 그대로 통과한다. 여기서 묶음 수를 곱하지 않으면 이 불변식만 거짓으로 깨진다. */
+        /* 2026-09-16 (user's decision): an ammo shelf slot is a **full stack**, so one slot costs `table ×
+           bundle size` (`Rules.shopQtyOf`). The table itself keeps the single-unit value — the relay `buy:`
+           check is a floor ("was less than this paid?"), so the bundle value (the larger one) passes as it is.
+           Without multiplying by the bundle size here, this invariant alone would break falsely. */
         const want = shared.tableBuyPrice(table, it.value, lv) * rules.shopQtyOf(line.def);
         if (line.price !== want) push(`${corp.id} Lv.${lv}: ${line.def.id} 상점가 ${line.price} ≠ 표 ${want}`);
       }
@@ -133,7 +141,8 @@ export async function checkEconomyTable(server, table) {
     if (table.repairFees[d.id] !== rules.implantRepairFee(target)) push(`${d.id}: 수리비 게임 ${rules.implantRepairFee(target)} ≠ 표 ${table.repairFees[d.id]}`);
   }
 
-  /* 사유 문법: 64자 · 왕복. sell 은 최대 수량(스택)으로 가장 긴 형태를 잰다. */
+  /* Reason grammar: 64 characters · a round trip. For sell the longest form is measured at the maximum
+     quantity (a stack). */
   const reasons = [];
   for (const [id, it] of Object.entries(table.items)) {
     reasons.push({ kind: 'buy', id }, { kind: 'refund', id }, { kind: 'sell', id, qty: it.stack });
@@ -146,14 +155,15 @@ export async function checkEconomyTable(server, table) {
     const back = shared.parseCreditReason(raw);
     if (!back || back.kind !== r.kind || back.id !== r.id || (r.qty !== undefined && back.qty !== r.qty)) push(`사유 ${raw} 가 문법을 왕복하지 못한다 (id 에 [a-z0-9_] 밖의 글자이거나 64자 초과)`);
   }
-  /* 2026-09-13: 탐사 차량 요금 — 0 < MIN ≤ MAX 정수, 사유 `rover:<from>:<to>` 왕복 */
+  /* 2026-09-13: the rover fare — integers with 0 < MIN ≤ MAX, and the reason `rover:<from>:<to>` round-trips */
   if (!Number.isInteger(table.roverFareMin) || !Number.isInteger(table.roverFareMax) || table.roverFareMin <= 0 || table.roverFareMin > table.roverFareMax) {
     push(`탐사 차량 요금 범위 ${table.roverFareMin}…${table.roverFareMax} 가 0 < ROVER_FARE_MIN ≤ ROVER_FARE_MAX 인 정수가 아니다`);
   }
   const rov = shared.parseCreditReason(shared.formatCreditReason({ kind: 'rover', id: 'rst0', to: 'rst4' }));
   if (!rov || rov.kind !== 'rover' || rov.id !== 'rst0' || rov.to !== 'rst4') push('사유 rover:rst0:rst4 가 문법을 왕복하지 못한다');
-  /* 2026-09-13: 암호화폐 — 코인이 csv 와 같고, 수치가 쓸 만하고, 잠긴 코인의 퀘스트가 `quest:` 로 원장에 오를 수 있고(크레딧 보상이 없으면
-     그 코인은 서버에서 영영 거래할 수 없다), 가장 긴 `cbuy` · `csell` 사유가 64자 안에서 왕복한다 */
+  /* 2026-09-13: crypto — the coins match the csv, the numbers are usable, a locked coin quest can reach the
+     ledger as `quest:` (with no credit reward that coin can never be traded on the server), and the longest
+     `cbuy` · `csell` reason round-trips within 64 characters */
   const cx = table.crypto;
   if (!cx) push('crypto 절이 없다 — 릴레이가 시세를 돌리지 않고 모든 cbuy / csell 을 거절한다');
   else {
@@ -173,8 +183,9 @@ export async function checkEconomyTable(server, table) {
       }
     }
   }
-  /* 2026-09-14: 정보상 — 표가 csv 와 같고, 모든 행성이 threat 를 갖고, 가장 긴 사유가 64자 안에서 왕복하고,
-     모든 선택 조합에서 게임과 릴레이의 금액이 **같은 식**으로 같은 값을 낸다 (식은 `shared/intel.intelCost` 하나다). */
+  /* 2026-09-14: the intel broker — the table matches the csv, every planet has a threat, the longest reason
+     round-trips within 64 characters, and for every combination of picks the game and the relay produce the
+     same amount from **the same formula** (there is one formula, `shared/intel.intelCost`). */
   const ix = table.intel;
   if (!ix) push('intel 절이 없다 — 릴레이가 모든 정보상 구매를 거절한다');
   else {
@@ -192,7 +203,8 @@ export async function checkEconomyTable(server, table) {
       const ti = Math.max(0, Math.min(ix.threatMul.length - 1, Math.round(p.threat) - 1));
       if (!(ix.threatMul[ti] > 0)) push(`INTEL_THREAT_COST_MUL 에 ${p.id}(threat ${p.threat}) 의 배수가 없다`);
     }
-    /* 모든 조합(기믹 7종 × 단계 0..max) 중 가장 긴 코드로 사유 왕복 + 게임 ↔ 표 금액 일치. 조합은 3^7 아래라 전수로 돈다. */
+    /* The reason round trip with the longest code of all the combinations (7 gimmicks × tier 0..max) plus a
+       game ↔ table amount match. There are fewer than 3^7 combinations, so all of them are walked. */
     const all = defs.map((d) => d.id);
     const worst = defs.map((d) => ({ g: d.id, tier: d.maxTier }));
     const raw = shared.formatCreditReason({ kind: 'intel', id: shared.PLANET_DEFS[0].id, code: shared.intelCode(worst) });

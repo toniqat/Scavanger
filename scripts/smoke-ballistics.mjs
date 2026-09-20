@@ -1,5 +1,5 @@
-// Single-player smoke test for 2026-09-14 **모든 총알을 발사체로** (weapons/): every ordinary gun round is a swept
-// projectile with drop, plus the laser sight aiming at the crosshair and the 확장 총열 muzzle socket.
+// Single-player smoke test for the 2026-09-14 **every bullet a projectile** decision (weapons/): every ordinary gun round
+// is a swept projectile with drop, plus the laser sight aiming at the crosshair and the `확장 총열` muzzle socket.
 // Stats are patched on the live weapon instance (projectileSpeed / bulletGravity / spread 0) so the checks do not depend on
 // the balance numbers in data/weapons.csv.
 //  - first projectile shot compiles no new program (the streak batch is in the scene from the start)
@@ -10,7 +10,7 @@
 //  - 650 m/s with a forced 50 ms step (32.5 m per step) does not tunnel through a thin post or an enemy
 //  - a barrier stops the round: damageBarrier once per round, the enemy behind it untouched
 //  - laser sight: aimed at the shot line's end while aiming / right after a shot, back along the barrel otherwise
-//  - 확장 총열 (att_barrel_ext): the muzzle socket moves forward
+//  - the `확장 총열` (att_barrel_ext): the muzzle socket moves forward
 //  - the pool never drops a local round (grows past the soft cap, evicts visual-only replicas first)
 //  - stats.bloomPerShot / swayMul are what the gun reads
 // Usage: node scripts/smoke-ballistics.mjs [http://localhost:5273]   (needs `npm run dev`)
@@ -260,19 +260,22 @@ try {
   const sgE3 = await P((id) => {
     const e = window.__game.getSystem('enemies').byId.get(id);
     const eh = window.__B.hits.filter((h) => h.enemyId === id);
-    // 같은 풀 스텝(= 같은 프레임)의 명중은 `ctx.time` 이 정확히 같다 — 서로 다른 t 의 개수 = 이 일제사가 걸친 스텝 수.
+    // Hits from one pool step (= one frame) carry exactly the same `ctx.time` — the number of distinct t values = the steps this volley spanned.
     const steps = new Set(eh.map((h) => h.t)).size;
     return { hp: e ? e.hp : null, dead: !e || e.isDead, enemyHits: eh.length, steps, markers: window.__B.markers };
   }, sgE2);
   ok(sgE3.enemyHits >= 2 && (sgE3.dead || sgE3.hp < sgEnemy.hp), `pellets hit the warrior (${sgE3.enemyHits} hits, hp ${sgEnemy?.hp} → ${sgE3.hp})`, JSON.stringify(sgE3));
-  /* 2026-09-15 (에이전트 B — 흔들리던 단언 교정): 묶이는 근거는 **풀 한 스텝**이다 (`WeaponSystem.update` 가
-     `projectiles.update` 바로 뒤에 `Fire.flushHitmarker` 를 부른다). 옛 단언 `markers <= 2` 는 그 근거가 아니라
-     **프레임 박자**를 재고 있었다 — 180 m/s 펠릿이 5 m 를 나는 데 27.8 ms 인데 한 프레임이 16.7 ms 라, 적 캡슐의
-     앞뒤면 때문에 벌어지는 명중 거리 차가 프레임 경계에 어떻게 걸리느냐에 따라 스텝이 2 개도 3 개도 된다
-     (헤드리스에서 3 회 중 1 회 3 이 나왔다 · 코드 회귀가 아니다). 그래서 계약 그대로 잰다:
-       ① `markers === steps` — 스텝마다 **정확히 하나**. 병합을 걷어내면(펠릿마다 emit) steps 1 에 markers 8 로 깨진다.
-       ② `markers < enemyHits` — 여덟 발이 여덟 개의 마커가 되는 일은 없다.
-     둘 다 프레임 박자와 무관하고, 재는 것은 「같이 도착한 펠릿은 한 마커로 묶인다」 그 자체다. */
+  /* 2026-09-15 (agent B — a flaky assertion corrected): what merges them is **one pool step** (`WeaponSystem.update`
+     calls `Fire.flushHitmarker` right after `projectiles.update`). The old assertion `markers <= 2` was not measuring
+     that at all but the **frame cadence** — a 180 m/s pellet takes 27.8 ms to fly 5 m while a frame is 16.7 ms, so the
+     spread in hit distance caused by the front and back faces of the enemy capsule gives 2 steps or 3 depending on how
+     it falls across the frame boundaries (headless produced 3 once in 3 runs · that is not a code regression). So it is
+     measured against the contract as it stands:
+       ① `markers === steps` — **exactly one** per step. Take the merge away (emit per pellet) and it breaks with
+          markers 8 on steps 1.
+       ② `markers < enemyHits` — eight rounds never become eight markers.
+     Neither depends on the frame cadence, and what is measured is 「pellets that arrive together merge into one
+     marker」 itself. */
   ok(sgE3.markers === sgE3.steps && sgE3.markers < sgE3.enemyHits,
     `pellets landing together merge into one hitmarker per pool step (${sgE3.markers} markers / ${sgE3.steps} steps / ${sgE3.enemyHits} hits)`);
   await P(() => window.__game.ctx.enemies.killAll());
@@ -443,7 +446,7 @@ try {
   ok(!!lasShot && lasShot.blend > 0.9 && lasShot.toAimDeg < 3, `right after a hip shot the beam turns to the aim point (${lasShot?.toAimDeg?.toFixed(2)}°, blend ${lasShot?.blend?.toFixed(2)})`, JSON.stringify(lasShot));
   await waitSim(1.5);
 
-  /* ── G. 확장 총열 ───────────────────────────────────────────────────────────────── */
+  /* ── G. the `확장 총열` ─────────────────────────────────────────────────────────── */
   console.log('확장 총열: 총구 소켓이 앞으로');
   const barrel = await P(() => {
     const ctx = window.__game.ctx; const inv = ctx.inventory; const ws = window.__game.getSystem('weapons');

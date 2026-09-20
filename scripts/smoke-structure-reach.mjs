@@ -1,34 +1,46 @@
-// 구조물 도달성 스모크 (2026-09-12).
+// Structure reachability smoke (2026-09-12).
 //
-// 왜 있나: 사용자 보고 넷 — ① 1층 → 2층 계단 입구가 벽에 막혀 1층에서 못 올라감 ② 계단이 실내가 아니라 바깥으로
-// 뚫림 ③ 지하 계단 난간이 1층 문을 막음 ④ 실내 보이지 않는 벽. `smoke-structures` 는 콜라이더가 그린 것 **안에**
-// 있는지만 재서 넷 다 못 잡았다 — 전부 "콜라이더는 맞는데 사람이 못 지나간다" 였다. 여기서는 **진짜 월드 질의**
-// (`getSurfaceY` 로 발을 올리고 `resolveCollision` 으로 밀어내기 — `player/PlayerController` 와 같은 순서)로 몸 반지름
-// 0.45 m 의 flood fill 을 돌려, 사람이 실제로 걸어서 닿는지를 여러 시드 · 건물 종류로 잰다.
+// Why it exists: four user reports — ① the ground floor → second floor stair entrance was walled off and could not
+// be climbed from the ground floor ② the stairs broke out of the building instead of staying indoors ③ the basement
+// stair railing blocked the ground-floor door ④ invisible walls indoors. `smoke-structures` only measures whether a
+// collider stays **inside** what is drawn, and it caught none of the four — every one of them was 「the collider is
+// right but a person cannot get past」. Here a body-radius 0.45 m flood fill is run through **real world queries**
+// (`getSurfaceY` to lift the feet, then `resolveCollision` to push out — the same order as
+// `player/PlayerController`), measuring over several seeds · building kinds whether a person really walks there.
 //
-// 검사 (건물마다):
-//   1. 정문 바깥에서 걸어 들어갈 수 있다 (불시착 함선은 후미 램프)
-//   2. **건물 밖으로 나가지 않고** (틈 · 창으로 돌아 들어가는 길 금지) 정문 안쪽에서:
-//      - 방마다 서 있을 수 있는 칸의 대부분에 닿는다 (1층 · 2층 — 잠긴 방 안은 뺀다)
-//      - 2층 건물: 1층 계단 층계참 → 2층 도착 자리
-//      - 옥상 사다리 발치 · 지하실 문 앞 · 잠긴 방 문 앞 (문은 잠겨 있어도 문 앞까지는 간다)
-//      - 지상 컨테이너마다 상호작용 거리 안
-//   3. 음성 대조: 걸어서는 옥상에 올라가지 못한다 (flood fill 이 벽 · 천장을 뚫지 않는다는 근거)
+// Checks (per building):
+//   1. One can walk in from outside the front door (the crashed ship: the rear ramp)
+//   2. **Without leaving the building** (no way back in through a breach · a window), from inside the front door:
+//      - most of the standable cells of every room are reached (ground floor · second floor — the inside of the
+//        locked room is left out)
+//      - a two-floor building: the ground-floor stair landing → the second-floor arrival spot
+//      - the foot of the roof ladder · in front of the basement door · in front of the locked room's door (a locked
+//        door is still walked up to)
+//      - within interaction range of every ground container
+//   3. The negative control: the roof cannot be climbed on foot (the evidence that the flood fill does not go
+//      through walls · ceilings)
 //
-// 2026-09-12 (소모형 만능 열쇠 · 연구소 잠긴 방 · 지상드론 개구멍) — 추가 검사:
-//   4. 잠긴 방: 잠긴 동안 사람 flood fill 이 방 안쪽 칸에 **닿지 않는다** (문 · 개구멍 · 창으로 새지 않는다)
-//   5. 개구멍: 문 쪽 → 방 쪽으로 곧장 걸어 보면 **지상드론 몸**(반지름 0.35 · 키 0.45, `resolveCollision(p, r, h)`)은
-//      지나가고 **사람 몸**(0.45, 키 없음)은 막힌다 — 지하실 문 옆 · 잠긴 방 문 옆 둘 다
-//   6. 열쇠: 열쇠 없음 → 거부 · 다른 종류 열쇠 → 거부(안 줄어든다) · 맞는 열쇠 → 열리고 **그 열쇠만 1 개** 줄어든다,
-//      문짝 콜라이더가 빠진다 (전진기지 = `key_basement`, 연구소 = `keycard_lab`)
-//   7. 연 뒤: 안에서 걸어 잠긴 방 컨테이너 · 지하실 컨테이너에 손이 닿는다
-//   8. 미리보기: `world.previewContainerItems(id)` 가 두 번 불러도 같고, 실제로 열었을 때 inventory 가 채운 내용물과
-//      같다 (구조물 지상 · 잠긴 방 · 맵 상자 · 열쇠 부가 굴림이 맞은 컨테이너)
+// 2026-09-12 (the consumable master key · the lab's locked room · the ground drone's vent) — further checks:
+//   4. The locked room: while it is locked a person's flood fill **does not reach** the cells inside it (no leak
+//      through the door · the vent · a window)
+//   5. The vent: walking straight from the door side to the room side, **a ground drone's body** (radius 0.35 ·
+//      height 0.45, `resolveCollision(p, r, h)`) gets through and **a person's body** (0.45, no height) is blocked —
+//      beside the basement door and beside the locked room's door alike
+//   6. The key: no key → refused · the other kind of key → refused (and not consumed) · the right key → it opens and
+//      **only that key, one unit** is consumed, and the door leaf's collider goes away
+//      (an outpost = `key_basement`, a lab = `keycard_lab`)
+//   7. After opening: from inside, the locked room's containers · the basement containers are within reach on foot
+//   8. The preview: `world.previewContainerItems(id)` is the same when called twice, and is the same as the contents
+//      inventory filled in when it was really opened (a structure's ground · the locked room · a map crate · a
+//      container whose key bonus roll came up)
 //
-// 2026-09-13 — 9. **진짜 `PlayerController`** 로 정문 안쪽에서 바깥까지 걸어 나간다. flood fill 은 컨트롤러의 경사 처리를 타지 않아,
-//   지하실 구덩이 위 바닥판에서 지형 법선 때문에 벽 · 정문 앞에서 멈추던 것(실내에서 못 나감)을 못 잡았다.
+// 2026-09-13 — 9. Walking from inside the front door out through it with the **real `PlayerController`**. The flood
+//   fill does not go through the controller's slope handling, so it missed the body stopping in front of a wall · the
+//   front door on the floor plate over the basement pit because of the terrain normal (it could not get out from
+//   inside).
 //
-// 시드를 돌려 전진기지 · 연구실 · 2층 · 지하실 · 잠긴 방 · 불시착 함선이 각각 몇 채 이상 나올 때까지 (최대 MAX_SEEDS).
+// Seeds are cycled until at least so many outposts · labs · second floors · basements · locked rooms · crashed ships
+// have turned up (at most MAX_SEEDS).
 //
 // Usage: node scripts/smoke-structure-reach.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -38,12 +50,14 @@ import { existsSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
 const SEED_POOL = [21, 7, 1234, 3, 42, 99, 555, 808, 2026, 31337, 11, 64, 777, 4242, 9001, 123, 5150, 6060];
-/* 2026-09-14 — 예전에는 `MAX_SEEDS = 16` + 「원하는 건물 종류가 다 나왔으면 그만」(`enough()`)으로 대여섯 시드에서 멈췄다.
- * 그 조기 종료가 **원래 있던 버그를 숨기고 있었다** (seed 21 의 연구소 2층 · 전진기지 지상 컨테이너). 이제 풀 전체를 끝까지
- * 돌고 실패는 세어 두었다가 마지막에 한 번에 보고한다 — `ok()` 는 원래 멈추지 않으므로 세는 방식은 그대로다. */
+/* 2026-09-14 — it used to be `MAX_SEEDS = 16` plus 「stop once every wanted building kind has turned up」
+ * (`enough()`), which stopped after five or six seeds. That early exit **was hiding a bug that had been there all
+ * along** (seed 21's lab second floor · an outpost's ground containers). Now the whole pool is run to the end and
+ * the failures are counted and reported once at the end — `ok()` never stopped anyway, so the counting is
+ * unchanged. */
 const MAX_SEEDS = SEED_POOL.length;
 const WANT = { outpost: 4, lab: 4, twoFloor: 4, basement: 4, locked: 3, wreck: 2 };
-/** 방 하나에서 서 있을 수 있는 칸 중 닿아야 하는 비율. 벽 · 컨테이너 사이 몸이 안 들어가는 구석은 애초에 칸이 아니다. */
+/** Share of a room's standable cells that has to be reached — a corner too tight for a body is no cell at all. */
 const ROOM_COVERAGE_MIN = 0.85;
 
 const CHROME = [
@@ -67,8 +81,9 @@ async function waitFor(page, fn, label, timeout = 90000, arg) {
 }
 
 /**
- * 브라우저 안에서 도는 flood fill. 건물마다 결과 한 줄.
- * `after` = 열쇠 검사로 문을 연 **뒤**의 두 번째 패스 — 잠긴 문이 있던 건물만, 안쪽 컨테이너(`_l` · `_b`) 손닿음만 잰다.
+ * The flood fill that runs inside the browser. One result row per building.
+ * `after` = the second pass **after** the key check opened the doors — only buildings that had a locked door, and it
+ * measures nothing but whether the inner containers (`_l` · `_b`) are within reach.
  */
 function reachAll({ roomMin, after }) {
   const ctx = window.__game.ctx, w = ctx.world;
@@ -88,11 +103,12 @@ function reachAll({ roomMin, after }) {
     const c = Math.cos(nav.yaw), sn = Math.sin(nav.yaw);
     const toW = (lx, lz) => [nav.cx + lx * c - lz * sn, nav.cz + lx * sn + lz * c];
     const toL = (x, z) => { const dx = x - nav.cx, dz = z - nav.cz; return [dx * c + dz * sn, -dx * sn + dz * c]; };
-    // 격자는 시작 자리(정문 바깥 · 후미 램프 너머)까지 품어야 한다 — 불시착 함선의 램프 너머는 halfD + 4 m 보다 멀다
+    // The grid has to take in the starting spot (outside the front door · beyond the rear ramp) — beyond the
+    // crashed ship's ramp is further out than halfD + 4 m
     const I = Math.ceil((Math.max(nav.halfW, Math.abs(nav.doorOut[0])) + MARGIN) / STEP);
     const J = Math.ceil((Math.max(nav.halfD, Math.abs(nav.doorOut[1])) + MARGIN) / STEP);
     const keyOf = (i, j, y) => `${i},${j},${Math.round(y * 2)}`;
-    /** 칸 (i, j) 에 발 높이 `feet` 에서 한 걸음 내디뎠을 때 서는 높이, 밀려나면 null. */
+    /** The height a body stands at after one step into cell (i, j) from foot height `feet`, null if pushed out. */
     const stand = (i, j, feet) => {
       const [x, z] = toW(i * STEP, j * STEP);
       const y = w.getSurfaceY(x, z, feet);
@@ -141,7 +157,7 @@ function reachAll({ roomMin, after }) {
       }
       return { ok: best <= tol, d: Number.isFinite(best) ? +best.toFixed(2) : null };
     };
-    /** 곧장 걸어 보기: 로컬 `a` → `b` 로 0.1 m 씩 내디디며 표면 먼저 · 밀어내기 나중. 끝에서 `b` 까지 남은 거리. */
+    /** Walk straight: local `a` → `b` in 0.1 m steps, surface first · push-out after. The distance left to `b`. */
     const walk = (a, b, y, r, h) => {
       const [ax, az] = toW(a[0], a[1]), [bx, bz] = toW(b[0], b[1]);
       p.set(ax, w.getSurfaceY(ax, az, y + 0.3), az);
@@ -183,8 +199,9 @@ function reachAll({ roomMin, after }) {
     }
 
     const outside = bfs(nav.doorOut, y0, false);
-    /* 9. (2026-09-13) **진짜 `PlayerController`** 로 정문 안쪽 → 바깥까지 걸어 나간다. 위 flood fill 은 `getSurfaceY` +
-     * `resolveCollision` 만 흉내 내서, 컨트롤러의 경사 처리가 바닥판 밑 지형(지하실 구덩이)을 읽어 벽 앞에서 멈추던 것을 못 잡았다. */
+    /* 9. (2026-09-13) Walk from inside the front door out through it with the **real `PlayerController`**. The
+     * flood fill above only imitates `getSurfaceY` + `resolveCollision`, so it missed the body stopping in front of
+     * a wall because the controller's slope handling read the terrain under the floor plate (the basement pit). */
     let exitGap = null;
     if (s.kind !== 'wreck') {
       const Ctl = window.__game.getSystem('player').controller.constructor;
@@ -222,8 +239,10 @@ function reachAll({ roomMin, after }) {
     if (lad) {
       const [lx, lz] = toL(lad.base.x, lad.base.z);
       row.ladder = near(set, lx, lz, lad.base.y, 0.6);
-      // 음성 대조: 옥상 높이의 칸이 하나라도 걸어서 닿았으면 flood fill 이 무언가를 뚫은 것이다
-      // 2026-09-13: **발자국 안의** 칸만 옥상이다 — 건물 밖 언덕이 우연히 옥상 높이인 칸(흙길 회랑으로 배치가 바뀐 seed 7 연구소)을 옥상으로 세지 않는다
+      // The negative control: if even one cell at roof height was reached on foot, the flood fill went through
+      // something. 2026-09-13: only cells **inside the footprint** count as the roof — a cell on a hill outside the
+      // building that happens to sit at roof height (seed 7's lab, whose layout the dirt-road corridor moved) is
+      // not counted as roof
       for (const [ii, jj, yy] of outside.seen.values()) {
         if (Math.abs(ii * STEP) > nav.halfW || Math.abs(jj * STEP) > nav.halfD) continue;
         if (Math.abs(yy - lad.topY) < 0.3) { row.roofWalk = true; break; }
@@ -238,7 +257,8 @@ function reachAll({ roomMin, after }) {
       row.lockedDoor = near(set, lx, lz, s.lockedDoor.y, 0.6);
     }
     if (lockedR) {
-      // 잠긴 동안 방 안쪽(벽에서 0.3 m 들인 사각형)의 칸에 사람이 닿으면 새는 것이다 — 안에서도 밖에서도
+      // While it is locked, a person reaching a cell inside the room (the rectangle inset 0.3 m from the walls)
+      // is a leak — from inside or from outside
       const ly = nav.levels[lockedR.k];
       let leak = 0;
       for (const seenSet of [inside.seen, outside.seen]) {
@@ -263,7 +283,8 @@ function reachAll({ roomMin, after }) {
       const lost = [];
       for (let i = Math.ceil(room.x0 / STEP); i * STEP <= room.x1; i++) {
         for (let j = Math.ceil(room.z0 / STEP); j * STEP <= room.z1; j++) {
-          // 잠긴 방 (+ 벽 두께 여유) 안의 칸은 잠긴 동안 닿지 않는 것이 맞다 — 세지 않는다
+          // A cell inside the locked room (+ the wall-thickness slack) is rightly unreachable while locked —
+          // it is not counted
           if (lockedR && room.k === lockedR.k) {
             const x = i * STEP, z = j * STEP;
             if (x > lockedR.x0 - 0.8 && x < lockedR.x1 + 0.8 && z > lockedR.z0 - 0.8 && z < lockedR.z1 + 0.8) continue;
@@ -284,7 +305,7 @@ function reachAll({ roomMin, after }) {
   return rows;
 }
 
-/** 열쇠 검사 (6): 잠긴 문이 있는 건물마다 — 없음 · 다른 종류 · 맞는 열쇠. 이 클라이언트 혼자(싱글)라 호스트 경로 그대로다. */
+/** The key check (6) per locked-door building — no key · the wrong kind · the right key. Solo = the host path. */
 function keyFlow() {
   const ctx = window.__game.ctx, w = ctx.world, inv = ctx.inventory, loot = ctx.loot;
   const count = (id) => inv.countWhere((d) => d.id === id);
@@ -323,7 +344,7 @@ function keyFlow() {
   return rows;
 }
 
-/** 미리보기 검사 (8): 미리보기 두 번 = 같다, 그리고 실제로 열어 inventory 캐시와 견준다. */
+/** The preview check (8): two previews agree, and it is really opened and compared against inventory's cache. */
 function previewFlow() {
   const ctx = window.__game.ctx, w = ctx.world;
   const invSys = window.__game.getSystem('inventory');
@@ -397,7 +418,7 @@ try {
 
   const seen = { outpost: 0, lab: 0, twoFloor: 0, basement: 0, locked: 0, wreck: 0 };
   const enough = () => Object.entries(WANT).every(([k, v]) => seen[k] >= v);
-  const failedSeeds = new Map();      // seed → 그 시드에서 난 실패 수 (마지막 요약용)
+  const failedSeeds = new Map();      // seed → how many failures that seed had (for the closing summary)
   let seeds = 0, keyedPreviews = 0;
   for (const seed of SEED_POOL) {
     if (seeds >= MAX_SEEDS) break;
@@ -438,7 +459,8 @@ try {
       if (r.kind !== 'wreck') ok(!r.roofWalk, `${tag}: (음성 대조) 걸어서는 옥상에 못 올라간다`, detail);
     }
 
-    // 8. 미리보기 = 첫 개봉 (열쇠 검사 · 열린 뒤 flood fill 보다 먼저 — 문을 열어도 컨테이너 내용물은 안 바뀌지만 순서를 고정한다)
+    // 8. The preview = the first opening (before the key check · the after-opening flood fill — opening a door
+    //    does not change a container's contents, but the order is pinned down)
     const prev = await page.evaluate(previewFlow);
     for (const p of prev) {
       if (p.kind === 'unknown') { ok(p.unknownIsNull, 'previewContainerItems(모르는 id) === null'); continue; }
@@ -448,7 +470,7 @@ try {
       if (!p.wasCached) ok(p.preview === p.opened, `${tag}: 미리보기 = 실제로 열었을 때의 내용물`, JSON.stringify(p));
     }
 
-    // 6. 열쇠
+    // 6. Keys
     const keys = await page.evaluate(keyFlow);
     for (const k of keys) {
       if (k.missing) { ok(false, `seed ${seed} ${k.id}: 잠긴 문 상호작용 · 위치가 있다`); continue; }
@@ -464,7 +486,8 @@ try {
       ok(k.keyLeft === 0 && k.otherLeft === 1, `${tag}: 연 열쇠만 1 개 소모된다 (남은 ${k.keyLeft} · 다른 종류 ${k.otherLeft})`, detail);
     }
 
-    // 7. 연 뒤 — 안쪽 컨테이너 손닿음 (문짝이 미끄러지는 애니메이션은 콜라이더와 무관하다)
+    // 7. After opening — the inner containers within reach (the door leaf's sliding animation has nothing to do
+    //    with the collider)
     const afterRows = await page.evaluate(reachAll, { roomMin: ROOM_COVERAGE_MIN, after: true });
     for (const r of afterRows) {
       const tag = `seed ${seed} ${r.id} (연 뒤)`;

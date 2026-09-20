@@ -168,6 +168,15 @@ Things today's smokes deliberately do not measure. Each is here so the next read
   synchronous, so that id *is* the body just hit. A shot that went elsewhere is named in the failure payload. The
   event still carries no target of its own, which is why the smoke reads a `private` field (`docs/TODO.md` B-73).
 
+- **A hand-rolled comment stripper is not a proof — a regex literal holding a quote defeats it (2026-09-20).** Proving
+  a change is comment-only by stripping comments from both sides and comparing needs a real tokenizer: at
+  `scripts/smoke-desktop.mjs:413` the character class in
+  `/from\s*["']ws["']|require\(\s*["']ws["']\s*\)/` opens a string that swallows the rest of the file, so a
+  comment-only edit anywhere below that line reports as a code change. The reliable form is the compiler's own emit —
+  `npx tsc --ignoreConfig --allowJs --removeComments --target es2022 --module esnext --moduleResolution bundler
+  --skipLibCheck --noResolve --outDir <out> <files>.js` on each side and `diff -rq`, with both emits normalised to LF
+  first (a multi-line template literal keeps its `\r\n`, and `git show HEAD:` always hands back LF). Anything else is
+  advisory.
 - **A fixed port is not yours to keep — Windows reserves ranges, and they drift (2026-09-20, TODO E-13).** WinNAT
   hands itself blocks of the ephemeral range; on this PC `8800–8899` went reserved and took three smokes with it.
   `smoke-netlink` (9885 · 9886) and `smoke-android-lobby` (9896) were moved the same day, and `smoke-desktop`'s
@@ -326,6 +335,7 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, csv names and decision headings kept verbatim in backticks / 「」, no string literal touched — a smoke's Korean check names and `console.log` lines are program output and are all unchanged.
 - 2026-09-20 — `docs/PERF_PLAN.md` is gone: the perf record lives in `docs/DECISIONS.md`'s `perf Phase …` sections, and every pointer here and in `verify.mjs` · `smoke-layout-reads.mjs` · `perf-measure.mjs` moved with it. The harness itself is unchanged — its last run was the `--display scale` A/B that closed the plan's one open measurement.
 - 2026-09-19 — `smoke-allies-orders`: `window.__ping` gained `containerId` (crate pings name their container by id, not by
   the display label), the crate step asserts the android latched onto **that** container, and a new step 6b covers the item
@@ -336,4 +346,3 @@ Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/REA
   pids, process alive, last fetch error, and whether the port comes up late at all) and notes any boot slower than 3 s (E-13).
 - 2026-09-16 — New `close-browser.mjs`; every smoke and `e2e-mp` closes Chrome through `closeBrowser` (kills the process tree first) — `verify:all` 26 min 46 s → 16 min 40 s on this machine.
 - 2026-09-16 — `verify.mjs`: a `src/shared` change no longer selects everything by itself — narrow ones pick the folders that use the changed exports (`sharedConsumers`); new `--dry-run`.
-- 2026-09-16 — `verify.mjs`: `net:selftest` now runs alongside the smokes (it used to hold the browsers back ~50 s), and the lane start times share one 24 s ramp budget instead of 8 s per lane; measured why `--jobs` must stay at 4.

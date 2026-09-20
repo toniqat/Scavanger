@@ -1,65 +1,90 @@
 #!/usr/bin/env node
 /**
- * 데스크톱 셸(`electron/`)을 **진짜 Electron 으로** 띄워 검사한다 (E-3, 2026-09-11 · 2026-09-15 서버 제외 개편).
+ * Launches the desktop shell (`electron/`) as **real Electron** and checks it (E-3, 2026-09-11 · the
+ * 2026-09-15 rework that took the server out).
  *
- * 브라우저 스모크는 `window.__scavDesktop = true` 로 셸을 *흉내* 낸다 — 그래서 셸 쪽 코드(창 서버 · `/ws` 프록시 ·
- * 릴레이 주소 결정 · 창 포트 = 세이브 오리진 · 단일 인스턴스 락)는 지금까지 사람이 CDP 로 붙어 손으로만 확인했다
- * (수동 기록은 git 이력에 있다). 이 스크립트가 그 절차다.
+ * Browser smokes *mimic* the shell with `window.__scavDesktop = true`, so the shell's own code (the window
+ * server · the `/ws` proxy · relay address resolution · window port = save origin · the single-instance lock)
+ * has until now only ever been confirmed by hand, a person attaching over CDP (those manual runs are in the
+ * git history). This script is that procedure.
  *
- * **2026-09-15 — 빌드에는 서버가 없다 (사용자 결정).** 셸의 임베디드 릴레이 · `--port` · `--lan` · `--lazy-relay` 가
- * 없어졌으므로 이 스모크는 릴레이를 **스스로 띄워**(`server/index.ts`, 9823) 셸을 거기에 붙이고, 셸이 어떤 포트도
- * 릴레이로 열지 않는지 · 번들 · 배포본에 서버 코드가 없는지를 본다.
+ * **2026-09-15 — builds ship no server (user's decision).** The shell's embedded relay · `--port` · `--lan` ·
+ * `--lazy-relay` are gone, so this smoke **starts a relay itself** (`server/index.ts`, 9823), points the shell
+ * at it, and checks that the shell opens no port as a relay · that neither the bundle nor the release build
+ * holds server code.
  *
- *   0. 준비   `dist/` 가 `src/` · `data/` 보다, `dist-electron/main.js` 가 `electron/` · `src/shared/` 보다 오래됐으면
- *             다시 굽는다 (`vite build` + `node electron/build.mjs` — `npm run app:build` 에서 tsc 만 뺐다: 타입 검사는
- *             러너의 1단계가 하고, 남의 폴더의 반쯤 된 타입 에러로 셸 검사가 막히지 않게). 번들에 릴레이 코드
- *             (`startRelayServer` · `WebSocketServer` · `ProfileStore` · `ws` import)가 **없다**. 스모크의 릴레이를 9823 에 띄운다.
- *   1. 부팅   `electron.exe <repo> --hidden --relay=ws://127.0.0.1:9823/ws --app-port=9910 --user-data=<tmp>
- *             --remote-debugging-port=9340` → `/json/version` → puppeteer-core `connect` → `127.0.0.1:9910` 페이지.
- *             `window.__game.ctx` · UA `Electron/` · `__scavDesktop` 흉내 없음 · `__scavShellRelock` 설치 ·
- *             숨긴 창에서도 시뮬레이션이 돈다 · 메인 프로세스 인스펙터(`--inspect=9341`)로 `webContents.sendInputEvent`
- *             Escape 를 넣으면 `before-input-event` → `__scavShellRelock` 이 정확히 한 번 · 페이지는 키를 한 번씩만 받는다.
- *             앱 프로세스 트리가 듣는 포트는 창 · 디버깅 포트뿐이다 (릴레이 포트 없음).
- *   2. 프록시 (`--relay`)   `/__scav/relay` = 그 주소 · 출처 `--relay` · `embedded: false` → `ensureConnected()` → welcome ·
- *             스모크 릴레이의 `clients === 1` · 프로필 저장소는 **스모크 릴레이의 폴더**에 생기고 userData 에는 `relay-data` 가 없다.
- *   3. 이 PC 의 서버 (`--local`)   `--relay` 를 같이 줘도 `--local` 이 이긴다 → `/__scav/relay` = `ws://127.0.0.1:8787/ws`
- *             (start-server.bat 서버) · `embedded: false`. 아무 주소도 없을 때와 같은 목적지다 — 그 경로 자체는 여기서 못 본다
- *             (`electron/default-relay.txt` 에 LAN 주소가 구워져 있다). 함선에 들어가면 링크가 8787 에 붙거나(공용 릴레이가
- *             떠 있을 때) `unreachable` + 배경 프로브다 — 어느 쪽이든 `embedded` 는 없다.
- *   4. 세이브 = 창 포트   localStorage 표식 → CDP `Browser.close` 정상 종료 → 같은 `--app-port` 재부팅(3번) → 표식 있음 ·
- *             `--app-port=9912` → 없음. 함선에서 `body.desktop-nocursor` 가 켜지는 것으로 `isDesktopShell()` 이 흉내 없이 true.
- *   5. 단일 인스턴스   같은 userData 로 두 번째 실행 → 곧바로 exit 0 · 첫 창에 `second-instance` · 9912 를 안 연다.
- *   6. `server.txt`   임시 폴더 = `cwd` 후보, BOM + 주석 + 맨 `host:port` → 구운 LAN 주소보다 먼저 걸리고 그 릴레이에 붙는다.
- *   7. `--release` 일 때만: `release/SCAVANGER/` 가 정확히 **셋**(app/ · SCAVANGER.exe · server.txt) · `app.asar` 에 릴레이 코드도
- *             `node_modules` 도 없다 · `server.txt` 가 start-server.bat 를 말한다 · stub `SCAVANGER.exe` 가 인자(`--hidden
- *             --user-data=… --remote-debugging-port=…`)를 넘겨 부팅 단언이 통과. 배포본이 오래됐으면 `npm run app:dist` 를 돈다(수 분).
- *   끝  띄운 Electron · 릴레이 프로세스 0 · 포트 전부 해제 · 출력 `N passed, M failed` + `FAIL` 줄 (verify 러너 파서).
+ *   0. Setup  Rebuilds when `dist/` is older than `src/` · `data/`, or `dist-electron/main.js` older than
+ *             `electron/` · `src/shared/` (`vite build` + `node electron/build.mjs` — `npm run app:build` with
+ *             tsc alone taken out: the type check is the runner's first step, and another folder's
+ *             half-finished type error must not block the shell check). The bundle holds **no** relay code
+ *             (`startRelayServer` · `WebSocketServer` · `ProfileStore` · a `ws` import). Starts the smoke's
+ *             relay on 9823.
+ *   1. Boot   `electron.exe <repo> --hidden --relay=ws://127.0.0.1:9823/ws --app-port=9910 --user-data=<tmp>
+ *             --remote-debugging-port=9340` → `/json/version` → puppeteer-core `connect` → the
+ *             `127.0.0.1:9910` page. `window.__game.ctx` · UA `Electron/` · no `__scavDesktop` mimic ·
+ *             `__scavShellRelock` installed · the simulation runs in a hidden window too · injecting Escape
+ *             with `webContents.sendInputEvent` through the main-process inspector (`--inspect=9341`) gives
+ *             `before-input-event` → `__scavShellRelock` exactly once · the page receives each key exactly
+ *             once. The only ports the app's process tree listens on are the window and debugging ports (no
+ *             relay port).
+ *   2. Proxy (`--relay`)   `/__scav/relay` = that address · source `--relay` · `embedded: false` →
+ *             `ensureConnected()` → welcome · the smoke relay's `clients === 1` · the profile store appears
+ *             in **the smoke relay's folder** and userData holds no `relay-data`.
+ *   3. This PC's server (`--local`)   `--local` wins even when `--relay` is given with it → `/__scav/relay` =
+ *             `ws://127.0.0.1:8787/ws` (the start-server.bat server) · `embedded: false`. It is the same
+ *             destination as having no address at all — that path itself cannot be seen here
+ *             (`electron/default-relay.txt` has a LAN address baked in). On entering the ship the link either
+ *             connects to 8787 (when a shared relay is up) or is `unreachable` + a background probe — either
+ *             way there is no `embedded`.
+ *   4. Save = the window port   a mark in localStorage → a clean quit through CDP `Browser.close` → a reboot
+ *             on the same `--app-port` (step 3) → the mark is still there · `--app-port=9912` → it is not.
+ *             In the ship, `body.desktop-nocursor` coming on is `isDesktopShell()` being true with no mimic.
+ *   5. Single instance   a second run with the same userData → exits 0 at once · the first window gets
+ *             `second-instance` · 9912 is never opened.
+ *   6. `server.txt`   the temp folder = a `cwd` candidate, BOM + comments + a bare `host:port` → it is hit
+ *             before the baked LAN address and the app connects to that relay.
+ *   7. With `--release` only: `release/SCAVANGER/` holds exactly **three** (app/ · SCAVANGER.exe ·
+ *             server.txt) · `app.asar` holds neither relay code nor `node_modules` · `server.txt` names
+ *             start-server.bat · the stub `SCAVANGER.exe` passes its arguments (`--hidden --user-data=…
+ *             --remote-debugging-port=…`) on and the boot assertions pass. An outdated release build runs
+ *             `npm run app:dist` (minutes).
+ *   End  none of the Electron · relay processes it launched is left · every port released · the output
+ *             `N passed, M failed` + `FAIL` lines (the verify runner's parser).
  *
- * 포트 (다른 러너와 겹치지 않게 고정):
- *   8787 공용 릴레이(이 스모크는 듣지 않는다 — 3번에서 셸이 그리로 파이프할 뿐) · 8790–8799 **사용자의 실제 세이브 오리진(절대
- *   안 쓴다)** · 9910 창 · 9912 두 번째 창 오리진 · 9823 스모크 릴레이 · 9340 원격 디버깅(렌더러 CDP) ·
- *   9341 메인 프로세스 Node 인스펙터.
- *   시작할 때 이 포트가 막혀 있으면 — 이 스크립트가 남긴 것(명령줄에 `scav-desktop-`)만 죽이고, 아니면 아무것도 안 하고 실패한다.
+ * Ports (fixed so they never collide with another runner):
+ *   8787 the shared relay (this smoke does not listen on it — in step 3 the shell only pipes there) ·
+ *   8790–8799 **the user's real save origin (never used)** · 9910 the window · 9912 the second window's
+ *   origin · 9823 the smoke relay · 9340 remote debugging (the renderer's CDP) · 9341 the main process's
+ *   Node inspector.
+ *   When one of these ports is busy at the start — only what this script left behind (`scav-desktop-` on the
+ *   command line) is killed; anything else and it touches nothing and fails.
  *
- * 셸 제약을 이렇게 비켜 간다:
- *   - `electron/default-relay.txt` 에 LAN IP 가 구워져 있다 → 프록시 경로는 `--relay` / `server.txt` 가, 이 PC 의 서버는 `--local` 이
- *     구운 값보다 먼저 걸린다. 자식 환경에서 `SCAV_*` · `PORTABLE_EXECUTABLE_DIR` · `ELECTRON_RUN_AS_NODE` 를 지운다.
- *   - 단일 인스턴스 락 · localStorage · 창 상태는 전부 userData 에 있다 → `--user-data=<임시>` 로 격리한다. 사용자가 켜 둔
- *     SCAVANGER 도, `%APPDATA%/SCAVANGER` 도 건드리지 않는다.
- *   - preload 가 없다 → 페이지에 셸 표식이 없고 UA 가 유일한 단서다. 헤드리스가 안 된다 → `--hidden`(창만 숨기고 렌더링은 계속).
+ * How the shell's constraints are worked around:
+ *   - `electron/default-relay.txt` has a LAN IP baked in → on the proxy path `--relay` / `server.txt` are hit
+ *     first, and for this PC's server `--local` is, each ahead of the baked value. `SCAV_*` ·
+ *     `PORTABLE_EXECUTABLE_DIR` · `ELECTRON_RUN_AS_NODE` are deleted from the child environment.
+ *   - the single-instance lock · localStorage · the window state all live in userData → `--user-data=<temp>`
+ *     isolates them. Neither a SCAVANGER the user has running nor `%APPDATA%/SCAVANGER` is touched.
+ *   - there is no preload → the page carries no shell marker and the UA is the only clue. Headless does not
+ *     work → `--hidden` (only the window is hidden, rendering carries on).
  *
- * **자동화로 증명하지 못하는 것** (기록된 한계 — `electron/README.md` "Escape" 절):
- *   - 진짜 Escape · 포인터 락 타이밍. CDP 로 넣은 키(`Input.dispatchKeyEvent`)는 Chromium 의 exclusive-access 경로를 타지
- *     않아 락을 쥔 채 페이지에 그대로 들어가고, **`before-input-event` 도 타지 않는다**(측정: 페이지는 받고 훅은 0 번).
- *     그래서 1번은 메인 프로세스의 `sendInputEvent` 로 넣는데, 숨긴 창은 포커스가 없어 포인터 락을 잡을 수 없으므로
- *     "Escape 로 락을 푼 직후 ≈1.25초 재요청 거부" 쿨다운과 `shared/Input` 의 미루기는 여전히 재지 못한다. 여기서 보는
- *     것은 **배선**뿐이다 — Escape key-up 이 `before-input-event` → `executeJavaScript(…, true)` → `window.__scavShellRelock`
- *     까지 닿는지. 락이 실제로 돌아오는 시각은 `src/shared/Input.ts` 의 「Escape 직후의 재잠금은 미룬다」 주석(커밋 `3b12420`)이 원본이다.
- *   - 숨긴 창은 포커스 · 전체화면 · 창 상태 복원(`windowState.ts`)을 보지 못한다. 강제 종료(작업 관리자) 뒤 세이브 유지
- *     (`flushStorageData`)도 여기서는 재지 않는다 — 정상 종료만.
+ * **What automation cannot prove** (a recorded limit — `electron/README.md`, the "Escape" section):
+ *   - real Escape · pointer-lock timing. A key injected over CDP (`Input.dispatchKeyEvent`) does not take
+ *     Chromium's exclusive-access path, so it reaches the page with the lock still held, and **it does not go
+ *     through `before-input-event` either** (measured: the page receives it, the hook fires 0 times). So step
+ *     1 injects it with the main process's `sendInputEvent`, but a hidden window has no focus and cannot take
+ *     a pointer lock, so the 「a re-request ≈1.25 s after Escape released the lock is refused」 cooldown and
+ *     `shared/Input`'s deferral still cannot be measured. What is looked at here is **the wiring** only —
+ *     whether an Escape key-up reaches `before-input-event` → `executeJavaScript(…, true)` →
+ *     `window.__scavShellRelock`. When the lock really comes back is `src/shared/Input.ts`'s 「a re-lock
+ *     right after Escape is deferred」 comment (commit `3b12420`), which is the original.
+ *   - a hidden window cannot see focus · fullscreen · the window state restore (`windowState.ts`). Saves
+ *     surviving a forced kill (Task Manager) (`flushStorageData`) are not measured here either — only a
+ *     clean quit.
  *
- * Usage: node scripts/smoke-desktop.mjs [--no-build | --build] [--release | --release-dir=<폴더>]
- *        (verify 러너가 넘기는 vite URL 인자는 무시한다 — vite 도 공용 릴레이도 쓰지 않는다)
+ * Usage: node scripts/smoke-desktop.mjs [--no-build | --build] [--release | --release-dir=<folder>]
+ *        (the vite URL argument the verify runner passes is ignored — neither vite nor the shared relay is
+ *        used)
  */
 import puppeteer from 'puppeteer-core';
 import { spawn, spawnSync } from 'node:child_process';
@@ -73,43 +98,57 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..');
 const isWin = process.platform === 'win32';
 const args = process.argv.slice(2).filter((a) => !/^https?:\/\//.test(a));
-/** `--release-dir=<폴더>` = 다른 곳에 만든 배포 폴더를 검사한다 (그때는 app:dist 를 절대 돌리지 않는다). */
+/** `--release-dir=<folder>` = checks a deploy folder built somewhere else (app:dist is then never run). */
 const RELEASE_DIR = args.find((a) => a.startsWith('--release-dir='))?.slice('--release-dir='.length) ?? null;
 const RELEASE = args.includes('--release') || !!RELEASE_DIR;
 const NO_BUILD = args.includes('--no-build');
 const FORCE_BUILD = args.includes('--build');
 
-// ⚠ 2026-09-20: 원래 8820 · 8822 였는데 같은 날 `PROXY_RELAY_PORT` 를 옮기면서 이 둘을 빼먹었다 — 둘 다 WinNAT 예약 구간
-// **8800–8899** 안이고, 셸은 `APP_PORT` 부터 `APP_PORT_TRIES`(10) 개를 순서대로 시도하므로 8820–8829 가 전부 EACCES 가 된다.
-// 그러면 창이 아예 안 떠서 `/json/version` 이 45 초 안에 답하지 않고, 점수는 5/6 으로 끝난다 (`docs/TODO.md` E-13 이 「원인 미상」
-// 으로 적어 둔 바로 그 빨간이다). 9910–9919 는 그 밖이고 9823 · 9885 · 9886 · 9896 와도 거리가 있다.
-// 범위는 기계마다 · 때마다 옮겨간다 — 다시 빨간이면 `netsh interface ipv4 show excludedportrange protocol=tcp` 를 먼저 본다.
+// ⚠ 2026-09-20: these were 8820 · 8822, and moving `PROXY_RELAY_PORT` the same day left the two of them
+// behind — both sit inside the WinNAT reserved range **8800–8899**, and the shell tries `APP_PORT_TRIES` (10)
+// ports in order from `APP_PORT`, so 8820–8829 all come back EACCES. The window then never opens at all,
+// `/json/version` does not answer within 45 s and the score ends at 5/6 (exactly the red `docs/TODO.md` E-13
+// wrote down as 「cause unknown」). 9910–9919 is outside it and well clear of 9823 · 9885 · 9886 · 9896 too.
+// The range moves from machine to machine · from time to time — on another red, look at
+// `netsh interface ipv4 show excludedportrange protocol=tcp` first.
 const APP_PORT = 9910;
 const APP_PORT_2 = 9912;
-// ⚠ 2026-09-20: 원래 8823 였는데 이 개발 PC 의 WinNAT 이 **8800–8899** 를 통째로 예약해 bind 가 EACCES 로 죽고, 스모크가 「포트가 비어 있어야 한다」로 오진단해 항상 실패했다 (`netsh interface ipv4 show excludedportrange protocol=tcp`). 9823 는 그 범위 밖이다 — `smoke-netlink` 이 같은 날 9885 · 9886 으로 옮긴 것과 같은 이유다.
+// ⚠ 2026-09-20: this was 8823, but this dev PC's WinNAT reserves **8800–8899** whole, so the bind died with
+// EACCES and the smoke always failed, misdiagnosing it as 「the port has to be free」 (`netsh interface ipv4
+// show excludedportrange protocol=tcp`). 9823 is outside that range — the same reason `smoke-netlink` moved
+// to 9885 · 9886 the same day.
 const PROXY_RELAY_PORT = 9823;
 const DEBUG_PORT = 9340;
-/** 메인 프로세스(Node) 인스펙터 — `webContents.sendInputEvent` 로 CDP 가 아닌 **네이티브 입력 경로**의 Escape 를 넣는다. */
+/**
+ * The main process's (Node) inspector — `webContents.sendInputEvent` injects Escape on the **native input
+ * path** rather than through CDP.
+ */
 const INSPECT_PORT = 9341;
 const OUR_PORTS = [APP_PORT, APP_PORT_2, PROXY_RELAY_PORT, DEBUG_PORT, INSPECT_PORT];
-/** 아무 주소도 없을 때 · `--local` 일 때 셸이 파이프하는 곳 — 이 PC 에서 start-server.bat 로 켠 서버 (`NET_DEFAULT_PORT`). */
+/**
+ * Where the shell pipes with no address at all · with `--local` — the server start-server.bat started on this
+ * PC (`NET_DEFAULT_PORT`).
+ */
 const LOCAL_SERVER = 'ws://127.0.0.1:8787/ws';
 const PROXY_URL = `ws://127.0.0.1:${PROXY_RELAY_PORT}/ws`;
-/** 이 문자열이 명령줄에 있으면 이 스크립트가 띄운 프로세스다 (임시 폴더 접두어). */
+/** This string on the command line means the process was launched by this script (the temp folder prefix). */
 const TAG = 'scav-desktop-';
-/** `scav.` 로 시작하면 안 된다 — `shared/saveSlot` 이 부팅 때 옛 단일 키를 `scav.s1.*` 로 옮겨 "사라진 것처럼" 보인다. */
+/**
+ * It must not start with `scav.` — at boot `shared/saveSlot` moves an old single key to `scav.s1.*`, which
+ * makes it look as if it "disappeared".
+ */
 const MARK_KEY = 'smokeDesktop.mark';
-/** 번들 · 배포본에 있으면 안 되는 릴레이 코드의 흔적 (2026-09-15 — 빌드에는 서버가 없다). */
+/** Traces of relay code that must not be in the bundle · the release build (2026-09-15 — builds ship no server). */
 const RELAY_CODE = /startRelayServer|WebSocketServer|ProfileStore|LobbyManager/;
 
 let pass = 0, fail = 0;
 const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok   ${label}`); } else { fail++; console.log(`  FAIL ${label} ${extra}`); } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* ── 프로세스 · 포트 ─────────────────────────────────────────────────── */
+/* ── processes · ports ─────────────────────────────────────────── */
 const ELECTRON = (() => { try { return createRequire(import.meta.url)('electron'); } catch { return null; } })();
 
-/** [{port, pid}] — 지금 LISTENING 인 TCP 소켓 전부. */
+/** [{port, pid}] — every TCP socket LISTENING right now. */
 function listeners() {
   if (isWin) {
     const out = spawnSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8' }).stdout ?? '';
@@ -123,7 +162,7 @@ function listeners() {
 function pidsOnPort(port) {
   return [...new Set(listeners().filter((x) => x.port === port).map((x) => x.pid))];
 }
-/** [{pid, ppid, name, cmd}] — electron · 배포 exe · node 만 (전체 목록은 느리다). */
+/** [{pid, ppid, name, cmd}] — electron · the release exe · node only (the full list is slow). */
 function processList() {
   if (!isWin) {
     const out = spawnSync('ps', ['-eo', 'pid=,ppid=,comm=,args='], { encoding: 'utf8' }).stdout ?? '';
@@ -148,7 +187,10 @@ function descendants(rootPid, list = processList()) {
   }
   return [...out];
 }
-/** 앱 프로세스 트리가 듣는 포트 (정렬). 창 · 디버깅 · 인스펙터 말고 무엇이 있으면 그것은 셸 안의 서버다. */
+/**
+ * The ports the app's process tree listens on (sorted). Anything besides the window · debugging · inspector
+ * ports is a server inside the shell.
+ */
 function portsOfTree(rootPid) {
   const tree = new Set(descendants(rootPid));
   return [...new Set(listeners().filter((x) => tree.has(x.pid)).map((x) => x.port))].sort((a, b) => a - b);
@@ -170,9 +212,10 @@ async function getJson(url, ms = 1500) {
   return (await probeJson(url, ms)).v;
 }
 /**
- * `getJson` 과 같지만 **실패 이유**를 남긴다 (E-13, 2026-09-17). 「앱이 아직 포트를 안 열었다」와 「우리 쪽 fetch 가
- * 실패했다(소켓 고갈 · 타임아웃 · 연결 거부)」는 `null` 하나로는 구분이 안 된다 — 전체 실행 안에서만 나는 부팅
- * 실패를 로그만 보고 가리려면 이유가 필요하다.
+ * The same as `getJson` but it records **why it failed** (E-13, 2026-09-17). 「the app has not opened the port
+ * yet」 and 「our own fetch failed (socket exhaustion · timeout · connection refused)」 cannot be told apart
+ * from one `null` — and telling a boot failure that happens only inside a full run apart, from the log alone,
+ * needs the reason.
  */
 async function probeJson(url, ms = 1500) {
   try {
@@ -184,9 +227,10 @@ async function probeJson(url, ms = 1500) {
   }
 }
 /**
- * 부팅이 제한 시간 안에 안 끝났을 때 **무엇이 막았는지** 남긴다 (E-13, 2026-09-17). 예전 메시지는 「45 초 안에
- * 응답하지 않았다」 한 줄이라 느린 것인지 · 죽은 것인지 · 포트를 남이 쥔 것인지 알 수 없었다. 실패할 때만 도는
- * 경로라 통과 시간에는 영향이 없다 — 대신 제한 시간을 넘겨서도 `graceMs` 를 더 기다려 **결국 뜨는지**를 본다.
+ * Records **what blocked it** when the boot did not finish inside the timeout (E-13, 2026-09-17). The old
+ * message was the one line 「did not answer within 45 s」, which told nothing about whether it was slow · dead
+ * · or held by someone else. It runs only on a failure, so it costs a passing run nothing — instead it waits
+ * `graceMs` longer past the timeout to see whether it **comes up in the end**.
  */
 async function bootDiag(h, debugPort, lastErr, waitedMs, graceMs = 120_000) {
   const pid = h?.child.pid ?? null;
@@ -200,9 +244,10 @@ async function bootDiag(h, debugPort, lastErr, waitedMs, graceMs = 120_000) {
   while (!late && Date.now() - t1 < graceMs) { late = await getJson(`http://127.0.0.1:${debugPort}/json/version`, 1000); if (!late) await sleep(500); }
   const lateS = late ? ((Date.now() - t1 + waitedMs) / 1000).toFixed(0) : null;
   /*
-   * 2026-09-20 (E-13): 셀이 이미 「app port N is reserved by Windows」를 열 줄씩 찍고 있었는데, 한 줄짜리 FAIL 요약이
-   * 그걸 올려 주지 않아 나흘 동안 「원인 미상」으로 남아 있었다. 진단이 스스로 말하게 한다 — 이 줄이 뜨면 포트 문제지
-   * 앞의 어느 검사도 아니므로 `netsh interface ipv4 show excludedportrange protocol=tcp` 를 보고 포트를 옮기면 된다.
+   * 2026-09-20 (E-13): the shell was already printing 「app port N is reserved by Windows」 ten lines at a
+   * time, but the one-line FAIL summary never carried it up, so it stayed 「cause unknown」 for four days. The
+   * diagnosis says it itself — when this line shows it is the ports, not any check before it, so look at
+   * `netsh interface ipv4 show excludedportrange protocol=tcp` and move the port.
    */
   const reserved = (h?.out.match(/app port \d+ is reserved by Windows/g) ?? []).length;
   const portNote = reserved ? ` — 셸이 앱 포트 ${reserved}개를 「reserved by Windows」로 넘겼다: WinNAT 예약 구간이 APP_PORT 스캔 범위를 덮어 창이 열리지 않았다` : '';
@@ -212,9 +257,10 @@ async function bootDiag(h, debugPort, lastErr, waitedMs, graceMs = 120_000) {
 }
 
 /**
- * 메인 프로세스에서 식을 돌린다 (`--inspect=<port>` 로 띄운 Electron 의 Node 인스펙터). 번들이 ESM 이라 `import()` 는
- * 인스펙터 문맥에서 막혀 있고(`ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`), `includeCommandLineAPI` 가 주는 `require` 로
- * `electron` 을 얻는다.
+ * Runs an expression in the main process (the Node inspector of an Electron launched with `--inspect=<port>`).
+ * The bundle is ESM, so `import()` is blocked in the inspector context
+ * (`ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`), and `electron` is obtained through the `require` that
+ * `includeCommandLineAPI` provides.
  */
 async function mainEval(port, expression) {
   let list = null;
@@ -232,7 +278,7 @@ async function mainEval(port, expression) {
   } finally { ws.close(); }
 }
 
-/** 이 스크립트가 띄운 것 — 끝나면 전부 확인하고 남았으면 죽인다. */
+/** What this script launched — at the end every one is confirmed, and killed if it is still there. */
 const launched = new Set();
 const trackedPids = new Set();
 const cleanEnv = () => {
@@ -263,8 +309,9 @@ async function waitFor(page, fn, label, timeout = 60000, arg) {
 }
 
 /**
- * 원격 디버깅 포트에 붙어 창 서버의 페이지를 잡는다. `appPid` 를 알면(`h` 가 stub 이면 모른다) 그 자손을 추적 목록에 넣는다.
- * `h.exit` 가 먼저 오면 곧바로 던진다 — 부팅 실패를 60 초 기다리지 않는다.
+ * Attaches to the remote debugging port and takes hold of the window server's page. When `appPid` is known
+ * (it is not when `h` is the stub) its descendants go into the tracked list.
+ * If `h.exit` arrives first it throws at once — a boot failure is not waited out for 60 s.
  */
 async function attach(h, { debugPort = DEBUG_PORT, early = true } = {}) {
   const t0 = Date.now();
@@ -272,7 +319,8 @@ async function attach(h, { debugPort = DEBUG_PORT, early = true } = {}) {
   let lastErr = null;
   while (!version && Date.now() - t0 < 45000) {
     if (early && h?.exit) throw new Error(`${h.label} 이 부팅 중에 끝났다 (exit ${h.exit.code})\n${tail(h)}`);
-    // 메인 번들이 로드에서 죽으면 Electron 은 오류 대화상자를 띄운 채 살아 있다 — 기다리지 않고 곧바로 끝낸다.
+    // When the main bundle dies on load, Electron stays alive with an error dialog up — it ends at once
+    // rather than waiting.
     if (h && /App threw an error during load|Error launching app|A JavaScript error occurred in the main process/.test(h.out)) {
       killTree(h.child.pid);
       throw new Error(`${h.label}: 메인 프로세스 번들이 로드 중에 죽었다 (dist-electron/main.js — 다른 작업이 반쯤 된 코드일 수 있다)\n${tail(h)}`);
@@ -283,7 +331,8 @@ async function attach(h, { debugPort = DEBUG_PORT, early = true } = {}) {
   }
   const bootMs = Date.now() - t0;
   if (!version) throw new Error(`${debugPort}/json/version 이 45 초 안에 응답하지 않았다 ${await bootDiag(h, debugPort, lastErr, bootMs)}${h ? `\n${tail(h)}` : ''}`);
-  // 전체 실행 안에서 부팅이 느려지는지(E-13) 는 통과한 실행의 시간을 봐야 안다 — 3 초를 넘으면 남긴다.
+  // Whether the boot slows down inside a full run (E-13) only shows in the times of runs that passed —
+  // anything over 3 s is recorded.
   if (bootMs > 3000) console.log(`  note: ${h?.label ?? '앱'} 의 ${debugPort}/json/version 이 ${(bootMs / 1000).toFixed(1)} s 만에 떴다 (제한 45 s)`);
   const browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${debugPort}`, defaultViewport: null, protocolTimeout: 60000 });
   let page = null;
@@ -298,7 +347,7 @@ async function attach(h, { debugPort = DEBUG_PORT, early = true } = {}) {
   return { browser, page, version, errors, origin: new URL(page.url()).origin };
 }
 
-/** CDP `Browser.close` → Electron 이 창을 닫고 `window-all-closed` → `app.quit()`. `pid` 가 끝날 때까지 기다린다. */
+/** CDP `Browser.close` → Electron closes the window, `window-all-closed` → `app.quit()`. Waits for `pid` to end. */
 async function closeApp(label, h, s, { pid = h?.child.pid } = {}) {
   try { await Promise.race([s.browser.close(), sleep(8000)]); } catch { /* socket closed under us */ }
   const t0 = Date.now();
@@ -311,7 +360,10 @@ async function closeApp(label, h, s, { pid = h?.child.pid } = {}) {
   ok(busy.length === 0, `${label}: 종료 뒤 창 · 디버깅 포트가 비었다`, busy.join(','));
 }
 
-/** 앱이 듣는 포트가 창 · 디버깅 · 인스펙터뿐인가 — 셸 안에 릴레이가 없다는 가장 직접적인 증거. */
+/**
+ * Whether the ports the app listens on are only the window · debugging · inspector ones — the most direct
+ * proof that there is no relay inside the shell.
+ */
 function checkNoServerPorts(label, rootPid, appPort) {
   const allowed = new Set([appPort, DEBUG_PORT, INSPECT_PORT]);
   const ports = portsOfTree(rootPid);
@@ -319,7 +371,7 @@ function checkNoServerPorts(label, rootPid, appPort) {
     `${label}: 앱 프로세스가 듣는 포트는 창 · 디버깅 포트뿐이다 — 릴레이를 켜지 않는다 (${ports.join(', ')})`);
 }
 
-/** 렌더러가 같은 오리진 `/ws` 로 접속 → 스모크 릴레이의 clients 1. */
+/** The renderer connects over same-origin `/ws` → the smoke relay's clients is 1. */
 async function connectThroughProxy(label, s) {
   const conn = await s.page.evaluate(async () => {
     const net = window.__game.getSystem('net');
@@ -332,11 +384,11 @@ async function connectThroughProxy(label, s) {
 async function relayClientsBackToZero(label) {
   let c = null;
   for (let i = 0; i < 40; i++) { c = await getJson(`http://127.0.0.1:${PROXY_RELAY_PORT}/health`); if (c?.clients === 0) break; await sleep(150); }
-  // 끊긴 소켓은 재접속 유예로 넘어간다 — clients 에서 빠지는 것만 본다.
+  // A dropped socket goes into the reconnect grace — only its leaving `clients` is looked at.
   ok(c?.clients === 0, `${label}: 앱을 닫으면 스모크 릴레이의 clients 가 0 으로 돌아온다`, JSON.stringify(c));
 }
 
-/* ── 0. 준비 ───────────────────────────────────────────────────────────── */
+/* ── 0. setup ────────────────────────────────────────────────────────── */
 const SRC_EXT = /\.(ts|tsx|js|mjs|css|html|csv|txt|json|glsl)$/i;
 function newestIn(rel, skip = []) {
   const start = join(ROOT, rel);
@@ -376,7 +428,7 @@ try {
   if (!ELECTRON || !existsSync(ELECTRON)) throw new Error('node_modules/electron 이 없다 (npm install)');
 
   console.log('desktop: 0 준비');
-  // 포트: 이 스크립트가 예전에 남긴 것만 치운다. 남의 것이면 건드리지 않고 실패한다.
+  // Ports: only what this script left behind earlier is cleared. Anything else is left alone and it fails.
   {
     const busy = OUR_PORTS.map((p) => [p, pidsOnPort(p)]).filter(([, pids]) => pids.length);
     if (busy.length) {
@@ -400,20 +452,22 @@ try {
   const needDist = FORCE_BUILD || (!NO_BUILD && distStamp < distSrc) || !distStamp;
   const needMain = FORCE_BUILD || (!NO_BUILD && mainStamp < mainSrc) || !mainStamp;
   if (!needDist && !needMain) console.log(`  note: ${NO_BUILD ? '--no-build' : 'dist/ · dist-electron/ 가 소스보다 새것이다'} — 빌드를 건너뛴다`);
-  // 빌드는 실패할 때만 센다 — 돌았는지 여부로 `N passed` 가 실행마다 달라지지 않게.
+  // A build counts only when it fails — so that whether it ran does not move `N passed` from run to run.
   if (needDist && !runStep('vite build → dist/', process.execPath, [join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'])) ok(false, 'dist/ 를 굽는다 (vite build) — 옛 dist/ 로 계속한다');
   if (needMain && !runStep('electron/build.mjs → dist-electron/main.js', process.execPath, [join(ROOT, 'electron', 'build.mjs')])) ok(false, 'dist-electron/main.js 를 굽는다');
   if (!existsSync(join(ROOT, 'dist', 'index.html')) || !existsSync(join(ROOT, 'dist-electron', 'main.js'))) throw new Error('빌드 산출물이 없다 — 셸이 모달 다이얼로그로 멈추므로 띄우지 않는다');
   {
     const main = readFileSync(join(ROOT, 'dist-electron', 'main.js'), 'utf8');
-    // 이 플래그를 모르는 옛 번들로 띄우면 사용자의 userData(세이브 · 단일 인스턴스 락)를 그대로 쓴다 — 절대 띄우지 않는다.
+    // Launching an old bundle that does not know these flags would use the user's own userData (the saves ·
+    // the single-instance lock) — so it is never launched.
     if (!main.includes('SCAV_USER_DATA') || !main.includes('SCAV_HIDDEN')) throw new Error('dist-electron/main.js 가 --user-data · --hidden 을 모른다 (옛 번들) — --no-build 를 빼고 다시');
-    // 2026-09-15 (사용자 결정): 빌드에는 서버가 없다.
+    // 2026-09-15 (user's decision): builds ship no server.
     ok(!RELAY_CODE.test(main), 'dist-electron/main.js 에 릴레이 코드가 없다 (startRelayServer · WebSocketServer · ProfileStore · LobbyManager)', main.match(RELAY_CODE)?.[0] ?? '');
     ok(!/from\s*["']ws["']|require\(\s*["']ws["']\s*\)/.test(main), 'dist-electron/main.js 가 ws 패키지를 import 하지 않는다');
   }
 
-  // 스모크 릴레이 — 셸에는 서버가 없으므로 붙을 곳을 스모크가 만든다 (start-server.bat 가 켜는 것과 같은 `server/index.ts`).
+  // The smoke relay — the shell holds no server, so the smoke makes something to connect to (the same
+  // `server/index.ts` start-server.bat starts).
   proxyRelay = launch('smoke relay', process.execPath,
     ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', join(ROOT, 'server', 'index.ts'), `--data=${RELAY_DATA}`, `--port=${PROXY_RELAY_PORT}`, '--host=127.0.0.1'],
     { cwd: ROOT, env: cleanEnv() });
@@ -426,7 +480,7 @@ try {
   const UD2 = join(TMP, 'ud-file');
   const electronArgs = (...flags) => [ROOT, '--hidden', ...flags];
 
-  /* ── 1. 부팅 + 2. 프록시 (--relay) ─────────────────────────────────── */
+  /* ── 1. boot + 2. proxy (--relay) ─────────────────────────────── */
   console.log(`desktop: 1 부팅 (--hidden --relay=${PROXY_URL} --app-port=${APP_PORT} --user-data=<tmp>)`);
   const A = launch('boot A', ELECTRON, electronArgs(`--inspect=${INSPECT_PORT}`, `--relay=${PROXY_URL}`, `--app-port=${APP_PORT}`, `--user-data=${UD1}`, `--remote-debugging-port=${DEBUG_PORT}`), { cwd: EMPTY_CWD });
   const sA = await attach(A);
@@ -445,18 +499,21 @@ try {
   ok(bootA.mimic === 'undefined', 'window.__scavDesktop 흉내가 없다 (preload 없음 · 이 스모크도 심지 않았다)', bootA.mimic);
   ok(bootA.relock === 'function', 'window.__scavShellRelock 훅이 설치돼 있다', bootA.relock);
   {
-    // 숨긴 창에서도 게임 루프가 돈다 — 스모크의 `__game.frame` fallback 없이. 단 **느리다**: 한 번도 보이지 않은 창은
-    // 합성기가 프레임을 요구하지 않아 rAF 가 초당 ≈5 번이다 (2026-09-11 측정). 셸 검사에는 충분하고, 게임플레이를 재는
-    // 검사를 여기 붙이려면 다른 스모크처럼 `__game.frame` 을 대신 불러야 한다.
+    // The game loop runs in a hidden window too — with no smoke-side `__game.frame` fallback. It is **slow**
+    // though: a window never once shown gets no frame request from the compositor, so rAF fires ≈5 times a
+    // second (measured 2026-09-11). That is enough for the shell checks; a check that measures gameplay would
+    // have to call `__game.frame` itself here, the way the other smokes do.
     const t1 = await sA.page.evaluate(() => window.__game.ctx.time);
     const rafs = await sA.page.evaluate(() => new Promise((res) => { let n = 0; const t0 = performance.now(); (function f() { n++; if (performance.now() - t0 < 1000) requestAnimationFrame(f); else res(n); })(); }));
     const t2 = await sA.page.evaluate(() => window.__game.ctx.time);
     ok(t2 > t1 && rafs >= 2, `--hidden 창에서도 게임 루프가 돈다 (ctx.time ${t1.toFixed(2)} → ${t2.toFixed(2)}, rAF ${rafs}/s)`);
   }
   {
-    // 메인 프로세스의 `webContents.sendInputEvent` = CDP 가 아닌 네이티브 입력 경로. `before-input-event` →
-    // `executeJavaScript(SHELL_RELOCK, true)` → 페이지 훅까지의 **배선**과, 키가 페이지에 정확히 한 번 닿는지를 본다.
-    // (CDP `Input.dispatchKeyEvent` 는 `before-input-event` 를 아예 타지 않는다 — 측정: 페이지는 받고 훅은 0 번.)
+    // The main process's `webContents.sendInputEvent` = the native input path, not CDP. What is looked at is
+    // the **wiring** through `before-input-event` → `executeJavaScript(SHELL_RELOCK, true)` → the page hook,
+    // and that the key reaches the page exactly once.
+    // (CDP `Input.dispatchKeyEvent` does not go through `before-input-event` at all — measured: the page
+    // receives it, the hook fires 0 times.)
     await sA.page.evaluate(() => {
       window.__relockOrig = window.__scavShellRelock; window.__relockCalls = 0; window.__escKeys = [];
       window.__scavShellRelock = function () { window.__relockCalls++; };
@@ -487,7 +544,7 @@ try {
   ok(routeA?.target === PROXY_URL && routeA?.source === '--relay' && routeA?.embedded === false, '--relay: /__scav/relay 가 그 주소와 출처 --relay 를 준다 (embedded false)', JSON.stringify(routeA));
   await connectThroughProxy('--relay', sA);
   {
-    // 저장소는 1 초 디바운스로 쓴다 — 조금 기다린다.
+    // The store writes on a 1 s debounce — so it waits a moment.
     const file = join(RELAY_DATA, 'profiles.json');
     for (let i = 0; i < 40 && !existsSync(file); i++) await sleep(150);
     ok(existsSync(file), '프로필은 스모크 릴레이의 저장 폴더에 생긴다 (profiles.json)');
@@ -495,7 +552,8 @@ try {
   }
   ok(A.out.includes(`relay proxy -> ${PROXY_URL}  (--relay)`), '메인 프로세스 로그: relay proxy -> 그 주소 (--relay)', A.out.trim() ? '' : '(stdout 이 비었다)');
 
-  // 4번 준비: 이 오리진의 localStorage 에 표식 + 튜토리얼 끝 표시 (다음 부팅에서 함선에 들어간다).
+  // Preparing step 4: a mark in this origin's localStorage + the tutorial marked done (the next boot enters
+  // the ship).
   const runId = `run-${Date.now().toString(36)}`;
   await sA.page.evaluate((k, v) => {
     localStorage.setItem(k, v);
@@ -506,7 +564,7 @@ try {
   ok(existsSync(join(UD1, 'Local Storage')), 'localStorage 가 임시 userData 에 있다 (Local Storage/)');
   await relayClientsBackToZero('--relay');
 
-  /* ── 3. 이 PC 의 서버 (--local) + 4. 세이브 = 창 포트 + 5. 단일 인스턴스 ── */
+  /* ── 3. this PC's server (--local) + 4. save = window port + 5. single instance ── */
   console.log('desktop: 3 이 PC 의 서버 (--local 이 --relay 를 이긴다) · 4 세이브 = 창 포트 (같은 포트 재부팅)');
   const D = launch('boot D', ELECTRON, electronArgs('--local', `--relay=${PROXY_URL}`, `--app-port=${APP_PORT}`, `--user-data=${UD1}`, `--remote-debugging-port=${DEBUG_PORT}`), { cwd: EMPTY_CWD });
   const sD = await attach(D);
@@ -520,7 +578,8 @@ try {
   const markD = await sD.page.evaluate((k) => localStorage.getItem(k), MARK_KEY);
   ok(markD === runId, '정상 종료 뒤 같은 창 포트로 재부팅하면 localStorage 표식이 그대로 있다', `${markD} vs ${runId}`);
 
-  // isDesktopShell() 이 흉내 없이 true — 함선에서 커서 소유자가 없으면 셸만 body.desktop-nocursor 를 켠다.
+  // isDesktopShell() is true with no mimic — in the ship, when nobody owns the cursor, only the shell turns
+  // body.desktop-nocursor on.
   await sD.page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(sD.page, () => window.__game.ctx.phase === 'hub', 'hub', 30000);
   const cur = await waitFor(sD.page, () => {
@@ -529,8 +588,9 @@ try {
   }, 'desktop-nocursor', 15000).catch(async () => sD.page.evaluate(() => ({ missing: true, cursor: window.__game.ctx.input.isCursorMode, blockers: [...window.__game.ctx.uiBlockers] })));
   ok(!cur.missing && cur.mimic === 'undefined', '함선에서 body.desktop-nocursor 가 켜진다 — isDesktopShell() 이 흉내 없이 true', JSON.stringify(cur));
   {
-    // 함선 진입이 같은 오리진 /ws → 8787 로 접속을 시도한다. 공용 릴레이가 떠 있으면 붙고, 없으면 오프라인 + 배경 프로브다.
-    // 어느 쪽이든 셸 목표를 "임베디드" 로 보고 프로브를 끄는 일은 없어야 한다 (2026-09-15).
+    // Entering the ship tries to connect over same-origin /ws → 8787. It connects when a shared relay is up,
+    // and is offline + a background probe when it is not.
+    // Either way the shell target must never be read as "embedded" and turn the probe off (2026-09-15).
     const linkD = await waitFor(sD.page, () => {
       const n = window.__game.getSystem('net');
       const l = n.link;
@@ -564,7 +624,7 @@ try {
 
   /* ── 6. server.txt ──────────────────────────────────────────────────── */
   console.log('desktop: 6 server.txt');
-  // 임시 폴더를 cwd 로 (configDirs 의 cwd 후보). BOM + 주석 + 빈 줄 + 맨 host:port.
+  // The temp folder as cwd (the `cwd` candidate in configDirs). BOM + comments + blank lines + a bare host:port.
   const cfgDir = join(TMP, 'cfg');
   mkdirSync(cfgDir, { recursive: true });
   writeFileSync(join(cfgDir, 'server.txt'), `﻿# smoke-desktop — 주석과 빈 줄은 건너뛴다\n\n127.0.0.1:${PROXY_RELAY_PORT}\nws://10.255.255.1:1/ws\n`, 'utf8');
@@ -580,7 +640,7 @@ try {
   await closeApp('boot C', C, sC);
   await relayClientsBackToZero('server.txt');
 
-  /* ── 7. 배포 폴더 (--release) ──────────────────────────────────────── */
+  /* ── 7. the deploy folder (--release) ──────────────────────────── */
   if (RELEASE) {
     console.log('desktop: 7 배포 폴더 (--release)');
     const rel = RELEASE_DIR ? RELEASE_DIR : join(ROOT, 'release', 'SCAVANGER');
@@ -635,7 +695,7 @@ try {
   console.log(`  FAIL ${e.message.split('\n')[0]}`);
   if (e.message.includes('\n')) console.log(e.message.split('\n').slice(1).join('\n'));
 } finally {
-  /* ── 끝: 남은 프로세스 · 포트 · 임시 폴더 ─────────────────────────────── */
+  /* ── end: leftover processes · ports · temp folder ───────── */
   console.log('desktop: 정리');
   if (proxyRelay && !proxyRelay.exit) {
     proxyRelay.child.kill();

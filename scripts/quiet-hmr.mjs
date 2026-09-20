@@ -1,37 +1,41 @@
 /**
- * vite HMR 소켓을 **조용히 붙잡아 두는** 스모크 공용 헬퍼 (2026-09-11, C-65). 스모크가 아니다 — `verify.mjs` 는
- * `SMOKES` 표에 적힌 파일만 돌리므로 이 파일이 스모크로 오인되지 않는다.
+ * The shared smoke helper that **parks vite's HMR socket quietly** (2026-09-11, C-65). Not a smoke — `verify.mjs`
+ * only runs the files listed in the `SMOKES` map, so this file is never mistaken for one.
  *
- * 왜: 스모크가 여는 vite 페이지는 HMR 소켓을 잡고 있고, 같은 트리에서 누군가 `src/` 파일을 저장하면 vite 가 그 페이지를
- * **full-reload** 한다 (이 게임은 TS 모듈 변경이 거의 전부 full-reload 다). 그러면 스모크가 심어 둔 상태가 날아가 아무 시점에나
- * `Execution context was destroyed` · `timeout waiting for boot` 로 깨진다. 여러 에이전트가 동시에 편집 · 검증하는 트리에서는
- * 늘 일어나는 일이다. 예전에는 35개 스모크가 같은 12줄을 각자 복사해 들고 있었고 10개는 아예 없었다.
+ * Why: the vite page a smoke opens holds an HMR socket, and when anyone in the same tree saves a `src/` file vite
+ * **full-reloads** that page (in this game nearly every TS module change is a full reload). The state the smoke planted
+ * is gone with it and the run breaks at any moment with `Execution context was destroyed` · `timeout waiting for boot`.
+ * In a tree where several agents edit and verify at once it happens constantly. It used to be 35 smokes each carrying
+ * its own copy of the same 12 lines, and 10 that carried none at all.
  *
- * 어떻게: 페이지 로드 **전에**(`page.evaluateOnNewDocument` — 게임 모듈보다 먼저, 새로고침 · `page.goto` 뒤에도 매번) `window.WebSocket`
- * 을 Proxy 로 감싸, 서브프로토콜이 `vite-hmr` 인 소켓에만 **CONNECTING(0) 에 머무는 가짜 소켓**을 돌려준다. vite 클라이언트는
- * error / close 에만 로그를 찍으므로 영영 연결 중인 소켓은 조용하다. **게임의 릴레이 소켓(`/ws`)은 그대로 통과한다** —
- * 서브프로토콜이 없기 때문이다. 릴레이까지 막는 것은 `parkRelay` 를 **명시했을 때만**이다.
+ * How: **before** the page loads (`page.evaluateOnNewDocument` — ahead of the game modules, and again after every reload
+ * and `page.goto`) `window.WebSocket` is wrapped in a Proxy that hands back a **fake socket parked in CONNECTING(0)**
+ * for sockets whose subprotocol is `vite-hmr`. The vite client logs only on error / close, so a socket that never
+ * finishes connecting stays silent. **The game's relay socket (`/ws`) passes straight through** — it carries no
+ * subprotocol. The relay is parked too **only when `parkRelay` says so**.
  *
- * 쓰는 법 (puppeteer-core, `page.goto` 전에):
+ * How to use it (puppeteer-core, before `page.goto`):
  *
  *   import { quietViteHmr } from './quiet-hmr.mjs';
- *   await quietViteHmr(page);                          // HMR 만 막는다 (기본)
- *   await quietViteHmr(page, { parkRelay: true });     // + 릴레이 소켓(`…/ws`, `…/ws?…`)도 막는다 — 서버 프로필이 도중에 들어오면
- *                                                       //   안 되는 싱글 플레이 스모크 (meta · housing · ladder …)
- *   await quietViteHmr(page, { logSockets: '__ws' });  // 통과시킨 소켓을 `window.__ws` 에 `{url, at}` 로 적는다 (netlink)
+ *   await quietViteHmr(page);                          // parks the HMR socket only (the default)
+ *   await quietViteHmr(page, { parkRelay: true });     // + parks the relay socket (`…/ws`, `…/ws?…`) — for a single-player
+ *                                                       //   smoke a server profile must not arrive mid-run (meta · housing · ladder …)
+ *   await quietViteHmr(page, { logSockets: '__ws' });  // records every socket it let through in `window.__ws` as `{url, at}` (netlink)
  *
- * 여러 페이지(멀티 클라이언트 · 새 탭 · 새 브라우저)를 여는 스모크는 **페이지마다** 부른다. 같은 문서에 두 번 설치되면
- * 뒤의 것은 아무것도 하지 않는다(먼저 건 옵션이 이긴다). 반환값은 `evaluateOnNewDocument` 의 `{identifier}` 다.
+ * A smoke that opens several pages (multi-client · a new tab · a new browser) calls it **per page**. Installed on one
+ * document twice, the second call does nothing (the options that went first win). It returns `evaluateOnNewDocument`'s
+ * `{identifier}`.
  *
- * vite 를 여는 새 스모크는 이 헬퍼를 건다 (`scripts/README.md`). vite 를 안 여는 것 —
- * 진짜 Electron 셸(`smoke-desktop`, `dist/` 에는 HMR 클라이언트가 없다) · 정적 피칭 문서(`smoke-pitch`) — 은 걸 필요가 없다.
+ * A new smoke that opens vite hangs this helper on it (`scripts/README.md`). One that does not open vite —
+ * the real Electron shell (`smoke-desktop`, `dist/` carries no HMR client) · the static pitch pages (`smoke-pitch`) — has no need of it.
  */
 
-/** 릴레이 경로: `…/ws` 로 끝나거나 `?` · `#` · `/` 가 이어진다 (옛 복사본의 `/\/ws\?/` · `/\/ws(\?|$)/` · `includes('/ws')` 를 합쳤다). */
+/** The relay path: ends in `…/ws`, or has `?` · `#` · `/` after it (the old copies' `/\/ws\?/` · `/\/ws(\?|$)/` · `includes('/ws')` merged into one). */
 const RELAY_PATH_SOURCE = String.raw`\/ws(?:[?#/]|$)`;
 
 /**
- * 브라우저 안에서 도는 설치 함수 — puppeteer 가 `toString()` 으로 넘기므로 **바깥 변수를 참조하지 않는다** (옵션은 인자로만).
+ * The install function that runs inside the browser — puppeteer hands it over through `toString()`, so it
+ * **references no outer variable** (the options arrive as the argument and nothing else).
  * @param {{ parkRelay: boolean, logSockets: string | null, relayPath: string }} opts
  */
 function installQuietSockets(opts) {

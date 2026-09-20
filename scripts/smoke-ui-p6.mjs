@@ -46,9 +46,9 @@ try {
   await page.setViewport({ width: 960, height: 540 });
   // Never let headless Chrome take a real pointer lock (Windows ClipCursor trap); `pointerLockElement` is faked below.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. A new profile starts the tutorial on its own and
+    // it locks room purposes · crafting · the terminal · boarding in that order, so it is seeded here as
+    // "already done" (the tutorial itself is what scripts/smoke-tutorial.mjs checks).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -199,10 +199,11 @@ try {
   });
   ok(/\bshow\b/.test(hh.cls) && hh.on && hh.owner === 'housing', 'ui:keyGuide {owner:housing} → guide .show', JSON.stringify(hh));
   ok(hh.items.join(' · ') === 'LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소 · Tab 닫기', 'guide items in order, Tab 닫기 appended last', hh.items.join(' · '));
-  // 2026-09-09: ESC 도 맨 위 화면 하나를 닫으므로 (`game/escapeKey`) 닫기 항목은 keycap 이 둘이다 — Tab 다음에 Esc.
+  // 2026-09-09: ESC closes the topmost screen too (`game/escapeKey`), so the 닫기 item has two keycaps — Tab, then Esc.
   const kgClose = await P(() => [...document.querySelectorAll('#ui-root > .key-guide .kg-close .keycap')].map((k) => k.textContent));
   ok(kgClose.join(' ') === 'Tab Esc', '닫기 항목은 Tab · Esc 두 keycap (ESC 닫기, 2026-09-09)', kgClose.join(' '));
-  // 2026-09-12 (사용자 결정): 같은 행동의 다른 키는 작은 `또는`, 함께 누르는 키는 작은 `+` 로 잇는다 — 닫기도 `Tab 또는 Esc`
+  // 2026-09-12 (user's decision): another key for the same action is joined by a small `또는`, keys pressed
+  // together by a small `+` — 닫기 reads `Tab 또는 Esc` too
   await emit('ui:keyGuide', { owner: 'housing', keys: [{ key: 'E', label: '위치 이동', alt: [{ key: 'LMB', hold: true }] }, { key: 'Ctrl', label: '조합', combo: ['R'] }] });
   const kgAlt = await P(() => [...document.querySelectorAll('#ui-root > .key-guide .kg-item')].map((i) => [...i.children]
     .map((c) => (c.classList.contains('keycap') ? `[${c.textContent}${c.classList.contains('kc-hold') ? '⌄' : ''}]` : c.textContent)).join(' ')));
@@ -339,7 +340,7 @@ try {
   // back to a raid for the reset section (the panel stays up so the abort below has something to hide)
   await P(() => { const ctx = window.__game.ctx; ctx.missionMode = 'raid'; delete ctx.world.training; delete window.__tr; });
 
-  /* ── Phase 12: 감지 compass ticks · on-screen chevrons · 정찰 reveal (scan:cast) ── */
+  /* ── Phase 12: detection compass ticks · on-screen chevrons · recon reveal (scan:cast) ── */
   console.log('compass enemy ticks (감지)');
   const hudP12 = () => P(() => { const h = window.__game.getSystem('hud'); return { ticks: h.compassEnemyTicks, marks: h.detectMarkCount, scans: h.scanRevealCount,
     dom: [...document.querySelectorAll('.compass .etick')].filter((e) => !e.hidden).length, scannedDom: [...document.querySelectorAll('.compass .etick.scanned')].filter((e) => !e.hidden).length,
@@ -377,8 +378,8 @@ try {
   await waitSim(0.25);
   t1 = await hudP12();
   ok(t1.scans === 1 && t1.ticks === t0.ticks + 1 && t1.scannedDom >= 1, `scan:cast → one 정찰 tick (.scanned) although the enemy is ${far.toFixed(0)} m away`, JSON.stringify(t1));
-  // 2026-09-11: 빛기둥은 시체에만 선다 (`ui/hud/pillar.pillarAllowed`) — 정찰로 드러난 적에게는 기둥이 없고
-  // (붉은 투시 실루엣 · 나침반 틱이 알린다), 시체 목표에는 여전히 투시 기둥이 선다.
+  // 2026-09-11: light pillars stand only on corpses (`ui/hud/pillar.pillarAllowed`) — an enemy revealed by recon
+  // gets no pillar (the red through-wall silhouette · the compass tick tell it), a corpse target still raises one.
   ok(await P(() => { const g = window.__game.ctx.scene.getObjectByName('scan-reveals'); return !g || !g.children.some((m) => m.visible); }), 'ScanReveal raises no through-wall pillar for an enemy scan:cast target (pillars are corpse-only)');
   await P(() => { const ctx = window.__game.ctx;
     ctx.bus.emit('detect:reveal', { duration: 3, targets: [{ kind: 'crate', id: 'corpse:p6-probe', position: ctx.player.position.clone(), label: '시체' }] }); });
@@ -405,7 +406,7 @@ try {
   ok(t1.scans === 0 && t1.ticks === t0.ticks, 'the short reveal expired → tick gone', JSON.stringify(t1));
   await P(() => { const e = window.__p12enemy; if (e && !e.isDead) e.kill?.(); delete window.__p12enemy; });
 
-  /* ── Phase 12: 지속 사용 아이템 티커 (item:channelChanged) ── */
+  /* ── Phase 12: the channelled-item ticker (item:channelChanged) ── */
   console.log('channel ticker');
   const chan = () => P(() => ({ n: document.querySelectorAll('.notifs .notif.channel').length, text: window.__game.getSystem('hud').channelTickerText,
     stim: [...document.querySelectorAll('.notifs .notif')].filter((e) => /회복제 사용/.test(e.textContent)).length }));
@@ -430,7 +431,7 @@ try {
   c = await chan();
   ok(c.stim === 1, 'after the channel a plain heal toasts again');
 
-  /* ── Phase 12: 채집 = one item ticker, no 채집 toast ── */
+  /* ── Phase 12: gathering = one item ticker, no 채집 toast ── */
   console.log('gather ticker');
   const gathered = await P(() => {
     const ctx = window.__game.ctx;
@@ -445,7 +446,7 @@ try {
   });
   ok(!!gathered && gathered.added, `herb ${gathered && gathered.name} added to the bag`);
   ok(gathered && gathered.gatherLabel === 0 && gathered.acquired === 1 && gathered.after === gathered.before + 1, `exactly one 획득 ticker, no 채집 toast (${gathered && `${gathered.before} → ${gathered.after}`})`, JSON.stringify(gathered));
-  // 2026-09-12 (사용자 결정): 함선 창고 → 가방은 옮긴 것이다 — `fromStash` 가 붙은 itemAdded 에는 획득 티커가 없다
+  // 2026-09-12 (user's decision): stash → bag is a move — an itemAdded carrying `fromStash` gets no 획득 ticker
   const moved = await P(() => {
     const ctx = window.__game.ctx;
     const def = ctx.loot.getAllItemDefs().find((d) => d.category === 'herb');

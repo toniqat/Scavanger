@@ -1,27 +1,39 @@
-// 가구 자세 스모크 (2026-09-12, A-3a · A-3e — `src/player/parts/FurniturePose.ts`).
+// Furniture pose smoke (2026-09-12, A-3a · A-3e — `src/player/parts/FurniturePose.ts`).
 //
-// 왜 있나: 흔들의자 앉기와 운동 기구 자세는 hub 가 가구 위치에서 anchor 를 계산해 `ctx.player.setFurniturePose` 로 건다.
-// 이 스크립트는 **player 쪽**만 본다 — 가구 모델을 기다리지 않고 함선 바닥 위 가짜 anchor 로 계약을 직접 몬다.
+// Why it exists: sitting in the rocking chair and the gym-machine poses are raised by hub, which computes an
+// anchor from the furniture's position and calls `ctx.player.setFurniturePose`.
+// This script looks at the **player side** only — it drives the contract directly with a fake anchor above the
+// ship floor, without waiting for a furniture model.
 //
-// 검사:
-//   1. 거절: 드론 조종 · 사다리 · 포드 · 전투불능 · 사망 · 함선 밖 페이즈 · NaN anchor · 모르는 kind → false, 아무것도 안 바뀐다
-//   2. 앉기: 발이 anchor XZ · 직전 바닥 높이에 박힘 · 모델 루트가 anchor 로 · 몸 방향 = yaw · 발바닥이 anchor 아래 좌판 높이 ·
-//      무기 불가 · 카메라 오버라이드 없음(자유 시점) · `일어나기` 캡션 · WASD / Space / C / V 무시 · 드라이브 받음
-//   3. E 로 일어나기: `player:furniturePoseEnded {sit, interact}` 한 번 · 바로 옆 가짜 가구의 interact 가 **안** 불림 ·
-//      발 = 직전 자리 정확히 · 자세 복원 · 블렌드가 빠지면 몸 방향 · 루트 복귀 · 다음 E 는 가구를 친다
-//   4. 벤치 + 고정 카메라: 오버라이드 블렌드 · 몸이 누움 · 머리 쪽 = yaw(루트 yaw+π) · 위상 0 / 1 의 주먹 높이 · E 무시 ·
-//      null → `caller` · 오버라이드 해제 · 자리 복귀
-//   5. 달리기 자기 구동 → 사이클로 바로 갈아타기(끝 이벤트 없음) · 위상 0 / 0.5 의 좌우 발 높이 · 크랭크 높이
-//   6. spawnStanding → `reset`, 페이즈 변경(미션 시작) → `reset` 한 번, 레이드에서는 거절
-//   7. 캐릭터 버프 (2026-09-12, `parts/Buffs`) — 같은 목록을 다시 모으면 배열 · 리비전이 그대로 · progression 실제 API
-//      (`useMeal` · `usePrep` · `applyGymSession`)로 식사 · 준비물 pending · 운동 디버프 타이머(startedAt = until − GYM_FATIGUE_HOURS) ·
-//      한 프레임의 두 변경 = 리비전 하나 · `player:buffsChanged` 가 게시된 배열을 싣는다 · 1 초 틱이 리비전을 안 올린다 ·
-//      만료는 틱이 잡는다 · 앉기 = `rest` · housing 운동 세션(맨 `gymState` 레코드) + 달리기 = `exercise` + stat / minigame · 순서
-//   7b. 레이드: 식사 · 준비물 active · 디버프 유지 · 환경 노출(`world.env` 를 잠깐 가린다 — 내열 없음 = 노출, 방독 = 없음)
-//   8. `furniturePoseState` 누적 위상 — run 자기 구동 = steps + phase · 감김을 넘어 단조 · cycle 바퀴 수 · bench 0 … 1 · 해제 = null
-//   9. 원격 아바타 (디버그 원격 ref 의 `furniturePose`) — 보이던 몸은 블렌드 인 · 루트 (ref.x, anchorY, ref.z) · 벤치 yaw + π ·
-//      위상 0 / 1 주먹 높이 · run 누적 걸음 → 보행 위상 · cycle 3.0 / 3.5 바퀴 페달 · 끝나면 블렌드 아웃 · 자세를 든 채 처음 보이면
-//      스냅 · 명판 높이 · 다른 함선 자리에서 숨으면 잊고 다시 보이면 스냅
+// Checks:
+//   1. Refusals: drone control · ladder · pod · downed · dead · a phase outside the ship · a NaN anchor · an
+//      unknown kind → false, and nothing changes
+//   2. Sit: feet at the anchor XZ · pinned to the floor height of the moment before · the model root at the
+//      anchor · body facing = yaw · the soles at the seat height below the anchor · no weapon · no camera
+//      override (free look) · the `일어나기` caption · WASD / Space / C / V ignored · takes a drive
+//   3. E stands up: `player:furniturePoseEnded {sit, interact}` exactly once · the interact of the fake
+//      furniture right beside it is **not** called · feet exactly at the spot before · the stance restored ·
+//      body facing once the blend is out · the root back · the next E hits the furniture
+//   4. Bench + fixed camera: the override blends · the body lies back · the head end = yaw (root yaw + π) ·
+//      fist height at phase 0 / 1 · E ignored · null → `caller` · the override released · back in place
+//   5. Run self-driven → switching straight into cycle (no end event) · left / right foot height at phase
+//      0 / 0.5 · the crank height
+//   6. spawnStanding → `reset`, a phase change (mission start) → `reset` exactly once, refused in a raid
+//   7. Character buffs (2026-09-12, `parts/Buffs`) — collecting the same list again leaves the array · the
+//      revision unchanged · the real progression API (`useMeal` · `usePrep` · `applyGymSession`) for the meal ·
+//      the pending preparation · the exercise debuff timer (startedAt = until − GYM_FATIGUE_HOURS) · two
+//      changes in one frame = one revision · `player:buffsChanged` carries the published array · a 1 s tick
+//      does not raise the revision · expiry is caught by the tick · sitting = `rest` · a housing exercise
+//      session (a bare `gymState` record) + running = `exercise` + stat / minigame · the order
+//   7b. Raid: the meal · the preparation active · the debuff kept · environment exposure (the `world.env`
+//      getter is shadowed for a moment — heat with no coolant = exposed, toxin with the respirator = none)
+//   8. `furniturePoseState` cumulative phase — run self-driven = steps + phase · monotonic past the wrap ·
+//      the cycle turn count · bench 0 … 1 · released = null
+//   9. Remote avatar (`furniturePose` on a debug remote ref) — a body already shown blends in · the root at
+//      (ref.x, anchorY, ref.z) · bench yaw + π · fist height at phase 0 / 1 · run's cumulative steps → the
+//      stride phase · cycle 3.0 / 3.5 pedal turns · it blends out when it ends · a body first seen already
+//      holding a pose snaps · the nameplate height · hidden at another ship's spot it is forgotten, and snaps
+//      again when shown
 //
 // Usage: node scripts/smoke-pose.mjs [http://localhost:5273/]
 import puppeteer from 'puppeteer-core';
@@ -40,11 +52,12 @@ if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 const SHOTS = process.argv.includes('--shots');
 
-/* src/player/SoldierModel.ts 의 FURN_* 와 같은 값 (anchor 기준) */
+/* The same values as FURN_* in src/player/SoldierModel.ts (relative to the anchor) */
 const SIT_SOLE_Y = -0.36;
 const BENCH_BAR_Y0 = 0.5, BENCH_BAR_Y1 = 0.81;
 const CYCLE_CRANK_Y = -0.6, CYCLE_R = 0.16;
-/* 2026-09-13 조리대 앞 — src/player/SoldierModel.ts 의 FURN_COOK (anchor = 바닥) · model.ts 의 FURN_EYE.cook */
+/* 2026-09-13, at the cook bench — FURN_COOK in src/player/SoldierModel.ts (anchor = the floor) ·
+   FURN_EYE.cook in model.ts */
 const COOK = { edgeZ: -0.3, topY: 1.08, workZ: -0.52, handY: 1.13, knifeX: 0.1, pressX: -0.16, pressY: 1.12, pressZ: -0.48, chopLift: 0.12, stirR: 0.05 };
 const COOK_EYE = 1.42;
 
@@ -59,7 +72,7 @@ async function waitFor(page, fn, label, timeout = 90000, arg) {
   }
   throw new Error(`timeout waiting for ${label}`);
 }
-/** 시뮬레이션 시간으로 기다린다 (dt 는 50 ms 로 잘린다). */
+/** Waits in simulation time (dt is clamped to 50 ms). */
 async function waitSim(page, seconds) {
   const t0 = await page.evaluate(() => window.__game.ctx.time);
   await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${seconds}s`, 120000, t0 + seconds);
@@ -111,7 +124,7 @@ try {
       grounded: p.isGrounded,
     };
   });
-  /** 모델 뼈의 한 점(월드) — 손: 장갑 중심, 발: 발바닥 접점. */
+  /** One point on a model bone (world) — hand: the glove centre, foot: the sole contact point. */
   const limbs = () => page.evaluate(() => {
     const sys = window.__game.getSystem('player'), m = sys.model;
     const V3 = window.__game.ctx.camera.position.constructor;
@@ -134,7 +147,7 @@ try {
   });
   const start = await state();
 
-  /* ── 1. 거절 ─────────────────────────────────────────────────────────────── */
+  /* ── 1. refusals ───────────────────────────────────────────────────────── */
   console.log('refusals');
   const ref = await page.evaluate(() => {
     const ctx = window.__game.ctx, p = ctx.player, sys = window.__game.getSystem('player');
@@ -161,7 +174,7 @@ try {
   });
   for (const [k, v] of Object.entries(ref)) ok(v === true, `refused / untouched: ${k}`);
 
-  /* ── 2. 앉기 ─────────────────────────────────────────────────────────────── */
+  /* ── 2. sit ────────────────────────────────────────────────────────────── */
   console.log('sit (rocking chair, free look)');
   const SIT_YAW = 0.8;
   const sitA = await page.evaluate((yaw) => {
@@ -198,7 +211,7 @@ try {
   s = await state();
   ok(s.driven === true && Math.abs(s.phase - 0.3) < 1e-9, 'setFurniturePoseDrive accepted');
 
-  /* ── 3. E 로 일어나기 ─────────────────────────────────────────────────────── */
+  /* ── 3. E stands up ──────────────────────────────────────────────────── */
   console.log('E stands up');
   await page.evaluate(() => {
     const ctx = window.__game.ctx, p = ctx.player;
@@ -232,7 +245,7 @@ try {
   await page.evaluate(() => window.__game.ctx.interactables.unregister('pose_smoke_ia'));
   await waitSim(page, 0.5);
 
-  /* ── 4. 벤치 + 고정 카메라 ──────────────────────────────────────────────────── */
+  /* ── 4. bench + fixed camera ─────────────────────────────────────────── */
   console.log('bench (fixed camera, drive)');
   const BENCH_YAW = 0.3;
   const benchA = await page.evaluate((yaw) => {
@@ -250,7 +263,7 @@ try {
   ok(s.lie > 1.5, `body lies back (bodyGroup.x ${s.lie.toFixed(2)})`);
   ok(Math.abs(wrap(s.bodyYaw - (BENCH_YAW + Math.PI))) < 0.05, 'root turned to yaw + π (head toward yaw)');
   L = await limbs();
-  // 머리 쪽 = yaw 방향 (−sin, −cos)
+  // The head end = the yaw direction (−sin, −cos)
   const hx = -Math.sin(BENCH_YAW), hz = -Math.cos(BENCH_YAW);
   const along = (pt) => (pt.x - benchA.ax) * hx + (pt.z - benchA.az) * hz;
   ok(along(L.handR) > -0.15 && along(L.hips) < -0.3, `head end toward yaw (hands ${along(L.handR).toFixed(2)}, hips ${along(L.hips).toFixed(2)})`);
@@ -276,7 +289,7 @@ try {
   s = await state();
   ok(s.over === false && s.vis === null, 'camera override released and the body stood up');
 
-  /* ── 5. 달리기 → 사이클 ──────────────────────────────────────────────────── */
+  /* ── 5. run → cycle ────────────────────────────────────────────────── */
   console.log('run (self-driven) → cycle');
   await page.evaluate(() => {
     const ctx = window.__game.ctx, p = ctx.player, V3 = ctx.camera.position.constructor;
@@ -321,7 +334,7 @@ try {
   // 7–9 add pose events of their own; section 6 counts from here, so they are cut back out afterwards
   const poseEvBase = await page.evaluate(() => window.__poseEv.length);
 
-  /* ── 7. 캐릭터 버프 모으기 (함선) ─────────────────────────────────────────────── */
+  /* ── 7. collecting character buffs (ship) ───────────────────────────── */
   console.log('character buffs (ship)');
   const FATIGUE_H = Number((readFileSync(new URL('../data/constants.csv', import.meta.url), 'utf8').match(/^GYM_FATIGUE_HOURS,([\d.]+)/m) ?? [])[1]);
   await page.evaluate(() => {
@@ -415,7 +428,7 @@ try {
     `exercise buff with stat / minigame (${JSON.stringify(exB)})`);
   ok(B.list.map((b) => b.kind).join() === 'gym_fatigue,exercise,meal,prep', `order: debuff → exercise → meal → prep (${B.list.map((b) => b.key).join()})`);
 
-  /* ── 8. furniturePoseState: 누적 위상 ──────────────────────────────────────────── */
+  /* ── 8. furniturePoseState: cumulative phase ───────────────────────────────── */
   console.log('furniturePoseState (cumulative phase)');
   await waitSim(page, 1.0);
   const cum = await page.evaluate(() => {
@@ -453,7 +466,7 @@ try {
   B = await buffs();
   ok(offW === null && !B.list.some((b) => b.key === 'pose'), 'released: furniturePoseState null, pose buff gone');
 
-  /* ── 9. 원격 아바타 가구 자세 (디버그 원격 ref) ───────────────────────────────────── */
+  /* ── 9. remote avatar furniture pose (debug remote ref) ─────────────── */
   console.log('remote avatar furniture pose');
   const remote = (id) => page.evaluate((rid) => {
     const av = window.__game.getSystem('remotePlayers').getAvatar(rid);
@@ -543,7 +556,7 @@ try {
   R = await remote(rem2.id);
   ok(R.shown === true && R.kind === 'sit' && R.blend === 1, 'shown again: snaps back into the pose');
 
-  /* ── 10. 조리 자세 (2026-09-13, 요리 미니게임 — `cook` · `cooking` 버프 · 식사 품질) ─────────────────────────── */
+  /* ── 10. cook pose (2026-09-13, cooking minigame — `cook` · `cooking` buff · meal quality) ───── */
   console.log('cook pose (counter, fixed camera) · cooking buff · meal quality');
   const alongOf = (pt, a, yaw) => (pt.x - a.ax) * -Math.sin(yaw) + (pt.z - a.az) * -Math.cos(yaw);
   const sideOf = (pt, a, yaw) => (pt.x - a.ax) * Math.cos(yaw) + (pt.z - a.az) * -Math.sin(yaw);
@@ -726,7 +739,7 @@ try {
   });
   ok(raid, 'refused during a raid');
 
-  /* ── 7b. 캐릭터 버프 (레이드) — 출격이 식사 · 준비물을 active 로 옮겼다 ───────────────────── */
+  /* ── 7b. character buffs (raid) — launch moved meal · prep to active ─── */
   console.log('character buffs (raid)');
   await waitSim(page, 0.2);
   B = await buffs();

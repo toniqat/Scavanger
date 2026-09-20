@@ -1,23 +1,36 @@
-// Single-player smoke test for **요리 재료 티어 — housing 규칙** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, agent B).
-// 화면(housing/ui)은 smoke-stations 의 몫이고, 여기서는 `ctx.housing` API · `state` · 세이브만 본다:
-//   0. `Rules.ts` 순수 함수 — 뒤 두 인자의 기본값이 옛 식과 **같은 값**(`growDurationMs` · `cultureDurationMs`), 흙 궁합 보너스만 비율을 탄다
-//      (패널티는 그대로), 소켓 speed 바닥, `durabilityRatio` · `wearAfterHarvest`(wear 소켓 바닥), `analysisDurationMs`(2026-09-16: 셋째 항
-//      `speedup` · 옛 `analyzeDurationMs` 는 사라졌다) · `analysisLevelBonus` / `analysisDexBonus` / `analysisSpeedup`, 결과표 가중 추첨(rng 0 →
-//      첫 줄 최소 개수 · rng ≈1 → 마지막 해금 줄 최대 개수 · defOk 거절 → null), `analysisChances` 합 1 · 잠긴 줄 없음,
-//      **표본 등급 = 산출물 등급의 하한**(2026-09-16 사용자 결정 — `sampleRarity` 줄만 그 등급 전용이면서 면제).
-//   1. 분석기 — 넣는 순간 결과를 굴려 칸에 적는다(계열 · 결과 · 개수 범위 · 시간 = analysisDurationMs(시간, Lv, 표본 단축) × 연구 숙련),
-//      해석 중에는 결과를 숨긴다, 결과표는 defId 마다 한 줄로 합친다(등급별 석영 6줄 → 한 줄),
-//      레벨이 바뀌어도 적힌 결과는 그대로, 회수 = 산출물 하나(첫 해석 보너스 없음) → 계열 경험치 → `housing:analysisFound` → 레벨업
-//      (`housing:analysisLevelUp`) · 시간 배수, `housing:sampleDexAdded` 는 더 안 난다, 결과 없는 옛 칸은 회수할 때 굴린다, 결과표 정렬 · 확률,
-//      은퇴 표본도 해석된다, 세이브 왕복(`sanitize` 가 새 필드를 버리지 않는다).
-//   2. 재배 스테이션 — 부은 흙 = 내구도 최대 · 소켓 칸 = 등급, 수확마다 닳고 **0 이어도 칸 유지** · 0 에서 궁합 보너스가 사라진다 · 비율 절반,
-//      소켓 사유(흙 없음 · 소켓 아님 · 반대 대상 · 가득 참 · 없는 칸) · 교체(옛 소켓 파괴, 이벤트 `replaced`) · speed 가 파종 시간에 · yield 덤(마모
-//      전 비율, 0 이면 없음) · wear 소켓 · 흙 비우기 = 소켓도 사라짐 · `getOwnedSockets(target)` · 옛 세이브 `soilUsesLeft` → 내구도 이관 · 세이브 왕복.
-//   3. 배양조 — 배지 내구도 · 스캐폴드 넣기 / 빼기 / 사유, 스캐폴드 산출이 없는 세포주 거절, 은퇴 세포주 거절, 스캐폴드 → 종별 고기
-//      (`scaffoldHours` · 수확 때 스캐폴드 소모 · 칸 유지), 스캐폴드 없이 = 고기 페이스트, 배지 소켓, 스캐폴드만 든 칸 비우기 = 스캐폴드 반환,
-//      은퇴 세포주가 든 옛 칸 = 세포주 필드만 지운다, 세이브 왕복.
-//   4. (마지막, 너그럽게) 요리 `effects` 가 `derived` 에 전부 접히는가 — progression(agent D)의 몫이라 안 접히면 SKIP 으로 적는다.
-// 아이템 데이터(agent A: 표본 family · 토양/배지 durability · 소켓 · 세포주 · 스캐폴드)가 아직 없으면 그 구획은 한 줄 FAIL 뒤 건너뛴다.
+// Single-player smoke test for **the cooking material tiers — the housing rules** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, agent B).
+// The screens (housing/ui) are smoke-stations' job; only the `ctx.housing` API · `state` · the save are checked here:
+//   0. The pure functions of `Rules.ts` — the last two arguments default to **the same value** the old formula gave
+//      (`growDurationMs` · `cultureDurationMs`), only the soil-match bonus rides the ratio (the penalty does not),
+//      the socket speed floor, `durabilityRatio` · `wearAfterHarvest` (the wear socket floor), `analysisDurationMs`
+//      (2026-09-16: a third term `speedup` · the old `analyzeDurationMs` is gone) · `analysisLevelBonus` /
+//      `analysisDexBonus` / `analysisSpeedup`, the weighted draw over the result table (rng 0 → the first row's
+//      minimum count · rng ≈1 → the last unlocked row's maximum count · a defOk refusal → null),
+//      `analysisChances` summing to 1 with no locked row, **the sample rarity = the floor of the result's rarity**
+//      (2026-09-16 user's decision — only a `sampleRarity` row is both exclusive to that rarity and exempt).
+//   1. The analyzer — the result is rolled and written into the cell the moment a sample goes in (family · result ·
+//      count range · time = analysisDurationMs(hours, Lv, the sample speedup) × the research skill), the result is
+//      hidden while the analysis runs, the result table folds to one row per defId (six quartz rows by rarity → one),
+//      a level change leaves the written result alone, collecting = one output (no first-analysis bonus) → family XP
+//      → `housing:analysisFound` → a level up (`housing:analysisLevelUp`) · the time multiplier,
+//      `housing:sampleDexAdded` no longer fires, an old cell with no result is rolled at collection, the result
+//      table's sort · chances, a retired sample is analysed too, the save round trip (`sanitize` does not drop the
+//      new fields).
+//   2. The grow station — poured soil = full durability · socket cells = the rarity, it wears on every harvest and
+//      **the cell survives even at 0** · at 0 the match bonus is gone · a half ratio, the socket reasons (no soil ·
+//      not a socket · the opposite target · full · no such cell) · replacing (the old socket is destroyed, the
+//      event's `replaced`) · speed enters the planting time · the yield bonus (the ratio before the wear, none at 0)
+//      · the wear socket · emptying the soil takes the sockets with it · `getOwnedSockets(target)` · an old save's
+//      `soilUsesLeft` → migrated to durability · the save round trip.
+//   3. The culture tank — medium durability · inserting / taking a scaffold / the reasons, a strain with no scaffold
+//      output refused, a retired strain refused, a scaffold → species meat (`scaffoldHours` · the scaffold consumed
+//      at harvest · the cell survives), without a scaffold = meat paste, medium sockets, emptying a cell that holds
+//      only a scaffold returns it, an old cell holding a retired strain = only the strain fields are cleared, the
+//      save round trip.
+//   4. (Last, leniently) do a meal's `effects` all fold into `derived` — that is progression's job (agent D), so a
+//      failure is recorded as a SKIP.
+// If the item data (agent A: sample family · soil/medium durability · sockets · strains · scaffolds) is not there
+// yet, that section prints one FAIL line and is skipped.
 // Usage: node scripts/smoke-food-chain.mjs [http://localhost:5273/]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -103,7 +116,7 @@ try {
   const clearEv = () => H(() => { for (const k of Object.keys(window.__ev)) window.__ev[k].length = 0; });
   const missing = (ids) => H((list) => list.filter((id) => !window.__game.ctx.loot.getItemDef(id)), ids);
 
-  /* ══ 0. Rules — 순수 함수 ══════════════════════════════════════════════════ */
+  /* ══ 0. Rules — the pure functions ═════════════════════════════════════ */
   console.log('Rules — 순수 함수');
   const pure = await H(async () => {
     const R = await import('/src/housing/Rules.ts');
@@ -125,8 +138,10 @@ try {
     o.ratio = [R.durabilityRatio(50, 100), R.durabilityRatio(5, 0), R.durabilityRatio(150, 100), R.durabilityRatio(-3, 100)];
     o.wear = [R.wearAfterHarvest(100, 25, 0), R.wearAfterHarvest(100, 25, 0.4), R.wearAfterHarvest(100, 25, 5), R.wearAfterHarvest(10, 25, 0)];
     o.wearWant = [75, 85, Math.round((100 - 25 * S.GROW_WEAR_MUL_FLOOR) * 100) / 100, 0];
-    /* 2026-09-16 (사용자 결정): 옛 `analyzeDurationMs`(도감 진척률 · 기지식) 는 사라지고 시간 식은 `analysisDurationMs` 하나다 —
-       셋째 인자 `speedup`(도감 칸수 + 표본 레벨, 상한 `ANALYSIS_SPEEDUP_CAP`)이 곱해지고 기본값 0 은 옛 식과 같은 값이다. */
+    /* 2026-09-16 (user's decision): the old `analyzeDurationMs` (the catalogue progress ratio · what is already
+       known) is gone and there is one time formula, `analysisDurationMs` — a third argument `speedup` (catalogue
+       entries + the sample level, capped at `ANALYSIS_SPEEDUP_CAP`) multiplies in, and its default 0 gives the old
+       value. */
     o.analysis = [R.analysisDurationMs(2, 1) === Math.round(2 * 3600e3 * S.analysisTimeMul(1)),
       R.analysisDurationMs(2, 2) === Math.round(2 * 3600e3 * S.analysisTimeMul(2)), R.analysisDurationMs(0, 1) === 1000,
       R.analysisDurationMs(2, 1, 0.1) === Math.round(2 * 3600e3 * S.analysisTimeMul(1) * 0.9),
@@ -148,9 +163,11 @@ try {
     o.chances = Math.abs(Object.values(ch1).reduce((a, b) => a + b, 0) - 1) < 1e-9 && lockedAt1.every((id) => !(id in ch1));
     const chMax = R.analysisChances('cell', S.ANALYSIS_LEVEL_MAX, () => true);
     o.chancesMax = lockedAt1.length > 0 && lockedAt1.every((id) => chMax[id] > 0) && Math.abs(Object.values(chMax).reduce((a, b) => a + b, 0) - 1) < 1e-9;
-    /* 2026-09-16 (사용자 결정 — `data/analysis_results.csv` 머리글): **표본 등급이 산출물 등급의 하한**이다.
-       하한은 후보를 좁히기만 하고(합은 늘 1), `sampleRarity` 가 적힌 줄만 그 등급 전용이면서 하한을 면제받는다
-       (석영 6줄 — 어느 등급의 광물 표본이든 뽑을 것이 남게 하는 방지턱). 등급은 아이템 표에만 있으므로 콜백으로 넘긴다. */
+    /* 2026-09-16 (user's decision — the `data/analysis_results.csv` header): **the sample rarity is the floor of the
+       result's rarity**. The floor only narrows the candidates (the sum is always 1), and only a row carrying
+       `sampleRarity` is exclusive to that rarity while being exempt from the floor (the six quartz rows — the bump
+       that leaves a mineral sample of any rarity something to draw). Rarity lives only in the item table, so it is
+       handed in as a callback. */
     const rarityOf = (id) => window.__game.ctx.loot.getItemDef(id)?.rarity ?? null;
     const rank = (r) => S.RARITY_ORDER.indexOf(r);
     const maxLv = S.ANALYSIS_LEVEL_MAX;
@@ -161,7 +178,8 @@ try {
       || rank(rarityOf(id)) >= rank('legendary'));
     o.floorSum = [chCom, chLeg].every((c) => Math.abs(Object.values(c).reduce((a, b) => a + b, 0) - 1) < 1e-9);
     const exempt = S.ANALYSIS_RESULTS.find((r) => r.family === 'mineral' && r.sampleRarity === 'mythic');
-    // 면제 줄은 **자기 등급에만** 붙는다: 신화 전용 석영 줄은 전설 표본의 후보에 없다 (defId 자체는 다른 줄로 남을 수 있어 개수로 본다)
+    // an exempt row attaches **only to its own rarity**: the mythic-only quartz row is not a candidate for a
+    // legendary sample (the defId itself can survive through another row, so the count is what is checked)
     o.exempt = !!exempt && (chLeg[exempt.defId] ?? 0) > 0
       && S.ANALYSIS_RESULTS.filter((r) => r.family === 'mineral' && r.defId === exempt.defId && r.sampleRarity === 'legendary').length === 1;
     return o;
@@ -183,15 +201,16 @@ try {
     '표본 등급 = 산출물 등급의 하한 — 등급이 높을수록 후보가 좁아지되 합은 1 · sampleRarity 줄만 면제받고 그 등급에만 붙는다',
     JSON.stringify({ narrows: pure.floorNarrows, holds: pure.floorHolds, sum: pure.floorSum, exempt: pure.exempt }));
 
-  /* ── 계약 API ── */
+  /* ── The contract API ── */
   const api = await H(() => ['getAnalysisLevel', 'getAnalysisResults', 'getAnalysisFound', 'insertGrowSocket', 'insertCultureSocket', 'insertScaffold', 'takeScaffold', 'getOwnedSockets']
     .filter((k) => typeof window.__game.ctx.housing[k] !== 'function'));
   ok(api.length === 0, 'HousingRef 요리 재료 티어 API 8종', `missing: ${api.join(', ')}`);
   const st0 = await H(() => ({ v: window.__game.ctx.housing.state.version, xp: window.__game.ctx.housing.state.analysisXp, found: window.__game.ctx.housing.state.analysisFound }));
   ok(st0.v >= 11 && st0.xp && Object.keys(st0.xp).length === 0 && Array.isArray(st0.found) && st0.found.length === 0, `새 함선 = v11 · analysisXp {} · analysisFound [] (${JSON.stringify(st0)})`);
 
-  /* ── 함선: 방 용도는 state 에 직접 (용도 규칙은 smoke-housing 의 몫) ── */
-  // 2026-09-16 (채광 개편): 분석기 제작비에 운모(`min_mica`)가 들어왔다 — 없으면 「재료 부족」으로 분석기 구획 전체가 무너진다
+  /* ── the ship: room purposes go straight into `state` (the purpose rules are smoke-housing's job) ── */
+  // 2026-09-16 (the mining rework): the analyzer's craft cost now takes mica (`min_mica`) — without it the whole
+  // analyzer section collapses on 「재료 부족」
   for (const [id, n] of [['mat_scrap', 60], ['mat_cable', 24], ['mat_bio_sample', 30], ['mat_circuit', 16], ['mat_cloth', 10],
     ['mat_alloy', 30], ['mat_power_cell', 4], ['mat_control_module', 2], ['mat_capacitor', 2], ['min_mica', 6]]) await giveStash(id, n);
   await H(() => {
@@ -213,17 +232,19 @@ try {
   ok(gsP.uid && azP.uid && ctP.uid, 'craft + place 재배 스테이션 · 분석기 · 배양조', JSON.stringify({ gsP, azP, ctP }));
   const GS = gsP.uid, AZ = azP.uid, CT = ctP.uid;
 
-  /* ══ 1. 분석기 ══════════════════════════════════════════════════════════════ */
+  /* ══ 1. The analyzer ═════════════════════════════════════════════════════ */
   console.log('분석기 — 결과표 · 분석 레벨 · 분석 도감');
-  /* 2026-09-16 (사용자 결정, 표본 전면 개편): 옛 3종(spec_cell · spec_mineral · spec_dna)은 줄째로 사라지고
-     계열마다 등급별 표본이 생겼다 — 이름의 로마 숫자가 곧 등급이고 그 등급이 산출물 등급의 **하한**이다.
-     2026-09-17 (사용자 결정): 신화는 총기 계열에만 남는다 — 미확인 유전자 VI 가 사라져 **17종**(세포 · 광물 I…VI ·
-     유전자 I…V)이다. 아래 구획은 후보가 가장 넓은 **일반(I)** 표본으로 돈다. */
+  /* 2026-09-16 (user's decision, the sample rework): the old three (spec_cell · spec_mineral · spec_dna) are gone,
+     rows and all, and every family gained a sample per rarity — the roman numeral in the name is the rarity, and that
+     rarity is the **floor** of the result's rarity. 2026-09-17 (user's decision): mythic stays only in the weapon
+     family — `미확인 유전자 VI` is gone, leaving **17** (cell · mineral I…VI · gene I…V). The section below runs on
+     the **common (I)** sample, whose candidate pool is the widest. */
   const SPECS = ['spec_cell_1', 'spec_mineral_1', 'spec_gene_1'];
   const sMiss = await missing([...SPECS, 'spec_cell_6', 'spec_mineral_6', 'spec_gene_5']);
   const famOk = sMiss.length === 0 && await H((ids) => ids.every((id, i) => window.__game.ctx.loot.getItemDef(id)?.sample?.family === ['cell', 'mineral', 'dna'][i]), SPECS);
   ok(famOk, `표본 17종 (세포 · 광물 6등급 · 유전자 5등급) + family 데이터 (missing: ${sMiss.join(', ') || '없음'})`);
-  /* 2026-09-17: 유전자 계열의 천장은 전설이다 — 미확인 유전자 VI 와 그 신화 산출물(원종 · 원형질 인자)은 정의째 사라졌다. */
+  /* 2026-09-17: the gene family's ceiling is legendary — `미확인 유전자 VI` and its mythic outputs (`원종` ·
+     `원형질 인자`) are gone, definitions and all. */
   const gone = await H((ids) => ids.filter((id) => !!window.__game.ctx.loot.getItemDef(id)), ['spec_gene_6', 'sock_soil_prime', 'sock_medium_prime']);
   ok(gone.length === 0, `신화 유전자 계열 제거 (남아 있음: ${gone.join(', ') || '없음'})`);
   const rarities = await H(() => [1, 2, 3, 4, 5, 6].map((n) => window.__game.ctx.loot.getItemDef(`spec_cell_${n}`)?.rarity ?? null));
@@ -231,7 +252,8 @@ try {
     `이름의 로마 숫자 = 등급 (spec_cell_1..6 → ${rarities.join(' ')})`);
   if (AZ && famOk) {
     ok(await giveStash('spec_cell_1', 12) === 12 && await giveStash('spec_mineral_1', 2) === 2 && await giveStash('spec_gene_1', 1) === 1, '표본 준비 (세포 I 12 · 광물 I 2 · 유전자 I 1)');
-    // 2026-09-13 (H3): 연구 숙련은 프로필에 남고 회수마다 오른다 — 0 에서 시작하고, 시간 기대값은 그때의 `derived.researchTimeMul` 을 곱한다
+    // 2026-09-13 (H3): the research skill lives in the profile and rises on every collection — it starts at 0, and
+    // the expected time multiplies in whatever `derived.researchTimeMul` is at that moment
     await H(() => { const p = window.__game.ctx.progression; if (typeof p.addSkillXpRaw === 'function') p.addSkillXpRaw('research', -(p.getSkill('research') + 1)); });
     const rmulNow = () => H(() => { const v = window.__game.ctx.progression.derived.researchTimeMul; return typeof v === 'number' ? v : 1; });
     const K = await H(async () => {
@@ -246,13 +268,15 @@ try {
       const R = await import('/src/housing/Rules.ts');
       const before = inv.countDefAll('spec_cell_1');
       const def = loot.getItemDef('spec_cell_1');
-      /* 2026-09-16: 시간 식의 셋째 항(`speedup` = 같은 등급 도감 칸수 + 표본 레벨)은 **넣기 직전의** 값이라 먼저 읽는다 —
-         `getSampleAnalysis` 가 housing 이 실제로 쓰는 그 값이다 (스모크가 수치를 따로 적지 않는다). */
+      /* 2026-09-16: the third term of the time formula (`speedup` = the catalogue entries at the same rarity + the
+         sample level) is the value **just before the insert**, so it is read first — `getSampleAnalysis` returns the
+         very value housing uses (the smoke writes down no number of its own). */
       const speedup = h.getSampleAnalysis('spec_cell_1')?.speedup ?? 0;
       const err = h.startAnalysis(AZ, 0, 'spec_cell_1');
       const raw = JSON.parse(JSON.stringify(h.state.analyses.find((a) => a.uid === AZ && a.slot === 0) ?? null));
       const okDef = (id) => { const d = loot.getItemDef(id); return !!d && !d.retired; };
-      // 후보도 게임과 같은 규칙으로 낸다: 표본 등급이 하한, `sampleRarity` 줄은 그 등급 전용 + 면제
+      // the candidates come from the game's own rule too: the sample rarity is the floor, a `sampleRarity` row is
+      // exclusive to that rarity + exempt
       const opts = { sampleRarity: def.rarity, rarityOf: (id) => loot.getItemDef(id)?.rarity ?? null };
       const chances = R.analysisChances('cell', 1, okDef, opts);
       const rows = S.ANALYSIS_RESULTS.filter((r) => r.family === 'cell' && r.minLevel <= 1 && r.weight > 0 && okDef(r.defId));
@@ -324,8 +348,9 @@ try {
     ok(lvl.info.levelXp === K.xp2 && lvl.info.nextLevelXp === K.xp3 && lvl.info.timeMul === K.mul2,
       `getAnalysisLevel — levelXp · nextLevelXp · timeMul (${JSON.stringify(lvl.info)})`);
     const rmul2 = await rmulNow();
-    /* 2026-09-16: 여기까지 여러 번 회수했으므로 표본 레벨과 분석 도감이 이미 차 있다 — 기대값도 그 단축을 함께 곱해야 한다
-       (`getSampleAnalysis().speedup` 은 housing 이 쓰는 바로 그 값이고, 계열 레벨 배수와는 **다른 축**이라 곱해진다). */
+    /* 2026-09-16: several collections have happened by now, so the sample level and the analysis catalogue are
+       already filled — the expected value has to multiply that speedup in too (`getSampleAnalysis().speedup` is the
+       very value housing uses, and it is a **separate axis** from the family level multiplier, so the two multiply). */
     const lv2 = await H(async (AZ) => {
       const h = window.__game.ctx.housing;
       const R = await import('/src/housing/Rules.ts');
@@ -353,7 +378,8 @@ try {
     ok(legacy.info.ready && legacy.info.resultDefId === null && legacy.info.family === 'cell', '결과가 없는 옛 칸: 끝나도 결과 null · 계열은 표본 def 에서 읽는다', JSON.stringify(legacy.info));
     ok(legacy.err === null && legacy.gain >= 1 && legacy.xpGain === K.xpBy, `옛 칸은 회수하는 순간 굴려서 준다 (+${legacy.gain}개 · xp +${legacy.xpGain})`);
 
-    /* ── 2026-09-13 (H3): 연구 숙련 — 넣는 순간 해석 시간 × derived.researchTimeMul · 회수한 칸마다 연구 경험치 ── */
+    /* ── 2026-09-13 (H3): the research skill — the analysis time × derived.researchTimeMul at the insert · research
+         XP for every collected cell ── */
     await giveStash('spec_cell_1', 1);
     const research = await H(async (AZ) => {
       const ctx = window.__game.ctx, h = ctx.housing, p = ctx.progression;
@@ -369,7 +395,8 @@ try {
       out.wantMul = 1 - S.RESEARCH_TIME_AT_MAX * (out.skill / S.SKILL_LEVEL_MAX);
       const lv = h.getAnalysisLevel('cell').level;
       const hours = ctx.loot.getItemDef('spec_cell_1').sample.analyzeHours;
-      // 2026-09-16: 단축은 **넣기 직전의** 표본 레벨 · 도감으로 정해진다 — 시작한 뒤에 읽으면 한 단계 어긋난다
+      // 2026-09-16: the speedup is decided by the sample level · catalogue **just before the insert** — read after
+      // the start it is one step out
       out.speedup = h.getSampleAnalysis('spec_cell_1')?.speedup ?? 0;
       out.e = h.startAnalysis(AZ, 0, 'spec_cell_1');
       const a = h.state.analyses.find((x) => x.uid === AZ && x.slot === 0);
@@ -413,8 +440,9 @@ try {
       && Math.abs(unlocked.reduce((s, r) => s + r.chance, 0) - 1) < 1e-9 && res.list.every((r) => r.found === res.found.includes(r.defId)),
     `해금 = minLevel ≤ Lv.${res.lv} · 잠긴 줄 확률 0 · 해금 줄 합 1 · found = 분석 도감`);
 
-    /* 2026-09-16 (사용자 결정): 같은 산출물이 여러 줄인 표(등급별 석영 6줄)는 도감에서 **한 줄로 합쳐진다** —
-       도감은 「무엇이 나오는가」의 목록이지 csv 줄 목록이 아니다. 합친 줄의 개수 범위는 여섯 줄을 아우른다. */
+    /* 2026-09-16 (user's decision): a table where one output spans several rows (the six quartz rows by rarity) folds
+       into **one row** in the catalogue — the catalogue is a list of 「무엇이 나오는가」, not a list of csv rows. The
+       folded row's count range spans all six. */
     const resMin = await H(() => ({ list: window.__game.ctx.housing.getAnalysisResults('mineral'),
       rows: 0, lv: window.__game.ctx.housing.getAnalysisLevel('mineral').level }));
     const quartzRows = await H(async () => (await import('/src/shared/index.ts')).ANALYSIS_RESULTS
@@ -429,8 +457,9 @@ try {
       && Math.abs(resMin.list.filter((r) => r.unlocked).reduce((a, r) => a + r.chance, 0) - 1) < 1e-9,
     `광물 결과표도 해금 줄 확률 합 1 (Lv.${resMin.lv})`);
 
-    /* 2026-09-16 (표본 전면 개편): 은퇴 표본은 **한 줄도 없다** (`data/samples.csv` 의 retired 열은 남아 있다).
-       은퇴 표시가 붙은 표본이 다시 생기면 아래 길이 그것도 자기 계열로 해석되는지 본다. */
+    /* 2026-09-16 (the sample rework): there is **not one** retired sample left (`data/samples.csv` keeps its
+       retired column). If a sample carrying the retired mark appears again, the path below checks that it too is
+       analysed into its own family. */
     const retired = await H(() => { const d = window.__game.ctx.loot.getItemDef('spec_tissue'); return { has: !!d, retired: !!d?.retired, family: d?.sample?.family ?? null }; });
     if (retired.has && retired.retired) {
       await giveStash('spec_tissue', 1);
@@ -471,7 +500,7 @@ try {
     ok(JSON.stringify(persist.san) === JSON.stringify(persist.raw), 'ShipState.sanitize 가 분석 새 필드를 버리지 않는다', JSON.stringify(persist.san));
   }
 
-  /* ══ 2. 재배 스테이션 — 흙 내구도 · 소켓 ═══════════════════════════════════════ */
+  /* ══ 2. The grow station — soil durability · sockets ═══════════════ */
   console.log('재배 스테이션 — 흙 내구도 · 소켓');
   const gIds = ['soil_humus', 'seed_beanpod', 'sock_soil_speed_1', 'sock_soil_speed_2', 'sock_soil_yield_1', 'sock_soil_wear_2', 'sock_medium_speed_1'];
   const gMiss = await missing(gIds);
@@ -584,7 +613,8 @@ try {
       for (let i = 0; i < r.slots; i++) r.ins.push(h.insertGrowSocket(GS, 1, 0, 'sock_soil_yield_1'));
       const seed = loot.getItemDef('seed_beanpod').seed;
       r.base = h.yieldQty(seed.yieldQty);
-      /** 심고 · 익히고 · 거둔다. `rv` 가 있으면 소켓 굴림(`slots` 번)만 그 값으로 고정하고 나머지 Math.random 은 그대로 둔다. */
+      /** Plants · ripens · harvests. With `rv` only the socket rolls (`slots` of them) are pinned to that value and
+          every other Math.random is left alone. */
       const harvest = (rv, calls) => {
         h.plantSeedAt(GS, 1, 0, 'seed_beanpod');
         for (const g of h.state.grows) if (g.uid === GS && g.tier === 1 && g.slot === 0 && g.readyAt) g.readyAt = h.nowMs() - 1000;
@@ -600,7 +630,7 @@ try {
       r.lucky = harvest(0, r.slots);
       r.gather = window.__ev['gather:collected'].slice(-1)[0] ?? null;
       r.unlucky = harvest(0.999999, r.slots);
-      // 내구도 0 이면 덤 확률도 0 — 굴림 자체가 없어 고정하지 않는다
+      // at durability 0 the bonus chance is 0 too — there is no roll at all, so nothing is pinned
       h.state.grows.find((x) => x.uid === GS && x.tier === 1 && x.slot === 0).soilDurability = 0;
       r.worn = harvest(null, 0);
       return r;
@@ -670,7 +700,7 @@ try {
     ok(JSON.stringify(gp.san) === JSON.stringify(gp.raw), 'ShipState.sanitize 가 흙 새 필드를 버리지 않는다 (soilUsesLeft 0 도 그대로)', JSON.stringify(gp.san));
   }
 
-  /* ══ 3. 배양조 — 배지 내구도 · 스캐폴드 · 소켓 ═════════════════════════════════ */
+  /* ══ 3. The culture tank — medium durability · scaffolds · sockets ══ */
   console.log('배양조 — 배지 내구도 · 스캐폴드 · 소켓');
   const cIds = ['mat_medium_basic', 'food_scaffold', 'cell_cow', 'cell_algae', 'strain_myocyte', 'sock_medium_speed_1', 'sock_soil_speed_1'];
   const cMiss = await missing(cIds);
@@ -710,7 +740,7 @@ try {
       r.retired = h.insertStrain(CT, 0, 'strain_myocyte');
       r.retiredKept = inv.countDefAll('strain_myocyte') === myo0;
       r.cow = h.insertStrain(CT, 0, 'cell_cow');
-      // 2026-09-17: 넣기만으로는 시작하지 않는다 — 시작 전에는 타이머가 없고, `startCulture` 가 건다
+      // 2026-09-17: inserting alone does not start it — there is no timer before the start, `startCulture` sets it
       r.pendingNoTimer = !h.state.cultures.find((x) => x.uid === CT && x.slot === 0).readyAt && h.getCultureSlots(CT)[0].started === false;
       r.cowStart = h.startCulture(CT, 0);
       const c = h.state.cultures.find((x) => x.uid === CT && x.slot === 0);
@@ -764,7 +794,7 @@ try {
       r.sockets = [...h.getCultureSlots(CT)[0].sockets];
       const sc0 = inv.countDefAll('food_scaffold');
       r.sc = h.insertScaffold(CT, 0, 'food_scaffold');
-      // 세이브 왕복 (배지 내구도 · 소켓 · 스캐폴드)
+      // the save round trip (medium durability · sockets · the scaffold)
       h.changed('smoke'); h.save();
       const raw = JSON.parse(localStorage.getItem('scav.s1.ship'));
       const SS = await import('/src/housing/ShipState.ts');
@@ -772,7 +802,7 @@ try {
       r.raw = pick(raw); r.san = pick(SS.sanitize(raw));
       r.clear = h.clearMedium(CT, 0);
       r.scBack = inv.countDefAll('food_scaffold') - sc0;
-      // 은퇴 세포주가 든 옛 칸
+      // an old cell holding a retired strain
       r.fill2 = h.fillMedium(CT, 0, 'mat_medium_basic');
       const c = h.state.cultures.find((x) => x.uid === CT && x.slot === 0);
       r.myoHasStrain = !!loot.getItemDef('strain_myocyte')?.strain;
@@ -798,11 +828,11 @@ try {
     }
   }
 
-  /* ══ 4. 요리 effects → derived (agent D, 너그럽게) ══════════════════════════════ */
+  /* ══ 4. Meal effects → derived (agent D, leniently) ═══════════════════════ */
   console.log('요리 effects → derived (progression 의 몫)');
   const meal = await H(async () => {
     const ctx = window.__game.ctx, p = ctx.progression;
-    // 2026-09-16 (접시 모델): 요리는 아이템이 아니다 — 요리 표는 shared/meals (`MEAL_DEFS`)
+    // 2026-09-16 (the plate model): a meal is not an item — the meal table lives in shared/meals (`MEAL_DEFS`)
     const S = await import('/src/shared/index.ts');
     const defs = S.MEAL_DEFS.filter((d) => d.meal && !d.retired && Array.isArray(d.meal.effects) && d.meal.effects.length >= 2);
     if (!defs.length || typeof p?.useMeal !== 'function' || typeof p.armPreps !== 'function') return { skip: '여러 줄 요리 def 또는 progression API 가 없다' };

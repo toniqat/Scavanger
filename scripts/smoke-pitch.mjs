@@ -1,19 +1,21 @@
 /*
- * smoke-pitch — 피칭 위키(`docs/pitch/`)가 실제로 뜨는지.
+ * smoke-pitch — whether the pitch wiki (`docs/pitch/`) actually loads.
  *
- * 이 문서에는 빌드가 없어서 **깨져도 조용하다**: `app.js` 의 `TREE` 순서와 `pages/` 의 파일 번호가
- * 어긋나면 링크가 404 가 되고, `.nextnav` 는 손으로 잇는 값이라 페이지를 끼워 넣으면 끊긴다.
- * 그래서 페이지를 하나하나 열어 본다 — vite 도 게임도 쓰지 않고 `docs/pitch` 를 정적으로 서빙한다.
+ * This document has no build step, so **breakage is silent**: when the `TREE` order in `app.js` and the file
+ * numbers in `pages/` disagree the links 404, and `.nextnav` is wired by hand, so inserting a page breaks it.
+ * So every page is opened one by one — neither vite nor the game is used, `docs/pitch` is served statically.
  *
- *   1. 모든 페이지가 콘솔 오류 없이 뜬다 (`[pitch]` 자기 점검 경고 포함 — 파일 이름 ↔ TREE 불일치가 여기 걸린다).
- *   2. 사이드바가 페이지 전부를 그리고, 열려 있는 페이지에 `a.active` 가 정확히 하나 붙는다.
- *   3. `.nextnav` 의 링크가 실제 파일을 가리킨다.
- *   4. 카드 넘기기 라이트박스(2026-09-10): `.shotrow` 한 벌이 ◀ ▶ 로 넘어가고 양끝에서 되돌며 ESC 로 닫힌다.
- *      `.shotrow` 밖의 단독 이미지에는 넘기기 UI 가 붙지 않는다.
+ *   1. Every page loads with no console error (`[pitch]` self-check warnings included — a file name ↔ TREE
+ *      mismatch is caught here).
+ *   2. The sidebar draws every page and exactly one `a.active` sits on the open page.
+ *   3. The `.nextnav` links point at files that exist.
+ *   4. The card-flipping lightbox (2026-09-10): a `.shotrow` set flips with ◀ ▶, wraps at both ends and
+ *      closes on ESC. A standalone image outside a `.shotrow` gets no flipping UI.
  *
- * 2026-09-11 (C-45): 저장소 경로를 `import.meta.url` 에서 찾고(예전에는 `F:/Project/Scavanger` 절대경로라 다른 PC ·
- * 다른 드라이브에서는 돌지 않았다), Chrome 후보를 다른 스모크와 같은 셋으로 고르고, 포트는 OS 에게 받는다(8123
- * 고정은 병렬 레인과 부딪힌다). 출력은 `verify.mjs` 의 `summarize` 형식 — `FAIL …` 줄 + 마지막 `N passed, M failed`.
+ * 2026-09-11 (C-45): the repo path is found from `import.meta.url` (it used to be the absolute
+ * `F:/Project/Scavanger`, so it did not run on another PC · another drive), the Chrome candidates are the same
+ * three every other smoke uses, and the port comes from the OS (a fixed 8123 collides with parallel lanes).
+ * The output is `verify.mjs`'s `summarize` shape — `FAIL …` lines plus a final `N passed, M failed`.
  *
  * Usage: node scripts/smoke-pitch.mjs
  */
@@ -78,14 +80,14 @@ for (const f of files) {
   ok(errors.length === 0, `${f} JS 오류`, errors.join(' | '));
   ok(st.tree === files.length, `${f} 사이드바 ${st.tree}/${files.length}`);
   ok(st.cur === 1, `${f} 현재 페이지 표시 ${st.cur}`);
-  /* `.nextnav` 는 손으로 잇는 값이다 — 가리키는 파일이 실제로 있는지 본다 */
+  /* `.nextnav` is wired by hand — this checks that the file it points at really exists */
   for (const href of st.nav) ok(existsSync(join(ROOT, 'pages', href)), `${f} nextnav → 없는 파일`, href);
-  /* 아직 안 채운 자리(`.ph`)는 정상이므로 실패가 아니라 셈만 한다 */
+  /* A spot not filled in yet (`.ph`) is normal, so it is only counted, never failed */
   if (missing.length) warns += 1;
   console.log(`  ${errors.length ? '✘' : '✔'} ${f.padEnd(22)} 트리 ${st.tree} · 목차 ${st.toc} · 이미지 ${st.imgs} · 빈자리 ${st.ph}`);
 }
 
-/* ── 카드 넘기기 ─────────────────────────────────────────────────────── */
+/* ── card flipping ──────────────────────────────────────────────── */
 console.log('\n카드 넘기기(라이트박스)');
 await page.goto(`${ORIGIN}/pages/11-planets.html`, { waitUntil: 'networkidle0' });
 const r = await page.evaluate(async () => {
@@ -100,7 +102,7 @@ const r = await page.evaluate(async () => {
   box.querySelector('.next').click(); await wait();
   const second = box.querySelector('img').src;
   const count2 = box.querySelector('.count').textContent;
-  /* 양끝에서 되도는지 */
+  /* whether it wraps at both ends */
   box.querySelector('.prev').click(); await wait();
   box.querySelector('.prev').click(); await wait();
   const wrapped = box.querySelector('.count').textContent;
@@ -120,11 +122,11 @@ else {
   console.log(`  ✔ 묶음 ${r.n}장 · ${r.count} → ${r.count2} → 되돌아 ${r.wrapped} · ESC 닫힘 ${r.closed}`);
 }
 
-/* 단독 이미지는 넘기기 UI 가 없어야 한다 */
+/* a standalone image must get no flipping UI */
 await page.goto(`${ORIGIN}/pages/00-intro.html`, { waitUntil: 'networkidle0' });
 const solo = await page.evaluate(async () => {
   const wait = () => new Promise((res) => setTimeout(res, 260));
-  const img = document.querySelector('article > figure.shot img');   /* .shotrow 밖 */
+  const img = document.querySelector('article > figure.shot img');   /* outside .shotrow */
   if (!img) return { skip: true };
   img.click(); await wait();
   const box = document.querySelector('.lb');

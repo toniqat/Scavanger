@@ -1,13 +1,16 @@
-// Single-player smoke test for the **헬스장 운동 세션** (A-3a, 2026-09-12, src/housing — parts/Gym · parts/GymGames · ui/gym):
-// `gymBlock` 사유 (운동 기구가 아님 · 없는 uid · 다른 화면 · 레이드) → 판정 규칙을 화면 없이 (`gymDebug.makeGame`) —
-// 벤치프레스(가운데 거리 → 완벽 / 좋음 / 실패 · 회차마다 빨라짐 · 점수 = 평균), 호흡 달리기(예비 박자 무시 · 탭 창 ·
-// 헛누름 = 다음 표식 실패 · 하 = 시작 + 떼기 둘 다 · 너무 일찍 / 너무 오래), 사이클링(틀린 발 · 놓침 · 점프 무시) →
-// 실제 세션: `housing:gymSession {active:true}` · 블로커 · ESC 스택 · 키 가이드 → Space 는 `Input` 에 기록되지 않고 게임을
-// 시작 → 가운데에서 누른 첫 판정 → `finish(1)` → `applyGymSession` 결과 + `housing:gymResult` + 근육통 → Tab 닫기 = completed →
-// 근육통 중 두 번째 근력 운동 = 경험치 0 (디버프 안 늘어남) → Space 연타로 끝까지 가서 결과 화면 → 입력 없이 화면이 흐른다
-// (2026-09-12: 벤치프레스 커서 `left` · 호흡 · 사이클 표식 `--x` 를 MutationObserver 로, 키 핸들러가 그 자리에서 다시 그린다,
-// 닫으면 rAF · 예비 타이머가 멈춘다) → 취소 · Tab 취소 = 아무것도
-// 안 걸린다 · 게임 도중 E 는 삼키기만 → 새로고침 뒤에도 단련 · 근육통이 남는다.
+// Single-player smoke test for the **gym workout sessions** (A-3a, 2026-09-12, src/housing — parts/Gym · parts/GymGames · ui/gym):
+// The `gymBlock` reasons (not a piece of gym equipment · no such uid · another screen · a raid) → the judgement
+// rules with no screen (`gymDebug.makeGame`) — the bench press (the distance from the centre → perfect / good /
+// miss · faster every rep · the score = the average), the breathing run (the lead-in beats ignored · the tap window
+// · a stray press = the next marker missed · 「하」 = both the start and the release · too early / too long), cycling
+// (the wrong foot · a miss · the jump ignored) → a real session: `housing:gymSession {active:true}` · the blocker ·
+// the ESC stack · the key guide → Space starts the game without being recorded in `Input` → the first judgement,
+// pressed at the centre → `finish(1)` → the `applyGymSession` result + `housing:gymResult` + the fatigue debuff →
+// Tab closes = completed → a second strength workout while fatigued = 0 XP (the debuff does not grow) → hammering
+// Space to the end reaches the result screen → the screen flows with no input (2026-09-12: the bench-press cursor's
+// `left` · the breathing · cycling markers' `--x` through a MutationObserver, and the key handler redraws on the
+// spot; closing stops the rAF · the lead-in timer) → cancel · a Tab cancel = nothing is applied · E during the game
+// is only swallowed → training · the fatigue debuff survive a reload.
 // Usage: node scripts/smoke-gym.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -25,7 +28,8 @@ const CHROME = [
 if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
-/** `data/constants.csv` 의 GYM_* — 기대값을 수치에서 유도한다 (값을 고쳐도 스모크가 따라간다). */
+/** GYM_* from `data/constants.csv` — the expected values are derived from the numbers (change a value and the smoke
+    follows it). */
 const K = {};
 for (const line of readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'constants.csv'), 'utf8').split(/\r?\n/)) {
   const m = /^(GYM_[A-Z_]+),([^,]+)/.exec(line);
@@ -36,7 +40,8 @@ let pass = 0, fail = 0;
 const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok   ${label}`); } else { fail++; console.log(`  FAIL ${label} ${extra}`); } };
 const note = (s) => console.log(`  note ${s}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-/** 입력 없이 화면이 흐르는지 재는 창 · 기준 (2026-09-12 F) — 헤드리스 GPU 60 fps 면 창 동안 ~50 번 바뀐다. 병렬 러너의 느린 프레임을 넉넉히 봐준다. */
+/** The window · thresholds for measuring whether the screen flows with no input (2026-09-12 F) — on a headless GPU at
+    60 fps it changes ~50 times during the window. The parallel runner's slow frames get generous room. */
 const FLOW_WINDOW_MS = 900, FLOW_MIN_CHANGES = 12, FLOW_MAX_GAP_MS = 250;
 async function waitFor(page, fn, label, timeout = 60000, arg) {
   const t0 = Date.now();
@@ -72,9 +77,10 @@ try {
     document.body.dispatchEvent(new KeyboardEvent('keyup', { code: c, key: c, bubbles: true }));
   }, code);
   /**
-   * 2026-09-12 (F): 입력 없이 `FLOW_WINDOW_MS` 동안 요소의 스타일 값(`left` 또는 CSS 변수)이 **화면에서** 몇 번 · 얼마 간격으로
-   * 바뀌는지 잰다. MutationObserver 라 표본을 뜨는 쪽이 타이머에 굶지 않고, 페이지 밖 호출(CDP)도 창 동안 하지 않는다.
-   * 처음 판은 `setInterval` 이 그려서 무거운 프레임 + 입력 사이에서 60–120 ms 씩 건너뛰었다 — 판정 객체만 몰던 검사는 그걸 못 봤다.
+   * 2026-09-12 (F): measures how many times · at what spacing an element's style value (`left` or a CSS variable)
+   * changes **on screen** over `FLOW_WINDOW_MS` with no input. A MutationObserver, so the sampling side never starves
+   * on a timer and no out-of-page call (CDP) happens during the window. The first build drew from `setInterval` and
+   * skipped 60–120 ms at a time between heavy frames and input — a check that drove only the judge object missed it.
    */
   const sampleFlow = (sel, prop) => page.evaluate(({ sel, prop, ms }) => new Promise((res) => {
     const target = document.querySelector(sel);
@@ -124,7 +130,8 @@ try {
   await boot();
   const hasProg = await H(() => typeof window.__game.ctx.progression.applyGymSession === 'function');
   ok(hasProg, 'progression 이 applyGymSession 을 갖고 있다 (없으면 결과 · 새로고침 검사는 건너뛴다)');
-  // 단련 · 근육통을 0 에서 시작한다 (콘솔용 공개 API — 없으면 그대로 진행하고 기록만)
+  // training · the fatigue debuff start from 0 (a public API meant for the console — without it the run goes on and
+  // only notes it)
   const reset = await H(() => {
     const p = window.__game.ctx.progression;
     if (typeof p.clearGymFatigue !== 'function' || typeof p.addTrainedXp !== 'function') return false;
@@ -141,7 +148,7 @@ try {
     return cs.visibility === 'hidden' || cs.display === 'none' || cs.pointerEvents === 'none';
   }), '숨은 메뉴의 페이드가 끝난다', 5000);
 
-  /* ── 헬스장 방 + 기구 4종 ── */
+  /* ── The gym room + the four machines ── */
   await H(() => {
     const ctx = window.__game.ctx;
     for (const [id, n] of [['mat_scrap', 60], ['mat_alloy', 20], ['mat_cable', 10], ['mat_circuit', 6]]) {
@@ -191,10 +198,10 @@ try {
   ok(blocks.raid === '함선에서만 운동할 수 있습니다', `레이드 중이면 거절 (${blocks.raid})`);
   ok(blocks.startNotGym === '운동 기구가 아닙니다' && blocks.sessions === 0 && blocks.info === null, 'startGymSession 거절은 세션도 이벤트도 없다');
 
-  /* ══ 2. 판정 — 화면 없이 ══════════════════════════════════════════════════ */
+  /* ══ 2. The judgement — with no screen ══════════════════════════════ */
   console.log('판정 (벤치프레스)');
-  /* 완벽 구역 `GYM_PRESS_PERFECT` 과 성공 구역 `GYM_PRESS_ZONE` 사이 · 그 바깥을 **csv 에서** 잡는다
-     (2026-09-14 판정 완화로 옛 고정 구간 0.075~0.085 가 완벽 구역 안으로 들어왔다). */
+  /* between the perfect zone `GYM_PRESS_PERFECT` and the success zone `GYM_PRESS_ZONE` · and outside it, both taken
+     **from csv** (the 2026-09-14 judgement easing pulled the old fixed band 0.075~0.085 inside the perfect zone). */
   const pressPlan = [
     [0, 0.004],
     [(K.GYM_PRESS_PERFECT + K.GYM_PRESS_ZONE) / 2 - 0.004, (K.GYM_PRESS_PERFECT + K.GYM_PRESS_ZONE) / 2 + 0.004],
@@ -208,7 +215,7 @@ try {
       const [lo, hi] = plan[i] ?? plan[0];
       if (!seek(lo, hi)) return { err: `seek ${i}` };
       speeds.push(g.speed);
-      g.press('left');                 // 벤치프레스는 점프만 받는다
+      g.press('left');                 // the bench press only takes the jump
       g.press('jump');
     }
     const ev = g.drain();
@@ -224,25 +231,28 @@ try {
   console.log('판정 (호흡 달리기)');
   const breath = await H(() => {
     const g = window.__game.ctx.housing.gymDebug.makeGame('breath');
-    // 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 창이 **두 띠**로 갈렸다 — `bands.perfect`(그려지는 표식) ·
-    // `bands.good`(= `window`). 「좋음」 을 노리려면 두 띠 **사이**를 겨눈다 (옛 `window × 0.6` 은 이제 완벽 안이다).
+    // 2026-09-14 (user's decision 「보이는 것 = 판정」): the window has split into **two bands** — `bands.perfect` (the
+    // drawn marker) · `bands.good` (= `window`). A good judgement means aiming **between** the two bands (the old
+    // `window × 0.6` is now inside the perfect one).
     const B = g.beat, W = g.window, HS = g.holdS, TOL = g.holdTol;
     const GOOD = (g.bands.perfect + g.bands.good) / 2;
     const to = (t) => g.update(t - g.time);
     const log = [];
-    g.press('jump'); g.release('jump');                           // 예비 박자 동안의 입력은 무시
+    g.press('jump'); g.release('jump');                           // input during the lead-in beats is ignored
     log.push({ lead: g.judgements.length });
     const n = g.notes;
-    // note 0 후: 정박 → 완벽 / 1 후: 완벽 띠와 좋음 띠 사이 → 좋음 / 2 하: 정박에 누르고 정확히 뗀다 → 완벽
+    // note 0 「후」: on the beat → perfect / 1 「후」: between the perfect and good bands → good / 2 「하」: pressed on
+    // the beat and released exactly → perfect
     to(n[0].t); g.press('jump'); g.release('jump');
     to(n[1].t + GOOD); g.press('jump'); g.release('jump');
     to(n[2].t); g.press('jump'); to(n[2].t + HS); g.release('jump');
-    // 3 후: 안 누른다 → 놓침 / 4 후: 반 박 일찍 → 헛누름 실패 / 5 하: 반만 쥐고 뗀다 → 실패
+    // 3 「후」: no press → a miss / 4 「후」: half a beat early → a stray press, missed / 5 「하」: held only halfway
+    // and released → a miss
     to(n[3].t + W + 0.01);
     log.push({ afterMiss: [...g.judgements] });
     to(n[4].t - B / 2); g.press('jump'); g.release('jump');
     to(n[5].t); g.press('jump'); to(n[5].t + HS / 2); g.release('jump');
-    // 6 · 7 후 완벽 / 8 하: 너무 오래 쥔다 → 실패 (그 뒤의 떼기는 무시)
+    // 6 · 7 「후」 perfect / 8 「하」: held too long → a miss (the release after it is ignored)
     to(n[6].t); g.press('jump'); g.release('jump');
     to(n[7].t); g.press('jump'); g.release('jump');
     to(n[8].t); g.press('jump'); to(n[8].t + HS + TOL + 0.02); g.release('jump');
@@ -268,13 +278,14 @@ try {
   const cycle = await H(() => {
     const g = window.__game.ctx.housing.gymDebug.makeGame('cycle');
     const W = g.window, n = g.notes;
-    // 2026-09-14: 완벽 띠(`bands.perfect`) 와 좋음 띠(`bands.good` = `window`) 사이를 겨눠야 「좋음」 이다
+    // 2026-09-14: a good judgement means aiming between the perfect band (`bands.perfect`) and the good band
+    // (`bands.good` = `window`)
     const GOOD = (g.bands.perfect + g.bands.good) / 2;
     const to = (t) => g.update(t - g.time);
-    to(n[0].t); g.press('jump'); g.press(n[0].lane);                  // 점프는 무시, 왼발 정박 → 완벽
-    to(n[1].t); g.press('left');                                      // 오른발 차례에 왼발 → 실패
-    to(n[2].t + GOOD); g.press(n[2].lane);                            // 좋음
-    to(n[3].t + W + 0.01);                                            // 놓침
+    to(n[0].t); g.press('jump'); g.press(n[0].lane);                  // the jump is ignored, the left foot on the beat → perfect
+    to(n[1].t); g.press('left');                                      // the left foot on the right foot's turn → a miss
+    to(n[2].t + GOOD); g.press(n[2].lane);                            // good
+    to(n[3].t + W + 0.01);                                            // a miss
     for (let i = 4; i < n.length; i++) { to(n[i].t); g.press(n[i].lane); }
     const ev = g.drain();
     return { total: g.total, lanes: n.slice(0, 4).map((x) => x.lane), judgements: [...g.judgements], score: g.score, done: g.done,
@@ -286,7 +297,7 @@ try {
   const cScore = ((K.GYM_CYCLE_STROKES - 3) * K.GYM_SCORE_PERFECT + K.GYM_SCORE_GOOD) / K.GYM_CYCLE_STROKES;
   ok(cycle.done && Math.abs(cycle.score - cScore) < 1e-9 && cycle.pedals === K.GYM_CYCLE_STROKES - 2, `사이클 점수 ${cycle.score?.toFixed(4)} · 페달 소리 ${cycle.pedals}회`);
 
-  /* ══ 3. 실제 세션 — 벤치 랙 ══════════════════════════════════════════════ */
+  /* ══ 3. A real session — the bench rack ═══════════════════════════ */
   console.log('세션 (벤치 랙)');
   const s1 = await H((u) => {
     const ctx = window.__game.ctx, h = ctx.housing;
@@ -304,7 +315,7 @@ try {
   ok(s1.again === '이미 운동 중입니다', `세션 중 두 번째 시작은 거절 (${s1.again})`);
   if (!s1.info) note('세션이 곧바로 끝났다 — hub 가 자세를 걸지 못해 cancelGymSession 을 불렀을 수 있다 (player/hub 미완)');
 
-  // Space: keydown 만 보내고 Input 이 기록하지 않았는지 본 뒤 keyup
+  // Space: only keydown is sent, `Input` is checked for having no record, then keyup
   const spaceDown = await H(() => {
     const ctx = window.__game.ctx;
     document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }));
@@ -318,11 +329,13 @@ try {
     guide: window.__rec.guide.at(-1), audio: window.__rec.audio.includes('gym_start') }));
   ok(g1.bar && g1.pips === K.GYM_PRESS_REPS && g1.audio, `게임 화면: 바 · 커서 · 회차 칸 ${g1.pips} · gym_start`);
   ok(JSON.stringify(g1.guide) === JSON.stringify(['들어 올리기']), `키 가이드: 들어 올리기 (${JSON.stringify(g1.guide)})`);
-  // 2026-09-12: 입력 없이도 **화면의** 커서가 흐른다 — 판정 객체가 아니라 DOM(`style.left`)을 3D 장면이 그려지는 채로 잰다
+  // 2026-09-12: the cursor **on screen** flows even with no input — the DOM (`style.left`) is measured while the 3D
+  // scene keeps drawing, not the judge object
   const pressFlow = await sampleFlow('.gym-press-cursor', 'left');
   ok(pressFlow.changes >= FLOW_MIN_CHANGES && pressFlow.distinct >= FLOW_MIN_CHANGES && pressFlow.maxGap < FLOW_MAX_GAP_MS,
     `입력 없이 벤치프레스 커서가 흐른다 (${pressFlow.wall} ms 동안 left 변경 ${pressFlow.changes}회 · 값 ${pressFlow.distinct}개 · 최대 간격 ${pressFlow.maxGap} ms)`, JSON.stringify(pressFlow));
-  // 커서가 가운데 근처일 때 진짜 keydown — 핸들러가 **지금까지** 게임을 민 뒤 판정하고, 그 자리를 **곧바로** 그린다
+  // a real keydown while the cursor is near the centre — the handler pushes the game **up to now**, judges, and
+  // draws that position **at once**
   const live = await H(() => new Promise((res) => {
     const h = window.__game.ctx.housing;
     const t0 = performance.now();
@@ -332,8 +345,8 @@ try {
       if (Math.abs(g.pos - 0.5) < 0.012 || performance.now() - t0 > 8000) {
         clearInterval(iv);
         document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }));
-        // 2026-09-14 (사용자 결정): 회차 글자(`.gym-count` 의 `N / M`)는 없어졌다 — 머리줄의 라벨 없는
-        // 진행 바(`.gym-prog > .gym-prog-fill`, `scaleX(판정수 / 총)`)가 그 자리를 대신한다
+        // 2026-09-14 (user's decision): the rep text (`N / M` in `.gym-count`) is gone — the header row's unlabelled
+        // progress bar (`.gym-prog > .gym-prog-fill`, `scaleX(judgements / total)`) takes its place
         const drawn = { left: document.querySelector('.gym-press-cursor')?.style.left ?? null, want: `${(g.pos * 100).toFixed(2)}%`,
           count: parseFloat(/scaleX\(([\d.]+)\)/.exec(document.querySelector('.gym-prog-fill')?.style.transform ?? '')?.[1] ?? 'NaN'),
           wantCount: g.judgements.length / g.total };
@@ -359,7 +372,8 @@ try {
     ok(fin.ev && fin.ev.uid === BENCH && JSON.stringify(fin.ev.result) === JSON.stringify(fin.r), 'housing:gymResult = applyGymSession 결과 그대로');
     const hours = (fin.fatigue - fin.now) / 3600e3;
     ok(Math.abs(hours - K.GYM_FATIGUE_HOURS) < 0.01 && fin.r.fatigueUntil === fin.fatigue, `근육통 ${hours.toFixed(2)} 시간`);
-    // 2026-09-17: 단련 전용 바가 없다 — 진행도는 근력의 능력치 경험치 바이고 결과가 그 값을 그대로 돌려준다
+    // 2026-09-17: there is no bar for training alone — the progress is strength's stat-XP bar, and the result hands
+    // that very value back
     ok(fin.prog === fin.r.progress && fin.prog === fin.statProg, `근력 경험치 바 ${fin.prog.toFixed(3)} (getTrainedProgress = getStatProgress = result.progress)`);
     ok(fin.screen === 'result' && /100/.test(fin.text) && fin.text.includes(`근력 경험치 +${K.GYM_SESSION_XP}`) && !/단련 경험치|\+\d+ 단련|단련 \+\d/.test(fin.text) && /근육통 · 남은 \d{2}:\d{2}:\d{2}/.test(fin.text) && fin.audio,
       `결과 화면 (${fin.text.slice(0, 90)})`);
@@ -376,12 +390,13 @@ try {
   ok(closed.ticking === false, `Tab: 화면 루프(rAF · 예비 타이머)가 멈춘다 (ticking=${closed.ticking})`);
 
   if (hasProg) {
-    /* ── 근육통 중 두 번째 근력 운동 ── */
+    /* ── A second strength workout while fatigued ── */
     console.log('세션 (스미스 머신 — 근육통 중)');
     const s2 = await H(async ({ SMITH, BENCH }) => {
       const h = window.__game.ctx.housing, p = window.__game.ctx.progression;
       const S = await import('/src/shared/index.ts');
-      // 2026-09-13 (H3): 서재 헬스 보너스 — 기구 interaction 별로만 붙는다. housing 인스턴스에 가짜 합산을 덮어 쓰고 끝에 되돌린다
+      // 2026-09-13 (H3): the library gym bonus — it attaches per machine interaction only. The housing instance's
+      // totals are overridden with a fake and restored at the end
       const own = Object.getOwnPropertyDescriptor(h, 'getLibraryEffects');
       h.getLibraryEffects = () => ({ ...S.EMPTY_LIBRARY_EFFECTS, gymScore: { gym_smith: 0.1, gym_bench_press: 0.3 }, revision: 9200 });
       const before = { until: p.getGymFatigueUntil('strength'), prog: p.getTrainedProgress('strength'), bonus: p.getTrainedBonus('strength') };
@@ -393,7 +408,7 @@ try {
       const after = { until: p.getGymFatigueUntil('strength'), prog: p.getTrainedProgress('strength'), bonus: p.getTrainedBonus('strength') };
       window.__game.ctx.escape.closeTop();
       const ev = window.__rec.sessions.at(-1), info = h.gymSession;
-      // 같은 합산으로 벤치 랙 0.9 + 0.3 → 1 로 자른다
+      // with the same totals, the bench rack's 0.9 + 0.3 is clamped to 1
       const rb0 = h.startGymSession(BENCH);
       h.gymDebug.start();
       const rb = h.gymDebug.finish(0.9);
@@ -408,7 +423,7 @@ try {
     ok(s2.text.includes('근육통 중이라 근력이 오르지 않았습니다'), '결과 화면이 이유를 말한다');
     ok(s2.ev.active === false && s2.ev.completed === true && s2.info === null, 'ctx.escape.closeTop() → 결과 화면 닫기 = completed');
 
-    /* ── 끝까지 (Space 연타) → 결과 화면 ── */
+    /* ── To the end (hammering Space) → the result screen ── */
     console.log('세션 (벤치 랙 — 끝까지)');
     const beats0 = await H(() => window.__rec.beats.length);
     await H((u) => { const h = window.__game.ctx.housing; h.startGymSession(u); h.gymDebug.start(); }, BENCH);
@@ -423,7 +438,7 @@ try {
     ok(await H(() => window.__game.ctx.housing.gymSession === null && window.__rec.sessions.at(-1).completed === true), '결과 화면에서 E → 닫기');
   }
 
-  /* ══ 3-1. 화면 흐름 — 호흡 · 사이클 (입력 없이) ══════════════════════════════ */
+  /* ══ 3-1. Screen flow — breathing · cycling (with no input) ═════ */
   console.log('화면 흐름 (호흡 달리기 · 사이클링 — 입력 없이)');
   for (const [uid, kind, label] of [[TREAD, 'breath', '호흡 달리기'], [BIKE, 'cycle', '사이클링']]) {
     const st = await H((u) => {
@@ -433,7 +448,8 @@ try {
       return { r, started, screen: h.gymDebug.screen, minigame: h.gymSession?.minigame ?? null, notes: document.querySelectorAll('.gym-panel .gym-note').length };
     }, uid);
     ok(st.r === null && st.started && st.screen === 'game' && st.minigame === kind && st.notes > 0, `${label} 게임 화면 (표식 ${st.notes}개)`, JSON.stringify(st));
-    // 첫 표식(DOM 첫 `.gym-note`)은 오른쪽 가까이에서 출발해 판정선 쪽으로 — `--x` 가 창 내내 줄어든다
+    // the first marker (the first `.gym-note` in the DOM) starts near the right and travels toward the judgement
+    // line — `--x` shrinks throughout the window
     const flow = await sampleFlow('.gym-panel .gym-note', '--x');
     const falling = flow.nums.length > 1 && flow.nums.every((v, i) => i === 0 || v < flow.nums[i - 1]);
     ok(flow.changes >= FLOW_MIN_CHANGES && flow.maxGap < FLOW_MAX_GAP_MS && falling,
@@ -442,7 +458,7 @@ try {
     ok(stopped.ticking === false && stopped.info === null, `${label} 취소 → 화면 루프가 멈춘다 (ticking=${stopped.ticking})`);
   }
 
-  /* ══ 4. 취소 ══════════════════════════════════════════════════════════════ */
+  /* ══ 4. Cancel ══════════════════════════════════════════════════════════ */
   console.log('취소');
   const cancel = await H(async ({ TREAD, BIKE }) => {
     const ctx = window.__game.ctx, h = ctx.housing, p = ctx.progression;
@@ -454,7 +470,7 @@ try {
     const midScreen = h.gymDebug.screen;
     h.cancelGymSession();
     const evCancel = window.__rec.sessions.at(-1);
-    // 사이클: 게임 도중 E 는 삼키기만, Tab 은 취소
+    // cycling: E during the game is only swallowed, Tab cancels
     h.startGymSession(BIKE);
     const bikeGuideIntro = window.__rec.guide.at(-1);
     h.gymDebug.start();
@@ -466,7 +482,7 @@ try {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Tab', key: 'Tab', bubbles: true }));
     document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'Tab', key: 'Tab', bubbles: true }));
     const evTab = window.__rec.sessions.at(-1);
-    // 시작 안내에서 E → 닫기
+    // E on the intro screen → close
     h.startGymSession(BIKE);
     keyE();
     const evIntroE = window.__rec.sessions.at(-1);
@@ -479,11 +495,11 @@ try {
   ok(cancel.afterE.screen === 'game' && !cancel.afterE.pressed, `게임 도중 E 는 삼키기만 한다 (${JSON.stringify(cancel.afterE)})`);
   ok(cancel.evTab.active === false && cancel.evTab.completed === false && cancel.evTab.minigame === 'cycle', 'Tab (게임 도중) → 취소');
   ok(cancel.evIntroE.active === false && cancel.evIntroE.completed === false && cancel.info === null, '시작 안내에서 E → 닫기');
-  // 페이즈가 바뀌면 세션이 끝난다
+  // a phase change ends the session
   const phase = await H((u) => { const h = window.__game.ctx.housing; h.startGymSession(u); window.__game.ctx.bus.emit('game:abort', {}); return { info: h.gymSession, ev: window.__rec.sessions.at(-1), hidden: document.querySelector('.gym').hidden }; }, BIKE);
   ok(phase.info === null && phase.ev.active === false && phase.ev.completed === false && phase.hidden, 'game:abort → 세션 · 화면 정리');
 
-  /* ══ 5. 새로고침 ══════════════════════════════════════════════════════════ */
+  /* ══ 5. Reload ════════════════════════════════════════════════════════ */
   if (hasProg) {
     console.log('새로고침');
     const keep = await H(() => { const p = window.__game.ctx.progression; return { bonus: p.getTrainedBonus('strength'), prog: p.getTrainedProgress('strength'), until: p.getGymFatigueUntil('strength') }; });
@@ -492,7 +508,7 @@ try {
     const back = await H(() => { const p = window.__game.ctx.progression; return { bonus: p.getTrainedBonus('strength'), prog: p.getTrainedProgress('strength'), until: p.getGymFatigueUntil('strength'), info: window.__game.ctx.housing.gymSession }; });
     ok(back.bonus === keep.bonus && Math.abs(back.prog - keep.prog) < 1e-9 && back.until === keep.until && keep.until > 0 && back.info === null,
       `단련 · 근육통이 새로고침을 건넌다 (${JSON.stringify(back)})`, JSON.stringify(keep));
-    // 다른 스모크를 위해 치운다
+    // cleared for the other smokes
     await H(() => { const p = window.__game.ctx.progression; p.clearGymFatigue?.(); p.addTrainedXp?.('strength', -1e7); p.addTrainedXp?.('endurance', -1e7); });
   }
 
@@ -500,7 +516,8 @@ try {
 } catch (e) {
   fail++;
   console.log(`  FAIL exception: ${e.stack ?? e}`);
-  // 2026-09-13: 예외로 끝나면 모아 둔 페이지 오류도 찍는다 (새로고침 뒤 boot 가 멈춘 이유가 여기 있다)
+  // 2026-09-13: on an exception the collected page errors are printed too (why boot stalled after a reload is in
+  // there)
   if (errors.length) console.log(`  page errors (${errors.length}): ${errors.slice(0, 5).join(' | ')}`);
 } finally {
   await closeBrowser(browser);

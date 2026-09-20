@@ -1,28 +1,29 @@
 #!/usr/bin/env node
 /**
- * SCAVANGER — CSS 클래스 접두사 검사: **한 접두사는 한 폴더** (CLAUDE.md §4.1).
+ * SCAVANGER — the CSS class prefix check: **one prefix, one folder** (CLAUDE.md §4.1).
  *
- * 왜 검사가 필요한가 — 이 프로젝트의 스타일시트는 전부 한 번들로 합쳐지는 **전역**이다. 그래서 두 폴더가
- * 같은 접두사를 고르면 한쪽이 선언한 규칙이 다른 쪽 화면에 그대로 걸리는데, 타입체크도 스모크도 그것을 못
- * 본다 — 클래스는 문자열이고, 겹친 규칙은 오류가 아니라 **조용히 어긋난 그림**이기 때문이다. 실제로
- * `hub/intel.css` 가 `ui` 의 아이템 카드와 같은 `.it-` 를 골라 전역 `.it-head { align-items: flex-end }` 를
- * 선언했고, 세로 flex 에서 그것은 곧 「오른쪽 정렬」이라 기업 거래 · 제작 재료칩 · 서재 전시대 · 연산
- * 클러스터에서 카드 이름 · 종류만 오른쪽에 붙었다 (2026-09-17 에 `.his-` · `.itip-` 로 갈라 닫았다 — B-18).
- * 규약(`rg "\.<prefix>-" src` 해보고 고르기)은 사람이 잊으면 끝이라, 그 확인을 여기로 옮긴다.
+ * Why the check is needed — every stylesheet in this project is merged into one bundle, which makes it **global**. So
+ * when two folders pick the same prefix, a rule one of them declares lands on the other's screen as it is, and neither
+ * the typecheck nor a smoke sees it — a class is a string, and an overlapping rule is not an error but a **silently
+ * wrong picture**. It really happened: `hub/intel.css` picked the same `.it-` as `ui`'s item card and declared a global
+ * `.it-head { align-items: flex-end }`, which in a vertical flex means 「align right」, so in the corp trade · the craft
+ * material chips · the library display stands · the compute cluster only the card's name · kind ended up on the right
+ * (closed 2026-09-17 by splitting them into `.his-` · `.itip-` — B-18).
+ * The convention (pick one after `rg "\.<prefix>-" src`) ends the moment a person forgets it, so that check moves here.
  *
- * **무엇을 「선언」으로 보는가** — 선택자의 **첫 컴파운드**에 있는 클래스만 본다. 첫 컴파운드는 그 규칙이
- * 스스로 이름을 대는 자리이고, 그 뒤는 남의 이름을 자기 안에서 덮는 **정당한 스코프**다:
+ * **What counts as a 「declaration」** — only a class in the selector's **first compound**. The first compound is where
+ * a rule gives its own name; everything after it is a **legitimate scope** covering someone else's name inside its own:
  *
- *   .his-row { … }             → hub 가 `his` 를 선언   (검사 대상)
- *   .item-tip .itip-head { … } → ui 가 `item` 을 선언, `itip` 은 그 안으로 스코프됐다 (대상 아님)
- *   .hmt-tile.is-bot { … }     → hub 가 `hmt` 를 선언 — 한 컴파운드에서도 **맨 앞 클래스 하나**만 본다.
- *                                 뒤에 붙은 것(`is-bot` · `in-band` · `no-holo`)은 그 클래스를 **한정**하는
- *                                 modifier 이지 새 이름을 대는 자리가 아니다.
+ *   .his-row { … }             → hub declares `his`   (checked)
+ *   .item-tip .itip-head { … } → ui declares `item`, `itip` is scoped inside it (not checked)
+ *   .hmt-tile.is-bot { … }     → hub declares `hmt` — even within one compound only the **first class** is looked at.
+ *                                 What follows (`is-bot` · `in-band` · `no-holo`) is a modifier that **qualifies**
+ *                                 that class, not a place where a new name is given.
  *
- * 그래서 「남의 카드를 자기 화면 안에서만 손본다」는 멀쩡한 방어는 통과하고, 전역으로 새는 것만 걸린다.
+ * So the sound defence 「someone else's card is touched only inside my own screen」 passes, and only what leaks globally is caught.
  *
- * 쓰기: `node scripts/check-css-prefixes.mjs` (브라우저도 vite 도 필요 없다 · 0.1 초).
- * `scripts/verify.mjs` 의 선행 검사에 typecheck · data-check 와 나란히 물려 있어 따로 부를 일은 드물다.
+ * Run it: `node scripts/check-css-prefixes.mjs` (no browser and no vite · 0.1 s).
+ * It hangs in `scripts/verify.mjs`'s up-front checks beside typecheck · data-check, so calling it on its own is rare.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,29 +33,29 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'src');
 
 /**
- * 예외 — 접두사마다 **누가 선언해도 되는지**. 두 종류뿐이다:
+ * The exceptions — **who may declare** each prefix. There are only two kinds:
  *
- *  - `also` 가 없으면 **공용 틀**이다: 한 폴더가 소유하고 다른 폴더가 자기 클래스에 덧붙여 쓰라고 내놓은
- *    이름이라 어느 폴더에 나와도 충돌이 아니다.
- *  - `also` 가 있으면 **그 폴더만** 같이 선언해도 된다 — 「남의 것을 전역으로 덮는다」가 사고가 아니라
- *    결정인 경우다. 목록에 없는 폴더가 끼면 그대로 빨강이다.
+ *  - With no `also` it is a **shared frame**: a name one folder owns and puts out for other folders to add to their own
+ *    classes, so it is no collision wherever it turns up.
+ *  - With `also` it may be declared by **those folders too** — the case where 「covering someone else's globally」 is a
+ *    decision and not an accident. A folder that is not on the list joins in and it is red on the spot.
  *
- * 새 이름을 함부로 더하지 말 것 — 하나 더할 때마다 이 검사가 그만큼 눈을 감는다. 더한다면 `why` 를 같이
- * 적고, 그 이유는 덮는 코드 바로 위 주석에도 있어야 한다.
+ * Do not add new names lightly — each one added closes this check's eyes by that much. If you add one, write the `why`
+ * with it, and that reason has to be in the comment right above the covering code as well.
  */
 const SHARED = new Map([
-  ['ui', { owner: 'ui' }],            // .ui-btn · .ui-label · .ui-panel · .ui-input — base.css 의 위젯 틀
-  ['is', { owner: 'ui' }],            // .is-on · .is-locked … 상태 modifier — 보통 자기 클래스에 붙지만 `.hold.is-giveup` 처럼
-                                      // 접두사 없는 틀 클래스에 붙기도 한다
-  ['has', { owner: 'ui' }],           // .has-contract … 상태 modifier
-  ['item', { owner: 'ui' }],          // .item-chip · .item-tip — 아이템 칩 / 카드
-  ['scr', { owner: 'ui' }],           // .scr-tabs · .scr-tab — 터미널풍 탭 틀
-  ['kc', { owner: 'ui' }],            // 키캡 (`shared/keycap.ts` 가 칠한다)
-  ['kcm', { owner: 'ui' }],           // 키캡 마우스 글리프
-  ['inv', { owner: 'inventory' }],    // .inv-tile · .inv-screen — 격자 칸 틀 (meta · housing 이 자기 카드 안에서 쓴다)
-  ['tg', { owner: 'inventory' }],     // TradeGrids 내부
+  ['ui', { owner: 'ui' }],            // .ui-btn · .ui-label · .ui-panel · .ui-input — base.css's widget frames
+  ['is', { owner: 'ui' }],            // .is-on · .is-locked … state modifiers — usually attached to their own class, but
+                                      // also to a prefixless frame class, as in `.hold.is-giveup`
+  ['has', { owner: 'ui' }],           // .has-contract … a state modifier
+  ['item', { owner: 'ui' }],          // .item-chip · .item-tip — the item chip / card
+  ['scr', { owner: 'ui' }],           // .scr-tabs · .scr-tab — the terminal-style tab frame
+  ['kc', { owner: 'ui' }],            // keycaps (painted by `shared/keycap.ts`)
+  ['kcm', { owner: 'ui' }],           // the keycap mouse glyph
+  ['inv', { owner: 'inventory' }],    // .inv-tile · .inv-screen — the grid cell frame (meta · housing use it inside their own cards)
+  ['tg', { owner: 'inventory' }],     // inside TradeGrids
   ['trade', { owner: 'inventory' }],  // .trade-grids
-  ['hub', { owner: 'hub' }],          // .hub-section · .hub-head · .hub-foot — 함선 화면 틀
+  ['hub', { owner: 'hub' }],          // .hub-section · .hub-head · .hub-foot — the ship screen frame
   ['char', { owner: 'ui', also: ['progression'],
     why: '`char-sheet`(progression) · `char-select` · `char-create`(ui) 는 **화면 루트 이름**이지 접두사 가족이 아니다 — '
        + '셋 다 그 자체로 온전한 이름이고 자식은 각자 다른 접두사(`cs-` · `cc-`)를 쓴다. 새 `.char-*` 를 가족처럼 늘리지 말 것.' }],
@@ -66,10 +67,10 @@ const SHARED = new Map([
        + '칩을 쓰는 네 화면 중 셋이 housing 것이고, base.css 의 정사각형 규칙과 같은 값이라 겹쳐도 그림이 같다.' }],
 ]);
 
-/** `.xx-yyy` 꼴 클래스에서 접두사만. */
+/** Just the prefix out of a `.xx-yyy`-shaped class. */
 const CLASS_RE = /\.([a-z][a-z0-9]*)-[a-z0-9-]+/g;
 
-/** src 아래 모든 .css. */
+/** Every .css under src. */
 function cssFiles(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
@@ -80,8 +81,8 @@ function cssFiles(dir, out = []) {
 }
 
 /**
- * 선택자 목록에서 **첫 컴파운드**만 잘라낸다 — 공백 · `>` · `+` · `~` 앞까지. 괄호 안(`:is(a, b)`)의
- * 쉼표는 선택자 구분이 아니므로 깊이를 세면서 자른다.
+ * Cuts out only the **first compound** of a selector list — up to a space · `>` · `+` · `~`. A comma inside
+ * parentheses (`:is(a, b)`) does not separate selectors, so the cut counts depth as it goes.
  */
 function firstCompounds(selectorList) {
   const parts = [];
@@ -96,14 +97,14 @@ function firstCompounds(selectorList) {
   return parts.map((s) => s.trim().split(/[\s>+~]/)[0]).filter(Boolean);
 }
 
-/** 규칙 하나하나를 돌려준다 — `{`/`}` 깊이를 세므로 `@media` 안에 든 것도 놓치지 않는다. */
+/** Yields the rules one by one — it counts `{`/`}` depth, so one inside an `@media` is not missed either. */
 function* rules(css) {
   const re = /([^{}]*)([{}])/g;
   let m;
   while ((m = re.exec(css))) {
     const prelude = m[1].trim();
     if (m[2] === '}') continue;
-    if (!prelude || prelude.startsWith('@')) continue;   // at-rule 머리는 선택자가 아니다
+    if (!prelude || prelude.startsWith('@')) continue;   // an at-rule's head is not a selector
     yield { prelude, index: m.index };
   }
 }
@@ -115,12 +116,12 @@ for (const file of cssFiles(SRC)) {
   fileCount++;
   const folder = path.relative(SRC, file).split(path.sep)[0];
   const raw = fs.readFileSync(file, 'utf8');
-  // 주석을 같은 길이의 공백으로 바꿔 둔다 — 줄 번호가 어긋나지 않는다.
+  // Comments are replaced by spaces of the same length — that way the line numbers do not drift.
   const css = raw.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '));
   for (const { prelude, index } of rules(css)) {
     const line = css.slice(0, index).split('\n').length;
     for (const compound of firstCompounds(prelude)) {
-      const prefix = CLASS_RE.exec(compound)?.[1];   // 맨 앞 클래스 하나 — 뒤는 modifier 다
+      const prefix = CLASS_RE.exec(compound)?.[1];   // the first class only — what follows is a modifier
       CLASS_RE.lastIndex = 0;
       const shared = prefix ? SHARED.get(prefix) : undefined;
       if (!prefix || (shared && !shared.also)) continue;
@@ -131,7 +132,7 @@ for (const file of cssFiles(SRC)) {
   }
 }
 
-/** 그 접두사를 선언해도 되는 폴더 (예외에 적힌 것 + 실제 소유자 한 곳). */
+/** The folders that may declare that prefix (the ones in the exception + its one real owner). */
 function allowedFolders(prefix) {
   const s = SHARED.get(prefix);
   return s ? new Set([s.owner, ...(s.also ?? [])]) : null;
@@ -139,7 +140,7 @@ function allowedFolders(prefix) {
 
 const bad = [...decls.entries()].filter(([prefix, byFolder]) => {
   const allowed = allowedFolders(prefix);
-  // 예외가 있는 접두사는 「목록 밖의 폴더가 끼었는가」만 본다 — 없으면 「두 폴더 이상인가」.
+  // A prefix with an exception is only asked 「did a folder outside the list join in」 — one without, 「is it more than one folder」.
   return allowed ? [...byFolder.keys()].some((f) => !allowed.has(f)) : byFolder.size > 1;
 }).sort();
 for (const [prefix, byFolder] of bad) {

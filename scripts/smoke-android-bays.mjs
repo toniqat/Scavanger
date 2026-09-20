@@ -1,15 +1,19 @@
-// 조종실 안드로이드 슬롯 · 봇 발사 슬롯 · 레이드 진입 암전 smoke (2026-09-15, hub —
+// Cockpit android bays · the bot launch slot · the raid-entry fade smoke (2026-09-15, hub —
 // docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」). One headless client, **no relay lobby**:
-// `HubSystem.debugSharedShip(lobby)` (스모크 전용 훅) 이 만들어 낸 도킹 로비로 공용 함선에 서서
-//   1. 조종실 슬롯 3칸 — 위치(조종실 반쪽) · 갑판을 보는 yaw · 캡슐 밖 한 걸음 `exit` · 캡슐 콜라이더(걸어 들어갈 수 없다)
-//      · `hub_android_<bay>` 상호작용 3개와 `ALLY_BAY_HOLD_S` 홀드.
-//   2. 프롬프트 — 분대장은 `들이기` / 이미 분대원인 칸은 `슬롯으로 돌려보내기`, 분대장이 아니면 거절 사유가 **프롬프트로**
-//      뜨고 상호작용은 계속 잡힌다 (발사 포드 규칙).
-//   3. 봇 발사 슬롯 — 원격 아바타 없이 앉아서 준비 완료(문 닫힘 · 슬롯 점유), 발사 준비 패널의 칸이 `is-bot` · 안드로이드 이름 ·
-//      `준비 완료`, 우클릭 장비 창 거절, 그리고 `getPodStandPose(slot)` 이 그 포드 앞자리를 준다.
-//   4. 매칭 탭 — 봇 칸은 `안드로이드` 꼬리표 · 초대 버튼 없음, 인원 줄은 사람 수 + `안드로이드 n`.
-//   5. 레이드 진입 — 개인 함선에서 준비 → 카운트다운이 0 이 되면 `ui:screenFade {1, hold}` + `raid:loadBegin` 이 먼저 나가고
-//      `game:newMission` 은 `RAID_LOAD_FADE_OUT_S` 뒤에야 온다. 암전이 시작된 뒤의 준비 해제는 발사를 취소하지 못한다.
+// standing in the shared ship on the docked lobby `HubSystem.debugSharedShip(lobby)` (a smoke-only hook) makes up:
+//   1. The three cockpit bays — position (the bridge half) · a yaw facing the deck · the one-step `exit` outside the
+//      capsule · the capsule collider (a body cannot walk in) · three `hub_android_<bay>` interactables with the
+//      `ALLY_BAY_HOLD_S` hold.
+//   2. Prompts — the leader is offered `들이기` / a bay that is already a squadmate `슬롯으로 돌려보내기`; for anyone
+//      else the refusal reason is shown **as the prompt** and the interactable stays taken (the launch-pod rule).
+//   3. The bot launch slot — seated and ready with no remote avatar (door shut · slot occupied), the ready panel's
+//      cell is `is-bot` · the android's name · `준비 완료`, the right-click gear window is refused, and
+//      `getPodStandPose(slot)` gives the spot in front of that pod.
+//   4. The match tab — a bot tile carries the `안드로이드` tag and no invite button, and the crew line counts the
+//      humans plus `안드로이드 n`.
+//   5. Raid entry — readying up in the personal ship → once the countdown reaches 0, `ui:screenFade {1, hold}` +
+//      `raid:loadBegin` go out first and `game:newMission` only follows `RAID_LOAD_FADE_OUT_S` later. Un-readying
+//      after the fade has begun cannot cancel the launch.
 // Usage: node scripts/smoke-android-bays.mjs [http://localhost:5273/]   (needs `npm run dev`; no relay needed)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -73,10 +77,11 @@ try {
   });
   const S = (fn, arg) => page.evaluate(fn, arg);
 
-  /* ── 공용 함선에 서기 (릴레이가 만든 로비 없이) ────────────────────────────
-   * `HubSystem.debugSharedShip` 이 「내가 서 있는 분대」를 흉내 내고, 매칭 탭 · 터미널 머리줄처럼 **분대**(`ctx.net.lobby`)를
-   * 읽는 화면을 위해 같은 객체를 `NetSystem._lobby` 에도 꽂아 둔다 (스모크 안에서만; 5절 전에 되돌린다). 분대장 판정이
-   * 진짜 `localId` 를 써야 하므로 릴레이에 붙은 뒤에 만든다. */
+  /* ── Standing in the shared ship (no relay-made lobby) ────
+   * `HubSystem.debugSharedShip` fakes 「the squad I am standing on」, and for the screens that read the **squad**
+   * (`ctx.net.lobby`) — the match tab, the terminal's header row — it plants the same object into `NetSystem._lobby`
+   * as well (inside the smoke only; restored before section 5). The leader test has to use the real `localId`, so
+   * this is made only once the relay is connected. */
   await S(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub' && window.__game.getSystem('hub').ship === 'personal', 'personal ship');
   await waitFor(page, () => !!window.__game.ctx.net?.localId, 'relay connected (the leader test needs a real localId)', 30000);
@@ -97,7 +102,7 @@ try {
   await waitFor(page, () => window.__game.getSystem('hub').ship === 'shared', 'shared ship');
   await S(() => { window.__game.getSystem('net')._lobby = window.__lobby; window.__game.getSystem('hub').syncPods(); });
 
-  /* ── 1. 슬롯 세 칸 ──────────────────────────────────────────────────────── */
+  /* ── 1. The three bays ──────────────────────────────────────────────── */
   const bays = await S(() => window.__game.ctx.hub.getAndroidBays().map((b) => ({
     bay: b.bay, x: b.position.x, y: b.position.y, z: b.position.z, yaw: b.yaw, ex: b.exit.x, ez: b.exit.z,
   })));
@@ -106,7 +111,8 @@ try {
     'bays are numbered 0..2 and stand apart along Z', JSON.stringify(bays.map((b) => b.z)));
   ok(bays.every((b) => b.x < -9 && b.y === 0 && Math.abs(b.z) < 7),
     'every bay is on the bridge half of the deck, feet on the floor', JSON.stringify(bays.map((b) => [b.x, b.z])));
-  // yaw 규약: 몸 앞 = (−sin yaw, −cos yaw). 갑판(+X)을 보아야 하고, `exit` 은 그 앞 한 걸음이다.
+  // yaw convention: a body's front = (−sin yaw, −cos yaw). It must face the deck (+X), and `exit` is one step
+  // out in front of it.
   ok(bays.every((b) => Math.abs(-Math.sin(b.yaw) - 1) < 0.01 && Math.abs(Math.cos(b.yaw)) < 0.01),
     'bays face +X (out onto the deck)', JSON.stringify(bays.map((b) => b.yaw)));
   ok(bays.every((b) => b.ex > b.x + 0.5 && Math.abs(b.ez - b.z) < 0.01), 'exit is one step out in front of each capsule');
@@ -129,7 +135,7 @@ try {
     .map((i) => ({ id: i.id, hold: i.holdTime, r: i.radius })));
   ok(its.length === 3 && its.every((i) => i.hold === 3), `3 hub_android_<bay> interactables, 3 s hold (${JSON.stringify(its)})`);
 
-  /* ── 2. 프롬프트 ────────────────────────────────────────────────────────── */
+  /* ── 2. Prompts ─────────────────────────────────────────────────────── */
   const asLeader = await S(() => {
     const hub = window.__game.getSystem('hub');
     return { p0: hub.androidPrompt(0), p1: hub.androidPrompt(1), c0: hub.androidCanInteract(0) };
@@ -148,7 +154,7 @@ try {
   ok(/분대장만 안드로이드를 들일 수 있습니다/.test(asMember.prompt ?? ''), `not the leader: "${asMember.prompt}"`);
   ok(asMember.can === true, 'a refused bay stays interactable (the reason is the prompt)');
 
-  /* ── 3. 봇 발사 슬롯 · 포드 앞 대기 자리 ─────────────────────────────────── */
+  /* ── 3. The bot launch slot · the spot in front of the pod ───── */
   await S(() => window.__game.getSystem('hub').syncPods());
   await sleep(200);
   const pods = await S(() => {
@@ -186,7 +192,7 @@ try {
   });
   ok(popup === false, 'right-clicking a bot cell opens no crew-loadout popup');
 
-  /* ── 4. 매칭 탭 ─────────────────────────────────────────────────────────── */
+  /* ── 4. The match tab ────────────────────────────────────────────────── */
   const match = await S(() => {
     const hub = window.__game.getSystem('hub');
     hub.menu.open();
@@ -209,7 +215,7 @@ try {
   ok(/안드로이드 1/.test(match.subtitle), `terminal subtitle counts androids separately ("${match.subtitle}")`);
   ok(match.tiles.filter((t) => t.empty && t.invite).length === 2, 'the two free slots still offer 초대 (a human may replace an android)');
 
-  /* ── 5. 레이드 진입 암전 (개인 함선 · 솔로) ──────────────────────────────── */
+  /* ── 5. The raid-entry fade (personal ship · solo) ──────────── */
   await S(() => { window.__game.getSystem('net')._lobby = null; window.__game.getSystem('hub').debugSharedShip(null); });
   await waitFor(page, () => window.__game.getSystem('hub').ship === 'personal' && !window.__game.getSystem('hub').cutscene, 'back in the personal ship');
   const planet = await S(() => {
@@ -218,7 +224,7 @@ try {
     const id = document.querySelector('.hp-dots i')?.dataset.planet ?? null;
     hub.menu.close(false);
     if (!id) return null;
-    // 창문 워프를 돌리지 않고 목표만 세운다 (워프 중에는 포드가 거절한다 — 이 스모크의 주제가 아니다)
+    // only the target is set, without running the window warp (a pod refuses during a warp — not this smoke's subject)
     hub.localPlanet = id;
     hub.applyPlanetLook();
     hub.syncPods();
@@ -239,7 +245,7 @@ try {
   const atFade = await S(() => {
     const hub = window.__game.getSystem('hub');
     const before = hub.readyLocal;
-    hub.toggleReady();                      // 암전 뒤의 준비 해제는 먹히지 않아야 한다
+    hub.toggleReady();                      // un-readying after the fade must not take
     return {
       launching: hub.raidLaunching, readyBefore: before, readyAfter: hub.readyLocal,
       phase: window.__game.ctx.phase,
@@ -262,7 +268,8 @@ try {
   ok(order.beginPhase === 'hub', 'raid:loadBegin is emitted from the ship, before the mission starts');
   ok(order.gap >= 600, `the authority launched only after the fade (${Math.round(order.gap)} ms ≥ RAID_LOAD_FADE_OUT_S)`);
 
-  /* 다른 시스템이 `update` 에서 던진 것은 이 스모크의 몫이 아니다 (그 폴더의 스모크가 본다) — hub 의 것만 남긴다. */
+  /* What another system threw in its `update` is not this smoke's business (that folder's smoke checks it) — only
+     hub's own are kept. */
   const real = errors.filter((e) => !/\/ws\b|WebSocket|websocket|ERR_CONNECTION_REFUSED/i.test(e))
     .filter((e) => !/update failed in (?!hub\b)\w+/i.test(e));
   ok(real.length === 0, 'no console / page errors', JSON.stringify(real.slice(0, 3)));

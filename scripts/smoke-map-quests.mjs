@@ -1,16 +1,18 @@
-// 전술 지도 퀘스트 패널 · 퀘스트 토스트 스모크 (2026-09-14 — src/ui/map/QuestPanels · src/ui/hud/Notifications, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+// Tactical-map quest panel · quest toast smoke (2026-09-14 — src/ui/map/QuestPanels · src/ui/hud/Notifications, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
 //
-// 왜 있나: 지도 좌측 열이 「머리 → 퀘스트 패널 목록 → 범례(좌측 하단) → 발밑 줄」 로 바뀌었고 패널이 `ctx.meta.npc.getRaidTracks()` 를
-// 그린다. 패널이 늘어도 프레임(= 캔버스 높이)이 자라면 안 되고, 트랙이 없거나 목적지 선택 모드여도 열이 무너지면 안 된다.
+// Why it exists: the map's left column became 「머리 → 퀘스트 패널 목록 → 범례(좌측 하단) → 발밑 줄」 and the panels draw
+// `ctx.meta.npc.getRaidTracks()`. More panels must not grow the frame (= the canvas height), and the column must not
+// collapse with no track or in destination-pick mode.
 //
-// 검사 (가짜 NpcQuestRef 로 — 레이아웃은 meta 구현과 무관하게 본다. 진짜 `ctx.meta.npc` 가 있으면 끝에서 그것도 그린다):
-//   1. 열 순서 · 범례 좌측 하단 고정 · 열 높이 = 캔버스 · 프레임이 화면 안
-//   2. 패널 3 · 이름 · NPC · 레이드 목표 줄만(함선 목표 · 다른 행성 목표 제외) · 확정 ✓ · 게이지 = progress
-//   3. 호버 → 툴팁 (설명 · 목표 전부 · 함선에서 · 보상), 떠나면 숨김
-//   4. `npc:objectiveProgress` → 곧바로 다시 그림 · 트랙 6 → 목록만 스크롤(프레임 그대로) · 트랙 0 → 목록 숨김 + 범례 좌측 하단
-//   5. 목적지 선택 모드 (차량이 있으면) → 퀘스트 목록 숨김, 나오면 복귀
-//   6. 토스트 — 목표 달성 · 보고 가능 · 완료 보상, done:false · 함선 목표는 토스트 없음
-//   7. 1280×720 · 1920×1080 — 프레임이 화면 안, 패널 3 + 툴팁 스크린샷
+// Checks (against a fake NpcQuestRef — the layout is judged apart from the meta implementation. A real `ctx.meta.npc`,
+// when there is one, is drawn once at the end too):
+//   1. column order · legend pinned bottom left · column height = the canvas · the frame inside the screen
+//   2. 3 panels · name · NPC · raid objective rows only (ship objectives · other-planet objectives excluded) · confirmed ✓ · gauge = progress
+//   3. hover → tooltip (description · every objective · 함선에서 · rewards), hidden once the pointer leaves
+//   4. `npc:objectiveProgress` → redrawn at once · 6 tracks → only the list scrolls (frame unchanged) · 0 tracks → list hidden + legend bottom left
+//   5. destination-pick mode (when there is a vehicle) → the quest list hides and comes back on leaving it
+//   6. toasts — objective reached · ready to report · completion reward, done:false · a ship objective never toasts
+//   7. 1280×720 · 1920×1080 — the frame inside the screen, 3 panels + tooltip screenshots
 //
 // Usage: node scripts/smoke-map-quests.mjs [http://localhost:5273/] [screenshot dir]
 import puppeteer from 'puppeteer-core';
@@ -97,7 +99,7 @@ try {
   await waitFor(page, () => window.__game.ctx.world.ready, 'world ready', 30000);
   await waitSim(page, 1.5);
 
-  /* ── 가짜 NpcQuestRef ── */
+  /* ── fake NpcQuestRef ── */
   const inst = await page.evaluate(() => {
     const ctx = window.__game.ctx;
     const npcs = {
@@ -211,9 +213,10 @@ try {
   ok(!tip.hidden && tip.q === 'mq_1', `호버 → 툴팁 (${tip.q})`);
   ok(tip.text.includes('헬릭스의 신형 산탄총') && tip.objs === 3, `툴팁: 설명 · 목표 전부 3줄 (${tip.objs})`);
   ok(tip.text.includes('함선에서') && tip.text.includes('4 / 10'), '툴팁: 납품 목표는 「함선에서」 · 진행');
-  /* 2026-09-16: 보상 문자열을 적어 두지 않는다 — 크레딧 · XP 는 UI 와 **같은 공용 포맷터**(`formatCredits` ·
-     `formatCompactSigned`, 10,000 부터 축약 · 그 아래는 쉼표)로 만든다. 순수 함수를 읽기만 하므로 모듈이 두 번
-     평가돼도 안전하다 (scripts/README 「import('/src/…')」). 신뢰도는 정확한 값이 곧 뜻이라 그대로다. */
+  /* 2026-09-16: the reward strings are not written down — credits · XP are built with **the same shared formatters**
+     the UI uses (`formatCredits` · `formatCompactSigned`, abbreviated from 10,000 up · comma-grouped below). Only pure
+     functions are read, so a second evaluation of the module is harmless (scripts/README 「import('/src/…')」).
+     Reputation is left as it is, because there the exact number is the meaning. */
   const RW = await page.evaluate(async () => {
     const s = await import('/src/shared/index.ts');
     const r = window.__mqBase()[0].def.rewards;
@@ -311,7 +314,7 @@ try {
     ok(!!tb.tip && tb.tip.b <= tb.vh + 0.5 && tb.tip.r <= tb.vw + 0.5, `${w}×${h}: 툴팁이 화면 안`, JSON.stringify(tb.tip));
   }
 
-  /* ── 진짜 ref (있으면) ── */
+  /* ── real ref (if any) ── */
   await page.evaluate(() => {
     const meta = window.__game.ctx.meta;
     delete meta.npc;

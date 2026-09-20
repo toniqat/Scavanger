@@ -9,7 +9,7 @@
 // training chat + notification lines, the training objective. Phase 9: ghost bleed bar / 사망 tag on a suspended member's
 // nameplate + squad row from `ref.ghostState / ghostDownHp`. Phase 10: the crosshair reload ring (`weapon:reloadStarted` /
 // `Cancelled` / `Finished`), the 회복약 2 s hold gauge (`heal:holdChanged`), the map's middle-click ping, the software
-// cursor sprite + cursor mode on the map (no `exitPointerLock`), and the item card's `100 C` credit bar. C-13 · C-19 (2026-09-11): the 회복 스프레이 ring never goes .ready at a full gauge, and the thin nameplate shield bar (ref.shield / maxShield; hidden when downed or suspended). C-36 후속: the item card's bag 내구도 row. 142 checks. Needs the relay on 8787 too (the hub's
+// cursor sprite + cursor mode on the map (no `exitPointerLock`), and the item card's `100 C` credit bar. C-13 · C-19 (2026-09-11): the 회복 스프레이 ring never goes .ready at a full gauge, and the thin nameplate shield bar (ref.shield / maxShield; hidden when downed or suspended). C-36 follow-up: the item card's bag 내구도 row. 142 checks. Needs the relay on 8787 too (the hub's
 // `ensureConnected` logs a console error otherwise), e.g. `npm run dev:all` or `npm run server` + a private vite.
 // Usage: node scripts/smoke-ui-p5.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
@@ -50,9 +50,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. A new profile starts the tutorial on its own and
+    // it locks room purposes · crafting · the terminal · boarding in that order, so it is seeded here as
+    // "already done" (the tutorial itself is what scripts/smoke-tutorial.mjs checks).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor trap); `pointerLockElement` is faked below.
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
@@ -83,13 +83,15 @@ try {
   const texts = (sel) => P((s) => [...document.querySelectorAll(s)].map((e) => e.textContent), sel);
   const hud = (expr) => P((e) => { const h = window.__game.getSystem('hud'); return h[e]; }, expr);
 
-  // 2026-09-09: 타이틀의 `.lv-chip` 은 사라졌다 — 레벨은 캐릭터 선택창의 슬롯 카드가 읽는다 (세이브에서 직접).
+  // 2026-09-09: the title's `.lv-chip` is gone — the level is read by the slot card on the character select
+  // screen (straight from the save).
   console.log('character select slot card');
   const lvReal = await P(() => window.__game.ctx.progression.level);
   const noChip = await P(() => ({ chip: !!document.querySelector('.menu.title .lv-chip'), phase: window.__game.ctx.phase }));
   ok(noChip.phase === 'menu' && !noChip.chip, '타이틀에는 레벨 칩이 없다 (버튼 셋뿐)', JSON.stringify(noChip));
   await P(() => [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].find((b) => b.textContent === '게임 시작').click());
-  // 빈 브라우저로 부팅했으므로 세 칸 모두 비어 있다 — 프로필은 캐릭터 생성창이 쓰고, 그전에는 아무 세이브도 없다.
+  // Booted in an empty browser, so all three slots are empty — the profile is written by the character
+  // creation screen, and before that there is no save at all.
   const empties = await P(() => ({
     cards: document.querySelectorAll('.char-select .csl-card').length,
     empty: document.querySelectorAll('.char-select .csl-card.empty').length,
@@ -97,7 +99,8 @@ try {
   }));
   ok(empties.cards === 3 && empties.empty === 3 && empties.plus === '캐릭터 생성',
     '빈 저장소 → 칸 셋 전부 비어 있고 각각 캐릭터 생성', JSON.stringify(empties));
-  // 슬롯 2 에 캐릭터를 심고 다시 열면 그 칸이 세이브에서 이름 · 레벨 · 능력치를 읽어 온다 (색인 파일 없음).
+  // Planting a character in slot 2 and reopening it makes that slot read its name · level · stats from the
+  // save (there is no index file).
   const card = await P((lv) => {
     const p = { ...window.__game.ctx.progression.profile, name: '테스트대원', level: lv };
     localStorage.setItem('scav.s2.profile', JSON.stringify(p));
@@ -117,7 +120,8 @@ try {
   const lvToasts = await P(() => document.querySelectorAll('.ptoast.level').length);
   ok(lvToasts === 0, 'progress:levelUp raises no 레벨 업 toast any more (the result screen owns the moment)', String(lvToasts));
   await P(() => window.__game.ctx.bus.emit('progress:loaded', { profile: window.__game.ctx.progression.profile }));
-  // 2026-09-09: `progress:loaded` 는 이제 콜사인을 `ctx.net` 에 밀어 넣는 자리다 — 타이틀에 칩이 없으니 그것을 본다.
+  // 2026-09-09: `progress:loaded` is now the place that pushes the callsign into `ctx.net` — with no chip on
+  // the title, that is what is checked.
   const pushedName = await P(() => ({ profile: window.__game.ctx.progression.profile.name, net: window.__game.ctx.net?.playerName }));
   ok(!pushedName.net || pushedName.net === pushedName.profile,
     'progress:loaded → 캐릭터 이름이 net.playerName 으로 간다', JSON.stringify(pushedName));
@@ -181,7 +185,8 @@ try {
   rg = await reloadRing();
   ok(!rg.on, 'player:downed closes the ring mid-reload', JSON.stringify(rg));
   await emit('player:revived', { hp: 100, byName: null });
-  // 회복 소모품: LMB hold of the item's own length (`heal:holdChanged.dur`), a full circle rather than the cook gauge's 120 deg arc
+  // Healing consumables: LMB hold of the item's own length (`heal:holdChanged.dur`), a full circle rather than
+  // the cook gauge's 120 deg arc
   const healRing = () => P(() => { const e = document.querySelector('.heal'); return { cls: e.className, dash: e.querySelector('.fill').style.strokeDasharray, lbl: e.querySelector('.lbl').textContent, on: window.__game.getSystem('hud').isHealGaugeOn, circle: !!e.querySelector('circle.fill') }; });
   await emit('heal:holdChanged', { holding: true, t: 0, dur: 2 });
   let hg = await healRing();
@@ -201,8 +206,9 @@ try {
   await emit('heal:holdChanged', { holding: false, t: -1 });
   hg = await healRing();
   ok(!/\bshow\b/.test(hg.cls) && !hg.on && dashT(hg.dash) < 0.02, 'releasing (holding false / t -1) hides and resets it', JSON.stringify(hg));
-  // 2026-09-16 (사용자 결정): 소모품을 들어도 큰 무기 패널은 소모품 블록으로 바뀌지 않는다 — 마지막 주무기를 흐리게 보여 줄 뿐이다
-  // (흐림 자체는 `ctx.weapons.primaryInHand` 를 매 프레임 읽으므로 가짜 이벤트로는 켜지지 않는다).
+  // 2026-09-16 (user's decision): holding a consumable does not turn the big weapon panel into a consumable
+  // block — it only dims the last primary weapon (the dimming itself reads `ctx.weapons.primaryInHand` every
+  // frame, so a fake event never switches it on).
   const stimHand = await P(() => {
     window.__game.ctx.bus.emit('quick:equipped', { item: { uid: 'smoke-stim', defId: 'heal_bandage', qty: 2, x: 0, y: 0, rot: 0 }, slot: 1 });
     const w = document.querySelector('.weapon');
@@ -250,8 +256,9 @@ try {
   ok(mapPing.n === 1 && !!mapPing.last, 'a middle-click on the map places exactly one ping (ping:placed)', JSON.stringify(mapPing));
   ok(mapPing.open, 'the middle-click does not close the map or start a pan');
   ok(mapPing.markers >= 1, 'the map ping got its own world marker', JSON.stringify(mapPing));
-  /* 2026-09-07 (커서 rework): the open map is a cursor-mode owner and the pointer lock is **released** — the real OS
-     cursor comes back, restyled by `ui/hud/GameCursor`. The DOM sprite and the virtual cursor are gone. */
+  /* 2026-09-07 (the cursor rework): the open map is a cursor-mode owner and the pointer lock is **released**
+     — the real OS cursor comes back, restyled by `ui/hud/GameCursor`. The DOM sprite and the virtual cursor
+     are gone. */
   const mapCursor = await P(() => ({
     mode: window.__game.ctx.input.isCursorMode,
     blocked: window.__game.ctx.uiBlockers.has('map'),
@@ -305,7 +312,8 @@ try {
   ok(tipBar.label === '가치' && tipBar.amount === `${tipBar.value.toLocaleString('ko-KR')} C`, `bar reads 가치 / ${tipBar.value} C via formatCredits (${tipBar.amount})`, JSON.stringify(tipBar));
   ok(!tipBar.rows.includes('가치') && tipBar.align === 'space-between', '가치 is gone from the stats table and the amount is right-aligned', JSON.stringify(tipBar));
   await P(() => document.querySelector('#ui-root > .item-tip').dispatchEvent(new PointerEvent('pointerout', { bubbles: true })));
-  // C-36 후속 (2026-09-11): 가방 내구도 한 줄 — 칩뿐이면 `최대 max`, data-uid 로 인스턴스를 찾으면 `cur / max`
+  // C-36 follow-up (2026-09-11): one bag 내구도 row — `최대 max` on a plain chip, `cur / max` when a data-uid
+  // finds the instance
   const bagTip = await P(() => {
     const ctx = window.__game.ctx;
     const max = ctx.loot.getItemDef('bag_common')?.durabilityMax ?? null;
@@ -325,7 +333,7 @@ try {
       return v;
     };
     const def = readRow(null);
-    // 인스턴스 조회만 가짜로 — 저장소를 건드리지 않는다
+    // Only the instance lookup is faked — the store is not touched
     const inv = ctx.inventory;
     const orig = inv.findItemAnywhere;
     const own = Object.prototype.hasOwnProperty.call(inv, 'findItemAnywhere');
@@ -336,7 +344,8 @@ try {
   });
   ok(bagTip.max > 0 && bagTip.def === `최대 ${bagTip.max}` && bagTip.inst === `37 / ${bagTip.max}`, 'item tip: bag 내구도 row — 최대 max on a def chip, cur / max for a data-uid instance', JSON.stringify(bagTip));
 
-  /* ── Phase 9 UI pass: 무게 표시 제거 · 분대 목록은 좌하단 · 우하단은 임플란트 → 빠른 사용 → 무기 슬롯 ── */
+  /* ── Phase 9 UI pass: the weight readout removed · the squad list bottom-left · bottom-right is
+     implant → quick use → the weapon slot ── */
   const p9 = await P(() => {
     const bl = document.querySelector('.hud.social .hud-bl');
     const vitals = document.querySelector('.hud .vitals');   // 2026-09-12: the vitals block lives in the social layer now
@@ -353,7 +362,8 @@ try {
       type: w?.querySelector('.type')?.textContent ?? '',
       quick: filled.length,
       chips: document.querySelectorAll('.qstrip .qs-cell .item-chip[data-def-id]').length,
-      /* 2026-09-10: 임플란트는 우하단 칩이 아니라 화면 중앙 하단의 `.imp-hud` 이고, 이름을 표기하지 않는다. */
+      /* 2026-09-10: the implant is not a bottom-right chip but `.imp-hud` at the bottom centre, and it shows
+         no name. */
       implant: (() => { const h = document.querySelector('.imp-hud'); return h && !h.hidden ? (h.dataset.implant ?? null) : null; })(),
       implantName: !!document.querySelector('.imp-hud .ib-name'),
       implantKey: document.querySelector('.imp-hud .imp-key')?.textContent ?? null,
@@ -363,7 +373,8 @@ try {
   });
   ok(!p9.weight, '인게임 무게 표시(.weightbar) 제거');
   ok(p9.column && p9.aboveVitals && p9.left === 32, `채팅 + 분대 목록이 좌하단 한 열(.hud-bl)에서 체력바 위에 (left ${p9.left})`, JSON.stringify(p9));
-  /* 2026-09-10 (2차): 함선 호출도 하단 중앙(임플란트 왼쪽 `.scall`)으로 떠났다 — 우하단은 빠른 사용 → 무기 상자(.wbox)뿐이다. */
+  /* 2026-09-10 (2nd pass): the ship calls moved to the bottom centre too (`.scall`, left of the implant) —
+     the bottom right is quick use → the weapon box (.wbox) only. */
   ok(p9.order.startsWith('qstrip,wbox') && !p9.stratInColumn,
     `우하단 순서: 빠른 사용 → 무기 패널, 함선 호출은 열에 없다 (${p9.order})`);
   ok(!p9.slotLbl && !p9.type.includes('·'), `무기 정보에서 '주무기' / 탄약 표기 제거 (type '${p9.type}')`);
@@ -400,7 +411,7 @@ try {
   ok(cp.on && cp.name === '검체 채취 II' && cp.goal === '시체 수색', 'a new contract re-opens the panel with its own name / goal', JSON.stringify(cp));
   await emit('meta:contractAbandoned', { id: 'ceres_2', corp: 'ceres' });
   ok((await hud('isContractPanelOn')) === false, 'meta:contractAbandoned hides the panel');
-  /* Phase 9 UI pass: 분대 계약 rows under the own contract — empty (and hidden) without a squad */
+  /* Phase 9 UI pass: squad contract rows under the own contract — empty (and hidden) without a squad */
   const mates = await P(() => {
     const p = document.querySelector('.contract-panel');
     const list = window.__game.ctx.meta && typeof window.__game.ctx.meta.getSquadContracts === 'function'
@@ -435,7 +446,8 @@ try {
   await emit('meta:repChanged', { corp: 'helix', rep: 130, level: 1, delta: 30, levelUp: false });
   rep = await texts('.ptoast.rep');
   ok(rep.length === 1, 'rep gain without a level-up raises no toast', JSON.stringify(rep));
-  // 2026-09-14: 기업 퀘스트(`meta:questChanged`) 폐지 — NPC 퀘스트 토스트는 ui 의 메신저 · 지도 스모크가 본다
+  // 2026-09-14: corporation quests (`meta:questChanged`) were dropped — the NPC quest toasts are checked by
+  // ui's messenger · map smokes
   let notifs;
   await emit('meta:contractAccepted', { id: 'bastion_1', corp: 'bastion' });
   await emit('meta:purchase', { corp: 'helix', defId: 'ammo_light', price: 40, placed: 'stash' });
@@ -499,7 +511,7 @@ try {
   ok(rw.lv === 'Lv. 3' && rw.num === '120 / 300 XP', 'no level-up → Lv. 3, 120 / 300 XP', `${rw.lv} ${rw.num}`);
   ok(/scaleX\(0\.13/.test(rw.fill), 'bar starts at the pre-mission fraction (40 / 300)', rw.fill);
   ok(rw.contract === '계약 실패 · 진척 유지 안 됨 · 소탕 작전 II 12 / 60' && /\blost\b/.test(rw.ccls), 'death contract line without outcome falls back to 계약 실패 · 진척 유지 안 됨 · p / t', `${rw.contract} ${rw.ccls}`);
-  // 2026-09-09: 자동 부활 폐지 — 이 화면에 `부활` 버튼은 아예 없다. 남는 버튼은 `함선으로 귀환` 하나다.
+  // 2026-09-09: auto-revive was dropped — this screen has no `부활` button; the only button left is `함선으로 귀환`.
   ok(!(await hud('isRaidFailed')) && (await P(() => !document.querySelector('.menu.death .ui-btn.respawn')
     && [...document.querySelectorAll('.menu.death .ui-btn')].some((b) => b.textContent === '함선으로 귀환'))),
   'plain death: no 부활 button any more, 함선으로 귀환 only');
@@ -579,7 +591,8 @@ try {
     return { h: Math.round(sr.height), above: sr.bottom <= vr.top + 4, left: Math.round(sr.left), vLeft: Math.round(vr.left) };
   });
   ok(squadPos.h > 0 && squadPos.above && squadPos.left === squadPos.vLeft, `분대 목록이 좌하단 체력바 바로 위 (h ${squadPos.h}, left ${squadPos.left})`, JSON.stringify(squadPos));
-  // 2026-09-16 (사용자 결정): 내 행은 어디에도 그리지 않는다 — 내 체력은 조준선 아래 바이탈이 이미 말한다.
+  // 2026-09-16 (user's decision): the local player's own row is drawn nowhere — the vitals under the crosshair
+  // already say that health.
   const meRow = await P(() => ({ me: !!document.querySelector('.squad .srow.me'), names: [...document.querySelectorAll('.squad .srow')].filter((e) => !e.hidden).map((e) => e.querySelector('.name').textContent) }));
   ok(!meRow.me && !meRow.names.some((n) => n.endsWith('(나)')), '분대 목록에 내 행이 없다 (2026-09-16)', JSON.stringify(meRow));
   let plate = await P(() => { const p = [...document.querySelectorAll('.nameplate')].find((e) => e.querySelector('.name').textContent === '브라보'); return p ? { cls: p.className, op: p.style.opacity, tagHidden: p.querySelector('.tag').hidden, tag: p.querySelector('.tag').textContent } : null; });
@@ -681,9 +694,9 @@ try {
   ok(sysLines.some((t) => t === '시뮬레이션 훈련장 퇴장') && notifs.some((t) => t.includes('훈련장') && t.includes('퇴장')), 'training:exitRequested → chat line + notification', JSON.stringify(sysLines.slice(-2)));
 
   /*
-   * 2026-09-10: 좌측 상단에 **임무 시간만** 남았다 (사용자 결정). 목표 문구(`.text`) · 보조 문구(`.sub`) ·
-   * `임무 목표` 라벨은 전부 사라졌고, `ui:objective` 는 계약으로만 남은 no-op 이다 — 훈련장의 명중 카운터는
-   * `hud/TrainingPanel` 이 자기 패널에 그린다.
+   * 2026-09-10: **only the mission clock** is left at the top left (user's decision). The objective line
+   * (`.text`) · the sub line (`.sub`) · the `임무 목표` label are all gone, and `ui:objective` is a no-op kept
+   * only as contract — the training range's hit counter is drawn by `hud/TrainingPanel` in its own panel.
    */
   console.log('objective = clock only');
   const objective = () => P(() => { const o = document.querySelector('.hud.gameplay .objective'); return { clock: o?.querySelector('.clock')?.textContent ?? null, text: !!o?.querySelector('.text'), sub: !!o?.querySelector('.sub') }; });
@@ -692,7 +705,7 @@ try {
   let obj = await objective();
   ok(!obj.text && !obj.sub, '임무 목표 문구 · 보조 문구 제거', JSON.stringify(obj));
   ok(/^\d{2}:\d{2}$/.test(obj.clock ?? ''), `좌측 상단에는 임무 시간만 (${obj.clock})`);
-  // 계약으로 남긴 no-op: 아무도 그리지 않지만 발행해도 터지지 않아야 한다
+  // The no-op kept as contract: nobody draws it, but emitting it must not blow up
   await emit('ui:objective', { text: '시뮬레이션 훈련장 · 출구 콘솔로 종료', subText: '표적 명중 3 / 12' });
   obj = await objective();
   ok(!obj.text && !obj.sub, 'ui:objective 는 no-op — 문구가 되살아나지 않는다', JSON.stringify(obj));

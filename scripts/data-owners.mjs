@@ -1,54 +1,55 @@
 /**
- * `data/*.csv` 를 **누가 읽는가** — 한 곳에 적는 지식 (2026-09-11).
+ * **Who reads** `data/*.csv` — the knowledge written down in one place (2026-09-11).
  *
- * 두 스크립트가 같은 지식을 따로 들고 있으면 한쪽만 고쳐져서 어긋난다 (`shared/ballistics` 와 같은 이유):
+ * Two scripts holding the same knowledge separately means one of them is fixed and they go out of step (the same
+ * reason as `shared/ballistics`):
  *
- *  - `DATA_OWNERS` — csv 를 **로드하는 모듈**. `scripts/data-check.mjs` 가 이 모듈들을 vite 로 읽어 로더가 모은 문제를
- *    출력한다. 하나라도 빠지면 그 파일이 "고아 csv" 로 잘못 잡힌다.
- *  - `CSV_FOLDERS` — csv 한 개 → 그 **수치가 동작을 바꾸는 기능 폴더**. `scripts/verify.mjs` 의 `foldersOf` 가
- *    `data/<file>.csv` 변경에서 이 폴더들의 스모크를 고른다 (예전에는 csv 만 고친 변경에 스모크가 0 개였다).
- *    로더 위치가 아니라 **소비 폴더**를 적는다 — `meta.csv` 류는 `src/shared/meta.ts` 가 읽지만 그 값이 움직이는 것은
- *    meta/ 다(shared 를 적으면 GLOBAL 이 되어 41종 전부가 돈다).
- *  - `CSV_WIDE` — 거의 모든 폴더가 읽는 표. 매핑하면 사실상 전부이므로 **스모크를 고르지 않고 경고만** 한다
- *    (`--folders` 로 직접 주거나 `verify:all`).
+ *  - `DATA_OWNERS` — the **modules that load** a csv. `scripts/data-check.mjs` reads them through vite and prints the
+ *    issues the loaders collected. Miss one and that file is wrongly caught as an "orphan csv".
+ *  - `CSV_FOLDERS` — one csv → the **feature folders whose behaviour its numbers change**. `foldersOf` in
+ *    `scripts/verify.mjs` picks those folders' smokes for a `data/<file>.csv` change (a csv-only change used to select
+ *    zero smokes). What is written here is the **consuming folder**, not where the loader lives — the `meta.csv` family
+ *    is read by `src/shared/meta.ts`, but what its values move is meta/ (writing shared makes it GLOBAL and all 41 kinds run).
+ *  - `CSV_WIDE` — tables nearly every folder reads. Mapping them is mapping effectively everything, so they **select no
+ *    smoke and only warn** (pass `--folders` by hand, or run `verify:all`).
  *
- * 새 csv 를 만들면 여기 한 줄을 더한다. `node scripts/verify.mjs --list` 가 빠진 파일을 경고로 찍는다.
+ * A new csv gets one line here. `node scripts/verify.mjs --list` prints a warning for a file that is missing.
  */
 
-/** csv 를 읽는 모듈 전부 (vite 경로). */
+/** Every module that reads a csv (vite paths). */
 export const DATA_OWNERS = [
-  '/src/shared/index.ts',        // constants · tables · meta · housing · planetDefs · meals (2026-09-16 — 요리는 아이템이 아니다, shared/meals)
-  '/src/items/ItemDefs.ts',      // items · ammo · attachments · bags · seeds · samples · sockets · library_series(아이템 열) · game_consoles · game_discs · armor · implants
-  '/src/items/WeaponStats.ts',   // tuning (반동 · 조준 계수)
+  '/src/shared/index.ts',        // constants · tables · meta · housing · planetDefs · meals (2026-09-16 — a meal is not an item, shared/meals)
+  '/src/items/ItemDefs.ts',      // items · ammo · attachments · bags · seeds · samples · sockets · library_series (the item columns) · game_consoles · game_discs · armor · implants
+  '/src/items/WeaponStats.ts',   // tuning (recoil · aim coefficients)
   '/src/items/LootTables.ts',    // loot_*
   '/src/items/Recipes.ts',       // recipes
-  '/src/items/Salvage.ts',       // salvage (분해 표) + 내구도 구간 배수
+  '/src/items/Salvage.ts',       // salvage (the salvage table) + the durability bucket multipliers
   '/src/enemies/EnemyTypes.ts',  // enemies · enemy_abilities
-  '/src/enemies/factionTables.ts', // tables · constants (2026-09-13 거점 점거 SITE_* · 레이더 강하 RAIDER_DROP_* · 네임드 확률)
+  '/src/enemies/factionTables.ts', // tables · constants (2026-09-13 site occupation SITE_* · raider drop RAIDER_DROP_* · the named chance)
   '/src/progression/defs.ts',    // stats · skills
-  '/src/meta/Rules.ts',          // tuning (임플란트 수리 수수료)
-  '/src/world/structures/model.ts', // structures (버려진 구조물 · 선로 플랫폼 · 전차)
-  '/src/world/hazard/model.ts',  // hazards (환경 재해의 색 · 입자 · 벽)
-  // 2026-09-11 (A-11 · A-12): 행성별 야생 씨앗 · 미확인 표본의 planets.csv 열 (soil.ts 와 같은 임시 조치).
+  '/src/meta/Rules.ts',          // tuning (the implant repair fee)
+  '/src/world/structures/model.ts', // structures (abandoned structures · rail platforms · trams)
+  '/src/world/hazard/model.ts',  // hazards (a hazard's colour · particles · wall)
+  // 2026-09-11 (A-11 · A-12): the planets.csv columns for per-planet wild seeds · unidentified samples (the same stopgap as soil.ts).
   '/src/world/flora.ts',
   '/src/world/specimen.ts',
   '/src/audio/AudioSystem.ts',   // tables (FOOTSTEP_MATERIAL_GAIN — 2026-09-11 C-22)
-  '/src/weapons/AimSway.ts',     // aim_sway (무기 계열별 조준 흔들림 — 2026-09-12 A2)
-  '/src/inventory/ui/labels.ts', // tuning (INV_CELL_* — 창 높이별 격자 칸 크기, 2026-09-14)
-  '/src/world/Crates.ts',        // tuning (NEST_CRATE_CLEAR_M — 둥지 옆 상자 금지 반경, 2026-09-18)
+  '/src/weapons/AimSway.ts',     // aim_sway (aim sway per weapon class — 2026-09-12 A2)
+  '/src/inventory/ui/labels.ts', // tuning (INV_CELL_* — grid cell size by window height, 2026-09-14)
+  '/src/world/Crates.ts',        // tuning (NEST_CRATE_CLEAR_M — the no-crate radius beside a nest, 2026-09-18)
 ];
 
-/** 거의 모든 폴더가 읽는 표 — 스모크를 고르지 않는다 (경고만). */
+/** Tables nearly every folder reads — they select no smoke (a warning only). */
 export const CSV_WIDE = new Set(['constants.csv', 'tables.csv']);
 
-/** csv → 그 값을 소비하는 기능 폴더 (verify 의 폴더 → 스모크 매핑으로 이어진다). */
+/** csv → the feature folders that consume its values (which feeds verify's folder → smoke mapping). */
 export const CSV_FOLDERS = {
-  // items/ 로더 (ItemDefs · WeaponStats · LootTables · Recipes · Salvage · ImplantDefs)
-  // 2026-09-11 (온실 개편): `soilTag` · `soilUses` 열이 붙으면서 `ItemDef.soil` 을 housing/ 의 재배 규칙이 소비한다
+  // The items/ loaders (ItemDefs · WeaponStats · LootTables · Recipes · Salvage · ImplantDefs)
+  // 2026-09-11 (the greenhouse rework): with the `soilTag` · `soilUses` columns, housing/'s growing rules consume `ItemDef.soil`
   'items.csv':               ['items', 'inventory', 'housing'],
   'weapons.csv':             ['items', 'weapons'],
   'weapons_unique.csv':      ['items', 'weapons'],
-  // 2026-09-12 (A2): 조준 흔들림 — weapons/ 가 계열별 크기를 골라 넘기고 player/ 의 CameraRig 가 흔든다
+  // 2026-09-12 (A2): aim sway — weapons/ picks the amount for the class and hands it over, player/'s CameraRig does the shaking
   'aim_sway.csv':            ['weapons', 'player'],
   'ammo.csv':                ['items', 'weapons'],
   'attachments.csv':         ['items', 'weapons'],
@@ -56,21 +57,21 @@ export const CSV_FOLDERS = {
   'bags.csv':                ['items', 'inventory'],
   'seeds.csv':               ['items', 'housing'],
   'samples.csv':             ['items', 'housing'],
-  // 2026-09-13 (요리 재료 티어): 분석기 결과표는 shared/housing 이 읽고 housing/(분석기) 이 굴린다 · 소켓은 items/ 가 정의하고 housing/ 이 끼운다
+  // 2026-09-13 (ingredient tiers): the analysis result table is read by shared/housing and rolled by housing/ (the analyzer) · sockets are defined by items/ and fitted by housing/
   'analysis_results.csv':    ['housing'],
   'sockets.csv':             ['items', 'housing'],
-  // 2026-09-11 (A-3c): 요리는 housing/(식탁 · 조리대) · progression/(식사 버프) 이 소비한다.
-  // 2026-09-16 (접시 모델): 표는 shared/meals 가 읽고(아이템이 아니다) hub/(식탁 위 접시 모양) · ui/(버프 썸네일 · 툴팁) 도 소비한다
+  // 2026-09-11 (A-3c): cooking is consumed by housing/ (the dining table · cook bench) · progression/ (the meal buff).
+  // 2026-09-16 (the plate model): the table is read by shared/meals (a meal is not an item) and consumed by hub/ (the plate on the table) · ui/ (buff thumbnails · tooltips) too
   'meals.csv':               ['housing', 'progression', 'hub', 'ui'],
-  // 2026-09-13 (요리 미니게임): 단계표 · 굽기 시간은 shared/cooking 이 읽고 housing/(조리대 화면 · 판정) 이 쓴다 · 툴팁의 단계 줄은 ui/
+  // 2026-09-13 (the cooking minigame): the step table · grilling times are read by shared/cooking and used by housing/ (the cook bench screen · the judgement) · the tooltip's step row is ui/
   'cook_steps.csv':          ['housing', 'ui'],
   'cook_grill.csv':          ['housing'],
-  // 2026-09-13 (서재 시리즈 — 옛 books · discs · records.csv 대신): 시리즈 효과는 housing/(합산 · 레시피 해금) · progression/(숙련 상승량 · 파생) ·
-  //   inventory/(띠) · ui/(툴팁) · meta/(신뢰도) · game/(레이드 경험치) 이 소비하고, 아이템 · 행성 드롭은 items/
+  // 2026-09-13 (library series — in place of the old books · discs · records.csv): the series effects are consumed by housing/ (the sum · recipe unlocks) ·
+  //   progression/ (skill gain · derived stats) · inventory/ (the ribbon) · ui/ (tooltips) · meta/ (trust) · game/ (raid XP), and the item · planet drops by items/
   'library_series.csv':      ['items', 'housing', 'progression', 'inventory', 'ui', 'meta', 'game'],
-  // 옛 서재 매체 id → 새 id — 세이브를 옮기는 housing/(보관함) · inventory/(창고 · 로드아웃 · 레이드) + items/ 안전망
+  // Old library media ids → new ones — housing/ (holders) · inventory/ (stash · loadout · raid), which migrate saves, plus items/'s safety net
   'item_aliases.csv':        ['items', 'housing', 'inventory'],
-  // 2026-09-13 (비디오게임): 게임기 · 게임 디스크 — items/ 가 정의, housing/(TV · 게임 세션) · hub/(TV 연출) · ui/(툴팁)
+  // 2026-09-13 (video games): consoles · game discs — defined by items/, used by housing/ (the TV · game session) · hub/ (the TV staging) · ui/ (tooltips)
   'game_consoles.csv':       ['items', 'housing', 'hub', 'ui'],
   'game_discs.csv':          ['items', 'housing', 'hub', 'ui'],
   'implants_perks.csv':      ['items', 'implants'],
@@ -80,36 +81,36 @@ export const CSV_FOLDERS = {
   'loot_category_weights.csv': ['items'],
   'loot_corpse_rolls.csv':   ['items', 'enemies'],
   'loot_corpses.csv':        ['items', 'enemies'],
-  // 2026-09-17: 시체 표본 개당 등급 굴림 — items/ 가 굴리고 enemies/ 가 시체로 넘긴다
+  // 2026-09-17: the per-sample rarity roll on a corpse — items/ rolls it and enemies/ hands it to the corpse
   'loot_corpse_samples.csv': ['items', 'enemies'],
   'loot_guaranteed.csv':     ['items'],
   'loot_item_weights.csv':   ['items'],
   'loot_named.csv':          ['items', 'enemies'],
-  // 2026-09-13 (행성별 적 팩션): 안드로이드 · 로그 · 레이더 시체의 팩션 굴림 · 스폰 거점 보너스 — items/ 가 굴리고 enemies/ 가 넘긴다
+  // 2026-09-13 (per-planet enemy factions): the faction roll on an android · rogue · raider corpse · the spawn site bonus — items/ rolls it and enemies/ hands it over
   'loot_factions.csv':       ['items', 'enemies'],
   'loot_faction_sites.csv':  ['items', 'enemies'],
-  // 2026-09-16: world 도 읽는다 — 행성 광맥이 미확인 광물의 등급을 tier = 행성 threat 줄에서 굴린다
-  // (mythic 열 포함, src/world/mineral.ts). 상자 루팅의 5등급 축과는 다른 독자 경로다.
+  // 2026-09-16: world reads it too — a planet's mineral vein rolls an unidentified mineral's rarity from the row
+  // tier = the planet's threat (the mythic column included, src/world/mineral.ts). A path of its own, not crate looting's five-rarity axis.
   'loot_tiers.csv':          ['items', 'world'],
   'planet_loot.csv':         ['items', 'world'],
-  // enemies/ · progression/ · world/ 로더
-  'enemies.csv':             ['enemies', 'meta'],   // 2026-09-13: meta/Rules.killGoalOf 가 faction 열을 읽는다
+  // The enemies/ · progression/ · world/ loaders
+  'enemies.csv':             ['enemies', 'meta'],   // 2026-09-13: meta/Rules.killGoalOf reads the faction column
   'enemy_abilities.csv':     ['enemies'],
   'skills.csv':              ['progression'],
   'stats.csv':               ['progression'],
   'structures.csv':          ['world'],
   'hazards.csv':             ['world'],
-  // shared/ 로더지만 값이 움직이는 곳은 기능 폴더다
-  // 2026-09-13: threat 열이 인간형 팩션(거점 점거 · 레이더 강하 · 네임드)을 정한다 → enemies/
+  // A shared/ loader, but where the values move is the feature folder
+  // 2026-09-13: the threat column decides the humanoid faction (site occupation · raider drop · named) → enemies/
   'planets.csv':             ['hub', 'world', 'game', 'enemies'],
   'stratagems.csv':          ['stratagems'],
   'currencies.csv':          ['meta', 'ui'],
   'corps.csv':               ['meta'],
   'contracts.csv':           ['meta'],
   'corp_stock.csv':          ['meta'],
-  // 2026-09-14 (메신저 · NPC 퀘스트 — 옛 quests.csv 대신): meta/(엔진) · ui/(메신저 · 지도 패널 · 토스트) 가 소비한다
+  // 2026-09-14 (the messenger · NPC quests — in place of the old quests.csv): consumed by meta/ (the engine) · ui/ (the messenger · map panels · toasts)
   'npcs.csv':                ['meta', 'ui'],
-  /* 2026-09-14 정보상 — 구매 · 가격은 meta, 화면은 hub, 기믹 적용은 world · enemies */
+  /* 2026-09-14 the intel broker — buying · prices are meta, the screen is hub, applying the gimmicks is world · enemies */
   'intel_options.csv':       ['meta', 'hub', 'world', 'enemies'],
   'npc_quests.csv':          ['meta', 'ui'],
   'npc_objectives.csv':      ['meta', 'ui'],
@@ -117,9 +118,9 @@ export const CSV_FOLDERS = {
   'furniture.csv':           ['housing', 'hub'],
   'furniture_upgrades.csv':  ['housing', 'hub'],
   'room_purposes.csv':       ['housing', 'hub'],
-  // 2026-09-13 (암호화폐 채굴): 코인 표 — housing/(채굴 · 지갑) · net/(시세) 이 읽고 서버 경제 표로 구워진다
+  // 2026-09-13 (crypto mining): the coin table — read by housing/ (mining · the wallet) · net/ (quotes), and baked into the server economy table
   'crypto.csv':              ['housing', 'net'],
-  // 여러 폴더가 읽지만 목록이 짧다 (items · meta · progression · shared/housing · shared/meta)
-  // 2026-09-18: world 도 읽는다 — 둥지 옆 상자 금지 반경 `NEST_CRATE_CLEAR_M` (src/world/Crates.ts)
+  // Several folders read it, but the list is short (items · meta · progression · shared/housing · shared/meta)
+  // 2026-09-18: world reads it too — the no-crate radius beside a nest, `NEST_CRATE_CLEAR_M` (src/world/Crates.ts)
   'tuning.csv':              ['items', 'meta', 'progression', 'housing', 'inventory', 'world'],
 };

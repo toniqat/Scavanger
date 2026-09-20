@@ -1,7 +1,7 @@
-// Smoke: 진동 장치 (thumper — 2026-09-15 땅굴벌레, docs/DECISIONS.md 「2026-09-15 — 땅굴벌레 · 진동 장치」). Solo raid.
+// Smoke: the thumper (`진동 장치` — 2026-09-15, the sandworm; docs/DECISIONS.md 「2026-09-15 — 땅굴벌레 · 진동 장치」). Solo raid.
 //
 // - catalogue: `gad_thumper` → `GadgetId 'thumper'` (place · deployable `thumper` · no recover), listed in `getDefs`, quick-usable,
-//   **does not stack** (`stackMax` 1 — 2026-09-16 사용자 결정: 제작법 없는 드랍 전용)
+//   **does not stack** (`stackMax` 1 — 2026-09-16, user's decision: drop-only, with no recipe)
 // - placement judgement: only where `world.burrowGroundOk(x, z, THUMPER_GROUND_R)` — the ghost preview (`ctx.gadgets.placement`) and
 //   `use()` share it; on a structure roof the preview is red with the burrow reason and `use()` refuses without consuming the item.
 //   When world has not published `burrowGroundOk` yet (parallel development) the script stubs it — true on bare terrain, false inside
@@ -95,7 +95,7 @@ try {
     };
   });
   ok(cat.item && cat.item.gadgetId === 'thumper' && cat.item.cat === 'gadget' && cat.item.quick === true, `items.csv gad_thumper → gadgetId thumper, quick-usable (${JSON.stringify(cat.item)})`);
-  /* 2026-09-16 (사용자 결정): 진동 장치는 **겹치지 않는다** — 제작법이 없는 드랍 전용 물건이라 한 칸에 하나다. */
+  /* 2026-09-16 (user's decision): the thumper **does not stack** — it is a drop-only thing with no recipe, so one per cell. */
   ok(cat.item && cat.item.w === 1 && cat.item.h === 2 && cat.item.stack === 1 && cat.item.rarity === 'rare', `1×2, does not stack (${cat.item?.stack}), rare`);
   ok(cat.def && cat.def.use === 'place' && cat.def.dep === 'thumper' && cat.def.recover === 0 && cat.def.hp > 0 && cat.def.radius > 0, `GadgetDef thumper: place · deployable thumper · recoverTime 0 (not recoverable) · hp ${cat.def?.hp} · radius ${cat.def?.radius}`);
   ok(cat.listed && cat.def?.name === '진동 장치', `listed in getDefs as 「${cat.def?.name}」`);
@@ -135,7 +135,7 @@ try {
   if (realJudge) note('world.burrowGroundOk is published — the real judgement is used');
   else note('world.burrowGroundOk not published yet — stubbed (bare terrain true, inside a structure radius false)');
 
-  /* 겹치지 않는 물건이라 한 번 놓으면 손이 빈다 — 매번 새로 한 개를 빠른 칸에 넣고 다시 든다. */
+  /* It does not stack, so one placement empties the hand — each time a fresh one goes into the quick slot and is taken back into the hand. */
   const needTake = async () => await page.evaluate(() => window.__game.ctx.weapons.remoteState.heldItemId !== 'gad_thumper' || window.__count() < 1);
   /** Put one thumper into a quick slot and take it into the hand. */
   const takeInHand = async () => {

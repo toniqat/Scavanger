@@ -1,17 +1,17 @@
 // Single-player smoke test for the meta folder (Phase 5-c, 2026-09-06): credits / reputation / corp shop (filter, prices,
 // buy, refuse) / sale / contracts (accept gating, kill progress from a real enemy, squad share, death + success settlement)
-// / quests (deliver, rewards, chain unlock) / reload persistence / the 기업 네트워크 screen (DOM, blocker, tabs, Esc).
+// / quests (deliver, rewards, chain unlock) / reload persistence / the corp network screen (DOM, blocker, tabs, Esc).
 // Phase 7 (2026-09-06): `canFit` pre-check (공간 없음 before the click), server credits through a fake `ctx.net.profile`
 // (optimistic debit → `credits:tx` → `meta:purchase` on the answer, refusal reverts, sell / addCredits go through the
 // transaction, `profile.set('meta')` on save, `net:profileLoaded` replace + migrate), settlement `outcome`, training.
-// Phase 12 (2026-09-08): 세레스 바이오 임플란트 — common / uncommon stat implants + repair materials on the shelf (no other corp,
+// Phase 12 (2026-09-08): 세레스 바이오 implants — common / uncommon stat implants + repair materials on the shelf (no other corp,
 // no rare+, no broken ones), a broken implant sells for a quarter, the 임플란트 desk tab (ceres only): grid of broken implants,
 // result + material chips + fee, 수리 swaps broken → working (materials + credits consumed, stash first), reasons 재료 부족 /
 // 크레딧 부족 gate the button, the ci1 → ci3 implant quest chain with its reward chip.
-// 2026-09-11 (C-16 · X-1): the same crate id opened twice in a raid → `open_crates` +1 and 감정 XP once; a new mission counts it again.
-// 2026-09-11 (E-9): 판매가가 `floor` 다 — 묶음 = floor(value × 0.5 × qty), 어떤 분할도 묶음보다 많이 받지 못한다,
-// 가치 1 아이템 한 개는 0 C 이고 **그 판매는 허용된다** (크레딧 그대로 · 판 수량만 빠짐 · `credits:tx` 를 보내지 않음 ·
-// 거래대 판매칸에 담기고 가격 배지가 `0`).
+// 2026-09-11 (C-16 · X-1): the same crate id opened twice in a raid → `open_crates` +1 and `감정` appraisal XP once; a new mission counts it again.
+// 2026-09-11 (E-9): the sale price is a `floor` — the bundle = floor(value × 0.5 × qty), no split ever pays more than
+// the bundle, one unit of a value-1 item is 0 C and **that sale is allowed** (credits unchanged · only the sold
+// quantity leaves · no `credits:tx` is sent · it stages in the trade desk's sell tray with a price badge of `0`).
 // Usage: node scripts/smoke-meta.mjs [http://localhost:5273/]   (needs a vite dev server; no relay required)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -52,9 +52,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts on its own for a new profile and
+    // locks room purposes · crafting · the terminal · boarding in order, so it is marked here as "already done"
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor trap); scripts fake `pointerLockElement`.
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
@@ -118,7 +118,8 @@ try {
   const loaded = await lastEv('meta:loaded');
   ok(loaded && loaded.credits === 500, 'meta:loaded {credits 500} emitted by resetMeta (the boot-time one fires before any listener)', JSON.stringify(loaded));
 
-  // 2026-09-17 (사용자 결정): 모든 기업이 신뢰도 Lv.0 이면 Tab 창의 기업 탭이 숨고, 함선 컴퓨터(openCorpMenu)도 열리지 않는다
+  // 2026-09-17 (user's decision): with every corporation at reputation Lv.0 the Tab window's 기업 tab hides and
+  // the ship computer (openCorpMenu) does not open either
   console.log('corp tab gate (all Lv.0)');
   const gate0 = await P(() => {
     const c = window.__game.ctx;
@@ -154,8 +155,9 @@ try {
   ok(shop1.every((s) => !s.unique), 'no unique weapons on the shelf');
   const helixRule = (s) => (s.cat === 'primary' && (s.cls === 'AR' || s.cls === 'SMG')) || (s.cat === 'ammo' && (s.ammo === 'light' || s.ammo === 'medium'));
   ok(shop1.every(helixRule), 'only helix stock rules match (AR/SMG, light/medium ammo)', JSON.stringify(shop1.filter((s) => !helixRule(s)).map((s) => s.id)));
-  /* 2026-09-16: SHOP_PRICE_BASE_MUL 3 − SHOP_PRICE_DISCOUNT_PER_REP 0.15 × Lv.1 (data/tuning.csv), 그리고 탄약은
-     한 칸이 풀 스택이라 값도 `× stackMax` 다 (meta/Rules.shopQtyOf — 사용자 결정 「탄약은 풀 스택으로 판매」). */
+  /* 2026-09-16: SHOP_PRICE_BASE_MUL 3 − SHOP_PRICE_DISCOUNT_PER_REP 0.15 × Lv.1 (data/tuning.csv), and one ammo
+     shelf slot is a full stack, so the price is `× stackMax` too (meta/Rules.shopQtyOf — user's decision
+     「탄약은 풀 스택으로 판매」). */
   const shopQty = (s) => (s.cat === 'ammo' ? Math.max(1, Math.floor(s.stack || 1)) : 1);
   ok(shop1.every((s) => s.price === Math.max(1, Math.round(s.value * 2.85)) * shopQty(s)),
     'price = round(value × (3 − 0.15)) × 매대 묶음 수 at Lv.1', JSON.stringify(shop1.slice(0, 3)));
@@ -235,9 +237,10 @@ try {
   ok(afterS.pu && afterS.pu.defId === cheap.id && afterS.pu.price === cheap.price && (afterS.pu.placed === 'bag' || afterS.pu.placed === 'stash'), 'meta:purchase emitted once the transaction answered', JSON.stringify(afterS.pu));
   ok(afterS.credits === afterS.server && afterS.credits === credS0 - cheap.price && !afterS.pending, 'credits = server balance after the answer', JSON.stringify(afterS));
   // refused transaction: the optimistic debit is reverted, no item, failure reported
-  /* 2026-09-16: 매대 한 칸이 **풀 스택**이라(`meta/Rules.shopQtyOf`) 한 번 사면 잔액이 크게 줄어든다. 거절은
-     서버까지 가야 보이는데, 잔액이 값보다 적으면 `Trade.buy` 가 로컬에서 먼저 (크레딧 부족) 거절해 버린다 —
-     그래서 여기서 한 번 더 살 만큼만 채운다 (값은 매대에서 읽으므로 가격이 또 바뀌어도 따라간다). */
+  /* 2026-09-16: a shelf slot is a **full stack** (`meta/Rules.shopQtyOf`), so one purchase drops the balance a long
+     way. A refusal only shows once it reaches the server, but with a balance under the price `Trade.buy` refuses
+     locally first (크레딧 부족) — so just enough for one more purchase is topped up here (the price is read off the
+     shelf, so it follows another price change). */
   await P((p) => { const m = window.__game.ctx.meta; if (m.credits < p) m.addCredits(p - m.credits, 'smoke:fund'); }, cheap.price);
   await waitFor(page, () => !window.__game.ctx.meta.hasPendingTx, 'fund answered', 10000);
   ok(await credits() >= cheap.price, `refusal test funded to ≥ ${cheap.price} C`, `${await credits()}`);
@@ -259,7 +262,7 @@ try {
   // save mirrors the document
   await P(() => window.__game.ctx.meta.save());
   const setsS = await P(() => ({ sets: window.__fakeProfile.sets.slice(), doc: window.__fakeProfile.docs.meta }));
-  // 2026-09-14: MetaSave v2 (NPC 퀘스트 `npc`)
+  // 2026-09-14: MetaSave v2 (the NPC quests' `npc`)
   ok(setsS.sets.includes('meta') && setsS.doc && setsS.doc.v === 2 && setsS.doc.credits === tx.credits, "save → profile.set('meta', save)", JSON.stringify({ sets: setsS.sets, credits: setsS.doc?.credits, v: setsS.doc?.v }));
   // net:profileLoaded: the server document replaces the save, the balance is the server's
   const snapS = await P(() => JSON.parse(localStorage.getItem('scav.s1.meta')));
@@ -297,9 +300,9 @@ try {
   console.log('sell');
   const gem = await P(() => { const c = window.__game.ctx; const it = c.loot.createItem('gem_amber', 1); return c.inventory.tryAddItem(it) ? it.uid : null; });
   ok(!!gem, 'gem_amber added to the bag');
-  /* 2026-09-16: 기대 판매가를 적어 두지 않는다 — `data/items.csv` 의 value 와 `shared/meta.sellPriceOf`
-     (= floor(value × SELL_PRICE_MUL)) 에서 그대로 끌어온다. 상수를 읽기만 하므로 두 번 평가돼도 안전하다
-     (scripts/README 「import('/src/…')」). 다음 가치 재조정이 이 단언을 또 깨지 않게. */
+  /* 2026-09-16: the expected sale price is not written down — it is pulled straight from `data/items.csv`'s value and
+     `shared/meta.sellPriceOf` (= floor(value × SELL_PRICE_MUL)). Only constants are read, so a second evaluation is
+     harmless (scripts/README 「import('/src/…')」). So the next value rebalance does not break this assertion again. */
   const gemPrice = await P(async () => {
     const m = await import('/src/shared/meta.ts');
     const def = window.__game.ctx.loot.getItemDef('gem_amber');
@@ -330,10 +333,11 @@ try {
     ok(await P((uid) => !window.__game.ctx.inventory.findItem(uid), gem) === true, 'sold item removed from the bag');
   }
 
-  // ── E-9 (2026-09-11): 판매가는 `floor` 다 (`shared/credits.sellPriceFrom`) ──────────────────────────────
-  // 반올림이 qty 를 곱한 **뒤** 일어나면 홀수 value 아이템을 낱개로 쪼개 팔 때 묶음보다 많이 받는다
-  // (경량탄 value 1 · 80발: 묶음 round(40)=40 C 대 낱개 round(0.5)=1 C × 80 = 80 C). floor 면 분할이 늘 손해다.
-  // 대가로 가치 1 아이템 한 개는 0 C 가 되고, **그 판매는 그대로 허용된다** (사용자 결정).
+  // ── E-9 (2026-09-11): the sale price is a `floor` (`shared/credits.sellPriceFrom`) ──────────────────────
+  // Rounding **after** the multiplication by qty pays more than the bundle when an odd-value item is split into
+  // single units (경량탄 value 1 · 80 rounds: the bundle round(40)=40 C against singles round(0.5)=1 C × 80 = 80 C).
+  // With a floor, splitting always loses.
+  // The price of that is one unit of a value-1 item being 0 C, and **that sale stays allowed** (user's decision).
   console.log('sell: floor 반올림 + 0 C 판매 (E-9)');
   const AMMO = ['ammo_light', 'ammo_heavy', 'ammo_medium'];
   const round = await P((ids) => {
@@ -345,13 +349,14 @@ try {
       const want = Math.max(2, Math.min(Math.floor(def.stackMax || 1), 80));
       const it = c.loot.createItem(id, want);
       if (!c.inventory.tryAddItem(it)) { out[id] = { noRoom: true }; continue; }
-      // `tryAddItem` 은 가방에 이미 있는 같은 아이템 스택을 **먼저 채우므로** `it` 에는 나머지만 남는다
-      // (경량탄은 기본 로드아웃에 있다). `sellPriceOf(uid, q)` 는 `min(inst.qty, q)` 로 자르니, 기대값도
-      // 넣으려던 수량이 아니라 **실제로 이 인스턴스에 남은 수량**으로 세야 like-for-like 비교가 된다.
+      // `tryAddItem` **fills an existing stack of the same item in the bag first**, so only the remainder is left on
+      // `it` (경량탄 is in the starting loadout). `sellPriceOf(uid, q)` clamps with `min(inst.qty, q)`, so the expected
+      // value has to be counted from **what really stayed on this instance**, not from the quantity meant to go in,
+      // for a like-for-like comparison.
       const stack = Math.max(1, Math.floor(it.qty));
       if (stack < 2) { out[id] = { tooSmall: stack }; continue; }
       const bundle = c.meta.sellPriceOf(it.uid);
-      // 2분할 전부: 어떤 식으로 쪼개도 묶음보다 많이 받으면 안 된다
+      // every two-way split: however it is cut, it must never pay more than the bundle
       let worstSplit = 0;
       for (let q = 1; q < stack; q++) {
         worstSplit = Math.max(worstSplit, (c.meta.sellPriceOf(it.uid, q) ?? 0) + (c.meta.sellPriceOf(it.uid, stack - q) ?? 0));
@@ -366,23 +371,23 @@ try {
   const rounded = AMMO.map((id) => round[id]).filter((r) => r && !r.noRoom && !r.tooSmall);
   if (rounded.length === 0) skipped('판매 반올림 단언', '(가방에 탄약 스택을 넣을 자리가 없다)');
   else {
-    // ① 묶음 판매가 = floor(value × SELL_PRICE_MUL × qty)
+    // ① the bundle price = floor(value × SELL_PRICE_MUL × qty)
     ok(rounded.every((r) => r.bundle === r.expect),
       `묶음 판매가 = floor(value × 0.5 × qty) (${rounded.map((r) => `v${r.value}×${r.stack}=${r.bundle}`).join(' · ')})`,
       JSON.stringify(round));
-    // ② 낱개로 쪼개 판 총액이 묶음보다 크지 않다 — 착취가 막혔다는 증거
+    // ② the total from selling singles is not above the bundle — the proof the exploit is closed
     ok(rounded.every((r) => r.single * r.stack <= r.bundle),
       `낱개 × qty ≤ 묶음 (${rounded.map((r) => `${r.single}×${r.stack}=${r.single * r.stack} ≤ ${r.bundle}`).join(' · ')})`,
       JSON.stringify(round));
     ok(rounded.every((r) => r.worstSplit <= r.bundle),
       '어떤 2분할도 묶음보다 많이 받지 못한다', JSON.stringify(rounded.map((r) => ({ v: r.value, split: r.worstSplit, bundle: r.bundle }))));
-    // 문서화된 사례: 가치 1 한 개 = 0 C (예전에는 1 C 라 묶음의 2배가 나왔다)
+    // the documented case: one unit of value 1 = 0 C (it used to be 1 C, twice the bundle)
     if (round.ammo_light && !round.ammo_light.noRoom && !round.ammo_light.tooSmall) {
       ok(round.ammo_light.single === 0, '가치 1 아이템 1개의 판매가 = 0 C', `${round.ammo_light.single}`);
     }
   }
 
-  // ③ 0 C 판매는 거절되지 않는다 — 크레딧은 그대로, 판 수량만 빠진다 (나머지 스택은 남는다)
+  // ③ a 0 C sale is not refused — the credits stay, only the sold quantity leaves (the rest of the stack stays)
   const zeroUid = round.ammo_light && !round.ammo_light.noRoom ? round.ammo_light.uid : null;
   if (!zeroUid) skipped('0 C 판매', '(경량탄 스택이 가방에 없다)');
   else {
@@ -395,8 +400,8 @@ try {
     ok(z1.qty === z0.qty - 1, '판 1발만 빠지고 나머지 스택은 그대로 남는다', `${z0.qty} → ${z1.qty}`);
     ok(zSale && zSale.defId === 'ammo_light' && zSale.qty === 1 && zSale.credits === 0, 'meta:sale {ammo_light, 1, 0}', JSON.stringify(zSale));
 
-    // 서버 크레딧일 때도: 0 C 는 `credits:tx` 를 아예 보내지 않는다 (`server/Economy.ts` 의 sell 은 `0 < delta` 를
-    // 요구하므로 보내면 거절 → `restoreSold` 가 아이템을 되돌리고 "판매가 취소되었습니다" 토스트가 뜬다)
+    // with server credits too: 0 C sends no `credits:tx` at all (`server/Economy.ts`'s sell demands `0 < delta`, so
+    // sending it would be refused → `restoreSold` puts the item back and a "판매가 취소되었습니다" toast comes up)
     const refake = await P(() => {
       const net = window.__game.ctx.net;
       const fake = window.__fakeProfile;
@@ -425,7 +430,7 @@ try {
       ok(await P(() => window.__game.ctx.net.profile.available === false), 'offline profile restored after the 0 C sale');
     }
   }
-  // 남은 탄약 스택은 치운다 (뒤의 계약 · 퀘스트 단계가 쓰는 가방 자리를 비운다)
+  // the leftover ammo stacks are cleared away (freeing the bag cells the contract · quest steps below use)
   await P((ids) => {
     const c = window.__game.ctx;
     for (const id of ids) for (const it of [...c.inventory.getAllItems()]) if (it.defId === id) c.inventory.takeItem(it.uid);
@@ -508,9 +513,10 @@ try {
   cs = await lastEv('meta:contractSettled');
   ok(cs && cs.success === true && cs.credits === 120, 'meta:contractSettled {success:true}', JSON.stringify(cs));
 
-  /* 2026-09-11 (C-16 · X-1): 이미 연 상자에 E 를 다시 누를 때마다 `crate:open` 이 나온다 → 계약 `open_crates` 와 감정 XP 가
-     그때마다 올라 연타로 파밍할 수 있었다. 이제 레이드 동안 상자 id 별로 한 번이고, 새 미션에서는 다시 센다.
-     계약 수락은 함선에서만 되므로 여기서는 저장소에 직접 세운다 (수락 규칙은 위에서 이미 검사했다). */
+  /* 2026-09-11 (C-16 · X-1): every further E on an already opened crate emits `crate:open` → the contract's
+     `open_crates` and `감정` appraisal XP both rose each time, so it could be farmed by mashing the key. It is now once
+     per crate id for the raid, and counted again on a new mission. A contract can only be accepted in the ship, so it
+     is planted straight into the store here (the accept rules were already checked above). */
   console.log('open_crates: one count per crate id per raid (X-1)');
   const X1_READ = () => P(() => {
     const m = window.__game.ctx.meta;
@@ -526,7 +532,8 @@ try {
     m.store.data.activeContract = { id: 'nomad_crates', progress: 0 };
     m.progressAtStart = 0;
     window.__x1Appraisal = 0;
-    // 감정 XP 는 progression 이 `this.addSkillXp('appraisal', …)` 로 준다 — 인스턴스에 얹은 스파이가 가로챈다
+    // `감정` appraisal XP is given by progression through `this.addSkillXp('appraisal', …)` — a spy laid over the
+    // instance intercepts it
     if (prog && !window.__x1Spy) {
       const orig = prog.addSkillXp.bind(prog);
       prog.addSkillXp = (id, amt) => { if (id === 'appraisal') window.__x1Appraisal++; return orig(id, amt); };
@@ -560,8 +567,9 @@ try {
   const cab = await lastEv('meta:contractAbandoned');
   ok(cab && cab.id === 'helix_1' && (await P(() => window.__game.ctx.meta.activeContract)) === null, 'meta:contractAbandoned + no active contract', JSON.stringify(cab));
 
-  /* 2026-09-14: 기업 퀘스트 폐지 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — 옛 API 는 빈 목록 · false 이고, NPC 퀘스트는
-     scripts/smoke-npc-quests.mjs 가 본다. 뒤의 검사들이 기대하는 helix 신뢰도(Lv.2 · 310)는 옛 h1 보상 150 을 직접 더해 맞춘다. */
+  /* 2026-09-14: corp quests dropped (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — the old API returns an
+     empty list · false, and the NPC quests are what scripts/smoke-npc-quests.mjs looks at. The helix reputation the
+     checks below expect (Lv.2 · 310) is made up by adding the old h1 reward of 150 directly. */
   console.log('corp quests are gone');
   ok(await P(() => window.__game.ctx.meta.getQuests('helix').length) === 0, 'getQuests(helix) → [] (기업 퀘스트 없음)');
   ok(await P(() => window.__game.ctx.meta.acceptQuest('h1')) === false && await P(() => window.__game.ctx.meta.completeQuest('h1')) === false, 'acceptQuest / completeQuest → false');
@@ -591,7 +599,7 @@ try {
     // Phase 12: the 임플란트 tab exists in the DOM for every corp but is `hidden` unless the corp is 세레스 바이오
     const subs = [...root.querySelectorAll('.corp-subtabs .scr-tab:not([hidden])')].map((b) => ({
       page: b.dataset.page, on: b.classList.contains('is-on'),
-      // 2026-09-08: 신뢰도가 모자란 페이지는 탭 자체가 잠긴다 (사유는 title)
+      // 2026-09-08: a page short of reputation has its tab locked (the reason is the title)
       locked: b.classList.contains('is-locked'), disabled: b.disabled, why: b.title,
     }));
     const ctx = window.__game.ctx;
@@ -600,9 +608,11 @@ try {
       corpBlocker: ctx.uiBlockers.has('corp'), blocker: ctx.uiBlockers.has('inventory'),
       isOpen: ctx.meta.isMenuOpen, tab: ctx.inventory.screenTab, invOpen: ctx.inventory.isOpen,
       cursor: ctx.input.isCursorMode,
-      // 2026-09-12: 왼쪽 열은 트리 — 기업 버튼들, 선택한 기업 바로 아래에 가지(신뢰도 게이지 + 페이지 탭). 크레딧은 없다.
-      // 2026-09-12 2차 (사용자 결정): 그 열은 **메인 패널과 분리된 독립 패널**이다 — `.corp-rail` 이 `.corp-shell` 의
-      // 자식이 아니라 화면 호스트(`.corp-view`)의 직계 자식으로 나와 화면 중앙 왼쪽에 따로 선다. 좌상단 '기업' 라벨도 없앴다.
+      // 2026-09-12: the left column is a tree — the corp buttons, with a branch (the reputation gauge + the page
+      // tabs) right under the selected corp. No credits on it.
+      // 2026-09-12 2nd pass (user's decision): that column is **a panel of its own, separate from the main one** —
+      // `.corp-rail` comes out as a direct child of the screen host (`.corp-view`) rather than of `.corp-shell`, and
+      // stands on its own left of the screen centre. The '기업' label top left was removed too.
       railTabs: root.querySelectorAll('.corp-view > .corp-rail .corp-tabs .corp-tab').length,
       railDetached: !root.querySelector('.corp-shell .corp-rail'),
       railOrder: [...root.querySelectorAll('.corp-view > .corp-rail > *')].map((e) => e.className.split(' ')[0]),
@@ -622,10 +632,11 @@ try {
     'openCorpMenu(ceres) → Tab 창의 기업 탭 (전용 오버레이 · corp 블로커 없음, inventory 블로커 + 인게임 커서)',
     JSON.stringify(dom && { oldOverlay: dom.oldOverlay, corpBlocker: dom.corpBlocker, blocker: dom.blocker, tab: dom.tab, cursor: dom.cursor }));
   // Phase 10: every credit readout is `formatCredits` → `1,200 C` (ko-KR grouping + the `C` unit, never `₩` / `cr`)
-  // 2026-09-12: 좌하단 크레딧은 없앴다 — 창 우측 상단 CREDITS 가 이미 찍는다
+  // 2026-09-12: the credits bottom left were removed — the window's top-right CREDITS already prints them
   ok(dom && dom.railTabs === 4 && !dom.credits && !dom.foot,
     '기업 열에 기업 목록 4개, 크레딧 표시 없음, 푸터 없음', JSON.stringify(dom && { railTabs: dom.railTabs, credits: dom.credits, foot: dom.foot }));
-  // 2026-09-17 (사용자 결정): 세레스는 아직 신뢰도 Lv.0 — 고를 수 없으므로 openCorpMenu(ceres) 도 Lv.1 인 첫 기업(헬릭스)으로 열린다
+  // 2026-09-17 (user's decision): 세레스 is still at reputation Lv.0 — it cannot be picked, so openCorpMenu(ceres)
+  // opens on the first corp at Lv.1 (헬릭스) instead
   const helixAt = dom ? dom.tree.indexOf('helix') : -1;
   ok(dom && dom.railDetached && dom.railOrder.join(',') === 'corp-tabs' && dom.tree.filter((t) => t === 'branch').length === 1
     && dom.tree[helixAt + 1] === 'branch' && dom.branchParts.join(',') === 'corp-rep,corp-subtabs' && dom.expanded === 'helix' && !dom.oldPanel && !dom.oldTop,
@@ -642,7 +653,7 @@ try {
   });
   ok(corpLock0.locked && !corpLock0.disabled && /신뢰도 Lv\.1 필요/.test(corpLock0.why) && corpLock0.notes.some((t) => /신뢰도 Lv\.1 필요/.test(t)) && corpLock0.on === 'helix',
     'Lv.0 세레스 탭은 잠겨 있고(흐리게, 클릭은 받는다) 누르면 신뢰도 Lv.1 필요 토스트, 선택은 헬릭스에 머문다', JSON.stringify(corpLock0));
-  // 신뢰도를 Lv.1 로 올리면 세레스가 풀리고 고를 수 있다
+  // raising the reputation to Lv.1 unlocks 세레스 and it can be picked
   const unlocked = await P(() => {
     window.__game.ctx.meta.addRep('ceres', 100, 'smoke');
     const b = document.querySelector('.corp-tab[data-corp="ceres"]');
@@ -652,14 +663,15 @@ try {
   });
   ok(unlocked.lv === 1 && !unlocked.locked && unlocked.on === 'ceres', '신뢰도 Lv.1 이 되면 세레스 탭이 풀리고 선택된다', JSON.stringify(unlocked));
   const subsCeres = await P(() => [...document.querySelectorAll('.corp-subtabs .scr-tab:not([hidden])')].map((b) => ({ page: b.dataset.page, locked: b.classList.contains('is-locked') })));
-  // 2026-09-14: 퀘스트 탭 삭제 (기업 퀘스트 폐지) — 거래 / 계약 / 임플란트
+  // 2026-09-14: the 퀘스트 tab deleted (corp quests dropped) — 거래 / 계약 / 임플란트
   ok(subsCeres.map((s) => s.page).join(',') === 'trade,contracts,implants' && subsCeres.every((s) => !s.locked),
     'sub-tabs 거래 / 계약 / 임플란트 at ceres, Lv.1 이면 잠긴 탭 없음 (계약도 Lv.1 부터)', JSON.stringify(subsCeres));
   await P(() => { document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]').click(); });
   await sleep(60);
   ok(await P(() => document.querySelector('.corp-subtabs .scr-tab.is-on')?.dataset.page === 'trade'), '풀린 거래 탭으로 전환된다');
   let tg = await lastEv('ui:corpToggled');
-  // 2026-09-17: 열 때 세레스는 Lv.0 이라 첫 열린 기업(헬릭스)으로 열렸다 — 탭 클릭은 이 이벤트를 다시 내지 않는다
+  // 2026-09-17: 세레스 was Lv.0 at opening time, so it opened on the first unlocked corp (헬릭스) — a tab click
+  // does not emit this event again
   ok(tg && tg.open === true && tg.corp === 'helix', 'ui:corpToggled {open:true, helix}', JSON.stringify(tg));
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());
   const contractsDom = await P(() => ({
@@ -667,9 +679,10 @@ try {
     active: document.querySelectorAll('.ctr-active .corp-row.contract, .ctr-active .corp-empty').length,
     on: document.querySelector('.corp-subtabs .scr-tab.is-on')?.dataset.page,
   }));
-  // 2026-09-12 (E2): ceres 는 검체 채취 4 + 특정 아이템 회수 2 (`ceres_samples` · `ceres_pure`) = 6줄
+  // 2026-09-12 (E2): ceres has 4 sample-collection + 2 specific-item recovery contracts (`ceres_samples` · `ceres_pure`) = 6 rows
   ok(contractsDom.on === 'contracts' && contractsDom.rows.length === 6 && contractsDom.rows[0].id === 'ceres_1' && contractsDom.rows[0].btn === '수락' && contractsDom.rows[0].disabled === false, '계약 tab: 6 ceres rows, ceres_1 수락 enabled', JSON.stringify(contractsDom));
-  // 2026-09-12: 진행 중인 계약 패널은 그 계약을 맺은 기업의 색이다 (선택한 기업 탭 색이 아니다)
+  // 2026-09-12: the active contract panel carries the colour of the corp the contract was signed with (not the
+  // selected corp tab's colour)
   const otherContract = await P(() => {
     const m = window.__game.ctx.meta;
     if (m.getContracts('helix').some((c) => c.active) || ['ceres', 'bastion', 'nomad'].some((k) => m.getContracts(k).some((c) => c.active))) return { skip: 'already active' };
@@ -710,27 +723,31 @@ try {
       tips: tiles.filter((t) => t.matches('.inv-tile[data-item-tip][data-def-id]')).length,
       prices: tiles.map((t) => t.querySelector('.cv-price')?.textContent),
       live: window.__game.ctx.meta.getShop('helix').length,
-      buyBtn: !!document.querySelector('.cv-shop .cv-tile .ui-btn'),   // 즉시 구매 buttons are gone (장바구니)
+      buyBtn: !!document.querySelector('.cv-shop .cv-tile .ui-btn'),   // the 즉시 구매 buttons are gone (the cart replaced them)
       grids: document.querySelectorAll('.cv-col.inv .trade-grids .tg-block').length,
       trays: document.querySelectorAll('.cv-trays .cv-tray').length,
-      // 2026-09-15 2차: 버튼 안에 좌클릭 홀드 키캡이 서서 `.cv-confirm` 의 `textContent` 는 `LMB거래 성사` 다 — 라벨 span 을 읽는다
+      // 2026-09-15 2nd pass: the left-click hold keycap stands inside the button, so `.cv-confirm`'s `textContent`
+      // is `LMB거래 성사` — the label span is what is read
       confirm: document.querySelector('.cv-confirm-label')?.textContent,
       confirmCap: !!document.querySelector('.cv-confirm .keycap.kc-btn'),
       confirmOff: document.querySelector('.cv-confirm')?.disabled,
       stage: !!document.querySelector('.cv-tray.sell .cv-stage'),
-      // 구매 / 판매 트레이는 5칸 격자, 칸 크기는 가방 / 창고와 같다 (인벤토리의 `.inv-cells` 를 그대로 쓴다)
+      // the buy / sell trays are a 5-cell grid with the same cell size as the bag / stash (the inventory's
+      // `.inv-cells` used as is)
       trayCols: getComputedStyle(document.querySelector('.cv-tray.buy .inv-cells')).gridTemplateColumns.split(' ').length,
-      // 2026-09-13: 칸 크기는 창 폭에 맞춘 값(40 px, 좁으면 32 px 까지 — 호스트의 `data-cv-cell`)이고 재고 · 트레이 · 창고 · 가방이 모두 그 값이다
+      // 2026-09-13: the cell size is fitted to the window width (40 px, down to 32 px when narrow — the host's
+      // `data-cv-cell`), and the stock shelf · the trays · the stash · the bag all use that value
       fit: Number(document.querySelector('.inv-screen.corp-view')?.dataset.cvCell ?? 0),
       cellPx: cw('.cv-shop .inv-cell'), bagCell: getComputedStyle(document.querySelector('.cv-inv.bag .trade-grids')).getPropertyValue('--inv-cell').trim(),
       stashCell: getComputedStyle(document.querySelector('.cv-inv.stash .trade-grids')).getPropertyValue('--inv-cell').trim(),
-      // 함선 창고 · 가방은 서로 다른 카드이고 카드마다 격자 하나 (좌 → 우: 창고 · 가방)
+      // the ship stash · the bag are separate cards with one grid each (left → right: 창고 · 가방)
       invCards: [...document.querySelectorAll('.cv > .cv-card.cv-inv')].map((c) => `${c.dataset.cvGrid}:${c.querySelectorAll('[data-tg-grid]').length}`).join(','),
-      // 재고 타일은 아이템 발자국 크기다 (w × (칸 + 2) − 2)
+      // a stock tile is the item's footprint size (w × (cell + 2) − 2)
       sizes: tiles.slice(0, 6).map((t) => { const d = window.__game.ctx.loot.getItemDef(t.dataset.defId); const c = Number(document.querySelector('.inv-screen.corp-view')?.dataset.cvCell ?? 0); return { w: Math.round(t.getBoundingClientRect().width), want: d.width * (c + 2) - 2 }; }),
-      // 배양조 관 모양(54×76 · 아래가 둥글다)이 아니다 — housing.css 의 `.ct-cell` 과 더 이상 이름이 겹치지 않는다
+      // not the culture tank tube shape (54×76 · rounded at the bottom) — the name no longer collides with housing.css's `.ct-cell`
       tube: !!document.querySelector('.corp-view .ct-cell'), radius: first ? getComputedStyle(first).borderBottomLeftRadius : null,
-      // 셰브런: 구매 트레이 머리 끝 = 오른쪽 셋, 판매 트레이 머리 처음 = 왼쪽 셋. 거래 후 크레딧 라벨은 없다
+      // chevrons: the end of the buy tray head = three pointing right, the start of the sell tray head = three
+      // pointing left. There is no credits-after-trade label
       buyChev: (() => { const h = document.querySelector('.cv-tray.buy .cv-tray-head'); const l = h?.lastElementChild; return l?.matches('.cv-chev.dir-right') ? l.querySelectorAll('polyline').length : 0; })(),
       sellChev: (() => { const h = document.querySelector('.cv-tray.sell .cv-tray-head'); const f = h?.firstElementChild; return f?.matches('.cv-chev.dir-left') ? f.querySelectorAll('polyline').length : 0; })(),
       totalLabel: document.querySelector('.cv-total')?.textContent ?? '', hints: document.body.innerText.includes('왼쪽 목록에서 담으세요') || document.body.innerText.includes('끌어 놓으세요'),
@@ -739,7 +756,8 @@ try {
   ok(shopDom.rows === shopDom.live && shopDom.rows > shop1.length && !shopDom.buyBtn,
     `거래 tab: one stock tile per shop line (${shopDom.live}, more than the ${shop1.length} at Lv.1), no per-tile 구매 button`, JSON.stringify(shopDom));
   ok(shopDom.tips === shopDom.rows, `모든 재고 타일이 인벤토리 타일 + 호버 카드 갈고리 (${shopDom.tips}/${shopDom.rows})`);
-  /* 2026-09-16: 값이 커지면서(구매가 ×3 · 탄약 풀 스택) 배지에 `shared/numberFormat` 의 축약형(`10.0k` · `1.00m`)이 나온다 */
+  /* 2026-09-16: as the numbers grew (buy price ×3 · full ammo stacks) the badge shows `shared/numberFormat`'s
+     abbreviated form (`10.0k` · `1.00m`) */
   ok(shopDom.prices.length === shopDom.rows && shopDom.prices.every((t) => /^[\d,]+(\.\d+)?[kmb]?$/.test(t ?? '')),
     `재고 타일 가격 배지 (${shopDom.prices[0]})`, JSON.stringify(shopDom.prices.slice(0, 3)));
   ok(shopDom.trayCols === 5 && shopDom.fit >= 32 && shopDom.fit <= 40 && shopDom.cellPx === shopDom.fit
@@ -770,8 +788,9 @@ try {
     return {
       buy: document.querySelectorAll('.cv-tray.buy .cv-tile.buy').length, hasView: !!view,
       net: total?.querySelector('.v')?.textContent, minus: total?.classList.contains('minus'),
-      /* 2026-09-16 (사용자 결정): 총 크레딧 변동에 셰브런을 그리지 않는다 — 부호와 색(`.plus`/`.minus`)만 남는다.
-         0 이 아니면 셰브런이 되살아난 것이다 (트레이 머리의 `.cv-chev.flow` 는 다른 것이라 세지 않는다). */
+      /* 2026-09-16 (user's decision): no chevrons are drawn on the total credit change — only the sign and the colour
+         (`.plus`/`.minus`) are left. Anything but 0 means they came back (the tray head's `.cv-chev.flow` is a
+         different thing and is not counted). */
       chevs: total?.querySelectorAll('.cv-chev').length ?? -1,
     };
   });
@@ -801,7 +820,7 @@ try {
   await P(() => document.querySelector('.cv-confirm').dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 })));
   ok(settled.after < holdStart.before && settled.buy === 0 && !settled.holding, `거래 성사 1초 홀드가 바구니를 정산하고 트레이를 비운다 (${holdStart.before} → ${settled.after})`, JSON.stringify(settled));
   ok(shopDom.stage, '귀중품 전부 담기 button sits under the 판매 tray');
-  // E-9 (2026-09-11, 사용자 결정): 0 C 짜리도 판매칸에 담기고 가격을 `0` 으로 찍는다 — 막지 않는다
+  // E-9 (2026-09-11, user's decision): a 0 C line stages in the sell tray too and prints its price as `0` — it is not blocked
   const zeroBag = await P(() => {
     const c = window.__game.ctx;
     const it = c.loot.createItem('ammo_light', 1);
@@ -828,7 +847,7 @@ try {
         '0 C 아이템이 판매칸에 담기고 가격 배지가 0 이다 (거절 메시지 없음)', JSON.stringify({ zeroBag, zeroStage }));
       ok(zeroStage.net === '0 C' && !zeroStage.plus && !zeroStage.minus && zeroStage.arrows === 0, '거래 후 크레딧 0 — 화살표 없음', JSON.stringify(zeroStage));
     }
-    // 바구니와 가방을 비워 뒤 단계에 남기지 않는다
+    // the trays and the bag are emptied so nothing is left for the steps below
     await P((uid) => {
       document.querySelector('.cv-tray.sell .cv-tile.sell')?.click();
       window.__game.ctx.inventory.takeItem(uid);
@@ -892,7 +911,7 @@ try {
   await P(() => window.__game.ctx.meta.openCorpMenu('ceres'));
   await sleep(50);
   const tabsCeres = await P(() => [...document.querySelectorAll('.corp-subtabs .scr-tab')].map((b) => ({ page: b.dataset.page, hidden: b.hidden })));
-  // 2026-09-14: 퀘스트 탭 삭제 → 거래 / 계약 / 임플란트 셋
+  // 2026-09-14: the 퀘스트 tab deleted → the three 거래 / 계약 / 임플란트
   ok(tabsCeres.length === 3 && tabsCeres.find((t) => t.page === 'implants')?.hidden === false, '임플란트 tab visible at ceres', JSON.stringify(tabsCeres));
   await P(() => document.querySelector('.corp-tab[data-corp="helix"]').click());
   const tabsHelix = await P(() => ({ hidden: document.querySelector('.corp-subtabs .scr-tab[data-page="implants"]')?.hidden, page: document.querySelector('.corp-page')?.dataset.page }));
@@ -973,12 +992,14 @@ try {
   ok(await P(() => { const c = window.__game.ctx; const w = c.inventory.getStashItems().find((i) => i.defId === 'imp_strength_1'); return w ? window.__game.getSystem('meta').getImplantRepair(w.uid) : 'none'; }) === null, 'a working implant is not a repair candidate (getImplantRepair → null)');
   await P((uid) => window.__game.ctx.inventory.takeItem(uid), seeded2.uid);   // leave the stash tidy for the quest checks
 
-  /* 2026-09-14: 옛 ci1 → ci3 임플란트 퀘스트 사슬은 기업 퀘스트와 함께 없어졌다. 재화 칩 잘림 검사는 계약 탭의 보상 칩으로 옮겼다. */
+  /* 2026-09-14: the old ci1 → ci3 implant quest chain went with the corp quests. The currency-chip clipping check
+     moved to the contracts tab's reward chip. */
   console.log('currency reward chip (contracts tab)');
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());
   await sleep(60);
   const chipClip = await P(() => {
-    // 2026-09-12: 재화 칩의 우측 하단 수치가 도형에 잘리지 않는다 — 깎은 모서리는 썸네일이 아니라 뒤판(::before)에 있다
+    // 2026-09-12: the number bottom right of a currency chip is not clipped by the shape — the cut corner is on
+    // the backdrop (::before), not on the thumbnail
     const th = document.querySelector('.ctr-list .reward .currency-chip .currency-thumb');
     const cnt = th?.querySelector('.item-chip-count');
     if (!th || !cnt) return null;
@@ -1009,7 +1030,7 @@ try {
     return { credits: m.credits, helix: m.getRep('helix').rep, ceres: m.getRep('ceres').rep, h1: m.getQuestState('h1'), c1: m.getQuestState('c1'), ac: m.activeContract,
       oldQuests: Object.keys(d.corps.helix.quests).length + Object.keys(d.corps.ceres.quests).length, v: d.v, npc: !!d.npc };
   });
-  // 2026-09-14: 옛 기업 퀘스트 상태는 전부 버린다 (NPC 퀘스트 `npc` 는 빈 채로 채워진다)
+  // 2026-09-14: every old corp quest state is thrown away (the NPC quests' `npc` is filled in empty)
   ok(san.credits === 0 && san.helix === 0 && san.ceres === 250 && san.h1 === 'locked' && san.c1 === 'locked' && san.oldQuests === 0 && san.npc && san.ac === null,
     'corrupt fields clamped / dropped (credits 0, rep 0 / 250, old corp quest states dropped, npc save present, unknown contract cleared)', JSON.stringify(san));
 

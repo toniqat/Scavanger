@@ -1,14 +1,20 @@
-// 2026-09-13 — 서재 시리즈 · 비디오게임: hub 쪽 (src/hub — 모델 · 상호작용 · 게임 연출). docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」.
-// 규칙(좌석 판정 · 세션 · 결과)은 housing 의 몫이라 여기서는 housing 메서드를 **스텁**으로 바꾸거나 버스로 이벤트를 흘려 hub 만 본다.
-//  0. 모델: 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그 · 의자 · TV 가 지어지고 광원이 0 · 앉는 방향 = 앞(−Z, 등받이가 +Z) · 좌판 윗면 0.36 ·
-//     쇼파 쿠션 3자리 · 러그는 바닥 격자선 위 3 cm 안 · TV 게임 화면은 gameActive 일 때만 보임 · 게임기 모양 넷이 모두 지어진다 · 케이스 = 테마 색.
-//  1. 서재에 TV · 쇼파(TV 를 본다) · 의자 · 게임 디스크 전시대를 놓는다 — 광원 수는 처음부터 끝까지 그대로.
-//  2. TV 의 E: `openTvMenu` 가 있으면 프롬프트 `TV 화면` + 그 uid 로 호출, 없으면 옛 켜기/끄기. 게임 디스크 전시대 E → `openShelf`.
-//     `housing:tvConsoleChanged` → 그 TV 가 게임기를 올린 채 다시 지어진다.
-//  3. 좌석 E: 쇼파 · 의자 · 앉기 → sit 자세, 쇼파는 플레이어에 가장 가까운 쿠션.
-//  4. 게임 연출: `housing:gameSession {active:true}` → TV 에 가장 가까운 쿠션에 sit · TV 를 보는 yaw · 좌석 뒤 고정 카메라 · 게임 화면 켜짐,
-//     `housing:gameBeat` → 번쩍임 · 진행 막대, `{active:false}` → 풀림 (cancel 안 부름), 자세 거절 → 그 자리에서 `cancelGameSession`,
-//     자세가 밖에서 풀림 → `cancelGameSession`.
+// 2026-09-13 — the library series · video games: the hub side (src/hub — models · interaction · the game cutscene).
+// docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」.
+// The rules (the seat judgement · the session · the result) are housing's job, so housing methods are replaced with
+// **stubs** or events are pushed onto the bus here, and only hub is checked.
+//  0. Models: the game disc stand · sofa · low table · rug · chair · TV are built with 0 lights · the sitting
+//     direction = forward (−Z, the backrest at +Z) · the seat top at 0.36 · 3 sofa cushions · the rug within 3 cm
+//     above the floor grid line · the TV's game screen shows only while gameActive · all four console looks are
+//     built · the case = the theme colour.
+//  1. A TV · sofa (watching the TV) · chair · game disc stand are placed in the library — the light count is
+//     unchanged from start to end.
+//  2. E on the TV: with `openTvMenu` present, the prompt `TV 화면` + a call with that uid; without it, the old on/off.
+//     E on the game disc stand → `openShelf`. `housing:tvConsoleChanged` → that TV is rebuilt carrying the console.
+//  3. E on a seat: sofa · chair · sitting → the sit pose, the sofa taking the cushion nearest the player.
+//  4. The game cutscene: `housing:gameSession {active:true}` → sit on the cushion nearest the TV · a yaw facing the
+//     TV · the fixed camera behind the seat · the game screen on, `housing:gameBeat` → the flash · the progress bar,
+//     `{active:false}` → released (cancel is not called), a refused pose → `cancelGameSession` on the spot, the pose
+//     released from outside → `cancelGameSession`.
 // Usage: node scripts/smoke-tv-games.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -68,11 +74,12 @@ try {
   });
   const H = (fn, arg) => page.evaluate(fn, arg);
   const waitSim = async (sec) => { const t0 = await H(() => window.__game.ctx.time); await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${sec}s`, 120000, t0 + sec); };
-  // 타이틀에서 개인 함선으로 (smoke-housing 과 같은 길) — 가구 layer 는 함선 안에서만 있다
+  // from the title into the personal ship (the same path smoke-housing takes) — the furniture layer only exists
+  // inside the ship
   await H(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub' && !!window.__game.getSystem('hub').furnitureLayer, 'hub phase + furniture layer');
 
-  /* ══ 0. 모델 ══════════════════════════════════════════════════════════════ */
+  /* ══ 0. Models ══════════════════════════════════════════════════════════ */
   console.log('0. 절차 모델');
   const models = await H(async () => {
     const F = await import('/src/hub/interiors/Furniture.ts');
@@ -122,7 +129,8 @@ try {
     }
     if (out.defs.furn_tv) {
       const plain = build('furn_tv', { on: true });
-      // 게임기 모양의 서명 = 재질별 정점 수 (슬랩과 일반 상자는 정점 수가 같고 재질이 다르다)
+      // a console look's signature = the vertex count per material (a slab and a plain box share a vertex count and
+      // differ only in material)
       const sig = (m) => { const per = new Map(); m.group.traverse((o) => { if (o.isMesh) per.set(o.material.uuid, (per.get(o.material.uuid) ?? 0) + o.geometry.attributes.position.count); }); return [...per.entries()].map(([k, n]) => `${k}:${n}`).sort().join('|'); };
       const lookModels = [0, 1, 2, 3].map((k) => build('furn_tv', { on: true, consoleLook: k }));
       const looks = lookModels.map((m) => stat(m).verts);
@@ -152,7 +160,7 @@ try {
     `TV: game overlay rig hidden unless gameActive, screen faces −Z (screen z ${T.tv.screenZ}, sound bar front ${T.tv.minZ.toFixed(2)})`);
   ok(T.tv.looks.every((n) => n > T.tv.verts) && new Set(models.lookSigs).size === 4, `TV: 4 console looks each add geometry and differ (${T.tv.verts} → ${T.tv.looks.join(' / ')})`);
 
-  /* ══ 1. 배치 ══════════════════════════════════════════════════════════════ */
+  /* ══ 1. Placement ═══════════════════════════════════════════════════════ */
   console.log('1. 서재에 TV · 쇼파 · 의자 · 게임 디스크 전시대');
   const lights0 = await H(() => window.__count());
   const placed = await H(() => {
@@ -161,8 +169,9 @@ try {
       const def = ctx.loot.getItemDef(id); if (!def) continue;
       for (let k = 0; k < n; k += def.stackMax ?? 1) ctx.inventory.tryAddToStash(ctx.loot.createItem(id, Math.min(def.stackMax ?? 1, n - k)));
     }
-    // 2026-09-13 (전력 할당 폐지): 새 함선은 발전기 Lv.1 이고 서재 증축은 발전기 Lv.4 가 필요하다 — 발전기 게이트는 이 스모크의 대상이 아니라
-    //   상태로 올린다. 그래도 규칙 경로가 막히면 사유를 적고 방 용도만 상태에 직접 적는다 — 이 스모크는 hub 를 본다.
+    // 2026-09-13 (power allocation dropped): a fresh ship is at generator Lv.1 and the library needs generator Lv.4 —
+    //   the generator gate is not what this smoke covers, so the state is raised. If the rule path still refuses, the
+    //   reason is printed and only the room purpose is written straight into the state — this smoke checks hub.
     if (h.state && (h.state.generatorLevel ?? 1) < 4) h.state.generatorLevel = 4;
     let purposeVia = 'rule';
     let purpose = h.getRoom(3).purpose === 'library' || h.setRoomPurpose(3, 'library') === true;
@@ -178,7 +187,8 @@ try {
       const s = h.findFreeSpot(3, id);
       return s ? h.place(3, id, s.x, s.y, s.yaw)?.uid ?? null : null;
     };
-    // TV (3×1) 앞 = 격자 −y 를 본다 · 쇼파(4×2) yaw 2 = 격자 +y 로 TV 를 본다 · 의자 옆 · 전시대 오른쪽 벽
+    // the TV (3×1) faces grid −y · the sofa (4×2) at yaw 2 faces the TV along grid +y · the chair beside it · the
+    // stand on the right-hand wall
     const why = (id, x, y, yaw) => h.placementBlock?.(3, id, x, y, yaw) ?? null;
     const blocks = { tv: why('furn_tv', 6, 12, 0), sofa: why('furn_sofa', 5, 7, 2), chair: why('furn_chair', 11, 7, 2), stand: why('furn_game_stand', 10, 13, 0) };
     return { purpose, purposeVia, blocks, tv: put('furn_tv', 6, 12, 0), sofa: put('furn_sofa', 5, 7, 2), chair: put('furn_chair', 11, 7, 2), stand: put('furn_game_stand', 10, 13, 0) };
@@ -193,7 +203,7 @@ try {
   }, U);
   ok(facing.tv?.yaw === 0 && facing.sofa?.yaw === 2 && facing.sofa.y < facing.tv.y, `쇼파 faces the TV (${JSON.stringify(facing)})`);
 
-  /* ══ 2. TV · 전시대 상호작용 ══════════════════════════════════════════════ */
+  /* ══ 2. TV · disc stand interaction ════════════════════════════════ */
   console.log('2. TV 화면 · 게임 디스크 전시대 · 게임기 모델');
   const tvWire = await H((u) => {
     const ctx = window.__game.ctx, h = ctx.housing, layer = window.__game.getSystem('hub').furnitureLayer;
@@ -206,13 +216,13 @@ try {
     const hadShelf = Object.prototype.hasOwnProperty.call(h, 'openShelf'), origShelf = h.openShelf;
     h.openTvMenu = (uid) => { calls.push(uid); };
     h.openShelf = (uid) => { shelves.push(uid); };
-    p.set((tb.minX + tb.maxX) / 2, save.y, tb.minZ - 0.6);                      // TV 앞 (−Z)
+    p.set((tb.minX + tb.maxX) / 2, save.y, tb.minZ - 0.6);                      // in front of the TV (−Z)
     const withMenu = it(u.tv)?.getPrompt() ?? null;
     it(u.tv)?.interact();
     h.openTvMenu = undefined;
     const withoutMenu = it(u.tv)?.getPrompt() ?? null;
     if (hadMenu) h.openTvMenu = origMenu; else delete h.openTvMenu;
-    p.set((sb.minX + sb.maxX) / 2, save.y, sb.minZ - 0.6);                      // 전시대 앞
+    p.set((sb.minX + sb.maxX) / 2, save.y, sb.minZ - 0.6);                      // in front of the stand
     const standPrompt = it(u.stand)?.getPrompt() ?? null;
     it(u.stand)?.interact();
     if (hadShelf) h.openShelf = origShelf; else delete h.openShelf;
@@ -237,7 +247,7 @@ try {
   }, U);
   ok(consoleSwap.rebuilt && consoleSwap.v1 > consoleSwap.v0 && (consoleSwap.v2 === consoleSwap.v0 || !consoleSwap.holo), `housing:tvConsoleChanged rebuilds the TV with its console (${JSON.stringify(consoleSwap)})`);
 
-  /* ══ 3. 좌석 ══════════════════════════════════════════════════════════════ */
+  /* ══ 3. Seats ═══════════════════════════════════════════════════════════ */
   console.log('3. 쇼파 · 의자 앉기');
   const seats = await H((u) => {
     const ctx = window.__game.ctx, layer = window.__game.getSystem('hub').furnitureLayer;
@@ -246,7 +256,7 @@ try {
     const sofa = layer.pieces.get(u.sofa);
     sofa.model.group.updateWorldMatrix(true, false);
     const cushions = sofa.model.rig.seats.map((s) => sofa.model.group.localToWorld(s.clone()));
-    // 가장 오른쪽(+X) 쿠션 옆에 선다
+    // stands beside the right-most (+X) cushion
     const far = cushions.reduce((a, c) => (c.x > a.x ? c : a), cushions[0]);
     p.set(far.x, save.y, far.z + 1.0);
     const prompt = it(u.sofa)?.getPrompt() ?? null;
@@ -268,7 +278,7 @@ try {
     && Math.hypot(seats.sofaPose.x - seats.sofaPose.want[0], seats.sofaPose.z - seats.sofaPose.want[1]) < 0.05, `쇼파 E sits on the nearest cushion (${JSON.stringify(seats.sofaPose)})`);
   ok(seats.chairPrompt === '의자 · 앉기' && seats.chairPose.kind === 'sit' && seats.chairPose.uid === U.chair && Math.abs(seats.chairPose.y - 0.36) < 0.02, `의자 E sits (${JSON.stringify(seats.chairPose)})`);
 
-  /* ══ 4. 게임 연출 ═════════════════════════════════════════════════════════ */
+  /* ══ 4. The game cutscene ═════════════════════════════════════════════ */
   console.log('4. 게임 세션 연출');
   await H(() => {
     const h = window.__game.ctx.housing;
@@ -294,7 +304,7 @@ try {
     const fwd = { x: -Math.sin(pose.yaw), z: -Math.cos(pose.yaw) };
     const len = Math.hypot(toS.x, toS.z);
     const room = R.roomBox(3);
-    // TV 에 가장 가까운 쿠션인가
+    // is it the cushion nearest the TV
     seat.model.group.updateWorldMatrix(true, false);
     const cushions = seat.model.rig.seats.map((s) => seat.model.group.localToWorld(s.clone()));
     const nearest = cushions.reduce((b, c) => (Math.hypot(c.x - screen.x, c.z - screen.z) < Math.hypot(b.x - screen.x, b.z - screen.z) ? c : b), cushions[0]);
@@ -316,8 +326,9 @@ try {
   await H((u) => window.__game.ctx.bus.emit('housing:gameBeat', { tvUid: u.tv, quality: 'perfect', index: 0, total: 4 }), U);
   await waitSim(0.05);
   const beat = await H(() => ({ stage: window.__game.getSystem('hub').furnitureLayer.gameStage, lights: window.__count() }));
-  // 2026-09-14 (사용자 결정): 판정마다 화면이 번쩍이던 것(`flash` · `SCREEN_FLASH`)은 없어졌다 — 반응은 화면 **속**
-  // 표식(`kick`)과 진행 막대가 말하고, 화면 발광은 기본 세기 + 잔잔한 맥동(`SCREEN_BASE ± SCREEN_PULSE`)뿐이다.
+  // 2026-09-14 (user's decision): the screen flash on every judgement (`flash` · `SCREEN_FLASH`) is gone — the
+  // reaction is told by the marker **inside** the screen (`kick`) and the progress bar, and the screen's glow is only
+  // the base intensity + a gentle pulse (`SCREEN_BASE ± SCREEN_PULSE`).
   ok(beat.stage && beat.stage.kick > 0.3 && Math.abs(beat.stage.progress - 0.25) < 1e-6
     && beat.stage.screenIntensity > 0.9 && beat.stage.screenIntensity < 1.4 && !('flash' in beat.stage),
   `gameBeat → 표식 kick + progress 1/4 · 화면은 번쩍이지 않는다 (${JSON.stringify(beat.stage)})`);
@@ -327,7 +338,8 @@ try {
     return { pose: ctx.player.furniturePose ?? null, stage: layer.gameStage, overlay: layer.objectOf(u.tv)?.getObjectByName('tv-game')?.visible, cancels: window.__cancels };
   }, U);
   ok(ended.pose === null && ended.stage === null && ended.overlay === false && ended.cancels === 0, `session end → pose released, overlay hidden, no cancel (${JSON.stringify(ended)})`);
-  // 2026-09-17 (사용자 결정): 좌석 없는 세션(`seatUid` null) = 자세 · 카메라 없이 서서, 게임 화면만 켠다 (취소하지 않는다)
+  // 2026-09-17 (user's decision): a seatless session (`seatUid` null) = standing with no pose · no camera, only the
+  // game screen turns on (it is not cancelled)
   const standing = await H((u) => {
     const ctx = window.__game.ctx, layer = window.__game.getSystem('hub').furnitureLayer;
     const base = { tvUid: u.tv, seatUid: null, discDefId: 'game_sniper_vr', stat: 'perception', minigame: 'press' };
@@ -341,7 +353,7 @@ try {
   ok(standing.on.pose === null && standing.on.stage?.seatUid === null && standing.on.stage.held === false && standing.on.overlay && standing.on.cancels === 0,
     `seatUid null → no pose, overlay on, not cancelled (${JSON.stringify(standing.on)})`);
   ok(standing.off.stage === null && !standing.off.overlay && standing.off.cancels === 0, `standing session end → overlay hidden (${JSON.stringify(standing.off)})`);
-  // 자세 거절 → 그 자리에서 cancelGameSession
+  // a refused pose → cancelGameSession on the spot
   const refused = await H((u) => {
     const ctx = window.__game.ctx, p = ctx.player;
     const had = Object.prototype.hasOwnProperty.call(p, 'setFurniturePose'), orig = p.setFurniturePose;
@@ -353,7 +365,7 @@ try {
     return { sync: after - before, stage: window.__game.getSystem('hub').furnitureLayer.gameStage };
   }, U);
   ok(refused.sync === 1 && refused.stage === null, `refused pose → cancelGameSession called synchronously (${JSON.stringify(refused)})`);
-  // 자세가 밖에서 풀림 → cancelGameSession
+  // the pose released from outside → cancelGameSession
   await session(true, { minigame: 'breath' });
   const external = await H(() => {
     const ctx = window.__game.ctx, before = window.__cancels;

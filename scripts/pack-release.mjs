@@ -1,28 +1,32 @@
 #!/usr/bin/env node
 /**
- * `npm run app:dist` 의 마지막 단계 — **받는 사람이 그대로 압축해 보낼 폴더**를 만든다 (`release/SCAVANGER/`).
+ * The last step of `npm run app:dist` — it builds **the folder a receiver zips and sends as it is**
+ * (`release/SCAVANGER/`).
  *
  * ```
  * release/SCAVANGER/
- *   app/                    electron-builder 의 산출물 전부 (SCAVANGER.exe + 런타임 파일 수백 개)
- *   SCAVANGER.exe           stub 런처 — app\SCAVANGER.exe 를 띄운다 (electron/launcher.cs)
- *   server.txt              접속할 서버 주소 한 줄 (사람이 고치는 유일한 파일)
+ *   app/                    everything electron-builder produced (SCAVANGER.exe + hundreds of runtime files)
+ *   SCAVANGER.exe           the stub launcher — it starts app\SCAVANGER.exe (electron/launcher.cs)
+ *   server.txt              one line, the server address to connect to (the only file a receiver edits)
  * ```
  *
- * **2026-09-15 — 서버는 들어가지 않는다 (사용자 결정).** 예전 넷째 칸이던 `SCAVANGER-Server.exe` 와 그것을 굽던
- * 도구(`scripts/build-server.mjs` · `server/tool.ts` · `pe-signature.mjs`)는 지웠다. 서버는 이 저장소에서
- * `start-server.bat` 로만 켠다. 그래서 이 폴더는 정확히 셋이고 `scripts/smoke-desktop.mjs --release` 가 그것을 센다.
+ * **2026-09-15 — no server goes in (user's decision).** `SCAVANGER-Server.exe`, once the fourth entry, and the
+ * tools that built it (`scripts/build-server.mjs` · `server/tool.ts` · `pe-signature.mjs`) were deleted. A server
+ * runs only from this repo, through `start-server.bat`. So this folder holds exactly three entries and
+ * `scripts/smoke-desktop.mjs --release` counts them.
  *
- * **왜 stub 인가**: `dir` 타깃의 결과를 그대로 주면 exe 하나 옆에 `.pak` · `locales/` · dll 수백 개가 놓여
- * 어느 것을 눌러야 하는지 알 수 없다. `portable` 타깃(자체 압축 exe)은 그 문제는 없지만 실행할 때마다 임시
- * 폴더로 자기를 풀어 시작이 느리고, 배포 폴더에 `server.txt` 를 두는 지금 구조와도 맞지 않는다. 그래서
- * 실제 빌드는 `app/` 으로 내리고 루트에는 누를 것만 남긴다.
+ * **Why a stub**: handing over the `dir` target output as it is puts one exe next to `.pak` · `locales/` and
+ * hundreds of dlls, and there is no telling which one to click. The `portable` target (a self-extracting exe)
+ * does not have that problem, but it unpacks itself into a temp folder on every run, so it starts slowly, and it
+ * does not fit the present shape either, which keeps `server.txt` in the deploy folder. So the real build moves
+ * down into `app/` and only the thing to click stays in the root.
  *
- * stub 은 Windows 에 항상 있는 .NET Framework 컴파일러(`csc.exe`)로 굽는다 — 새 빌드 의존성이 없고,
- * `/target:winexe` 라 콘솔이 깜빡이지 않으며, `/win32icon` 으로 게임과 같은 아이콘을 박는다.
+ * The stub is built with the .NET Framework compiler (`csc.exe`) Windows always has — no new build dependency,
+ * `/target:winexe` so no console flashes, and `/win32icon` puts the same icon on it as the game.
  *
- * ⚠ `package.json` 의 `build.electronDist = "node_modules/electron/dist"` 를 지우지 않는다 (JSON 이라 거기엔 주석을 못 단다) —
- * 없으면 electron-builder 의 `win-unpacked.tmp` 이름 바꾸기가 보안 스캐너의 파일 잠금과 부딪혀 `app:dist` 가 `EPERM` 으로 죽는다.
+ * ⚠ Never delete `build.electronDist = "node_modules/electron/dist"` from `package.json` (it is JSON, so no
+ * comment fits there) — without it electron-builder's `win-unpacked.tmp` rename collides with a security
+ * scanner's file lock and `app:dist` dies with `EPERM`.
  */
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -46,7 +50,7 @@ if (!existsSync(join(unpacked, 'SCAVANGER.exe'))) {
   process.exit(1);
 }
 
-/* ── ① 깨끗한 배포 폴더 + app/ ─────────────────────────────────────────── */
+/* ── ① a clean deploy folder + app/ ─────────────────────────────── */
 if (existsSync(outDir)) {
   try { rmSync(outDir, { recursive: true, force: true }); } catch (e) {
     console.error(`[pack] 이전 배포 폴더를 지울 수 없습니다 (게임이 실행 중인지 확인)\n  ${e.message}`);
@@ -54,7 +58,7 @@ if (existsSync(outDir)) {
   }
 }
 mkdirSync(outDir, { recursive: true });
-// 같은 드라이브이므로 rename 이 즉시 끝난다 (수백 MB 복사를 피한다). 실패하면 복사로 떨어진다.
+// Same drive, so the rename finishes at once (it avoids copying hundreds of MB). On failure it falls back to a copy.
 try {
   renameSync(unpacked, appDir);
 } catch {
@@ -63,7 +67,7 @@ try {
 }
 console.log(`[pack] app/  ← ${unpacked}`);
 
-/* ── ② stub 런처 ──────────────────────────────────────────────────────── */
+/* ── ② the stub launcher ────────────────────────────────────────────── */
 const csc = [
   'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe',
   'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe',
@@ -90,7 +94,10 @@ if (cs.status !== 0) {
 console.log(`[pack] SCAVANGER.exe  (stub → app\\SCAVANGER.exe${existsSync(icon) ? ' · 아이콘 적용' : ''})`);
 
 /* ── ③ server.txt ─────────────────────────────────────────────────────── */
-/** 빌드에 구워진 기본 주소 (`electron/default-relay.txt` 의 첫 실주소). 없으면 빈 문자열 = 이 PC 의 서버를 찾는다. */
+/**
+ * The default address baked into the build (the first real address in `electron/default-relay.txt`).
+ * None at all = an empty string = it looks for this PC's server.
+ */
 function bakedAddress() {
   const f = join(root, 'electron', 'default-relay.txt');
   if (!existsSync(f)) return '';
@@ -115,7 +122,7 @@ writeFileSync(join(outDir, 'server.txt'), [
   '',
   baked,
   '',
-].join('\r\n'));   // 메모장으로 여는 파일이라 CRLF 로 쓴다
+].join('\r\n'));   // a file opened in Notepad, so it is written with CRLF
 console.log(`[pack] server.txt  (${baked || '주소 없음 — 이 PC 의 서버 ws://127.0.0.1:8787/ws'})`);
 
 console.log(`\n[pack] 배포 폴더 준비 완료: ${outDir}`);

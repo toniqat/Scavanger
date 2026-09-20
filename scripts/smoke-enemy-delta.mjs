@@ -1,6 +1,6 @@
 // Single-player smoke test for Phase 9 §6 (enemies): delta enemy snapshots (`es` keyframe / delta / `gone` / seq),
 // the replica's `applyWire` path (delta on top of the latest sample, unknown ids ignored, hold, gone), burn-kill credit
-// (`applyStatus(..., attacker)` → `enemy:killed.by`) and enemy fire stopped by a 배리어 (`raycastBarrier` pure query +
+// (`applyStatus(..., attacker)` → `enemy:killed.by`) and enemy fire stopped by a barrier (`raycastBarrier` pure query +
 // `damageBarrier`). Drives `EnemySystem.debugSnapshot / debugApplySnapshot` directly — no relay needed.
 // Usage: node scripts/smoke-enemy-delta.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
@@ -43,9 +43,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and locks
+    // room purposes · crafting · the terminal · boarding in that order, so it is marked "already done" here
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -275,10 +275,11 @@ try {
   ok(rep3.corpseKept, 'gone leaves a dead body to the corpse timer');
   ok(rep3.liveBefore >= 1 && rep3.liveAfter === 0 && rep3.corpseStill, `a keyframe sweeps unlisted live replicas (${rep3.liveBefore} → ${rep3.liveAfter}), corpses stay`);
 
-  /* ── 2026-09-11: C 항목 배치 (리플리카 쪽) ─────────────────────────────────────────────────────────────
-     C-1 · X-6 리플리카 pushBack = 적마다 HitRequest {dmg 0, kb} · C-48 `ee acidAt` 수신 = 산성 글롭 · C-51 리플리카
-     `ee damaged` 로그 = hit_flesh, `ee attack` 타길라 = 타격음 없음 · C-23 · X-3 리플리카도 적 발소리 (거리 곡선은 audio/ —
-     방출부 볼륨은 거리와 상관없이 타입 밑값). `net.send` 는 인스턴스에 덮어씌워 가로챘다가 되돌린다. */
+  /* ── 2026-09-11: the C batch (the replica side) ───────────────────────────────────────────────
+     C-1 · X-6 a replica pushBack = one HitRequest {dmg 0, kb} per enemy · C-48 receiving `ee acidAt` = an acid glob ·
+     C-51 a replica `ee damaged` on a rogue = hit_flesh, `ee attack` from `타길라` = no hit sound · C-23 · X-3 a replica
+     makes enemy footsteps too (the distance curve is audio/'s — the emitter volume is the type's base volume whatever the
+     distance). `net.send` is overridden on the instance to intercept it, then restored. */
   console.log('C batch (replica): pushBack request · acidAt · hurt / bite sound · footsteps');
   const cRep = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const V = window.__V;
@@ -313,7 +314,7 @@ try {
     net.send = origSend; off();
     window.__stepSeq = 5101;
     window.__steps = [];
-    // 2026-09-16: 벌레 발소리는 전용 id(`bug_step_*`) — 재질 발소리와 함께 모아 섞이지 않았는지 본다
+    // 2026-09-16: bug footsteps have their own ids (`bug_step_*`) — they are collected together with the material footsteps to see that the two did not mix
     window.__stepOff = ctx.bus.on('audio:play', (a) => { if ((a.id.startsWith('footstep_') || a.id.startsWith('bug_step_')) && a.position) window.__steps.push({ id: a.id, v: a.volume, x: a.position.x }); });
     return r;
   });
@@ -324,8 +325,8 @@ try {
     `C-51: 리플리카 ee damaged — 로그 hit_flesh · 벌레 bug_hit (${cRep.hurtRogue} / ${cRep.hurtBug})`);
   ok(!cRep.biteHammer.includes('bug_attack') && cRep.biteWarrior.includes('bug_attack'),
     `C-51: 리플리카 ee attack — 타길라는 bug_attack 을 내지 않는다 (${cRep.biteHammer} / ${cRep.biteWarrior})`);
-  // 리플리카 전사를 4 m/s 로 걷게 한다 — 호스트처럼 0.1 s 마다 keyframe
-  // 2026-09-16: 벌레 발소리는 가까이서만(`BUG_STEP_RANGE_M` 32 m) — 카메라 옆 (10, 10) 에서 걷게 한다 (첫 keyframe 은 순간이동이라 걸음 없음)
+  // Walks the replica warrior at 4 m/s — a keyframe every 0.1 s, as the host does
+  // 2026-09-16: bug footsteps carry only close by (`BUG_STEP_RANGE_M` 32 m) — it walks at (10, 10) beside the camera (the first keyframe is a teleport, so no step)
   for (let i = 1; i <= 20; i++) {
     await P((k) => {
       const ctx = window.__game.ctx; const pp = ctx.player.position;
@@ -334,8 +335,9 @@ try {
     }, i);
     await waitSim(0.1);
   }
-  // 걸음을 다 모았으면 빈 keyframe 으로 전사를 치운다 (keyframe 은 목록에 없는 적을 쓸어낸다) — 곁에 남으면 승격 뒤 권위 AI 가
-  // 다가와 뒤의 배리어 검사 사격선(+x 10 m)을 막는다. 9101 은 이 뒤로 쓰지 않는다.
+  // Once the steps are collected the warrior is swept away with an empty keyframe (a keyframe clears every enemy not on
+  // the list) — left beside the camera, the authority AI would walk up after the promotion and block the barrier check's
+  // line of fire (+x 10 m) below. 9101 is not used after this.
   const steps = await P(() => {
     window.__stepOff();
     window.__sys.debugApplySnapshot({ t: 'es', seq: ++window.__stepSeq, full: true, e: [] });
@@ -358,9 +360,10 @@ try {
   ok(prom.auth && prom.forceFull, 'promotion resets the cache with forceFull');
   ok(prom.full && prom.seq > 5009 + 1000 - 1 && !prom.next, `first snapshot after promotion is a keyframe with seq past the replica's (${prom.seq}), the next a delta`);
 
-  /* ── 2026-09-11: C 항목 배치 (호스트 쪽) ─────────────────────────────────────────────────────────────────
-     C-1 · X-6 `onHitRequest` 가 kb 를 받는다 (상한 · 돌진 중 제외 · dmg 0 은 hitc 없음) · C-48 적 · 지점 표적 산성 = `ee acidAt`
-     방송 · X-5 벌레 산성이 로그를 다치게 한다. `hosting` 은 `authority && multiplayer && net` 이라 잠깐 multiplayer 를 켠다. */
+  /* ── 2026-09-11: the C batch (the host side) ─────────────────────────────────────────────────────
+     C-1 · X-6 `onHitRequest` takes kb (capped · skipped mid-charge · dmg 0 raises no hitc) · C-48 acid at an enemy
+     target · at a point target = an `ee acidAt` broadcast · X-5 bug acid hurts a rogue. `hosting` is
+     `authority && multiplayer && net`, so multiplayer is switched on for a moment. */
   console.log('C batch (host): knockback request · acidAt broadcast · acid hurts rogues');
   const cHost = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const V = window.__V;
@@ -427,7 +430,7 @@ try {
   console.log('C batch (host): enemy footsteps near the camera (C-23)');
   const stepHost = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const pp = ctx.player.position;
-    // 2026-09-16: 벌레 발소리 사거리(22 m) 안에서 걷게 한다 — 뒤의 배리어 검사(로그가 +x 10 m 에서 쏜다)와 겹치지 않게 −x 쪽 (−10, 6) → z +18
+    // 2026-09-16: it walks inside the bug footstep range (22 m) — on the −x side (−10, 6) → z +18 so it does not overlap the barrier check below (the rogue fires from +x 10 m)
     const e = sys.debugSpawn('warrior', { x: pp.x - 10, z: pp.z + 6 }, false);
     if (!e) return null;
     e.state = 'wander'; e.stateTime = 0; e.hasMoveTarget = true;
@@ -437,9 +440,9 @@ try {
     return { id: e.id };
   });
   await waitSim(2.5);
-  // 몸까지 치운다 (예전엔 25 m 밖이라 시체가 남아도 뒤 검사와 무관했다)
+  // The body is cleared away too (it used to be past 25 m, where a corpse left behind had nothing to do with the checks below)
   const hostSteps = await P((id) => { window.__hostStepOff(); const sys = window.__sys; const e = sys.active.find((x) => x.id === id); if (e && !e.isDead) e.kill(false); if (e && typeof sys.despawn === 'function') sys.despawn(e); return window.__hostSteps; }, stepHost?.id);
-  // 볼륨 = 타입 밑값 0.98 × 1/√n (n = 들리는 거리에서 방금 걸은 벌레 수 — 다른 벌레가 곁에서 걸으면 n ≥ 2). 거리 선형 감쇠는 없다.
+  // The volume = the type's base volume 0.98 × 1/√n (n = the bugs that just stepped within hearing — n ≥ 2 when another bug walks beside it). There is no linear distance falloff.
   const crowdOk = (v) => { const n = Math.round((0.98 / v) ** 2); return n >= 1 && Math.abs(v - 0.98 / Math.sqrt(n)) < 1e-6; };
   ok(hostSteps.length >= 1 && hostSteps.every((s) => s.id === 'bug_step_heavy' && crowdOk(s.v)),
     `C-23: 권위 벌레 발소리 = bug_step_heavy · 볼륨은 타입 밑값 × 1/√n (${hostSteps.length}걸음, ${[...new Set(hostSteps.map((s) => `${s.id}@${s.v}`))].join(',')})`);
@@ -526,7 +529,7 @@ try {
   const burn5 = await P((id) => { const e = window.__sys.find(id); const r = { attacker: e ? e.burnAttacker : 'gone', burning: e ? e.burnTimer > 0 : null }; if (e) e.kill(false); return r; }, burn4.id);
   ok(burn4.attacker === 'peer-y' && burn5.attacker === null && burn5.burning === false, `burnAttacker clears when the burn ends (${burn4.attacker} → ${burn5.attacker})`);
 
-  /* ── enemy fire vs 배리어 ─────────────────────────────────────────────── */
+  /* ── enemy fire vs the barrier ─────────────────────────────────────── */
   console.log('enemy fire vs barrier (raycastBarrier pure + damageBarrier)');
   const hasImplants = await P(() => !!window.__game.ctx.implants && typeof window.__game.ctx.implants.raycastBarrier === 'function' && typeof window.__game.ctx.implants.damageBarrier === 'function');
   ok(hasImplants, 'ctx.implants exposes raycastBarrier + damageBarrier');
@@ -564,7 +567,7 @@ try {
       // no barrier → the same shot lands
       block = false;
       calls.length = 0;
-      /* 2026-09-10: 방탄복은 이제 실드(추가 체력)라 피해가 hp 보다 **먼저 실드**를 깎는다 — 실효 체력으로 잰다. */
+      /* 2026-09-10: armor is a shield (extra hp) now, so damage takes **the shield before** hp — this measures the effective hp. */
       const hpA = ctx.player.hp + ctx.player.shield;
       sys.fireGun(rogue, t, 0, 1);
       r.open = { calls: calls.length, hpA, hpB: ctx.player.hp + ctx.player.shield, shield: ctx.player.shield, maxShield: ctx.player.maxShield, shot: window.__ev['enemy:shot'][window.__ev['enemy:shot'].length - 1] ?? null };

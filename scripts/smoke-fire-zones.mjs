@@ -1,7 +1,8 @@
-// Smoke: player fire zones (docs/TODO.md B-16 · 사용자 버그 「플레이어 소이 가젯에도 불 대지가 안 만들어진다」, 2026-09-15).
+// Smoke: player fire zones (docs/TODO.md B-16 · the user's bug report 「플레이어 소이 가젯에도 불 대지가 안 만들어진다」, 2026-09-15).
 //
-// Solo raid. 2026-09-15 2차 (화염 통합): 화염을 만드는 것은 **화염 수류탄 하나**(`grenade_incendiary`)뿐이고 옛 가젯
-// 아이템 `gad_incendiary` 는 사라졌다 — `fire` 배치물의 정의도 내부 정의 `incendiary` 하나다. Throws it through the normal
+// Solo raid. 2026-09-15, 2nd pass (the fire merge): the only thing that makes fire is **the incendiary grenade alone**
+// (`grenade_incendiary`), and the old gadget item `gad_incendiary` is gone — the `fire` deployable has one def too, the
+// internal `incendiary`. Throws it through the normal
 // quick-use hand (T slot → LMB), then checks: a `fire` zone at the landing spot with the right radius / duration
 // (`ctx.gadgets.getFireZones()`), it burns an enemy, the local player and a ground drone standing in it, `fire_ignite` /
 // `fire_crackle` go out on the bus, it expires. A plain G-12 frag makes no zone and keeps its 6 m blast; the G-10 blast is the
@@ -77,7 +78,7 @@ try {
   /* ── catalogue / contract ─────────────────────────────────────────── */
   const cat = await page.evaluate(() => {
     const { loot, gadgets } = window.__game.ctx;
-    /* 2026-09-15 2차: `fire` 를 만드는 정의는 `incendiary` 하나이고 **아이템이 없는 내부 정의**다 (옛 `grenadeFire` 는 은퇴). */
+    /* 2026-09-15, 2nd pass: the def that makes `fire` is `incendiary` alone, and it is an **internal def with no item** (the old `grenadeFire` is retired). */
     const inc = gadgets.getDef('incendiary'), gone = gadgets.getDef('grenadeFire');
     return {
       g10: loot.getItemDef('grenade_incendiary')?.grenadeFire === true,
@@ -91,9 +92,9 @@ try {
     };
   });
   ok(cat.g10 && cat.frag === undefined, `items.csv grenadeFire: G-10 true, G-12 unset (${cat.g10}/${cat.frag})`);
-  /* 2026-09-15 (땅굴벌레): 진동 장치가 들어와 공개 정의는 13개다 */
+  /* 2026-09-15 (the sandworm): with the thumper added there are 13 public defs */
   ok(!cat.listed && cat.defs === 13, `화염 지대는 내부 정의라 getDefs() 밖이다 (${cat.defs} defs)`);
-  /* `gad_incendiary` 는 지운 것이 아니라 `item_aliases.csv` 로 화염 수류탄에 흡수됐다 — 가진 사람이 잃지 않는다. */
+  /* `gad_incendiary` was not deleted but absorbed into the incendiary grenade through `item_aliases.csv` — nobody who owns one loses it. */
   ok(cat.retired && cat.aliased === 'grenade_incendiary', `옛 'grenadeFire' 정의 은퇴 · gad_incendiary → ${cat.aliased}`);
   ok(cat.gf && cat.gf.use === 'throw' && cat.gf.dep === 'fire' && cat.gf.r === 3.5 && cat.gf.dur === 6 && cat.gf.hp === 0,
     `화염 지대 정의 = throw · fire · r 3.5 · 6 s · hp 0 (${JSON.stringify(cat.gf)})`);
@@ -155,11 +156,11 @@ try {
   ok(frag.held === 'grenade_frag', `frag taken into the hand (slot ${frag.slot}, held ${frag.held})`);
   await waitSim(3.6);
   const fragOut = await page.evaluate((t) => ({ ex: window.__ev.exploded.filter((e) => e.t >= t), zones: window.__zones(), dep: window.__ev.deployed.filter((e) => e.t >= t) }), frag.t);
-  // 2026-09-15 (사용자 결정): 고폭 반경 6 → 7.2 (×1.2) — `data/constants.csv` 의 GRENADE_RADIUS
+  // 2026-09-15 (user's decision): the frag radius 6 → 7.2 (×1.2) — GRENADE_RADIUS in `data/constants.csv`
   ok(fragOut.ex.length === 1 && Math.abs(fragOut.ex[0].r - 7.2) < 1e-6, `G-12 exploded once with the 7.2 m frag blast (${JSON.stringify(fragOut.ex.map((e) => e.r))})`);
   ok(fragOut.zones.length === 0 && fragOut.dep.length === 0, `G-12 makes no fire zone (${fragOut.zones.length} zones, ${fragOut.dep.length} deployed)`);
 
-  /* ── 2. G-10 소이 수류탄 via the hand: small blast + 3.5 m / 6 s zone ── */
+  /* ── 2. the G-10 incendiary by hand: small blast + 3.5 m / 6 s ──── */
   const g10 = await throwFromHand('grenade_incendiary');
   ok(g10.held === 'grenade_incendiary', `G-10 taken into the hand (held ${g10.held})`);
   await waitFor(page, (t) => window.__ev.exploded.some((e) => e.t >= t), 'G-10 explosion', 180000, g10.t);
@@ -181,7 +182,7 @@ try {
   if (z10) {
     const dxz = Math.hypot(z10.p[0] - g10Out.ex[0].p[0], z10.p[2] - g10Out.ex[0].p[2]);
     ok(dxz < 0.05 && Math.abs(z10.p[1] - g10Out.surf) < 0.05, `zone sits at the explosion XZ (${dxz.toFixed(3)} m) on the surface (y ${z10.p[1].toFixed(2)} vs ${g10Out.surf?.toFixed(2)})`);
-    /* 2026-09-15 2차: 정의가 하나가 되면서 `-gf` 표식이 은퇴했다 — 평범한 `-g` id 다. */
+    /* 2026-09-15, 2nd pass: with one def left the `-gf` marker is retired — it is a plain `-g` id. */
     ok(/-g\d+$/.test(z10.id) && !/-gf\d+$/.test(z10.id) && g10Out.dep.some((d) => d.id === z10.id && d.kind === 'fire'), `zone id is the plain one: ${z10.id}`);
     ok(g10Out.fx.visible && g10Out.fx.gadget === 'incendiary', `zone visual is shown (${JSON.stringify(g10Out.fx)})`);
     ok(g10Out.ign.length === 1 && Math.hypot(g10Out.ign[0].p[0] - z10.p[0], g10Out.ign[0].p[2] - z10.p[2]) < 0.1, `fire_ignite once at the zone (${g10Out.ign.length})`);
@@ -251,8 +252,9 @@ try {
   ok(exp.crackles >= 6 && exp.crackles <= 9, `fire_crackle every FIRE_ZONE_CRACKLE_S (0.7) over its life: ${exp.crackles}`);
   await page.evaluate(() => { const ctx = window.__game.ctx; const d = ctx.drones?.getDrones().find((x) => x.owner === 'local'); if (d) ctx.drones.damageDrone(d.id, 1e6); });
 
-  /* ── 3. (은퇴) 옛 가젯 「화염수류탄」(gad_incendiary) 투척 절 — 2026-09-15 2차 화염 통합으로 그 아이템이 사라졌다.
-     반경 · 지속 · id · 지대 비주얼 검사는 위 2절(화염 수류탄)이 그대로 덮는다. */
+  /* ── 3. (retired) the section that threw the old gadget 「화염수류탄」 (gad_incendiary) — that item disappeared with
+     the 2026-09-15 2nd-pass fire merge. The radius · duration · id · zone visual checks are covered as they stand by
+     section 2 above (the incendiary grenade). */
 
   /* ── 4. root cause: a canister landing on a structure roof burns ON the roof ── */
   const roof = await page.evaluate(() => {
@@ -319,7 +321,7 @@ try {
   await waitSim(0.4);
   const repFrag = await page.evaluate(() => { const c = window.__game.ctx; return { before: window.__hpFragBefore, hp: c.player.hp + c.player.shield }; });
   const g10Dmg = rep.hp - repG10.hp, fragDmg = repFrag.before - repFrag.hp;
-  // 1.5 m: G-10 바깥 띠 30 × 0.5 × 0.6 = 9 · frag 중심 60 × 1 × 0.6 = 36 (2026-09-17 값 — 비율 4 > 3)
+  // 1.5 m: the G-10 outer band 30 × 0.5 × 0.6 = 9 · the frag centre 60 × 1 × 0.6 = 36 (the 2026-09-17 values — the ratio 4 > 3)
   ok(g10Dmg > 5 && g10Dmg < 20 && fragDmg > g10Dmg * 3, `replica blast at 1.5 m: G-10 ${g10Dmg.toFixed(1)} vs frag ${fragDmg.toFixed(1)}`);
   ok(repG10.zones === rep.zones, `a visual-only G-10 replica lights no zone (${rep.zones} → ${repG10.zones})`);
 

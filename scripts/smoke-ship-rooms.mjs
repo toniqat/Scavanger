@@ -47,9 +47,9 @@ try {
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and
+    // locks room purposes · crafting · the terminal · boarding in that order, so it is marked "already finished"
+    // here (the tutorial itself is what scripts/smoke-tutorial.mjs checks).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -177,7 +177,8 @@ try {
     hint: document.querySelector('.menu.hub-menu .seed-hint')?.textContent ?? '',
   }));
   ok(!term.labels.includes('임무 시드') && !term.seedInput, `terminal has no 임무 시드 section (${term.labels.join(' / ')})`);
-  // 2026-09-08: the `/seed` hint line is gone (당연한 설명은 화면에서 지운다) — the console still owns the seed.
+  // 2026-09-08: the `/seed` hint line is gone (an explanation that states the obvious is taken off the
+  // screen) — the console still owns the seed.
   ok(term.hint === '', `no seed hint line in the terminal ("${term.hint}")`);
   const seedSet = await page.evaluate(() => ({ r: window.__game.ctx.hub.setMissionSeed(1234), v: window.__game.ctx.hub.missionSeed }));
   ok(seedSet.r === true && seedSet.v === 1234, 'setMissionSeed(1234) accepted solo');
@@ -345,8 +346,9 @@ try {
     await tap('KeyR');
     await waitSim(0.1);
     ok((await page.evaluate(() => window.__game.ctx.housing.selectedYaw)) === 1, 'R rotated the selection (yaw 1)');
-    // 2026-09-13 (배치 규칙): 한 프레임에 겹친 탭은 한 번으로 읽혀 yaw 2 에 멈출 수 있다 — 그러면 바닥 끝 줄의 작업대는 앞이 벽이라 설치가 거절된다.
-    // 탭마다 시뮬레이션을 흘려 yaw 0 으로 확실히 되돌린다.
+    // 2026-09-13 (placement rules): two taps inside one frame are read as one and can stop at yaw 2 — and then the
+    // bench in the last row of the floor has a wall in front of it, so placing it is refused. Simulation is let run
+    // between taps so the piece comes back to yaw 0 for certain.
     for (let i = 0; i < 6 && (await page.evaluate(() => window.__game.ctx.housing.selectedYaw)) !== 0; i++) { await tap('KeyR'); await waitSim(0.1); }
     await waitSim(0.1);
     // Rotation changes the footprint, so the clamped top-left cell moves with it — sample the ghost again
@@ -451,8 +453,10 @@ try {
     }));
     ok(mng.manage && mng.ctrl && mng.blocker && mng.screen, 'M opens 시설 관리 (screen up, shipmanage blocker taken)');
     ok(!mng.hint && mng.hintText === '시설 관리', `the corner hint reads 시설 관리 and hides while the screen is up (${mng.hintText})`);
-    /* 2026-09-13 (사용자 결정): 시설 관리 동안 조종석 천장(천장판 · 보 셋 · 조명 띠)이 약 0.4 초에 걸쳐 사라진다 — 자기 그룹
-       `cockpit-ceiling` + 늘 transparent 인 자기 재질이라 불투명도만 옮기고, 다 지워지면 그룹 `visible` 만 끈다. 광원 수는 그대로. */
+    /* 2026-09-13 (user's decision): while 시설 관리 is up the cockpit ceiling (ceiling slab · three beams · light strip)
+       fades away over about 0.4 s — it is its own `cockpit-ceiling` group with its own always-transparent materials,
+       so only the opacity moves, and once it is gone only the group's `visible` is turned off. The light count is
+       untouched. */
     await waitSim(0.3);
     const ceilOn = await page.evaluate(() => {
       const ctx = window.__game.ctx;
@@ -489,7 +493,7 @@ try {
     const byC = await page.evaluate(() => ({ manage: window.__game.ctx.housing.shipManageMode, blockers: window.__game.ctx.uiBlockers.size, controls: window.__game.ctx.player.controlsEnabled }));
     ok(!byC.manage && byC.blockers === 0 && byC.controls === true, 'C with an empty cursor leaves 시설 관리 as well');
     /* 2026-09-08: **Escape cancels the mode too** — the global "Esc = 일시정지" rule has the documented carve-out
-       that the innermost thing eats the key first, and 하우징 모드 owns the camera and the controls. Before this,
+       that the innermost thing eats the key first, and housing mode owns the camera and the controls. Before this,
        Escape stacked the 일시정지 메뉴 on top of a still-running 시설 관리. */
     await tap('KeyM');
     await waitSim(0.4);

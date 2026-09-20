@@ -1,23 +1,30 @@
-// net/ + ui/ + hub/ smoke: **링크 상태 · 배경 프로브 · 연결 배지** (B-1, 2026-09-11) + C-59 (터미널이 닫혀 있어도 거절 사유가 토스트로).
+// net/ + ui/ + hub/ smoke: **the link state · the background probe · the connection badge** (B-1, 2026-09-11) + C-59 (the
+// refusal reason toasts even with the terminal closed).
 //
-// `ctx.net.link` 를 실제 소켓으로 끝까지 몬다. 설정 오버라이드(`localStorage['scav.relay']`)를 **죽은 포트**로 두고 시작해
-//   1. 타이틀: 아무도 접속을 시도하지 않았다 → `idle`, 배지 없음
-//   2. 함선 진입(`tryResume`) → `connecting` → 거절 → `unreachable` (6 s 안) · 배지 `오프라인 · 서버 찾는 중 (n초 뒤)`
-//   3. 접속 타임아웃: 받기만 하고 대답하지 않는 TCP 서버(9886) → `ensureConnected()` 가 `NET_CONNECT_TIMEOUT_MS` 로 끝난다
-//   4. 스모크가 그 포트(9885)에 릴레이를 직접 띄운다 → 백오프 안에 **익명** 프로브가 찾고 자동 접속 + `서버에 연결되었습니다`
-//   5. 릴레이를 죽인다 → `reconnecting` + `서버 연결이 끊겼습니다 — 다시 찾는 중` → 로비 없는 재접속 포기가 조용하지 않고
-//      `unreachable` 로 넘어간다 → 다시 띄우면 `서버에 다시 연결되었습니다`
-//   6. 레이드 중에는 찾아도 **접속하지 않고** `found: true` 만 (배지도 숨김) → 함선으로 돌아오면 그때 접속
-//   7. 거절(`kicked` · `server_full` · `duplicate`)은 프레임 주입으로: `refused` 뒤 프로브 · 소켓 없음, 사유 토스트(C-59),
-//      명시적 connect 가 지운다
-//   8. 타이틀: 배지 옆 `서버 설정` · `다시 시도` 버튼
-//   9. 데스크톱 셸 흉내(`window.__scavDesktop` + `/__scav/relay` 응답 가짜): 셸의 목표(이 PC 의 start-server.bat 서버)도
-//      프로브한다 — 2026-09-15 빌드에서 서버를 뺐으므로 옛 `embedded: true` 응답도 더 이상 프로브를 끄지 않는다
+// It drives `ctx.net.link` all the way through a real socket. It starts with the settings override
+// (`localStorage['scav.relay']`) pointed at a **dead port**:
+//   1. title: nobody has tried to connect → `idle`, no badge
+//   2. entering the ship (`tryResume`) → `connecting` → refused → `unreachable` (within 6 s) · badge `오프라인 · 서버 찾는 중 (n초 뒤)`
+//   3. connection timeout: a TCP server that accepts and never answers (9886) → `ensureConnected()` ends on `NET_CONNECT_TIMEOUT_MS`
+//   4. the smoke starts a relay on that port (9885) itself → within the backoff an **anonymous** probe finds it and
+//      connects automatically + `서버에 연결되었습니다`
+//   5. the relay is killed → `reconnecting` + `서버 연결이 끊겼습니다 — 다시 찾는 중` → giving up a reconnect with no lobby is
+//      not silent, it goes on to `unreachable` → starting it again gives `서버에 다시 연결되었습니다`
+//   6. during a raid it finds but **does not connect**, only `found: true` (the badge hides too) → it connects on the way
+//      back to the ship
+//   7. refusals (`kicked` · `server_full` · `duplicate`) by frame injection: after `refused` there is no probe · no socket,
+//      the reason toasts (C-59), an explicit connect clears it
+//   8. title: the `서버 설정` · `다시 시도` buttons beside the badge
+//   9. imitating the desktop shell (`window.__scavDesktop` + a fake `/__scav/relay` answer): the shell's own target (this
+//      PC's start-server.bat server) is probed too — the 2026-09-15 builds ship no server, so even an old
+//      `embedded: true` answer no longer turns the probe off
 //
-// 릴레이 포트는 **9885**(죽은 포트 → 스모크가 띄우는 릴레이), 9886(대답 없는 TCP) — 공용 릴레이(8787)는 건드리지 않는다.
-// ⚠ 2026-09-20: 원래 8885 · 8886 이었는데 이 개발 PC 의 WinNAT 이 **8800–8899** 를 통째로 예약해 bind 가 EACCES 로 죽고,
-// 스모크가 「포트가 비어 있어야 한다」로 오진단해 항상 실패했다 (`netsh interface ipv4 show excludedportrange protocol=tcp`).
-// 9885 · 9886 은 그 범위 밖이고 다른 스모크 어느 것도 안 쓴다. 다른 기계에서 또 막히면 예약 범위부터 확인할 것.
+// The relay ports are **9885** (the dead port → the relay the smoke starts) and 9886 (the TCP that never answers) — the
+// shared relay (8787) is left alone.
+// ⚠ 2026-09-20: they were 8885 · 8886 until this dev PC's WinNAT reserved **8800–8899** whole, so the bind died with
+// EACCES and the smoke misdiagnosed it as 「the port must be free」 and always failed
+// (`netsh interface ipv4 show excludedportrange protocol=tcp`). 9885 · 9886 are outside that range and no other smoke
+// uses them. If another machine blocks them again, check the reserved ranges first.
 // Usage: node scripts/smoke-netlink.mjs [http://localhost:5273]   (needs a running vite; the relay it needs it starts itself)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -119,7 +126,7 @@ try {
   await page.evaluateOnNewDocument((relayUrl) => {
     try {
       localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } }));
-      // 설정 › 서버 설정 오버라이드 = 아직 아무도 듣지 않는 포트 (슬롯 공용 키).
+      // The 설정 › 서버 설정 override = a port nobody is listening on yet (a slot-shared key).
       localStorage.setItem('scav.relay', relayUrl);
     } catch { /* storage off */ }
   }, RELAY_URL);
@@ -147,7 +154,7 @@ try {
   const socketsSince = (t) => P((t0) => window.__ev ? window.__ws.filter((s) => s.at >= t0).map((s) => s.url) : [], t);
   const waitLink = (pred, label, timeout) => waitFor(page, new Function(`const n = window.__game.ctx.net; const l = n.link; return (${pred})(l, n);`), label, timeout);
   const forceGiveUp = () => P(() => {
-    // 로비 없는 재접속 6회를 기다리는 대신 마지막 회차로 건너뛴다 — `scheduleReconnect` 가 포기하는 그 분기.
+    // Instead of waiting out six lobby-less reconnects, jump to the last — the branch where `scheduleReconnect` gives up.
     const n = window.__game.getSystem('net');
     if (n.reconnectTimer !== null) { clearTimeout(n.reconnectTimer); n.reconnectTimer = null; }
     n.reconnectAttempt = 6;

@@ -1,19 +1,22 @@
 #!/usr/bin/env node
 /**
- * 정보상 기믹 고정의 **결정성 · 효과** 검사 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
+ * **Determinism · effect** checks for the intel broker's fixed gimmicks (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
  *
- * 브라우저가 필요 없다 — 헤드리스 Vite 로 게임이 실제로 쓰는 모듈(`src/world/preview.ts` · `hazard/parts/Plan.ts`)을
- * 그대로 SSR 로드해 레이아웃을 만든다. 보는 것은 셋이다:
+ * No browser is needed — a headless Vite SSR-loads the very modules the game uses (`src/world/preview.ts` ·
+ * `hazard/parts/Plan.ts`) and builds the layout with them. Three things are checked:
  *
- *  ① **결정성** — 같은 시드 · 같은 행성 · 같은 정보로 두 번 계획하면 결과가 바이트까지 같다 (멀티가 여기 기댄다).
- *  ② **효과** — 산 기믹이 정말 그만큼 붙는가 (탈출 패드 +N · 둥지 +N · 선로 확정 + 플랫폼 +N · 지하 시설 +N ·
- *     탐사 차량 확정 · 재해 지연 +N 초). 네임드는 월드 rng 밖이라 여기서 보지 않는다 (`enemies/named/Director`).
- *  ③ **스트림** — 레이아웃은 **거절 표본 추출**이라 한 자리가 바뀌면 그 뒤에 뽑는 것들도 따라 움직인다.
- *     그래서 「바뀌기 전에 뽑힌 것은 한 글자도 안 바뀐다」를 검사한다 (예: 탈출 패드를 사면 선로 · 강하 지점 ·
- *     흙길이 그대로, 지하 시설을 사면 구조물 말고 전부 그대로). 미리보기가 거짓말을 하지 않는 근거는 이것이
- *     아니라 「미리보기와 진짜 맵이 **같은 함수**를 지난다」는 사실이다 (`preview.planLayoutFor`).
+ *  ① **determinism** — planning twice with the same seed · the same planet · the same intel gives a byte-identical
+ *     result (multiplayer leans on this).
+ *  ② **effect** — does a bought gimmick really add that much (extraction pads +N · nests +N · rails fixed + platforms
+ *     +N · basements +N · the rover fixed · hazard delay +N s). A named rogue is outside the world rng, so it is not
+ *     judged here (`enemies/named/Director`).
+ *  ③ **stream** — the layout is **rejection sampling**, so moving one spot moves everything drawn after it as well.
+ *     What is checked is therefore 「whatever was drawn before the change does not move by one character」 (buying an
+ *     extraction pad, say, leaves the rails · the drop point · the rover road alone, and buying a basement leaves
+ *     everything but the structures alone). What proves the preview does not lie is not this but the fact that
+ *     「the preview and the real map go through **the same function**」 (`preview.planLayoutFor`).
  *
- * 사용: `node scripts/smoke-intel.mjs [--seeds N]`
+ * Usage: `node scripts/smoke-intel.mjs [--seeds N]`
  */
 import { createServer } from 'vite';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +49,7 @@ try {
   const { planLayoutFor, previewLayoutFor } = preview;
   const { resolveIntelEffects, Random, PLANET_DEFS } = shared;
 
-  /** 레이아웃의 한 절을 문자열로 (좌표는 소수 3자리 — 부동소수 잡음이 아니라 진짜 차이만 본다). */
+  /** One section of the layout as a string (coordinates to 3 decimals — only real differences, not float noise). */
   const r3 = (n) => Math.round(n * 1000) / 1000;
   const padStr = (p) => `${r3(p.x)},${r3(p.z)},${r3(p.radius ?? p.r ?? 0)},${r3(p.yaw ?? 0)}`;
   const sec = (l) => ({
@@ -65,10 +68,10 @@ try {
   const planets = PLANET_DEFS.map((p) => p.id);
   const pick = (g, tier) => resolveIntelEffects([{ g, tier }]);
   const basementCount = (l) => l.structures.filter((s) => (s.kind === 'outpost' && s.pit) || (s.kind === 'lab' && s.floors >= 2)).length;
-  /** 지하 시설을 가질 수 있는 채 (전진기지 · 연구실) — 「+N 개」는 이 수가 느는 것이다. */
+  /** The structures that can hold a basement (outpost · lab) — 「+N 개」 means this count grows. */
   const eligible = (l) => l.structures.filter((s) => s.kind === 'outpost' || s.kind === 'lab').length;
 
-  /* ── ① 결정성 ─────────────────────────────────────────────────────────── */
+  /* ── ① determinism ────────────────────────────────────────────────────── */
   {
     let bad = 0;
     for (let i = 0; i < SEEDS; i++) {
@@ -82,9 +85,9 @@ try {
     assert(bad === 0, `결정성: 같은 시드 · 행성 · 정보로 두 번 계획하면 결과가 같다 (${SEEDS}회)`, { bad });
   }
 
-  /* ── ② 효과 + ③ 스트림 ───────────────────────────────────────────────── */
+  /* ── ② effect + ③ stream ─────────────────────────────────────────────── */
   const BEFORE = {
-    // 이 기믹이 건드리는 단계 **앞에서** 뽑히는 절들 — 한 글자도 바뀌면 안 된다
+    // The sections drawn **before** the step this gimmick touches — not one character may change
     extraction: ['rail', 'spawn', 'rover'],
     nest: ['rail', 'spawn', 'rover', 'extraction'],
     basement: ['rail', 'spawn', 'rover', 'extraction', 'nests', 'pois', 'craters', 'basins'],
@@ -95,8 +98,9 @@ try {
   for (const [g, tier, check, label] of [
     ['extraction', 2, (base, got) => got.extraction.length === base.extraction.length + 2, '탈출 패드 +2'],
     ['nest', 2, (base, got) => got.nests.length === base.nests.length + 2, '벌레 둥지 +2'],
-    /* 「+2 개」 = 반드시 지하 시설을 가진 채가 둘 더 선다 (csv 상한을 넘는 명시적 예외). 자연 굴림이 겹치면 더 많다 —
-     * 「base + 2」로는 못 잰다: 구조물 단계는 스트림이 이미 밀려 있어 base 의 자연 굴림 결과가 재현되지 않는다. */
+    /* 「+2 개」 = two more structures with a basement must stand (an explicit exception above the csv cap). A natural
+     * roll on top gives more — 「base + 2」 cannot measure it: by the structure step the stream has already shifted, so
+     * base's own natural roll is not reproduced. */
     ['basement', 2, (base, got) => basementCount(got) >= 2 && eligible(got) > eligible(base), '지하 시설 +2 (전진기지 지하실 · 연구실 2층 잠긴 방)'],
     ['rail', 1, (base, got) => !!got.rail && got.rail.stops.length === (base.rail ? base.rail.stops.length + 1 : 3), '선로 확정 + 플랫폼 +1'],
     ['rover', 1, (base, got) => !!got.rover, '탐사 차량 확정'],
@@ -118,10 +122,10 @@ try {
     if (BEFORE[g]) assert(streamBad === 0, `스트림: ${label} 은 그 앞에서 뽑힌 절(${BEFORE[g].join(' · ')})을 밀지 않는다`, { streamBad });
   }
 
-  /* 탐사 차량 · 선로가 **평소에 얼마나 나오는가**. 정보상의 「확정」 은 평소 안 나오는 만큼만 값이 있다 —
-   * 2026-09-14: 이 실측이 흙길 **100 %** 를 찍어서(= 「탐사 차량 확정」 이 아무것도 못 산다) 사용자 결정으로
-   * `ROVER_CHANCE`(0.6)를 넣었다 — 지금은 선로 70 % · 흙길 64 % 쯤이다. 어느 한쪽이 다시 100 % 가 되면
-   * 그 줄은 값을 잃는다 (이 note 가 그것을 감시한다). */
+  /* **How often the rover · the rails turn up on their own**. The intel broker's 「확정」 is worth only as much as they
+   * are normally missing — 2026-09-14: this measurement read the rover road at **100 %** (= 「탐사 차량 확정」 buys
+   * nothing), so `ROVER_CHANCE` (0.6) went in on the user's decision — it is around 70 % rails · 64 % rover road now.
+   * If either one reaches 100 % again that row loses its worth (this note is what watches for it). */
   {
     let rover = 0, rail = 0, fixed = 0, missing = 0;
     const N = SEEDS * 20;
@@ -138,7 +142,8 @@ try {
     assert(missing === 0 || fixed > 0, `탐사 차량 확정: 평소 실패하는 시드 ${missing}개 중 ${fixed}개를 살렸다 (${N} 시드)`, { missing, fixed });
   }
 
-  /* 재해 지연 — `planHazard` 의 결과 초에 그대로 더해지고, 굴림 수는 그대로다 (종류 · 방향이 안 바뀐다). */
+  /* Hazard delay — it is added straight onto the seconds `planHazard` returns, and the roll count is unchanged
+   * (neither the kind nor the direction moves). */
   {
     let bad = 0, delayed = 0;
     for (let i = 0; i < SEEDS; i++) {
@@ -156,7 +161,7 @@ try {
     assert(delayed > 0 && bad === 0, `효과: 재해 지연 +180초는 시작 시각에만 더해진다 (종류 · 전선 · 눈 중심 그대로, ${delayed}건)`, { delayed, bad });
   }
 
-  /* 미리보기 평면 데이터가 계획과 같은 것을 말하는가 (화면이 읽는 유일한 형태다). */
+  /* Does the preview's flat data say the same thing as the plan (it is the only shape the screen reads). */
   {
     let bad = 0;
     for (let i = 0; i < SEEDS; i++) {

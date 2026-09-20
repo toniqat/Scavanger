@@ -1,25 +1,26 @@
 // Single-player smoke test for the progression folder's stat XP (2026-09-06): addStatXp raise / clamp at STAT_MAX /
 // lower to STAT_MIN / carry-over, addSkillXpRaw down to level 0, profile migration + reload persistence, character sheet DOM.
-// Phase 7 (2026-09-06): 감정 XP from `container:itemRevealed` (not `inventory:itemAdded`), training = gun_* only,
+// Phase 7 (2026-09-06): `감정` appraisal XP from `container:itemRevealed` (not `inventory:itemAdded`), training = gun_* only,
 // server profile document (save → `profile.set('progression')`, `net:profileLoaded` replace + progress:* re-emit).
-// Phase 12 (2026-09-08): 임플란트 items — slots by level (4 / 5 / 10), the 46 defs + repair costs + HEAL_SPRAY_GAUGE, loot rules
-// (broken-only, boss legendaries, tier 4 only), equip / unequip / refusals / derived + perks, raid lock, 캐릭터 sheet block +
+// Phase 12 (2026-09-08): implant items — slots by level (4 / 5 / 10), the 46 defs + repair costs + HEAL_SPRAY_GAUGE, loot rules
+// (broken-only, boss legendaries, tier 4 only), equip / unequip / refusals / derived + perks, raid lock, character sheet block +
 // picker DOM, reload + server-document round-trip. 119 checks.
-// A-3a (2026-09-12): 헬스장 — applyGymSession formula / carry-over / cap / debuff gating (xp 0, no extension) / refusals (raid,
-// non-hub, non-gym stat), derived includes 단련 (carryCapacity · maxStamina), sheet `(+n 단련)` + progress line + live countdown,
+// A-3a (2026-09-12): the gym — applyGymSession formula / carry-over / cap / debuff gating (xp 0, no extension) / refusals (raid,
+// non-hub, non-gym stat), derived includes training (carryCapacity · maxStamina), sheet `(+n 단련)` + progress line + live countdown,
 // reload keeps the three fields, migrate clamps junk, server document round-trip, reset clears.
-// 2026-09-13 (서재 시리즈 · 비디오게임 · 요리/연구 숙련): migrate fills 요리 · 연구, 4 new derived rows, the stat tooltip without
-// its sub / section title, the preview as the resulting value only + value font fit (never wraps), the `시설 ×n` 서재 breakdown tooltip
+// 2026-09-13 (library series · video games · the `요리` / `연구` skills): migrate fills `요리` · `연구`, 4 new derived rows, the stat tooltip without
+// its sub / section title, the preview as the resulting value only + value font fit (never wraps), the `시설 ×n` library breakdown tooltip
 // (stubbed `ctx.housing.getLibrarySources`), the library `derived` fold on `housing:libraryChanged` (stubbed `getLibraryEffects`),
-// and 지능 · 인지력 as gym stats (video games: applyGymSession · 단련 derived · sheet line · migrate · 4 trainedChanged re-emits).
-// 2026-09-16 (제작 숙련 = 재료 환급만): the sheet's XP readouts go through `shared/numberFormat.formatCompactNumber` (expected
-// strings are built from that helper, not pasted), and the 파생 능력치 panel is checked against `progression/defs.DERIVED_PANEL_KEYS`
+// and intelligence · perception as gym stats (video games: applyGymSession · training derived · sheet line · migrate · 4 trainedChanged re-emits).
+// 2026-09-16 (the crafting skill = the material refund only): the sheet's XP readouts go through `shared/numberFormat.formatCompactNumber` (expected
+// strings are built from that helper, not pasted), and the `파생 능력치` panel is checked against `progression/defs.DERIVED_PANEL_KEYS`
 // itself — the always-×1.0 `제작 속도` (`craftSpeedMul`) row is gone.
-// 2026-09-16 (사용자 결정 「채광 숙련」): 17번째 숙련 `mining` 이 붙었다. 숙련 수 · 숙련 줄 순서 · 재주가 키우는 숙련 목록은
-// 더 이상 숫자를 박지 않고 `shared/progression.SKILL_IDS` · `progression/defs.SKILL_DEFS` 에서 읽는다 (`SKILL_N` · `DEX_SKILLS`).
-// 2026-09-17 (사용자 결정 「단련은 능력치 경험치 바를 같이 쓴다」): gym / game XP fills the stat-XP bar (`addStatXp` minigame source) —
-// a minigame crossing pays 단련 +1 (base + points untouched), an action crossing a base point, the cap holds the bar at 0.999999;
-// migrate drops `trainedProgress`; the sheet shows `(+n)`, the name instead of `캐릭터` + no 레이드 / 탈출, no 단련 / debuff line
+// 2026-09-16 (user's decision 「채광 숙련」): a 17th skill `mining` was added. The skill count · the order of the skill rows ·
+// the list of skills dexterity raises are no longer pasted-in numbers but read from `shared/progression.SKILL_IDS` ·
+// `progression/defs.SKILL_DEFS` (`SKILL_N` · `DEX_SKILLS`).
+// 2026-09-17 (user's decision 「단련은 능력치 경험치 바를 같이 쓴다」): gym / game XP fills the stat-XP bar (`addStatXp` minigame source) —
+// a minigame crossing pays training +1 (base + points untouched), an action crossing a base point, the cap holds the bar at 0.999999;
+// migrate drops `trainedProgress`; the sheet shows `(+n)`, the name instead of `캐릭터` + no 레이드 / 탈출, no training / debuff line
 // under the stats, and the buff thumbnails (`shared/charBuffView`) next to the name with a hover card.
 // Usage: node scripts/smoke-progression.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
@@ -63,9 +64,9 @@ try {
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts on its own for a new profile and
+    // locks room purposes · crafting · the terminal · boarding in order, so it is marked here as "already done"
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -115,11 +116,13 @@ try {
   await page.goto(BASE, { waitUntil: 'load' });
   await boot();
 
-  /* 2026-09-16 (사용자 결정 「채광 숙련」): 숙련 수는 `shared/progression.SKILL_IDS` 가 원본이다. 숫자를 박아 두면
-     숙련이 하나 늘 때마다 이 스크립트가 여러 곳에서 빨개지므로, 계약에서 읽어 쓴다. */
+  /* 2026-09-16 (user's decision 「채광 숙련」): `shared/progression.SKILL_IDS` is the source of the skill count. A
+     pasted-in number turns several places in this script red every time a skill is added, so it is read from the
+     contract instead. */
   const SKILL_IDS = await page.evaluate(async () => [...(await import('/src/shared/progression.ts')).SKILL_IDS]);
   const SKILL_N = SKILL_IDS.length;
-  /* 재주가 키우는 숙련 = `data/skills.csv` 의 `stats` 칸 (2026-09-16 에 채광이 들어왔다) — 임플란트 호버가 밑줄 치는 목록이다. */
+  /* The skills dexterity raises = the `stats` column of `data/skills.csv` (mining joined on 2026-09-16) — the list
+     an implant hover underlines. */
   const DEX_SKILLS = await page.evaluate(async () => (await import('/src/progression/defs.ts')).SKILL_DEFS
     .filter((d) => d.stats.includes('dexterity')).map((d) => d.id).sort());
 
@@ -221,7 +224,7 @@ try {
   ok(k.level === 0 && k.progress === 0, 'inventory:itemAdded no longer trains 감정');
   await page.evaluate(() => window.__game.ctx.bus.emit('container:itemRevealed', { containerId: 'crate:smoke', uid: 'u-smoke', defId: 'mat_scrap', rarity: 'rare' }));
   k = await skill('appraisal');
-  // APPRAISE_XP_BY_RARITY.rare 0.11 × skillGainMul × statFactor (인지력 / 지능 at base → 1) at level 0
+  // APPRAISE_XP_BY_RARITY.rare 0.11 × skillGainMul × statFactor (perception / intelligence at base → 1) at level 0
   ok(k.level === 0 && k.progress > 0.05 && k.progress < 0.3, 'container:itemRevealed {rare} trains 감정 (≈0.11)', JSON.stringify(k));
   const revealedOnce = k.progress;
   await page.evaluate(() => window.__game.ctx.bus.emit('container:itemRevealed', { containerId: 'crate:smoke', uid: 'u-smoke2', defId: 'mat_scrap', rarity: 'common' }));
@@ -298,7 +301,7 @@ try {
   ok(mig2.str < 1 && mig2.str >= 0.999 && mig2.dex === 0 && near(mig2.per, 0.4) && mig2.int === 0, 'migrate clamps statProgress to 0..0.999999', JSON.stringify(mig2));
 
   console.log('housing multiplier (Phase 9: 사격장 × 서재 through one getSkillGainMul)');
-  // a fake `ctx.housing.getSkillGainMul` stands in for 사격장 + 서재: the product must scale the skill XP, nothing else
+  // a fake `ctx.housing.getSkillGainMul` stands in for the 사격장 + the library: the product must scale the skill XP, nothing else
   const mulProbe = await page.evaluate(() => {
     const ctx = window.__game.ctx;
     const p = ctx.progression;
@@ -370,8 +373,9 @@ try {
   await page.evaluate(() => window.__game.ctx.bus.emit('ui:statsToggled', { open: true }));
   await sleep(200);
   const dom = await page.evaluate(async () => {
-    // 2026-09-16: XP readouts go through `shared/numberFormat.formatCompactNumber` (쉼표 자리 구분 + 10,000 부터 축약).
-    // 기대 문자열은 UI 가 쓰는 바로 그 헬퍼 + 살아 있는 진행도에서 만든다 — 리터럴을 박으면 규칙이 바뀔 때마다 또 빨개진다.
+    // 2026-09-16: XP readouts go through `shared/numberFormat.formatCompactNumber` (grouping commas + abbreviated
+    // from 10,000 up). The expected strings are built from that very helper the UI uses + the live progress — a pasted
+    // literal goes red again every time the rule changes.
     const { formatCompactNumber } = await import('/src/shared/index.ts');
     const p = window.__game.ctx.progression;
     const root = document.querySelector('.char-sheet');
@@ -458,7 +462,7 @@ try {
       pa: row('strength').querySelector('.pa').textContent, paHidden: row('strength').querySelector('.pa').hidden,
       minusDisabled: row('strength').querySelector('.minus').disabled, plusDisabled: row('strength').querySelector('.plus').disabled,
       tag: root.querySelector('.cs-level .pts').textContent, preview: cell.classList.contains('pg-preview'),
-      // 2026-09-13 (사용자 결정): the preview is the resulting value only — no `현재 →` part, no inner spans, green
+      // 2026-09-13 (user's decision): the preview is the resulting value only — no `현재 →` part, no inner spans, green
       txt: cell.querySelector('.v').textContent, spans: cell.querySelectorAll('.v span').length, fs: cell.querySelector('.v').style.fontSize,
       oneLine: cell.querySelector('.v').getBoundingClientRect().height <= 20 && cell.querySelector('.v').getBoundingClientRect().right <= cell.getBoundingClientRect().right + 0.5,
       want: `${p.previewDerived({ strength: 2 }).carryCapacity.toFixed(1)} kg`, now: `${p.derived.carryCapacity.toFixed(1)} kg`,
@@ -531,7 +535,7 @@ try {
   });
   ok(tips.int.shown && /모든 숙련 성장 \+6%\/pt/.test(tips.int.text) && tips.int.text.includes('의학') && tips.int.text.includes('연구') && tips.int.skills.includes('medicine') && tips.int.skills.includes('gardening')
     && tips.int.skills.includes('research') && !tips.int.skills.includes('carry') && JSON.stringify(tips.int.derived) === '["skillGainMul"]', '지능 name tooltip: effect, skill rows (의학 · 연구 …), `모든 숙련 성장 +6%/pt`; links its skills + 숙련 상승', JSON.stringify(tips.int));
-  // 2026-09-13 (사용자 요청): the stat tooltip has no `능력치` sub and no `관련 숙련 · 성장 속도` title (and no empty header box)
+  // 2026-09-13 (user's request): the stat tooltip has no `능력치` sub and no `관련 숙련 · 성장 속도` title (and no empty header box)
   ok(tips.int.subHidden === true && JSON.stringify(tips.int.heads) === '[]' && !tips.int.text.includes('관련 숙련') && !tips.int.text.includes('능력치'),
     '지능 tooltip: sub `능력치` and section title `관련 숙련 · 성장 속도` removed, rows kept', JSON.stringify({ heads: tips.int.heads, sub: tips.int.subHidden, text: tips.int.text }));
   ok(tips.int.hiddenAfter && tips.int.linkedAfter === 0, 'pointerout hides the tooltip and clears the outline');
@@ -540,7 +544,7 @@ try {
   ok(tips.carry.shown && JSON.stringify(tips.carry.derived) === '["carryReliefFactor"]', '운반 tooltip links 운반 부담 경감', JSON.stringify(tips.carry));
   ok(tips.gun.subHidden === false && JSON.stringify(tips.gun.heads) === '["현재 효과","관련 능력치 · 성장 속도"]', 'skill tooltip keeps its sub + section titles (empty 서재 section omitted)', JSON.stringify({ heads: tips.gun.heads, sub: tips.gun.subHidden }));
 
-  /* ── 2026-09-13 서재 시리즈 · 요리/연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
+  /* ── 2026-09-13 library · 요리/연구 skills (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ──── */
   console.log('캐릭터 시트 (2026-09-13): 숙련 줄 · 새 파생 줄 · 서재 시설 툴팁 · 서재 파생 접기 · 값 글자 맞춤');
   const hoverTip = (sel) => P((s) => {
     const n = document.querySelector(s); if (!n) return null;
@@ -556,8 +560,9 @@ try {
     return out;
   }, sel);
   const sk16 = await P(async () => {
-    // 파생 줄 수는 `progression/defs.DERIVED_PANEL_KEYS` 가 원본이다 (2026-09-16: `craftSpeedMul` 이 빠지고 `miningRarityBonus` 가 들어왔다).
-    // 숫자를 박아 두면 줄이 늘고 줄 때마다 스모크가 빨개지므로, 패널이 그 목록을 **그대로** 그리는지를 본다.
+    // `progression/defs.DERIVED_PANEL_KEYS` is the source of the derived row count (2026-09-16: `craftSpeedMul` left
+    // and `miningRarityBonus` arrived). A pasted-in number turns the smoke red every time a row is added or removed,
+    // so what is checked is that the panel draws that list **exactly**.
     const { DERIVED_PANEL_KEYS } = await import('/src/progression/defs.ts');
     const root = document.querySelector('.char-sheet'), p = window.__game.ctx.progression;
     const v = (k) => root.querySelector(`.cs-derived .cell[data-key="${k}"] .v`)?.textContent ?? null;
@@ -570,10 +575,11 @@ try {
     out.d = { cook: p.derived.cookScoreBonus, time: p.derived.researchTimeMul, chance: p.derived.researchRefundChance, frac: p.derived.researchRefundFrac };
     return out;
   });
-  // 2026-09-16 (사용자 결정 「채광 숙련」): 줄 수를 박아 두지 않는다 — 시트가 `SKILL_IDS` 를 **순서 그대로** 그리는지를 본다 (채광이 꼬리에 붙었다).
+  // 2026-09-16 (user's decision 「채광 숙련」): the row count is not pasted in — what is checked is that the sheet
+  // draws `SKILL_IDS` **in order** (mining joined at the tail).
   ok(JSON.stringify(sk16.skills) === JSON.stringify(SKILL_IDS) && sk16.cells === sk16.keys.length && JSON.stringify(sk16.drawn) === JSON.stringify(sk16.keys),
     `sheet: ${SKILL_N} skill rows in SKILL_IDS order, one derived row per DERIVED_PANEL_KEYS in order`, JSON.stringify(sk16));
-  // 2026-09-16 (사용자 결정): 제작 숙련은 제작 속도를 바꾸지 않는다 → 언제나 ×1.0 이던 `제작 속도` 줄이 시트에서 사라졌다
+  // 2026-09-16 (user's decision): the crafting skill does not change craft speed → the always-×1.0 `제작 속도` row left the sheet
   ok(!sk16.keys.includes('craftSpeedMul') && !sk16.drawn.includes('craftSpeedMul'), '제작 속도 (craftSpeedMul) row is gone from the sheet', JSON.stringify(sk16.drawn));
   ok(sk16.zero.cook === '+0 %' && sk16.zero.time === '×1.00' && sk16.zero.chance === '0 %' && sk16.zero.frac === '20 %', 'new derived rows at level 0: 요리 점수 +0 % · 분석 시간 ×1.00 · 재료 회수 확률 0 % · 재료 회수량 20 %', JSON.stringify(sk16.zero));
   ok(near(sk16.d.cook, 0.15, 1e-9) && near(sk16.d.time, 0.7, 1e-9) && near(sk16.d.chance, 0.35, 1e-9) && near(sk16.d.frac, 0.5, 1e-9)
@@ -585,7 +591,7 @@ try {
   ok(resTip?.shown && JSON.stringify(resTip.derived) === '["researchRefundChance","researchRefundFrac","researchTimeMul"]' && resTip.ks.includes('분석 시간') && resTip.ks.includes('지능'), '연구 tooltip: 분석 시간 · 재료 회수 확률 · 재료 회수량, grows with 지능', JSON.stringify(resTip));
   await P(() => { const p = window.__game.ctx.progression; p.addSkillXpRaw('cooking', -1e6); p.addSkillXpRaw('research', -1e6); });
 
-  // 시설 ×n badge → which 서재 series give the bonus (stubbed housing: H1 may not be merged yet)
+  // 시설 ×n badge → which library series give the bonus (stubbed housing: H1 may not be merged yet)
   await P(() => {
     const h = window.__game.ctx.housing;
     window.__libDesc = Object.fromEntries(['getSkillGainMul', 'getLibrarySources', 'getLibraryEffects'].map((k) => [k, Object.getOwnPropertyDescriptor(h, k) ?? null]));
@@ -637,7 +643,7 @@ try {
   ok(fold.thrown.carry === fold.base.carry && fold.thrown.dur === fold.base.dur && near(fold.off.carry, fold.base.carry, 1e-9) && fold.badgeHidden,
     'a throwing getLibraryEffects folds nothing; restoring housing brings derived + the badge back', JSON.stringify({ thrown: fold.thrown, off: fold.off, badge: fold.badgeHidden }));
 
-  // 파생 능력치 values never wrap: narrow cells shrink the value font (≥ 8 px), wide cells keep the natural size
+  // Derived-stat values never wrap: narrow cells shrink the value font (≥ 8 px), wide cells keep the natural size
   const fit = await P(async () => {
     const grid = document.querySelector('.char-sheet .cs-derived .grid');
     const read = () => [...grid.querySelectorAll('.cell')].map((c) => {
@@ -699,8 +705,8 @@ try {
   await sleep(150);
   await clickSel('.char-sheet .cs-foot .ui-btn.danger');
   await sleep(100);
-  // 2026-09-15 2차 (사용자 결정): 「1초 동안 누르고 있어야」 안내 줄(`.sh-ask-hint`)은 없어졌다 —
-  // 그 말을 하는 것은 이제 **버튼 안의 좌클릭 홀드 키캡**(`.keycap.kc-btn`)이다.
+  // 2026-09-15 2nd pass (user's decision): the 「1초 동안 누르고 있어야」 hint row (`.sh-ask-hint`) is gone —
+  // what says it now is **the left-click hold keycap inside the button** (`.keycap.kc-btn`).
   const rp0 = await P(() => { const a = document.querySelector('.sh-ask[data-ask="character-reset"]'); return { ask: !!a, danger: a?.classList.contains('is-danger'), holdCap: !!a?.querySelector('[data-hold] .keycap.kc-btn'), level: window.__game.ctx.progression.level }; });
   ok(rp0.ask && rp0.danger && rp0.holdCap, '캐릭터 초기화 → danger warning popup with the hold keycap (no two-click arm)', JSON.stringify(rp0));
   await clickSel('.sh-ask[data-ask="character-reset"] [data-hold]');
@@ -927,8 +933,8 @@ try {
   await sleep(250);
   const blk = await page.evaluate(() => {
     const b = document.querySelector('.inv-equip .inv-implants .inv-impitems');
-    // 2026-09-08: 장착한 임플란트는 세로 카드 줄이 아니라 정사각 썸네일 셀(`.inv-impi-cell`)이고, 이름 · 퍽 ·
-    //   능력치는 셀의 `data-item-tip` 을 보고 `ui/hud/ItemTip` 이 띄운다 (셀 자체에는 글자가 없다).
+    // 2026-09-08: an equipped implant is a square thumbnail cell (`.inv-impi-cell`), not a vertical card row, and
+    //   the name · perks · stats are raised by `ui/hud/ItemTip` off the cell's `data-item-tip` (the cell has no text).
     const rows = [...b.querySelectorAll('.inv-impi-cell:not(.inv-impi-add)')];
     return {
       has: !!b, cnt: b.querySelector('.cnt')?.textContent, pips: b.querySelectorAll('.inv-impi-pips i').length, on: b.querySelectorAll('.inv-impi-pips i.on').length,
@@ -1007,7 +1013,7 @@ try {
   });
   ok(presetClear.cleared === 0 && presetClear.afterUndefined === 0,
     'implantItems: [] 는 전부 해제, undefined 는 지금 장착을 건드리지 않는다', JSON.stringify(presetClear));
-  // 다시 장착해 두고 다음 단계(프로필 왕복)로 넘어간다
+  // It is equipped again before moving on to the next step (the profile round-trip)
   await page.evaluate((uid) => window.__game.ctx.progression.equipImplant(uid), uQH);
   ok(await page.evaluate(() => window.__game.ctx.progression.implantSlotsUsed === 2), '가속 대사 재장착 (2 / 4칸)');
 
@@ -1058,12 +1064,13 @@ try {
   });
   ok(await page.evaluate(() => window.__game.ctx.inventory.getStashItems().every((i) => window.__game.ctx.loot.getItemDef(i.defId)?.category !== 'implant')), 'cleanup: no implant items left in the 창고');
 
-  /* ══ 헬스장 (A-3a, 2026-09-12): 단련 보너스 · 운동 디버프 ══════════════════════════════════════════════════════
-   * 2026-09-17 (사용자 결정): 단련 전용 바가 없다 — 미니게임 경험치는 **능력치 경험치 바**(`addStatXp(id, xp, 'minigame')`)에 들어가고,
-   * 미니게임 경험치가 바를 넘기면 단련 +1 (기본 능력치 · 스탯 포인트는 그대로), 행동 경험치가 넘기면 기본 능력치 +1. 단련 상한이면
-   * 바는 0.999999 에서 멈추고 다음 행동 경험치가 기본 능력치로 넘긴다. 옛 `trainedProgress` 는 migrate 가 버린다.
+  /* ══ the gym (A-3a, 2026-09-12): the training bonus · the exercise debuff ══════════════════════════════════════
+   * 2026-09-17 (user's decision): there is no training-only bar — minigame XP goes into the **stat-XP bar**
+   * (`addStatXp(id, xp, 'minigame')`), and minigame XP crossing the bar pays training +1 (the base stat · the stat
+   * points untouched) while action XP crossing it pays base stat +1. At the training cap the bar stops at 0.999999 and
+   * the next action XP crosses into the base stat. The old `trainedProgress` is dropped by migrate.
    * data/constants.csv: GYM_SESSION_XP 560 · GYM_TRAINED_MAX 5 · GYM_FATIGUE_HOURS 24 · GYM_FATIGUE_GAIN_MUL 0 ·
-   * STAT_XP_BASE 100 · STAT_XP_EXPONENT 1.5 (기본 5 → 1118). The debuff clock is `ctx.net.serverNow()` — stubbed to a fake epoch here. */
+   * STAT_XP_BASE 100 · STAT_XP_EXPONENT 1.5 (base 5 → 1118). The debuff clock is `ctx.net.serverNow()` — stubbed to a fake epoch here. */
   console.log('헬스장 (A-3a · 2026-09-17 능력치 경험치 바 공유): 단련 보너스 · 운동 디버프');
   const GYM = { xp: 560, max: 5, hours: 24 };
   const statNeed = (v) => Math.max(1, Math.round(100 * Math.pow(v, 1.5)));
@@ -1082,7 +1089,7 @@ try {
   const refused = await page.evaluate(() => {
     const ctx = window.__game.ctx, p = ctx.progression;
     const t0 = window.__ev['progress:trainedChanged'].length, f0 = window.__ev['progress:gymFatigue'].length;
-    // 2026-09-13: 인지력 · 지능 are gym stats now (video games) — 재주 is the non-gym stat
+    // 2026-09-13: perception · intelligence are gym stats now (video games) — dexterity is the non-gym stat
     const r = { dex: p.applyGymSession('dexterity', 1), junk: p.applyGymSession('nope', 1) };
     const real = ctx.isRaidActive; ctx.isRaidActive = () => true;
     try { r.raid = p.applyGymSession('strength', 1); } finally { ctx.isRaidActive = real; }
@@ -1135,7 +1142,7 @@ try {
   const expired = await page.evaluate((t) => { window.__fakeNow = t; return window.__game.ctx.progression.getGymFatigueUntil('strength'); }, T + 24 * H);
   ok(expired === 0, 'getGymFatigueUntil is 0 once the clock reaches the stamp', `${expired}`);
 
-  // ③ after expiry: 280 + 560 = 840 (< need), then + 560 = 1400 ≥ 1118 → 단련 +1 with 282 left — base stat and points untouched
+  // ③ after expiry: 280 + 560 = 840 (< need), then + 560 = 1400 ≥ 1118 → training +1 with 282 left — base stat and points untouched
   const s3 = await gym('strength', 1, 25);
   ok(s3.r && s3.r.xp === 560 && s3.r.trainedAfter === 0 && near(s3.sp, 840 / NEED, 1e-6) && s3.r.fatigueUntil === T + 49 * H, 'session after expiry (+25 h) → 840 on the bar, no step, new debuff until +49 h', JSON.stringify(s3.r));
   const s3b = await gym('strength', 1, 50);
@@ -1152,7 +1159,7 @@ try {
   ok(e2.r && e2.r.trainedAfter === 1 && near(e2.r.progress, (1120 - NEED) / NEED, 1e-6) && near(e2.stam, g0.stam + 5, 1e-6) && e2.base === g0.endBase,
     `endurance +1 with ${1120 - NEED}/${NEED} carried over, maxStamina +5, base endurance untouched`, JSON.stringify({ r: e2.r, stam: e2.stam, before: g0.stam }));
 
-  // ⑤ carry-over into the next step: bar 0.9 + 560 → one more 단련 with the remainder on the bar
+  // ⑤ carry-over into the next step: bar 0.9 + 560 → one more training step with the remainder on the bar
   const s4 = await page.evaluate(() => { window.__game.ctx.progression.profile.statProgress.strength = 0.9; return true; }).then(() => gym('strength', 1, 75));
   const left4 = 0.9 * NEED + 560 - NEED;
   ok(s4.r && s4.r.trainedBefore === 1 && s4.r.trainedAfter === 2 && near(s4.r.progress, left4 / NEED, 1e-6) && near(s4.carry, g0.carry + 2.2 * 2, 1e-6) && s4.base === g0.base,
@@ -1190,7 +1197,7 @@ try {
     'real clock: endurance debuff runs until ≈ now + 24 h', JSON.stringify({ r: e4.r, nowBefore }));
   const liveUntil = e4.r?.fatigueUntil ?? 0;
 
-  // 2026-09-13 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): the video games train 지능 · 인지력 through the same applyGymSession rules
+  // 2026-09-13 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): the video games train intelligence · perception through the same applyGymSession rules
   const i1 = await gym('intelligence', 1, null);
   ok(i1.r && i1.r.stat === 'intelligence' && i1.r.xp === 560 && i1.r.wasFatigued === false && i1.r.trainedAfter === 0 && near(i1.sp, 560 / NEED, 1e-6)
     && i1.r.fatigueUntil >= nowBefore + 24 * H - 5000 && i1.fat === i1.r.fatigueUntil && i1.fLast?.id === 'intelligence',
@@ -1270,7 +1277,7 @@ try {
 
   await page.evaluate(() => {
     const raw = JSON.parse(localStorage.getItem('scav.s1.profile'));
-    // 2026-09-13: 인지력 · 지능 are gym stats now — 재주 / bogus are the keys migrate must drop
+    // 2026-09-13: perception · intelligence are gym stats now — dexterity / bogus are the keys migrate must drop
     raw.trained = { strength: 99.7, endurance: 2.6, perception: 4, dexterity: 3, bogus: 2 };
     raw.trainedProgress = { strength: 0.4, endurance: 7, perception: 0.5, dexterity: 0.3 };   // 2026-09-17: the retired map — dropped
     raw.gymFatigueUntil = { strength: 1000, endurance: 'x', perception: 1e12, dexterity: -5, intelligence: -1 };
@@ -1383,13 +1390,13 @@ try {
   ok(cf.both.str === 0 && cf.both.end === 0 && cf.both.map === '{}' && JSON.stringify(cf.both.stored) === '{}' && cf.both.fev.length === 1 && cf.both.fev[0].id === 'endurance' && cf.again === 0,
     'clearGymFatigue() clears the rest (one event per cleared stat, none when nothing is left)', JSON.stringify({ both: cf.both, again: cf.again }));
 
-  /* ── 요리 품질 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ─────────────────────────────────────── */
+  /* ── meal quality (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ──────────────────────────────────── */
   console.log('요리 품질 (2026-09-13): 보너스 수치 · 교체 규칙 · 출격/종료 · 새로고침 · migrate · 서버 문서');
   const QB = [];
   for (const m of readFileSync(new URL('../data/tables.csv', import.meta.url), 'utf8').matchAll(/^MEAL_QUALITY_BONUS,(\d+),([\d.]+)/gm)) QB[Number(m[1])] = Number(m[2]);
   ok(QB.length === 6 && QB[0] === 0 && QB[5] > QB[1] && QB[1] > 0, 'tables.csv MEAL_QUALITY_BONUS read (quality 0 … 5)', JSON.stringify(QB));
   await page.evaluate(() => { const ctx = window.__game.ctx; ctx.setPhase('hub'); ctx.progression.resetProfile(); });
-  // 2026-09-16 (접시 모델): 요리는 아이템이 아니다 — 요리 정의는 `ctx.loot` 이 아니라 shared 의 요리 표(`getMealDef`)에 있다
+  // 2026-09-16 (the plate model): a meal is not an item — the meal defs live in shared's meal table (`getMealDef`), not in `ctx.loot`
   await page.evaluate(async () => { const S = await import('/src/shared/index.ts'); window.__getMealDef = S.getMealDef; });
   const MEAL_FX = `(id) => { const m = window.__getMealDef(id)?.meal; return m ? (Array.isArray(m.effects) && m.effects.length ? m.effects : [{ buff: m.buff, amount: m.amount }]).map((e) => ({ buff: e.buff, amount: e.amount })) : null; }`;
   await page.evaluate((src) => { window.__mealFx = eval(src); window.__pickFx = (d, fx) => Object.fromEntries(fx.map((e) => [e.buff, d[e.buff]])); }, MEAL_FX);

@@ -1,21 +1,25 @@
-// 사다리 · 단차 보간 · 월드 천장 스모크 (2026-09-11).
+// Ladder · step smoothing · world ceiling smoke (2026-09-11).
 //
-// 왜 있나: 사다리는 `world/` 가 구조물 안에 세우고 `player/` 가 매달린다. 이 스크립트는 **player 쪽**만 본다 —
-// world 의 사다리를 기다리지 않고 가짜 `LadderDef` 를 만들어 `ladder:grab` 을 직접 낸다 (world 가 E 로 내는 것과
-// 같은 이벤트). 수치는 `data/constants.csv` 에서 읽으므로 밸런스를 바꿔도 스크립트는 그대로다.
+// Why it exists: `world/` stands the ladders inside structures and `player/` hangs off them. This script looks only
+// at **the player side** — instead of waiting for a world ladder it fabricates a `LadderDef` and publishes
+// `ladder:grab` itself (the same event world publishes on E). The numbers are read out of `data/constants.csv`, so a
+// balance change leaves the script alone.
 //
-// 검사:
-//   1. 발치에서 잡기 → `climbingLadder` · `player:climbChanged {id}` 한 번 · 몸이 base XZ · 무기 잠금 · CLIMBING 비트 ·
-//      오르기 블렌드 · 무기 소켓 숨김
-//   2. 발치에서 S → 접지로 내려섬
-//   3. W ≈ LADDER_CLIMB_SPEED, 가로대 소리
-//   4. Shift+W ≈ LADDER_SPRINT_SPEED, 스태미나가 준다
-//   5. 계속 W → 꼭대기 올라서기가 exit 에서 접지로 끝난다
-//   6. 꼭대기에서 잡기 → 발 topY − 1.1, E → normal 쪽으로 떨어진다
-//   7. 점프 → 위로 LADDER_JUMP_SPEED × 점프 배율, -normal 로 LADDER_JUMP_PUSH, 스태미나 STAMINA_JUMP_COST
-//   8. 단차 보간: 접지 상태에서 높이가 한 프레임에 튀면 bodyOffset.y 가 쌓였다가 감쇠한다
-//   9. 월드 천장: 천장 있는 구조물이 있으면 실내 점프의 머리가 천장 아래에서 멈추고 옆으로 밀려나지 않는다 (없으면 건너뜀)
-//  10. 매달린 채 사망 → 놓는다
+// Checks:
+//   1. Grabbing at the foot → `climbingLadder` · one `player:climbChanged {id}` · the body at the base XZ · weapons
+//      locked · the CLIMBING bit · the climb blend · the weapon socket hidden
+//   2. S at the foot → it steps off onto the ground
+//   3. W ≈ LADDER_CLIMB_SPEED, the rung sound
+//   4. Shift+W ≈ LADDER_SPRINT_SPEED, and stamina drains
+//   5. Holding W → the mount at the top ends grounded at `exit`
+//   6. Grabbing at the top → the feet at topY − 1.1, E → it drops toward the normal
+//   7. Jump → up at LADDER_JUMP_SPEED × the jump multiplier, along -normal by LADDER_JUMP_PUSH, stamina
+//      STAMINA_JUMP_COST
+//   8. Step smoothing: with the body grounded, a height that jumps in one frame builds `bodyOffset.y` up and then
+//      damps it away
+//   9. The world ceiling: given a structure with a ceiling, an indoor jump's head stops under the ceiling and is not
+//      shoved sideways (skipped where there is none)
+//  10. Dying while hanging → it lets go
 //
 // Usage: node scripts/smoke-ladder.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -33,7 +37,7 @@ const CHROME = [
 if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
-/** `data/constants.csv` 의 숫자 하나. */
+/** One number out of `data/constants.csv`. */
 const CSV = readFileSync(new URL('../data/constants.csv', import.meta.url), 'utf8');
 function k(name) {
   const m = CSV.match(new RegExp(`^${name},([^,\\r\\n]+)`, 'm'));
@@ -60,7 +64,7 @@ async function waitFor(page, fn, label, timeout = 90000, arg) {
   }
   throw new Error(`timeout waiting for ${label}`);
 }
-/** 시뮬레이션 시간으로 기다린다 (dt 는 50 ms 로 잘린다). */
+/** Waits on simulation time (dt is clamped to 50 ms). */
 async function waitSim(page, seconds) {
   const t0 = await page.evaluate(() => window.__game.ctx.time);
   await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${seconds}s`, 120000, t0 + seconds);
@@ -115,7 +119,8 @@ try {
     };
   });
 
-  // 이벤트 기록 + 사다리를 스폰 지점에 세운다 (발치 = 지면, 위로 LADDER_H, normal +Z, exit = 사다리 너머 0.9 m)
+  // Record the events + stand a ladder at the spawn point (the foot = the ground, LADDER_H up, normal +Z,
+  // exit = 0.9 m beyond the ladder)
   const L = await page.evaluate((h) => {
     const ctx = window.__game.ctx;
     const V3 = ctx.camera.position.constructor;
@@ -138,7 +143,7 @@ try {
     return { bx: l.base.x, by: l.base.y, bz: l.base.z, top: l.topY, ex: l.exit.x, ey: l.exit.y, ez: l.exit.z };
   }, LADDER_H);
 
-  /* ── 1. 발치에서 잡기 ─────────────────────────────────────────────────── */
+  /* ── 1. Grabbing at the foot ────────────────────────────────────── */
   console.log('grab (bottom)');
   await page.evaluate(() => window.__grab('bottom'));
   let s = await state();
@@ -163,7 +168,7 @@ try {
   ok(s.socket === false, 'weapon socket hidden while climbing');
   ok(s.grounded === false, 'not grounded while hanging (no landing logic)');
 
-  /* ── 2. 발치에서 S ─────────────────────────────────────────────────────── */
+  /* ── 2. S at the foot ──────────────────────────────────────────────── */
   console.log('S at the bottom');
   await key('keydown', 'KeyS');
   await waitSim(page, 0.2);
@@ -207,7 +212,7 @@ try {
   const drained = a.stamina - b.stamina;
   ok(drained > C.DRAIN * (b.t - a.t) * 0.6, `fast climbing drains stamina (${drained.toFixed(1)} over ${(b.t - a.t).toFixed(2)} s)`);
 
-  /* ── 5. 꼭대기 올라서기 ─────────────────────────────────────────────────── */
+  /* ── 5. Mounting at the top ──────────────────────────────────────── */
   console.log('mount at the top');
   const evBefore = (await state()).ev;
   await key('keydown', 'KeyW');
@@ -221,7 +226,7 @@ try {
   // the fabricated exit is mid-air over open terrain: the body falls back down
   await waitFor(page, () => window.__game.ctx.player.isGrounded && window.__game.ctx.player.position.y < window.__ladder.base.y + 1, 'fell back to the ground', 20000);
 
-  /* ── 6. 꼭대기에서 잡기 + E ─────────────────────────────────────────────── */
+  /* ── 6. Grabbing at the top + E ──────────────────────────────────── */
   console.log('grab (top) + E');
   await page.evaluate(() => window.__grab('top'));
   s = await state();
@@ -238,7 +243,7 @@ try {
   await waitFor(page, () => window.__game.ctx.player.isGrounded, 'landed after drop', 20000);
   await waitSim(page, 1.2);   // let stamina regen a bit
 
-  /* ── 7. 점프 ─────────────────────────────────────────────────────────────── */
+  /* ── 7. The jump ───────────────────────────────────────────────────────── */
   console.log('jump off the ladder');
   await page.evaluate(() => window.__grab('top'));
   await waitSim(page, 0.2);
@@ -256,7 +261,7 @@ try {
   await waitFor(page, () => window.__game.ctx.player.isGrounded, 'landed after jump', 20000);
   await waitSim(page, 0.6);
 
-  /* ── 8. 단차 보간 ────────────────────────────────────────────────────────── */
+  /* ── 8. Step smoothing ───────────────────────────────────────────────── */
   console.log('step smoothing');
   const step = await page.evaluate(() => new Promise((resolve) => {
     const sys = window.__game.getSystem('player');
@@ -276,7 +281,7 @@ try {
   ok(step.maxOff > 0.1 && step.maxRoot > 0.05, `the model keeps the old height for a moment (offset ${step.maxOff.toFixed(2)}, root ${step.maxRoot.toFixed(2)})`);
   ok(Math.abs(step.end) < 0.02, `…and settles onto the feet (${step.end.toFixed(3)})`);
 
-  /* ── 9. 월드 천장 ─────────────────────────────────────────────────────────── */
+  /* ── 9. The world ceiling ─────────────────────────────────────────────── */
   console.log('world ceiling clamp');
   const rooms = await page.evaluate((H) => {
     const ctx = window.__game.ctx, w = ctx.world;
@@ -360,9 +365,10 @@ try {
     }
   }
 
-  /* ── 9b. 월드 천장 — 기하에 기대지 않는 결정적 검사 ─────────────────────────────
-     실제 구조물의 천장 높이는 world 가 바꾸면 따라 바뀐다 (3.6 m 방이면 자유 점프가 닿지 않아 클램프가 안 켜진다).
-     그래서 새 `PlayerController` 를 **가짜 WorldRef**(평지 + 높이 SLAB 의 판 밑면) 위에서 직접 굴린다. */
+  /* ── 9b. World ceiling — deterministic, leaning on no geometry ─
+     A real structure's ceiling height follows whatever world changes (in a 3.6 m room a free jump does not reach it
+     and the clamp never engages). So a fresh `PlayerController` is stepped directly over a **fake WorldRef** (flat
+     ground + the underside of a slab at height SLAB). */
   console.log('world ceiling clamp (mock world)');
   const SLAB = 2.5;
   const mock = await page.evaluate((slab) => {
@@ -393,7 +399,7 @@ try {
   ok(mock.slab.maxY <= SLAB - 2.1 + 0.01, `under a slab at ${SLAB} m feet stay ≤ slab − BOX_HEADROOM (${mock.slab.maxY.toFixed(2)} ≤ ${(SLAB - 2.1).toFixed(2)})`);
   ok(mock.slab.pushes === 0 && Math.abs(mock.slab.x) < 1e-6 && mock.slab.grounded, `the clamp runs before the push-out — never shoved (pushes ${mock.slab.pushes}, x ${mock.slab.x.toFixed(2)})`);
 
-  /* ── 10. 매달린 채 사망 ──────────────────────────────────────────────────── */
+  /* ── 10. Dying while hanging ───────────────────────────────────────── */
   console.log('death while hanging');
   await page.evaluate(() => {
     const ctx = window.__game.ctx, V3 = ctx.camera.position.constructor, l = window.__ladder;

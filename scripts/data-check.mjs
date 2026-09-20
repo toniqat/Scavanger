@@ -1,26 +1,27 @@
 #!/usr/bin/env node
 /**
- * data/*.csv 스키마 검사 — `npm run data:check`.
+ * The data/*.csv schema check — `npm run data:check`.
  *
- * Vite 를 헤드리스로 띄워 **게임이 실제로 쓰는 로더 그대로** csv 를 읽고, 로더가 모아 둔 문제 목록
- * (`dataIssues()`)을 줄 번호와 함께 출력한다. 검사 규칙을 따로 적어 두지 않으므로 로더와 검사기가
- * 어긋날 일이 없다 — 열 이름 · 필수 여부 · 허용값 · 범위는 전부 로더가 선언한 그대로다.
+ * It starts vite headless, reads the csv **through the very loaders the game uses**, and prints the list of issues
+ * the loaders collected (`dataIssues()`) with line numbers. No checking rules are written down separately, so the
+ * loader and the checker can never go out of step — column names · required-ness · allowed values · ranges are all
+ * exactly as the loader declares them.
  *
- * 잡아내는 것
- *  - 없는 열 / 빈 필수 칸 / 숫자가 아닌 칸 / 범위를 벗어난 값 / 목록에 없는 열거값
- *  - 쉼표가 든 값을 따옴표로 안 감싼 줄 (칸 수가 헤더보다 많음)
- *  - `=상수` 식이 가리키는 이름이 없을 때
- *  - 아무도 읽지 않는 csv 파일 (고아 파일)
- *  - constants.csv / tuning.csv 에서 아무도 읽지 않는 키 (오타이거나 죽은 수치)
- *  - (2026-09-11) 커밋된 `server/economy.gen.json`(릴레이의 크레딧 검증 표)이 지금 csv 와 다를 때 —
- *    `npm run data:check -- --write` 로 다시 만든다 (`scripts/economy-table.mjs`)
+ * What it catches
+ *  - a missing column / an empty required cell / a non-numeric cell / a value out of range / an enum not on the list
+ *  - a row whose value contains a comma and was not quoted (more cells than the header)
+ *  - an `=constant` expression naming something that does not exist
+ *  - a csv file nobody reads (an orphan file)
+ *  - a key in constants.csv / tuning.csv nobody reads (a typo, or a dead number)
+ *  - (2026-09-11) the committed `server/economy.gen.json` (the relay's credit validation table) differing from the
+ *    csv as it stands — rebuild it with `npm run data:check -- --write` (`scripts/economy-table.mjs`)
  *
- * 브라우저에서는 같은 문제가 있어도 게임이 뜬다 (기본값으로 굴러간다). 그래서 이 스크립트가 있다.
+ * In the browser the game starts with any of these (it runs on defaults). That is why this script exists.
  */
 import { createServer } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-// 2026-09-11: 로더 목록은 verify 의 csv → 폴더 매핑과 같은 파일(`data-owners.mjs`)에 산다 — 한쪽만 고치지 않게.
+// 2026-09-11: the loader list lives in the same file as verify's csv → folder mapping (`data-owners.mjs`) — so that only one side is never fixed.
 import { CSV_FOLDERS, CSV_WIDE, DATA_OWNERS } from './data-owners.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -45,8 +46,9 @@ for (const mod of DATA_OWNERS) {
 
 const tables = await server.ssrLoadModule('/src/shared/data/tables.ts');
 
-/* 계약 → 아이템 참조 (2026-09-12, E2): `contracts.csv` 의 `itemDefId`(특정 아이템 회수)가 실제 아이템인가. 로더(`shared/meta.ts`)는
- * items/ 를 모르므로 빈 칸 · 쓰이지 않는 칸만 잡고, 이름이 맞는지는 여기서 아이템 표와 맞춰 본다. */
+/* Contract → item references (2026-09-12, E2): is `contracts.csv`'s `itemDefId` (recovering one specific item) a real
+ * item? The loader (`shared/meta.ts`) knows nothing of items/, so it catches only empty and unused cells; whether the
+ * name is right is matched against the item table here. */
 const refProblems = [];
 try {
   const shared = await server.ssrLoadModule('/src/shared/index.ts');
@@ -55,8 +57,9 @@ try {
     if (c.itemDefId && !items.ITEM_DEF_MAP.has(c.itemDefId)) refProblems.push(`data/contracts.csv [itemDefId] — ${c.id}: 모르는 아이템 '${c.itemDefId}'`);
   }
 
-  /* 2026-09-13 (요리 재료 티어): 은퇴한 아이템(`ItemDef.retired`)은 정의만 남고 **모든 출처**에서 빠진다. 로더는 자기 표만 보므로
-   * 표끼리의 참조 — 없는 id · 은퇴한 id — 는 여기서 아이템 표와 맞춰 본다. (상자 · 보급 추첨은 `LootTables` 의 안전핀이 코드에서 막는다.) */
+  /* 2026-09-13 (ingredient tiers): a retired item (`ItemDef.retired`) keeps only its def and drops out of **every
+   * source**. A loader sees only its own table, so references between tables — a missing id · a retired id — are matched
+   * against the item table here. (Crate · supply draws are stopped in code by `LootTables`' pin.) */
   const recipes = await server.ssrLoadModule('/src/items/Recipes.ts');
   const lootTables = await server.ssrLoadModule('/src/items/LootTables.ts');
   const ref = (where, id) => {
@@ -65,10 +68,12 @@ try {
     else if (d.retired) refProblems.push(`${where}: 은퇴한 아이템 '${id}' (retired — 출처에 쓰지 않는다)`);
   };
   for (const a of shared.ANALYSIS_RESULTS) ref(`data/analysis_results.csv [defId] — ${a.family} Lv.${a.minLevel}`, a.defId);
-  /* 2026-09-13 (요리 미니게임): 단계표의 요리 · 재료가 실제 아이템인가, 조리대 레시피의 산출물마다 단계가 있고 순서가 1 부터 이어지는가,
-   * 단계가 있는 요리마다 조리대 레시피가 있는가, 굽기 시간표의 재료가 실제 아이템인가.
-   * 2026-09-16 (접시 모델): 요리는 **아이템이 아니다** — 요리 id 는 아이템 표가 아니라 요리 표(`shared/meals` 의 `MEAL_DEF_MAP`)에서 찾고,
-   * 조리대 레시피의 산출물도 그 표에 있어야 한다 (은퇴한 요리는 출처에 쓰지 않는다). 재료는 여전히 아이템이다. */
+  /* 2026-09-13 (the cooking minigame): are the step table's meal · ingredients real items, does every cook-bench
+   * recipe output have steps whose order runs unbroken from 1, does every meal with steps have a cook-bench recipe, and
+   * are the grilling-time table's ingredients real items.
+   * 2026-09-16 (the plate model): a meal is **not an item** — a meal id is looked up in the meal table
+   * (`shared/meals`'s `MEAL_DEF_MAP`), not the item table, and a cook-bench recipe's output has to be in that table too
+   * (a retired meal is not used as a source). The ingredients are still items. */
   const mealRef = (where, id) => {
     const m = shared.MEAL_DEF_MAP.get(id);
     if (!m) refProblems.push(`${where}: 모르는 요리 '${id}' (data/meals.csv)`);
@@ -90,13 +95,13 @@ try {
     }
   }
   for (const r of recipes.CRAFT_RECIPES) {
-    if (r.bench === 'cook') mealRef(`data/recipes.csv [outputDefId] — ${r.id}`, r.outputDefId);   // 2026-09-16: 조리대 산출물 = 요리 표
+    if (r.bench === 'cook') mealRef(`data/recipes.csv [outputDefId] — ${r.id}`, r.outputDefId);   // 2026-09-16: a cook-bench output = the meal table
     else ref(`data/recipes.csv [outputDefId] — ${r.id}`, r.outputDefId);
     for (const i of r.inputs) ref(`data/recipes.csv [inputs] — ${r.id}`, i.defId);
     for (const x of r.extraOutputs ?? []) ref(`data/recipes.csv [extraOutputs] — ${r.id}`, x.defId);
   }
   for (const t of lootTables.CORPSE_TABLES) for (const d of t.drops) ref(`data/loot_corpses.csv [defId] — ${t.type}`, d.defId);
-  // 2026-09-17: 표본 개당 등급 굴림이 풀어 낸 아이템 (계열 × 등급 → samples.csv) + 적 종류가 실제로 있는가
+  // 2026-09-17: the items the per-sample rarity roll resolves to (family × rarity → samples.csv) + whether the enemy type really exists
   {
     const enemyTypes = new Set(shared.csvRows('enemies.csv').map((r) => r.raw('type')));
     for (const t of lootTables.CORPSE_TABLES) {
@@ -104,7 +109,7 @@ try {
       if (t.samples && !enemyTypes.has(t.type)) refProblems.push(`data/loot_corpse_samples.csv [type] — '${t.type}' 는 data/enemies.csv 에 없는 적이다`);
     }
   }
-  // 2026-09-13 (행성별 적 팩션): 팩션 시체의 방탄복 · 가방 · 회복 후보, 거점 보너스 아이템, 그리고 연구소 레이더가 고르는 행성 씨앗 표
+  // 2026-09-13 (per-planet enemy factions): a faction corpse's armor · bag · healing candidates, the site bonus item, and the planet seed table the lab raiders pick from
   for (const f of lootTables.FACTION_LOOT ?? []) {
     for (const [col, pick] of [['armorPool', f.armor], ['bagPool', f.bag], ['healPool', f.heal]]) {
       for (const id of pick?.poolIds ?? []) ref(`data/loot_factions.csv [${col}] — ${f.type}`, id);
@@ -116,8 +121,9 @@ try {
   for (const row of shared.csvRows('planets.csv')) {
     for (const part of row.list('seeds')) ref(`data/planets.csv [seeds] — ${row.raw('id')}`, part.slice(0, part.lastIndexOf(':') > 0 ? part.lastIndexOf(':') : part.length).trim());
   }
-  /* 2026-09-14 (메신저 · NPC 퀘스트 — docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」): 옛 quests.csv 대신. 로더(`shared/npc.ts`)는 열 모양만 보고,
-   * 표끼리의 참조 — NPC · 선행 퀘스트 · 아이템 · 적 · 행성 — 와 「그 행성에서 그 적이 나올 수 있나」 는 여기서 본다. */
+  /* 2026-09-14 (the messenger · NPC quests — docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」): in place of the
+   * old quests.csv. The loader (`shared/npc.ts`) sees only the column shapes; the references between tables — NPC ·
+   * prerequisite quest · item · enemy · planet — and 「can that enemy appear on that planet」 are looked at here. */
   {
     const Q = 'data/npc_quests.csv', O = 'data/npc_objectives.csv', N = 'data/npcs.csv';
     const enemyTypes = await server.ssrLoadModule('/src/enemies/EnemyTypes.ts');
@@ -154,7 +160,7 @@ try {
         if (o.kind === 'kill' && o.enemy) {
           const groups = shared.NPC_ENEMY_GROUPS;
           if (!groups.includes(o.enemy) && !factionOf.has(o.enemy)) refProblems.push(`${where} [enemy]: '${o.enemy}' 는 묶음(${groups.join(' | ')})도 적 타입도 아니다`);
-          // 인간형 팩션은 행성 threat 가 정한다 (enemies/factionTables): 1 = 안드로이드 · 2 = 로그/레이더 · 3 = 레이더. 네임드는 threat 2 이상.
+          // The humanoid faction is decided by the planet's threat (enemies/factionTables): 1 = android · 2 = rogue/raider · 3 = raider. Named needs threat 2 or more.
           const faction = groups.includes(o.enemy) ? o.enemy : factionOf.get(o.enemy);
           const canAppear = (p) => {
             const t = threatOf(p);
@@ -166,7 +172,7 @@ try {
           if (!planetsFor.some(canAppear)) refProblems.push(`${where}: '${o.enemy}' 는 ${o.planet ? `'${o.planet}'(threat ${threatOf(o.planet)})` : '어느 행성'}에도 나오지 않는다`);
         }
         if (o.enemy === 'named' || (o.enemy && shared.NAMED_ROGUE_TYPES.includes(o.enemy))) {
-          if (!o.planet || threatOf(o.planet) < 2) { /* 운에 달린 목표 — 경고만 하지 않는다 (콘텐츠 의도) */ }
+          if (!o.planet || threatOf(o.planet) < 2) { /* an objective left to luck — not even warned about (deliberate content) */ }
         }
       }
     }
@@ -180,8 +186,9 @@ try {
   for (const row of shared.csvRows('planets.csv')) {
     for (const c of row.costList('samples')) ref(`data/planets.csv [samples] — ${row.raw('id')}`, c.defId);
   }
-  /* 2026-09-13 (서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): 시리즈 ↔ 아이템 1:1, 숙련마다 책 시리즈, 레시피 책의 대상,
-   * 옛 id alias, 행성 threat 규칙 (레코드 · 게임 디스크 · 게임기는 threat 2 이상), 매체별 권 수 · 효과 줄 수. */
+  /* 2026-09-13 (library series · video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): series ↔ item 1:1,
+   * a book series per skill, a recipe book's target, the old-id aliases, the planet threat rule (records · game discs ·
+   * consoles need threat 2 or more), and the volume count · effect-line count per medium. */
   {
     const P = 'data/library_series.csv';
     const series = shared.LIBRARY_SERIES_DEFS;
@@ -228,7 +235,7 @@ try {
     }
     const bookRarity = shared.stringMap('tables.csv', 'LIBRARY_ITEM_RARITY').book;
     if (!shared.RARITY_ORDER.includes(bookRarity)) refProblems.push(`data/tables.csv [LIBRARY_ITEM_RARITY.book] — '${bookRarity}' 는 등급이 아니다`);
-    /* 옛 id → 새 id: from 은 정의가 없어야 하고(남아 있으면 변환이 안 된다), to 는 은퇴하지 않은 아이템이어야 하며 다시 alias 이면 안 된다. */
+    /* Old id → new id: `from` must have no def left (with one it is never converted), and `to` has to be an item that is not retired and not an alias again. */
     const aliasSeen = new Set();
     for (const row of shared.csvRows('item_aliases.csv')) {
       const from = row.raw('from'), to = row.raw('to');
@@ -238,7 +245,7 @@ try {
       ref(`data/item_aliases.csv [to] — ${from}`, to);
       if (shared.ITEM_ALIASES.has(to)) refProblems.push(`data/item_aliases.csv [to] — '${to}' 도 alias 다 (한 번에 새 id 로 간다)`);
     }
-    /* 게임기 · 게임 디스크 — threat 2 이상 행성에서만 */
+    /* Consoles · game discs — only on planets of threat 2 or more */
     for (const d of items.ITEM_DEFS) {
       if (!d.gameDisc && !d.gameConsole) continue;
       const where = `data/${d.gameDisc ? 'game_discs' : 'game_consoles'}.csv [planets] — ${d.id}`;
@@ -259,8 +266,9 @@ try {
   console.error(`\n[data:check] 계약 아이템 참조를 못 봤다:\n  ${String(e?.message ?? e).split('\n')[0]}`);
 }
 
-/* 제작 ↔ 분해 ↔ 수리 경제 검산 (2026-09-10): 「제작 → (수리) → 분해 → 제작」 이 이득이 되면 안 된다.
- * 스키마가 아니라 **수치의 뜻**을 보는 검사라 로더가 아니라 items/Salvage.ts 가 직접 계산한다. */
+/* The craft ↔ salvage ↔ repair economy check (2026-09-10): 「craft → (repair) → salvage → craft」 must never turn a
+ * profit. It looks at **what the numbers mean** rather than at the schema, so items/Salvage.ts computes it itself
+ * instead of a loader. */
 let economy = [];
 try {
   const salvage = await server.ssrLoadModule('/src/items/Salvage.ts');
@@ -270,8 +278,9 @@ try {
   console.error(`\n[data:check] 분해 경제 검산을 못 돌렸다:\n  ${String(e?.message ?? e).split('\n')[0]}`);
 }
 
-/* 서버 크레딧 검증 표 (2026-09-11, E-4): 릴레이가 `credits:tx` 금액을 검사하는 `server/economy.gen.json` 이 지금 csv 로
- * 만든 것과 같은지 + 표의 가격 식이 게임과 모든 아이템 · 레벨 · 수량에서 같은지. `--write` 면 다시 쓴다. */
+/* The server credit validation table (2026-09-11, E-4): is `server/economy.gen.json`, the table the relay checks a
+ * `credits:tx` amount against, the same as one built from the csv as it stands, and do the table's price formulas agree
+ * with the game for every item · level · quantity? With `--write` it is rewritten. */
 const WRITE = process.argv.includes('--write');
 let econTable = { problems: [], stale: false, wrote: false, missing: false };
 try {
@@ -329,7 +338,7 @@ if (econTable.stale) {
 }
 if (econTable.wrote) console.log(`server/economy.gen.json 을 다시 썼다 (hash ${econTable.table.hash}) — 커밋한다`);
 
-/* 2026-09-11: verify 가 csv 변경에서 스모크를 고르는 표에 없는 파일 — 실패는 아니고 알림이다 (`data-owners.mjs`). */
+/* 2026-09-11: files missing from the table verify picks smokes by for a csv change — a notice, not a failure (`data-owners.mjs`). */
 const unmapped = files.filter((f) => !CSV_WIDE.has(f) && !CSV_FOLDERS[f]);
 if (unmapped.length) console.warn(`\n참고: scripts/data-owners.mjs 의 CSV_FOLDERS 에 없는 csv ${unmapped.length}건 (verify 가 이 파일 변경에 스모크를 못 고른다): ${unmapped.join(', ')}`);
 

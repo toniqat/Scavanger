@@ -39,9 +39,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and locks
+    // room purposes · crafting · the terminal · boarding in that order, so it is marked "already done" here
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -134,7 +134,7 @@ try {
     for (let k = 0; k < 400 && !best; k++) {
       const x = (Math.random() - 0.5) * 300, z = (Math.random() - 0.5) * 300;
       if (!world.isInsideBounds(x, z) || Math.hypot(x - pp.x, z - pp.z) < 60) continue;
-      // 2026-09-08: measure the cylinder rays stop at (`shotRadius` / `shotHeight` since the 바위 엄폐 fix),
+      // 2026-09-08: measure the cylinder rays stop at (`shotRadius` / `shotHeight` since the 「rock cover」 fix),
       // the same one `RogueCover` filters on — the movement collider is narrower and taller than the rock.
       const br = (o) => (o.shotRadius !== undefined && o.shotRadius > o.radius ? o.shotRadius : o.radius);
       const bh = (o) => (o.shotHeight !== undefined && o.shotHeight > 0 ? o.shotHeight : o.height);
@@ -405,8 +405,8 @@ try {
     const e = sys.find(id);
     if (!e) return null;
     const it = ctx.interactables.all().find((x) => x.id === `corpse:${id}`);
-    // 2026-09-09 (지형지물 위 걷기): 몸이 내려앉는 바닥은 지형이 아니라 **표면**이다 — 시체가 바위 위에
-    // 걸치면 `getHeightAt` 보다 몇 m 높은 곳에서 멈추는 것이 정상이다. 같은 질의로 재야 한다.
+    // 2026-09-09 (walking on terrain features): the floor a body settles onto is the **surface**, not the terrain — a
+    // corpse caught on a rock stopping metres above `getHeightAt` is normal. It has to be measured with the same query.
     const ground = ctx.world.getSurfaceY(e.position.x, e.position.z, e.position.y);
     return { landed: e.deathLanded, dy: +(e.position.y - ground).toFixed(3), lootable: e.lootable, pending: e.corpsePending,
       corpse: !!it, cy: it ? +(it.position.y - ground).toFixed(3) : null, dirAnim: e.anim.deathDir, fall: +e.anim.deathFall.toFixed(2) };

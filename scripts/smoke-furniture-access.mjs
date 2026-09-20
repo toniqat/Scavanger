@@ -1,13 +1,20 @@
-// Single-player smoke test for the **가구 배치 규칙 — 접근 면** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, housing `Rules.placementBlockOf` ·
-// `ShipState.sanitize` · hub `interiors/Furniture` 상호작용 방향 · `HousingMode` 비워야 하는 칸 타일).
-//   0. 옛 배치 → 가구 창고: 규칙을 어기는 조각(앞이 벽인 작업대 · 작업대 앞 줄의 사물함 · 넓은 면이 막힌 재배 스테이션 · 시술대 앞의 사물함)이
-//      로드할 때 가구 창고로 가고, 옮겨진 재배 스테이션의 흙 · 심은 씨앗은 함선 창고로 돌아오며, 조종석 전용 시설 두 점은 그대로 선다.
-//   1. front: 앞이 벽(yaw 0 · 1 · 2 · 3) 거절 · 앞 줄의 몸체 거절 · 마주보는 작업대가 1칸 통로를 나눠 쓴다 · 옆에 붙는 것은 된다 · 양방향.
-//   2. sides: 좁은 끝에 붙는 것은 된다 · 넓은 면 거절 · 넓은 면이 벽이면 된다 (회전해도 같다).
-//   3. all: 모서리 칸은 된다 · 네 면 거절 · 남의 네 면 거절. 조종석 고정 소품 자리는 몸체로 센다.
-//   4. 자동 배치(`findFreeSpot`)가 새 규칙 아래 자리를 찾고, 찾은 자리는 전부 규칙을 지킨다.
-//   5. 상호작용: 작업대는 앞에서만, 재배 스테이션은 넓은 두 면에서만 (`canInteract` · `getPrompt`).
-//   6. 시설 관리 고스트의 칸 타일(초록 · 빨강 · 흐린 청록).
+// Single-player smoke test for the **furniture placement rules — the access face** (2026-09-13,
+// docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, housing `Rules.placementBlockOf` ·
+// `ShipState.sanitize` · hub `interiors/Furniture` interaction direction · `HousingMode` clearance-cell tiles).
+//   0. An old layout → the furniture store: a piece that breaks the rules (a bench with a wall in front · a `사물함`
+//      in the row in front of a bench · a grow station with its wide face blocked · a `사물함` in front of the
+//      implant bay) goes to the furniture store on load, the soil · planted seed of the moved grow station come back
+//      to the stash, and the two cockpit-only facilities stay where they stand.
+//   1. front: a wall in front (yaw 0 · 1 · 2 · 3) refused · a body in the front row refused · two benches facing
+//      each other share one cell of walkway · attaching alongside is allowed · both directions.
+//   2. sides: attaching at the narrow end is allowed · the wide face refused · a wall on the wide face is allowed
+//      (rotating changes nothing).
+//   3. all: a corner cell is allowed · all four faces refused · another piece's four faces refused. A fixed cockpit
+//      prop spot counts as a body.
+//   4. Auto placement (`findFreeSpot`) finds a spot under the new rules, and every spot it finds keeps them.
+//   5. Interaction: a bench only from the front, a grow station only from its two wide faces (`canInteract` ·
+//      `getPrompt`).
+//   6. The ship-management ghost's cell tiles (green · red · faint cyan).
 // Usage: node scripts/smoke-furniture-access.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -68,7 +75,7 @@ try {
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game, 'engine');
 
-  /* ══ 0. 옛 배치 → 가구 창고 ══════════════════════════════════════════════════ */
+  /* ══ 0. An old layout → the furniture store ═══════════════════════════ */
   console.log('옛 배치 (v11 세이브) → 가구 창고');
   await H(() => {
     const now = Date.now();
@@ -77,17 +84,17 @@ try {
     const doc = {
       version: 11, rooms, generatorLevel: 5, storageLevel: 0,
       furniture: [
-        F('f-1', 'furn_implant_bay', 100, 0, 3, 1),      // 조종석 기본 자리 (앞 = +X, 앞 줄 x 4 · y 3–5)
-        F('f-2', 'furn_corp_computer', 100, 2, 9, 0),    // 조종석 기본 자리 (앞 = −Z, 앞 줄 y 8)
-        F('f-3', 'furn_locker', 100, 4, 3, 0),           // 시술대 앞 줄 → 가구 창고
-        F('f-4', 'furn_bunk', 100, 0, 7, 0),             // 꾸밈 가구 — 그대로
-        F('f-10', 'furn_bench_gun', 0, 0, 0, 0),         // 앞(y −1)이 벽 → 가구 창고
-        F('f-11', 'furn_bench_gear', 0, 0, 4, 0),        // 그대로 (앞 줄 y 3)
-        F('f-12', 'furn_locker', 0, 1, 2, 0),            // 장비 작업대 앞 줄 (1, 3) → 가구 창고
-        F('f-20', 'furn_crate', 1, 9, 2, 0),             // 그대로
-        F('f-21', 'furn_grow_station', 1, 8, 0, 0),      // 넓은 면(y 2)에 보급 상자 → 가구 창고 (흙 · 씨앗은 함선 창고로)
-        F('f-22', 'furn_grow_station', 1, 0, 8, 0),      // 그대로
-        F('f-30', 'furn_bench_rack', 2, 0, 0, 0),        // 그대로 (벽 두 면은 된다)
+        F('f-1', 'furn_implant_bay', 100, 0, 3, 1),      // the cockpit's default spot (front = +X, front row x 4 · y 3–5)
+        F('f-2', 'furn_corp_computer', 100, 2, 9, 0),    // the cockpit's default spot (front = −Z, front row y 8)
+        F('f-3', 'furn_locker', 100, 4, 3, 0),           // in the row in front of the 시술대 → the furniture store
+        F('f-4', 'furn_bunk', 100, 0, 7, 0),             // decorative furniture — stays
+        F('f-10', 'furn_bench_gun', 0, 0, 0, 0),         // a wall in front (y −1) → the furniture store
+        F('f-11', 'furn_bench_gear', 0, 0, 4, 0),        // stays (front row y 3)
+        F('f-12', 'furn_locker', 0, 1, 2, 0),            // in the row in front of the 장비 작업대 (1, 3) → the furniture store
+        F('f-20', 'furn_crate', 1, 9, 2, 0),             // stays
+        F('f-21', 'furn_grow_station', 1, 8, 0, 0),      // a crate on the wide face (y 2) → the furniture store (soil · seed to the stash)
+        F('f-22', 'furn_grow_station', 1, 0, 8, 0),      // stays
+        F('f-30', 'furn_bench_rack', 2, 0, 0, 0),        // stays (two walled faces are allowed)
       ],
       furnitureStorage: [], presets: [], plots: [], nameLocked: false, books: [], bookDex: [],
       grows: [
@@ -166,7 +173,7 @@ try {
   ok((await pb(0, 'furn_bench_gun', 0, 1, 0)) === null && (await cp(0, 'furn_bench_gun', 0, 1, 0)) === true, 'yaw 0 · y 1 = 앞 줄 y 0 이 비었다 → 된다');
   ok((await pb(0, 'furn_bench_gun', 0, 14, 2)) === R.frontWall && (await pb(0, 'furn_bench_gun', 0, 13, 2)) === null, 'yaw 2 (앞 = +y) 도 끝 줄이면 벽');
   ok((await pb(0, 'furn_bench_gun', 14, 0, 1)) === R.frontWall && (await pb(0, 'furn_bench_gun', 0, 0, 3)) === R.frontWall, 'yaw 1 (앞 = +x) · yaw 3 (앞 = −x) 의 벽');
-  const A = await placeAt(0, 'furn_bench_gun', 0, 1, 2);            // 몸체 y 1–2, 앞 줄 y 3
+  const A = await placeAt(0, 'furn_bench_gun', 0, 1, 2);            // body y 1–2, front row y 3
   ok(!!A, `총기 작업대 (0,1) yaw 2 배치 (${A})`);
   ok((await pb(0, 'furn_bench_gear', 0, 4, 0)) === null, '마주보는 작업대가 1칸 통로(y 3)를 나눠 쓴다');
   const B = await placeAt(0, 'furn_bench_gear', 0, 4, 0);
@@ -202,13 +209,13 @@ try {
   ok((await pb(2, 'furn_bench_rack', 8, 8, 0)) === R.all, `옆면(x 11)에 상자 = ${R.all}`);
   ok((await pb(2, 'furn_crate', 3, 2, 0)) === R.blocksOther, `f-30 의 네 면(x 3)에 상자 = ${R.blocksOther}`);
 
-  /* ── 조종석 ── */
+  /* ── The cockpit ── */
   console.log('조종석');
   ok((await pb(COCKPIT, 'furn_locker', 4, 4, 0)) === R.blocksOther, `시술대 앞 줄(x 4)에 사물함 = ${R.blocksOther}`);
   ok((await pb(COCKPIT, 'furn_corp_computer', 4, 3, 0, 'f-2')) === R.front, `앞 줄(y 2)이 계기판 고정 자리 = ${R.front} (고정 소품은 몸체)`);
   ok((await pb(0, 'furn_implant_bay', 0, 8, 0)) === '조종석 전용 시설입니다', '조종석 전용 시설은 방에 놓을 수 없다');
 
-  /* ══ 4. 자동 배치 ════════════════════════════════════════════════════════ */
+  /* ══ 4. Auto placement ═══════════════════════════════════════════════ */
   console.log('자동 배치');
   const auto = await H(() => {
     const h = window.__game.ctx.housing;
@@ -227,7 +234,7 @@ try {
   ok(auto.out[0]?.yaw === 1, `첫 자리는 여전히 선호 회전 yaw 1 (${JSON.stringify(auto.out[0])})`);
   ok(auto.bad.length === 0, `자동 배치한 조각은 전부 규칙을 지킨다 (${JSON.stringify(auto.bad)})`);
 
-  /* ══ 5. 상호작용 방향 ═════════════════════════════════════════════════════ */
+  /* ══ 5. Interaction direction ═══════════════════════════════════════ */
   console.log('상호작용 — 앞에서만 / 넓은 두 면에서만');
   const probe = (uid) => H((uid) => {
     const ctx = window.__game.ctx;
@@ -249,16 +256,16 @@ try {
   }, uid);
   try { await waitFor(page, (u) => window.__game.ctx.interactables.all().some((i) => i.id === `hub_furn_${u}`), 'bench interactable', 8000, A); } catch { /* reported below */ }
   const pa = await probe(A);
-  // A = 총기 작업대 yaw 2 → 앞 = 월드 +Z
+  // A = the 총기 작업대 at yaw 2 → front = world +Z
   ok(pa.plusZ?.can === true && !!pa.plusZ?.prompt && pa.anchorZ > 0, `작업대: 앞(+Z)에서 E (${JSON.stringify(pa.plusZ)}, anchor dz ${pa.anchorZ?.toFixed?.(2)})`, JSON.stringify(pa));
   ok(pa.minusZ?.can === false && pa.minusZ?.prompt === null, '작업대: 뒤(−Z)에서는 안 된다 (프롬프트도 없다)');
   ok(pa.plusX?.can === false && pa.minusX?.can === false, '작업대: 옆에서도 안 된다');
   const pg = await probe('f-22');
-  // f-22 = 재배 스테이션 yaw 0 → 넓은 면 = ±Z
+  // f-22 = a grow station at yaw 0 → wide faces = ±Z
   ok(pg.plusZ?.can === true && pg.minusZ?.can === true, `재배 스테이션: 넓은 두 면(±Z)에서 E (${JSON.stringify({ p: pg.plusZ, m: pg.minusZ })})`, JSON.stringify(pg));
   ok(pg.plusX?.can === false && pg.minusX?.can === false, '재배 스테이션: 좁은 끝(±X)에서는 안 된다');
 
-  /* ══ 6. 고스트 칸 타일 ═══════════════════════════════════════════════════ */
+  /* ══ 6. The ghost's cell tiles ═════════════════════════════════════ */
   console.log('시설 관리 — 비워야 하는 칸 타일');
   await H(() => {
     const ctx = window.__game.ctx;
@@ -266,7 +273,7 @@ try {
     ctx.housing.selectFurniture('furn_bench_refine');
   });
   await sleep(300);
-  // 커서를 화면 한가운데(방 한가운데를 내려다본다)에 둔다
+  // the cursor is put at the centre of the screen (looking down at the middle of the room)
   await H(() => {
     const ctx = window.__game.ctx;
     const r = ctx.canvas.getBoundingClientRect();

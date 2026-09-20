@@ -1,16 +1,20 @@
-// Single-player smoke test for the **가구 화면 개편** (2026-09-12, src/housing/ui): the shared station frame (제목 + `Lv. n` ·
-// 우상단 업그레이드 · 좌 패널 / 우 가방 · 함선 창고 · 라벨 없음), the 업그레이드 모달 (클릭은 확정하지 않고 1초 홀드만,
-// Tab 은 모달만 닫는다), `HH:MM:SS` 시계 (2026-09-12: `:SS` 도 `HH:MM` 과 **같은 크기**), 재배 스테이션 (잠긴 층 =
-// 테두리만, 흙구멍 50 % · 하얀 바가 구멍 윗변까지, **영역별** 호버 카드(흙구멍 = 토양 · 식물 공간 = 작물), 우클릭 흙
-// 비우기, 더블클릭 = 함선 창고 먼저, 끌어서 가방에 놓기 = 가방 — **창고 · 가방 블록이 드래그 전에 둘 다 스크롤
-// 없이 닿는지**까지 본다(`gridProbe`), the coalesced
-// refresh (드롭 한 번 = refresh 한 번 · 재배층 재구축 0회), 분석기 (잠긴 칸 = 빈 칸, 이름 위 · 시간 아래, 우하단 버튼,
-// 좌측 레일의 분석 도감 탭, 더블클릭 회수), 배양조 (`.cult-*`, 우클릭 · 더블클릭 수확) and 식탁 (업그레이드 없음).
-// 2026-09-13 (요리 재료 티어 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」): 수확해도 흙 · 배지가 **비지 않고 내구도가 닳는다**, 토양 카드의
-// 내구도 · 보너스 · 소켓 줄, 흙구멍 안 소켓 점, 소켓 드롭(반대 대상 = 거절 토스트 · 가득 = 고르기 메뉴 → 1초 홀드 교체 팝업,
-// 클릭 · Enter · 취소로는 교체되지 않는다), 소켓이 있는 흙 비우기 = 홀드 경고, 분석기 계열 칩 · 「?」 → 결과 칩 · 「새 발견」,
-// 분석 도감 3구획(실루엣은 호버 카드로 이름이 새지 않는다), 배양조 스캐폴드 드롭 · 「스캐폴드 빼기」 · 종별 고기 · 배지 소켓 점,
-// 식탁의 티어 이름 · 능력치 여러 줄.
+// Single-player smoke test for the **furniture screen rework** (2026-09-12, src/housing/ui): the shared station
+// frame (title + `Lv. n` · upgrade at the top right · left panel / right bag · the stash · no label), the upgrade
+// modal (a click does not confirm, only a 1 s hold does, and Tab closes the modal alone), the `HH:MM:SS` clock
+// (2026-09-12: `:SS` is the **same size** as `HH:MM`), the grow station (a locked tier = outline only, the pot at
+// 50 % · the white bar up to the pot's top edge, a **per-area** hover card (the pot = soil · the plant space =
+// crop), right-click empties the soil, double-click = the stash first, dragging onto the bag grid = the bag —
+// down to **whether the stash · bag blocks are both reachable without scrolling before the drag** (`gridProbe`),
+// the coalesced refresh (one drop = one refresh · 0 tier rebuilds), the analyzer (a locked slot = an empty slot,
+// name above · time below, the button at the bottom right, the `분석 도감` tab on the left-hand rail, double-click
+// collects), the culture tank (`.cult-*`, right-click · double-click harvest) and 식탁 (no upgrade).
+// 2026-09-13 (cooking material tiers — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」): harvesting **does not empty**
+// the soil · medium but **wears their durability**, the soil card's durability · bonus · socket lines, the socket
+// dots inside the pot, socket drops (the wrong target = a refusal toast · full = a pick menu → a 1 s hold swap
+// popup, and a click · Enter · cancel never swap), emptying socketed soil = a hold warning, the analyzer's family
+// chip · 「?」 → the result chip · 「새 발견」, the `분석 도감`'s 3 sections (a silhouette never leaks its name through
+// the hover card), the culture tank's scaffold drop · 「스캐폴드 빼기」 · species meat · the medium's socket dots,
+// and 식탁's tier names · its several stat lines.
 // Usage: node scripts/smoke-stations.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -48,7 +52,7 @@ const browser = await puppeteer.launch({
 const errors = [];
 try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
-  // wide enough for the two-column station frame (좌 패널 + 우 격자 — below 1100 px the panes stack)
+  // wide enough for the two-column station frame (left panel + right grid — below 1100 px the panes stack)
   await page.setViewport({ width: 1440, height: 900 });
   await page.evaluateOnNewDocument(() => {
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
@@ -82,12 +86,13 @@ try {
   await H(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
   /**
-   * 2026-09-12: **화면 전환(타이틀 페이드)이 끝나기를 기다린다.** `.menu.hidden` 은 `opacity` · `visibility` 를 함께
-   * 전이시키는데, `visibility` 는 전이가 **끝날 때** 비로소 `hidden` 이 된다 — 그 300 ms 남짓 동안 투명해진 타이틀
-   * 화면이 화면 전체를 덮은 채 `pointer-events: auto` 로 남아 **모든 `elementFromPoint` 를 가져간다**(실측: 280 ms
-   * 에 `.hidden`, 600 ms 에 `visibility: hidden`). 사람은 그 사이에 함선에 들어가 가구를 놓고 스테이션을 열 수
-   * 없지만 스모크는 그보다 빠르다(같은 구간을 350 ms 에 끝낸다) — 그래서 격자 위 hit-test 가 타이틀 버튼을 집어
-   * `hit: null` 이 됐다. 게임 쪽 배치 문제가 아니므로 여기서 전환이 끝나기를 기다린다.
+   * 2026-09-12: **waits for the screen transition (the title fade) to finish.** `.menu.hidden` transitions
+   * `opacity` · `visibility` together, and `visibility` only turns `hidden` **when the transition ends** — for
+   * those 300-odd ms the now-transparent title screen still covers the whole screen with `pointer-events: auto`
+   * and **takes every `elementFromPoint`** (measured: `.hidden` at 280 ms, `visibility: hidden` at 600 ms). A
+   * person cannot enter the ship, place furniture and open a station in that time, but the smoke is faster than
+   * that (it finishes the same stretch in 350 ms) — so a hit-test over the grid picked up a title button and came
+   * back `hit: null`. It is not a layout problem on the game's side, so the transition is waited out here.
    */
   await waitFor(page, () => [...document.querySelectorAll('.menu.hidden')].every((m) => {
     const cs = getComputedStyle(m);
@@ -111,8 +116,9 @@ try {
   const bagQty = (defId) => H((d) => window.__game.ctx.inventory.getAllItems().filter((i) => i.defId === d).reduce((a, i) => a + i.qty, 0), defId);
   const ownQty = async (defId) => (await stashQty(defId)) + (await bagQty(defId));
   /**
-   * 2026-09-13: 격자 타일을 칸에 **떨어뜨린 것과 같은 경로**(`panel.dropOn(item, target)` — `mountStationGrids` 의 `onTake`)를
-   * 부른다. 진짜 포인터 드래그는 재배 칸 드롭 하나가 이미 본다 — 여기서는 드롭 **이후**의 소켓 · 스캐폴드 흐름이 대상이다.
+   * 2026-09-13: calls **the same path as dropping** a grid tile on a slot (`panel.dropOn(item, target)` —
+   * `mountStationGrids`'s `onTake`). A real pointer drag is already covered by the one grow-slot drop — what is
+   * checked here is the socket · scaffold flow **after** the drop.
    */
   const dropVia = (panel, defId, sel) => H(({ panel, defId, sel }) => {
     const ctx = window.__game.ctx;
@@ -123,10 +129,11 @@ try {
     p.dropOn(item, t);
     return { ok: true };
   }, { panel, defId, sel });
-  /** 공용 홀드 팝업 (`shared/holdAsk`, `.sh-ask[data-ask]`). */
+  /** The shared hold popup (`shared/holdAsk`, `.sh-ask[data-ask]`). */
   const askState = (id) => H((id) => {
     const a = document.querySelector(`.sh-ask[data-ask="${id}"]`);
-    // 2026-09-15 2차: 홀드 버튼 안에 좌클릭 키캡(`.keycap.kc-btn`)이 서서 `button.textContent` 는 `LMB교체` 다 — 라벨 span 을 읽는다.
+    // 2026-09-15 2nd pass: a left-click keycap (`.keycap.kc-btn`) stands inside the hold button, so
+  // `button.textContent` is `LMB교체` — the label span is what is read.
     return a ? { shown: !a.hidden, body: a.querySelector('.sh-ask-body')?.textContent ?? '',
       buttons: [...a.querySelectorAll('button')].map((b) => b.querySelector('.sh-ask-label')?.textContent ?? b.textContent),
       holdCaps: a.querySelectorAll('button[data-hold] .keycap.kc-btn').length } : null;
@@ -136,11 +143,12 @@ try {
   const askCancel = (id) => H((id) => document.querySelector(`.sh-ask[data-ask="${id}"] button[data-cancel]`)?.click(), id);
 
   /**
-   * 2026-09-12 (회귀 가드): 한 격자 블록(`[data-tg-grid]`)이 **스크롤 없이** 닿는가 — 끌고 있는 동안에는
-   * 스크롤할 수 없으므로, 창고 → 흙구멍도 수확물 → 가방도 드래그를 시작하기 전에 대상이 화면 안에 있어야 한다.
-   * 한 스크롤에 두 격자를 세로로 이어 붙이면(창고 24행 1381 px · 가방 틀 12행 709 px) 어느 쪽을 위에 올려도
-   * 다른 쪽이 화면 밖으로 나갔다 — 지금은 블록마다 자기 스크롤이다 (housing.css 의 `.hs-inv .tg-gridwrap`).
-   * 겨눌 좌표(`tx`/`ty`)도 여기서 돌려주므로 드래그 목적지 계산이 한 곳뿐이다.
+   * 2026-09-12 (a regression guard): is one grid block (`[data-tg-grid]`) reachable **without scrolling** — there
+   * is no scrolling while dragging, so the target of a stash → pot drag and of a harvest → bag drag alike has to
+   * be inside the screen before the drag starts. Stacking the two grids vertically in one scroll (the stash's 24
+   * rows 1381 px · the bag frame's 12 rows 709 px) pushed whichever went second off screen — each block now has
+   * its own scroll (`.hs-inv .tg-gridwrap` in housing.css). The coordinates to aim at (`tx`/`ty`) come back from
+   * here too, so the drag destination is worked out in one place only.
    */
   const gridProbe = (menu, id) => H(({ menu, id }) => {
     const blk = document.querySelector(`.menu.${menu} [data-tg-grid="${id}"]`);
@@ -152,14 +160,15 @@ try {
     const el = document.elementFromPoint(tx, ty);
     return { id, tx, ty, visibleH: bottom - top, onScreen: tx > 0 && tx < innerWidth && ty > 0 && ty < innerHeight,
       hit: el?.closest('[data-tg-grid]')?.dataset.tgGrid ?? null,
-      top: el ? `${el.tagName.toLowerCase()}.${el.className}` : null,   // `hit` 이 null 일 때 **무엇이 덮었는지**를 말해 준다
+      top: el ? `${el.tagName.toLowerCase()}.${el.className}` : null,   // says **what covered it** when `hit` is null
       block: { x: b.left, y: b.top, h: b.height }, view: { y: v.top, h: v.height } };
   }, { menu, id });
   const reachable = (p) => !!p && p.visibleH > 40 && p.onScreen && p.hit === p.id;
 
   /* ── ship set-up: rooms straight in the state (the purpose rules are smoke-housing's business) ── */
-  /* 2026-09-16 (사용자 결정 「행성 광맥」): 분석기 제작 · 강화는 백운모(`min_mica`)를, 작업대 계열은 흑요석 · 철사를 먹는다
-     (`data/furniture.csv` · `furniture_upgrades.csv`; 없으면 `craft: 재료 부족`으로 가구가 아예 안 놓인다). */
+  /* 2026-09-16 (user's decision 「행성 광맥」): crafting · upgrading the analyzer eats 백운모 (`min_mica`), and the
+     bench family eats 흑요석 · 철사 (`data/furniture.csv` · `furniture_upgrades.csv`; without them the furniture is
+     never placed at all, as `craft: 재료 부족`). */
   for (const [id, n] of [['mat_scrap', 60], ['mat_cable', 24], ['mat_bio_sample', 30], ['mat_circuit', 16], ['mat_cloth', 10],
     ['mat_alloy', 30], ['mat_power_cell', 4], ['mat_control_module', 2], ['mat_capacitor', 2],
     ['min_limestone', 20], ['min_ironsand', 20], ['min_mica', 20], ['min_obsidian', 10]]) await giveStash(id, n);
@@ -183,7 +192,7 @@ try {
   ok(gsP.uid && azP.uid && ctP.uid && dtP.uid, 'craft + place 재배 스테이션 · 분석기 · 배양조 · 식탁', JSON.stringify({ gsP, azP, ctP, dtP }));
   const GS = gsP.uid, AZ = azP.uid, CT = ctP.uid, DT = dtP.uid;
 
-  /* ══ 1. 재배 스테이션 — 공통 틀 ══════════════════════════════════════════ */
+  /* ══ 1. The grow station — the shared frame ═════════════════════ */
   console.log('재배 스테이션');
   await H((u) => window.__game.ctx.housing.openGrowStation(u), GS);
   await waitFor(page, () => !document.querySelector('.menu.grow-station')?.hidden, 'grow station open');
@@ -220,8 +229,9 @@ try {
   ok(frame.title === '재배 스테이션', `제목에 방 번호가 없다 (${frame.title})`);
   ok(frame.lv === 'Lv. 1' && !frame.subtitle && frame.meta === '성장 속도 +0%', `제목 옆 「Lv. 1」 · 성장 속도 · 설명 줄 없음 (${frame.lv} ${frame.meta})`);
   ok(frame.up === '업그레이드' && frame.upRight && frame.upInCard && !frame.oldUp, '스테이션 카드 우상단 업그레이드 버튼 · 옛 강화 줄 없음', JSON.stringify(frame));
-  /* 2026-09-15 4차 (사용자 결정 「창고 · 가방을 한 패널로」): 바깥 틀 없이 카드 **둘**이 한 줄 — [스테이션] [창고+가방].
-     격자 카드는 머리줄이 없다 (창고는 그림이, 가방은 `내 가방` 라벨이 스스로 말한다). */
+  /* 2026-09-15 4th pass (user's decision 「창고 · 가방을 한 패널로」): **two** cards on one row with no outer frame —
+     [station] [stash+bag]. The grid card has no header row (the stash says it with its drawing, the bag with its
+     `내 가방` label). */
   const { station: cS, inv: cI } = frame;
   ok(!!cS && !!cI && cS.right <= cI.left && cI.right <= frame.vw && cS.left >= 0
     && Math.abs(cS.top - cI.top) < 2 && frame.frameBorder === '0px',
@@ -236,7 +246,8 @@ try {
 
   const geo = await H(() => {
     const r = document.querySelector('.menu.grow-station');
-    // 중앙 층(tier 0)과 그 위에 그려지는 윗층(tier 2) — `GROW_TIER_DRAW_ORDER` 가 위 → 중앙 → 아래
+    // the middle tier (tier 0) and the top tier drawn above it (tier 2) — `GROW_TIER_DRAW_ORDER` runs
+  // top → middle → bottom
     const mid = r.querySelector('.gs-tier[data-tier-row="0"]');
     const pot = mid.querySelector('.gs-pot[data-tier]').getBoundingClientRect();
     const bar = mid.querySelector('.gs-bar').getBoundingClientRect();
@@ -248,10 +259,11 @@ try {
   ok(Math.abs(geo.barTop - (geo.potTop + geo.potH * 0.13)) < 1.5, `하얀 바의 윗변 = 흙구멍 윗변 (${geo.barTop.toFixed(1)} vs ${(geo.potTop + geo.potH * 0.13).toFixed(1)})`);
   ok(Math.abs(geo.plantBottom - geo.potTop) < 1.5 && geo.plantTop >= geo.aboveBottom - 0.5, `작물 자리는 구멍 위, 윗층과 겹치지 않는다 (${JSON.stringify(geo)})`);
 
-  /* ── 드롭: 창고 타일을 흙구멍으로 끌어 놓는다 (진짜 포인터) + 합쳐진 refresh ── */
+  /* ── Drop: a stash tile dragged onto a pot (a real pointer) + the coalesced refresh ── */
   await giveStash('soil_mineral', 3); await giveStash('seed_tuber', 4); await giveStash('seed_beanpod', 1);
-  // 2026-09-12 (회귀 가드 — 이 화면의 드래그 두 방향이 전부 여기 달려 있다): 창고에서 흙구멍으로 끌든 수확물을
-  // 가방에 놓든, **시작 전에 두 격자가 다 보여야** 한다. 한 스크롤에 세로로 이어 붙였을 때는 늘 한 쪽이 밖이었다.
+  // 2026-09-12 (a regression guard — both drag directions of this screen hang on it): dragging from the stash to
+  // a pot or dropping a harvest into the bag, **both grids have to be visible before it starts**. Stacked
+  // vertically in one scroll, one of them was always off screen.
   const probes = { stash: await gridProbe('grow-station', 'stash'), bag: await gridProbe('grow-station', 'bag') };
   ok(reachable(probes.stash) && reachable(probes.bag),
     `창고 · 가방 격자가 드래그 전에 둘 다 보인다 (창고 ${Math.round(probes.stash?.visibleH ?? -1)} px · 가방 ${Math.round(probes.bag?.visibleH ?? -1)} px)`,
@@ -264,7 +276,8 @@ try {
   const dragFrom = await H((sel) => {
     const tile = document.querySelector(sel);
     if (!tile) return null;
-    // 블록마다 자기 스크롤이므로 이것이 스크롤하는 것은 그 블록의 `.inv-grid` 다 (바깥 `.tg-scroll` 은 넘치지 않는다)
+    // each block has its own scroll, so what this scrolls is that block's `.inv-grid` (the outer `.tg-scroll`
+    // never overflows)
     tile.scrollIntoView({ block: 'center' });
     const a = tile.getBoundingClientRect();
     const b = document.querySelector('.menu.grow-station .gs-pot[data-tier="0"][data-slot="0"]').getBoundingClientRect();
@@ -302,7 +315,7 @@ try {
 
   const clock = await H((u) => {
     const h = window.__game.ctx.housing;
-    // (드래그가 실패했어도 나머지 검사는 돈다 — 그 실패는 위에서 이미 FAIL 로 셌다)
+    // (the rest of the checks run even if the drag failed — that failure was already counted as a FAIL above)
     if (!h.getGrowSlots(u).find((s) => s.tier === 0 && s.slot === 0)?.soilDefId) h.fillSoil(u, 0, 0, 'soil_mineral');
     const r = [h.fillSoil(u, 0, 1, 'soil_mineral'), h.plantSeedAt(u, 0, 0, 'seed_tuber')];
     const t = document.querySelector('.gs-slot[data-key="0:0"] .gs-time');
@@ -314,27 +327,29 @@ try {
     }));
   }, GS);
   ok(clock.r.every((v) => v === null) && CLOCK.test(clock.text ?? '') && /^:\d{2}$/.test(clock.ss ?? ''), `남은 시간 HH:MM:SS (${clock.text})`);
-  // 2026-09-12 (사용자 지적 — 분석기에서 초가 너무 작았다): `:SS` 의 절반 크기를 **없앴다**. `.hs-clock-ss` 가
-  // `font-size: inherit` 라 스테이션 네 화면이 한 크기를 쓰고, 재배 칸의 「상태가 바뀌어도 높이가 한 픽셀도
-  // 변하지 않는다」도 글자 크기가 하나여야 지켜진다. 그래서 이 검사는 「절반」이 아니라 「같다」를 본다.
+  // 2026-09-12 (the user's report — the seconds were far too small on the analyzer): the half size of `:SS` was
+  // **dropped**. `.hs-clock-ss` is `font-size: inherit`, so all four station screens use one size, and the grow
+  // slot's 「the height does not move by one pixel when the state changes」 only holds while there is one font
+  // size as well. So this check looks for 「the same」, not 「half」.
   ok(clock.ssPx > 0 && Math.abs(clock.ssPx - clock.hmPx) < 0.6, `:SS 는 HH:MM 과 같은 크기 (${clock.hmPx} → ${clock.ssPx} px)`);
   ok(!(await H(() => document.querySelector('.gs-slot[data-key="0:0"]').textContent)).includes('궁합'), '칸 아래 궁합 줄 없음');
 
-  /* ── 호버 카드 — 2026-09-12 (사용자 결정) 부터 **영역별**이다 ──
-     흙구멍(`.gs-pot`) 위면 토양 카드(종류 · 속성 · 내구도 · 보너스 · 소켓 · 우클릭 안내), 그 위의 식물 공간(`.gs-plant`) 위면
-     작물 카드(씨앗 · 남은 시간 · 궁합 % · 수확물). 예전에는 칸 어디를 짚어도 한 카드가 둘을 다 실었으므로
-     이 검사도 한 번의 호버만 봤다 — 이제 두 영역을 따로 짚는다. */
+  /* ── The hover card — **per area** since 2026-09-12 (user's decision) ──
+     Over the pot (`.gs-pot`) it is the soil card (kind · tag · durability · bonus · sockets · the right-click
+     hint), over the plant space above it (`.gs-plant`) the crop card (seed · time left · match % · the harvest).
+     A single card used to carry both wherever in the slot it was pointed at, so this check watched one hover
+     only — now the two areas are pointed at separately. */
   const hoverTip = (sel, key = '0:0') => H(({ s, key }) => {
     const slot = document.querySelector(`.gs-slot[data-key="${key}"]`);
     const r = slot.getBoundingClientRect();
-    // 같은 칸 · 같은 영역이면 카드를 다시 그리지 않으므로 먼저 벗어난다
+    // the card is not redrawn for the same slot · the same area, so the pointer leaves first
     document.querySelector('.menu.grow-station .gs-tiers').dispatchEvent(new PointerEvent('pointerleave'));
     slot.querySelector(s).dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: r.left + 10, clientY: r.top + 10 }));
     const t = document.querySelector('.menu.grow-station .hs-tip');
     return { shown: !!t && !t.hidden, text: t?.textContent ?? '' };
   }, { s: sel, key });
   const soilTip = await hoverTip('.gs-pot');
-  // 2026-09-13: 「남은 수확 n회」 대신 내구도 · 보너스 비율 · 소켓 줄
+  // 2026-09-13: durability · bonus ratio · socket lines instead of 「남은 수확 n회」
   ok(soilTip.shown && /토양/.test(soilTip.text) && /속성/.test(soilTip.text) && /내구도/.test(soilTip.text) && /보너스/.test(soilTip.text)
     && /소켓/.test(soilTip.text) && /우클릭: 흙 비우기/.test(soilTip.text) && !/궁합/.test(soilTip.text) && !/남은 수확/.test(soilTip.text),
   `흙구멍 호버 = 토양 카드 (속성 · 내구도 · 보너스 · 소켓 · 우클릭 안내) (${soilTip.text.slice(0, 120)})`);
@@ -344,7 +359,7 @@ try {
   await H(() => document.querySelector('.menu.grow-station .gs-tiers').dispatchEvent(new PointerEvent('pointerleave')));
   ok(await H(() => document.querySelector('.menu.grow-station .hs-tip').hidden), '벗어나면 카드가 사라진다');
 
-  /* ── 다 자람 → 「수확 가능」 → 더블클릭 = 함선 창고 먼저 ── */
+  /* ── Fully grown → 「수확 가능」 → double-click = the stash first ── */
   const ripen = (uid, tier, slot) => H(({ uid, tier, slot }) => {
     const h = window.__game.ctx.housing;
     const g = h.state.grows.find((x) => x.uid === uid && x.tier === tier && x.slot === slot);
@@ -362,17 +377,19 @@ try {
   const afterDbl = { stash: await stashQty('crop_tuber'), bag: await bagQty('crop_tuber'), slot: await growInfo('0:0') };
   ok(afterDbl.stash > stash0 && afterDbl.bag === bag0 && afterDbl.slot.seedDefId === null,
     `더블클릭 수확 → 함선 창고 (${stash0} → ${afterDbl.stash}, 가방 ${afterDbl.bag})`);
-  // 2026-09-13 (요리 재료 티어): 수확해도 칸이 비지 않는다 — 흙은 남고 내구도만 닳는다
+  // 2026-09-13 (cooking material tiers): harvesting does not empty the slot — the soil stays and only its
+    // durability wears
   ok(afterDbl.slot.soilDefId === 'soil_mineral' && afterDbl.slot.soilDurabilityMax > 0
     && afterDbl.slot.soilDurability < soilBefore.soilDurability && afterDbl.slot.soilDurability >= 0,
   `흙은 남고 내구도가 닳는다 (${soilBefore.soilDurability} → ${afterDbl.slot.soilDurability} / ${afterDbl.slot.soilDurabilityMax})`);
   ok(await H(() => document.querySelector('.gs-slot[data-key="0:0"]').classList.contains('has-soil')), '수확 뒤에도 흙구멍에 흙이 그대로 그려진다');
 
-  /* ── 끌어서 가방 격자에 놓기 = 가방 ── */
+  /* ── Dragging onto the bag grid = the bag ── */
   await H((u) => window.__game.ctx.housing.plantSeedAt(u, 0, 0, 'seed_tuber'), GS);
   await ripen(GS, 0, 0);
-  // 겨눌 자리는 위의 `gridProbe` 하나가 정한다 (계산이 한 곳뿐이다). 여기서 다시 재는 이유는 그 사이에 한 번
-  // 수확해서 격자 내용이 바뀌었기 때문이고, **드래그 직전의 실제 화면**을 봐야 하기 때문이다.
+  // the spot to aim at is decided by the one `gridProbe` above (the calculation lives in one place). It is
+  // measured again here because a harvest in between changed what the grid holds, and because **the real screen
+  // right before the drag** is what has to be read.
   const bagAt = await gridProbe('grow-station', 'bag');
   const from = await H(() => {
     const b = document.querySelector('.gs-slot[data-key="0:0"] .gs-pot').getBoundingClientRect();
@@ -389,7 +406,8 @@ try {
   const bagDiag = await H((t) => {
     const u = document.elementFromPoint(t.tx, t.ty);
     return { under: u ? `${u.tagName}.${u.className}` : null, grid: u?.closest('[data-tg-grid]')?.dataset.tgGrid ?? null,
-      // 2026-09-17: 격자 통째가 아니라 **커서 밑 칸**의 발자국이 강조된다 (`ProductDrag` → `previewExternalAt`, `.inv-hl`)
+      // 2026-09-17: what is highlighted is the footprint of the **cell under the cursor**, not the whole grid
+  // (`ProductDrag` → `previewExternalAt`, `.inv-hl`)
       over: [...document.querySelectorAll('[data-tg-grid="bag"] .inv-hl')].some((h) => !h.hidden && !h.classList.contains('is-bad'))
         && !document.querySelector('[data-tg-grid].hs-drop-over') };
   }, bagAt);
@@ -402,7 +420,7 @@ try {
   ok(bagDiag.over && bagDiag.grid === 'bag', `끄는 동안 가방 격자의 커서 밑 칸이 강조된다 (${JSON.stringify(bagDiag)})`);
   ok(await H(() => !document.querySelector('.hs-ghost')), '놓으면 고스트가 사라진다');
 
-  /* ── 우클릭 메뉴: 흙 비우기 / 작물 버리고 흙 비우기 ── */
+  /* ── The right-click menu: empty the soil / discard the crop and empty the soil ── */
   const ctxMenu = (key) => H((k) => {
     const s = document.querySelector(`.gs-slot[data-key="${k}"]`);
     const r = s.getBoundingClientRect();
@@ -423,7 +441,8 @@ try {
   await H(() => document.querySelector('.menu.grow-station .hs-ctx .hs-ctx-item').click());
   ok(await H((u) => window.__game.ctx.housing.getGrowSlots(u).find((s) => s.tier === 0 && s.slot === 2).soilDefId === null, GS), '작물까지 버리고 비웠다 (`clearSoil(…, true)`)');
 
-  /* ── 2026-09-13 토양 소켓: 반대 대상 거절 · 빈 칸 끼우기 · 흙구멍 안 점 · 가득 → 고르기 → 1초 홀드 교체 · 비우기 경고 ── */
+  /* ── 2026-09-13 soil sockets: the wrong target refused · fitting into an empty slot · the dots inside the pot ·
+     full → pick → a 1 s hold swap · the emptying warning ── */
   const socketDefs = await H(() => {
     const l = window.__game.ctx.loot;
     return ['sock_soil_speed_1', 'sock_soil_yield_1', 'sock_medium_speed_1'].map((id) => !!l.getItemDef(id)?.growSocket);
@@ -461,7 +480,7 @@ try {
       `토양 카드의 소켓 줄 (${sockTip.text.slice(0, 160)})`);
     await H(() => document.querySelector('.menu.grow-station .gs-tiers').dispatchEvent(new PointerEvent('pointerleave')));
 
-    // 가득 찬 칸에 덮어 끼우기 → (칸이 둘 이상이면) 교체할 소켓 고르기 → 1초 홀드 경고
+    // fitting over a full slot → (with two or more slots) picking the socket to replace → a 1 s hold warning
     const yield0 = await ownQty('sock_soil_yield_1');
     await dropVia('growStation', 'sock_soil_yield_1', POT);
     await sleep(20);
@@ -489,7 +508,7 @@ try {
       && !(await H(() => !!document.querySelector('.sh-ask[data-ask="hs-socket-replace"]'))),
     `1초 홀드 → ${idx + 1}번 소켓을 파괴하고 교체 · 팝업 닫힘 (${JSON.stringify(replaced.sockets)})`);
 
-    // 취소하면 아무 일도 없다
+    // cancelling does nothing
     await dropVia('growStation', 'sock_soil_yield_1', POT);
     await sleep(20);
     if (slots > 1) await H(() => document.querySelector('.menu.grow-station .hs-ctx .hs-ctx-item')?.click());
@@ -497,7 +516,7 @@ try {
     ok(JSON.stringify((await growInfo('0:0')).sockets) === JSON.stringify(replaced.sockets) && (await ownQty('sock_soil_yield_1')) === yield0 - 1,
       '교체 팝업 「취소」 → 소켓 · 보유 수 그대로');
 
-    // 소켓이 있는 흙 비우기 = 「소켓도 함께 사라집니다」 1초 홀드 경고
+    // emptying socketed soil = the 1 s hold warning 「소켓도 함께 사라집니다」
     const m3 = await ctxMenu('0:0');
     await H(() => document.querySelector('.menu.grow-station .hs-ctx .hs-ctx-item').click());
     const clearAsk = await askState('hs-soil-clear');
@@ -508,7 +527,7 @@ try {
       && (await growInfo('0:0')).soilDefId === 'soil_mineral', 'Tab 은 경고 팝업만 닫는다 (비우지 않는다 · 패널은 그대로)');
   }
 
-  /* ── 업그레이드 모달 ── */
+  /* ── The upgrade modal ── */
   const cost = await H((u) => window.__game.ctx.housing.furnitureUpgradeCost(u), GS);
   for (const c of cost ?? []) await giveStash(c.defId, c.qty);
   await H(() => document.querySelector('.menu.grow-station .hs-up-open').click());
@@ -517,7 +536,8 @@ try {
     const m = document.querySelector('.menu.grow-station .hs-modal');
     return { shown: !!m && !m.hidden, chips: m?.querySelectorAll('.hs-modal-cost .item-chip').length ?? 0, lv: m?.querySelector('.hs-modal-lv')?.textContent ?? '',
       gain: m?.querySelector('.hs-modal-gain')?.textContent ?? '', ok: !m?.querySelector('.hs-modal-ok')?.disabled,
-      // 2026-09-15 2차: 홀드 안내 문구는 없어졌고(그 줄은 이제 **차단 사유전용**), 버튼 안의 좌클릭 홀드 키캡이 그 말을 한다
+      // 2026-09-15 2nd pass: the hold hint text is gone (that line is now **for the block reason only**) — the
+  // left-click hold keycap inside the button says it instead
       holdCap: !!m?.querySelector('.hs-modal-ok .keycap.kc-btn'), note: m?.querySelector('.hs-modal-note')?.textContent ?? '' };
   });
   ok(modal.shown && modal.chips === (cost?.length ?? -1) && /Lv\. 1\s+→\s+Lv\. 2/.test(modal.lv) && /성장 속도 \+0% → \+15%/.test(modal.gain),
@@ -546,11 +566,12 @@ try {
   await tap('Tab');
   ok(await H(() => document.querySelector('.menu.grow-station').hidden), 'Tab → 재배 화면 닫힘');
 
-  /* ══ 2. 분석기 ════════════════════════════════════════════════════════════ */
+  /* ══ 2. The analyzer ═══════════════════════════════════════════════════ */
   console.log('분석기');
-  /* 2026-09-16 (사용자 결정, 표본 전면 개편): 표본은 계열 × 등급으로 갈리고 옛 `spec_cell` · `spec_mineral` · `spec_dna` 는
-     줄째로 사라졌다 (세이브 마이그레이션 없음 = `item_aliases.csv` 행도 없다). 한 계열의 **가장 낮은 등급** 표본을
-     아이템 표에서 찾아 쓴다 — id 를 박아 두면 표본표를 손볼 때마다 여기가 빨개진다. */
+  /* 2026-09-16 (user's decision, the sample rework): samples split by family × rarity and the old `spec_cell` ·
+     `spec_mineral` · `spec_dna` disappeared row and all (no save migration = no `item_aliases.csv` row either).
+     The **lowest rarity** sample of one family is looked up in the item table — writing an id out would turn this
+     red every time the sample table is touched. */
   const SAMPLE = await H(() => {
     const defs = window.__game.ctx.loot.getAllItemDefs().filter((d) => d.sample && !d.retired && d.sample.family === 'cell');
     return defs.sort((a, b) => a.value - b.value)[0]?.id ?? null;
@@ -563,7 +584,8 @@ try {
     const r = document.querySelector('.menu.analyzer-panel');
     return {
       title: r.querySelector('.hs-station-head .title').textContent, lv: r.querySelector('.hs-lv').textContent,
-      // 2026-09-12: 탭은 좌 패널 안의 `.hs-tabs` 가 아니라 **화면 맨 왼쪽 공통 레일**(`StationShell.rail` = `.hs-rail`)에 산다
+      // 2026-09-12: the tabs do not live in the left panel's `.hs-tabs` but on the **shared rail down the far left of
+  // the screen** (`StationShell.rail` = `.hs-rail`)
       tabs: [...r.querySelectorAll('.hs-rail .hs-tab')].map((b) => b.textContent),
       dexHidden: r.querySelector('.az-dexhost').hidden,
       slots: [...r.querySelectorAll('.az-slot')].map((s) => ({ locked: s.classList.contains('is-locked'), kids: s.children.length })),
@@ -573,8 +595,9 @@ try {
   });
   ok(az.title === '분석기' && az.lv === 'Lv. 1', `분석기 제목 · Lv (${az.title} ${az.lv})`);
   ok(az.tabs.join() === '해석,분석 도감' && az.dexHidden, `좌측 탭 「해석」 · 「분석 도감」, 도감은 자기 탭에 (${az.tabs})`);
-  /* 2026-09-15 2차 (사용자 결정 「분석기 처음부터 2칸 · 최대 4칸」): 칸 수 = ANALYZER_SLOTS_BASE(1) + 레벨 × PER(1)
-     이라 패널은 늘 최대 4칸을 그리고 Lv.1 에서는 앞 2칸이 열려 있다. 잠긴 칸은 여전히 빈 칸이다. */
+  /* 2026-09-15 2nd pass (user's decision 「분석기 처음부터 2칸 · 최대 4칸」): the slot count is
+     ANALYZER_SLOTS_BASE(1) + level × PER(1), so the panel always draws the maximum 4 slots and the first 2 are
+     open at Lv.1. A locked slot is still an empty slot. */
   ok(az.slots.length === 4 && az.slots.slice(0, 2).every((s) => !s.locked) && az.slots.slice(2).every((s) => s.locked && s.kids === 0),
     `Lv.1 = 2칸 열림 · 잠긴 해석 칸 = 빈 칸 (${JSON.stringify(az.slots)})`);
   ok(!az.allBtn && !az.labels.some((l) => /가방|창고|도감/.test(l)), '모두 회수 · 라벨 없음');
@@ -593,8 +616,10 @@ try {
   ok(run.order[0] === 'az-name' && run.order[1] === 'az-time' && run.name.length > 0 && CLOCK.test(run.time), `이름 위 · 작은 HH:MM:SS 아래 (${run.name} / ${run.time})`);
   ok(!/처음 해석|도감에 있는/.test(run.text), '「처음 해석」 부연 없음');
   ok(run.actsRight >= 0 && run.actsRight < 20 && run.actsBottom >= 0 && run.actsBottom < 20, `회수 · 중단 버튼은 칸 우하단 (${run.actsRight.toFixed(1)}, ${run.actsBottom.toFixed(1)})`);
-  // 2026-09-13: 계열 칩 · 해석 중 결과 자리는 「?」 (결과는 넣는 순간 굴렸지만 끝나기 전에는 보이지 않는다)
-  // 2026-09-16: 계열 표시 이름은 `shared/labels.SAMPLE_FAMILY_LABEL_KO` — `dna` 는 「DNA」 가 아니라 「유전자」가 됐다
+  // 2026-09-13: the family chip · the result spot reads 「?」 mid-analysis (the result was rolled the moment it
+  // went in, but is not shown before it finishes)
+  // 2026-09-16: a family's display name is `shared/labels.SAMPLE_FAMILY_LABEL_KO` — `dna` became 「유전자」,
+  // not 「DNA」
   ok(!!run.fam && /세포|광물|유전자/.test(run.fam), `표본 칸에 계열 칩 (${run.fam})`);
   ok(run.result.pending && run.result.text === '?' && !run.result.chip, `해석 중 결과 자리 = 「?」 (${JSON.stringify(run.result)})`);
   ok(await H((u) => window.__game.ctx.housing.getAnalyses(u)[0].resultDefId === null, AZ), '해석 중에는 계약도 결과를 숨긴다 (`resultDefId` null)');
@@ -634,9 +659,10 @@ try {
     `미발견 = 실루엣 + 「???」 (호버 카드로 이름이 새지 않는다) · 잠김 = 「Lv.n 해금」 (${JSON.stringify({ leak: dex.leak, unknown: dex.unknown.length, locked: dex.locked.slice(0, 2) })})`);
   await tap('Tab');
 
-  /* ══ 3. 배양조 ════════════════════════════════════════════════════════════ */
+  /* ══ 3. The culture tank ═══════════════════════════════════════════════ */
   console.log('배양조');
-  // 2026-09-13: 옛 세포주는 은퇴해 배양조가 받지 않는다 — 스캐폴드 산출이 있는 새 세포주를 쓴다 (표가 아직이면 아무 세포주나)
+  // 2026-09-13: the old strains are retired and the culture tank refuses them — a new strain with a scaffold
+  // output is used (any strain at all if the table is not there yet)
   const STRAIN = await H(() => {
     const l = window.__game.ctx.loot;
     const ok = (d) => !!d && !!d.strain && !d.retired;
@@ -664,10 +690,11 @@ try {
       time: r.querySelector('.cult-slot[data-slot="0"] .cult-time')?.textContent ?? '' };
   });
   ok(started.every((v) => v === null) && ct.title === '배양조' && ct.oldCls === 0, `배양조 — 옛 .ct-* 이름 없음 (기업 화면과 겹치지 않는다) (${ct.oldCls}) ${JSON.stringify(started)}`);
-  // 2026-09-13 (사용자 결정): 세로로 긴 유리 배양관 3개가 늘 3열로 나란히, 잠긴 관은 점선 + 「Lv.N 필요」
+  // 2026-09-13 (user's decision): three tall glass culture tubes always stand side by side in 3 columns, a locked
+  // tube dotted + 「Lv.N 필요」
   ok(ct.cols === 3 && ct.slots.length === 3 && ct.slots[0].drop && ct.slots[0].h > ct.slots[0].w * 2 && ct.slots.every((s) => s.top === ct.slots[0].top),
     `배양관 3개가 한 줄 3열 · 세로로 긴 유리관 (${JSON.stringify(ct.slots)})`);
-  // 2026-09-17: 열린 관마다 「배양 시작」 버튼 하나 (잠긴 관에는 없다)
+  // 2026-09-17: one 「배양 시작」 button per open tube (a locked one has none)
   ok(ct.slots.slice(1).every((s, i) => s.locked && !s.drop && s.lock === `Lv.${i + 2} 필요`) && ct.buttons === 1 && CLOCK.test(ct.time),
     `잠긴 관 = 드롭 대상 아님 + 「Lv.N 필요」 · 칸 버튼 = 배양 시작 ${ct.buttons}개 · HH:MM:SS (${ct.time})`);
   ok(ct.lvl === '1.000' && ct.fills >= 1, `배지를 부으면 그 관의 액체가 차오른다 (--lvl ${ct.lvl} = 새 배지 내구도 가득, 연출 ${ct.fills}회)`);
@@ -691,12 +718,13 @@ try {
   const afterHarvest = await ctInfo();
   const lvlAfter = await H(() => document.querySelector('.menu.culture-tank .cult-slot[data-slot="0"] .cult-fluid').style.getPropertyValue('--lvl'));
   const wantLvl = afterHarvest.mediumDurabilityMax > 0 ? (afterHarvest.mediumDurability / afterHarvest.mediumDurabilityMax).toFixed(3) : null;
-  // 2026-09-13 (요리 재료 티어): 배지는 비지 않고 내구도가 닳는다 — 액체 높이 = 내구도 ÷ 최대
+  // 2026-09-13 (cooking material tiers): the medium does not empty, its durability wears — the fluid height =
+  // durability ÷ max
   ok(afterHarvest.mediumDefId === 'mat_medium_basic' && !afterHarvest.strainDefId && wantLvl !== null && lvlAfter === wantLvl && Number(lvlAfter) < 1,
     `수확해도 배지는 남고 내구도만 닳아 액체가 ${lvlAfter} (${afterHarvest.mediumDurability} / ${afterHarvest.mediumDurabilityMax})`);
   ok(/^내구도 \d+\/\d+$/.test(await H(() => document.querySelector('.menu.culture-tank .cult-slot[data-slot="0"] .cult-time').textContent)), '배지만 있는 관 아래 줄 = 「내구도 n/max」');
 
-  /* ── 2026-09-13 배양 스캐폴드 · 배지 소켓 ── */
+  /* ── 2026-09-13 the culture scaffold · the medium's sockets ── */
   const scafDef = await H(() => !!window.__game.ctx.loot.getItemDef('food_scaffold')?.scaffold);
   const CELL = '.menu.culture-tank .cult-cell[data-slot="0"]';
   if (!scafDef) {
@@ -705,7 +733,8 @@ try {
     await giveStash('food_scaffold', 2);
     const sc0 = await ownQty('food_scaffold');
     const scDrop = await dropVia('cultureTank', 'food_scaffold', CELL);
-    // 격자는 opacity 로 나타난다 — 전역 전이가 걸려 있어도 끝날 때까지 기다린다 (20 ms 에 재면 0 이었다)
+    // the grid appears through opacity — even with a global transition on it, it is waited out (measured at 20 ms
+  // it was 0)
     try {
       await waitFor(page, () => parseFloat(getComputedStyle(document.querySelector('.menu.culture-tank .cult-slot[data-slot="0"] .cult-scaffold')).opacity) > 0.5,
         'scaffold lattice visible', 3000);
@@ -729,7 +758,8 @@ try {
       && !(await H(() => document.querySelector('.menu.culture-tank .cult-slot[data-slot="0"]').classList.contains('has-scaffold'))),
     '「스캐폴드 빼기」 → 되돌려받고 격자가 사라진다');
 
-    // 배지 소켓 — 반대 대상(토양 소켓)은 거절 · 배지 소켓은 끼운다 → 유리 안 점
+    // the medium's sockets — the wrong target (a soil socket) is refused · a medium socket fits → a dot inside the
+  // glass
     if (socketDefs.every(Boolean)) {
       const n1 = await H(() => window.__notify.length);
       await dropVia('cultureTank', 'sock_soil_speed_1', CELL);
@@ -744,7 +774,7 @@ try {
       const mInfo = await ctInfo();
       ok(mInfo.sockets.join() === 'sock_medium_speed_1' && !ms.hidden && ms.dots === mInfo.socketSlots && ms.on === 1,
         `배지 소켓을 끼우면 유리 안의 점 ${ms.on} / ${ms.dots} (${JSON.stringify(ms)})`);
-      // 가득 채운 뒤 덮어 끼우기 → 교체 팝업 (고르기는 칸이 둘 이상일 때)
+      // fitting over a full set → the swap popup (the pick only with two or more slots)
       for (let i = mInfo.sockets.length; i < mInfo.socketSlots; i++) await dropVia('cultureTank', 'sock_medium_speed_1', CELL);
       await sleep(20);
       await dropVia('cultureTank', 'sock_medium_speed_1', CELL);
@@ -755,7 +785,8 @@ try {
       await askCancel('hs-socket-replace');
     }
 
-    // 스캐폴드 + 세포주 → 종별 고기 (산출물 = 세포주의 스캐폴드 산출) → 수확하면 스캐폴드 소모 · 배지는 남는다
+    // scaffold + strain → species meat (the product = the strain's scaffold output) → harvesting consumes the
+  // scaffold · the medium stays
     await dropVia('cultureTank', 'food_scaffold', CELL);
     const out = await H((s) => window.__game.ctx.loot.getItemDef(s)?.strain?.scaffoldOutputDefId ?? null, STRAIN);
     const ins = await H(({ u, s }) => { const h = window.__game.ctx.housing; return h.insertStrain(u, 0, s) ?? h.startCulture(u, 0); }, { u: CT, s: STRAIN });
@@ -783,9 +814,10 @@ try {
   }
   await tap('Tab');
 
-  /* ══ 4. 식탁 ══════════════════════════════════════════════════════════════ */
+  /* ══ 4. The dining table ════════════════════════════════════════════════ */
   console.log('식탁');
-  // 2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니다 — 식탁 화면은 격자 없이 **식탁의 접시**와 실린 식사를 보인다
+  // 2026-09-16 (the plate model, user's decision): a meal is not an item — the 식탁 screen has no grid and shows
+  // **the table's plate** and the meal on it
   const MEAL = await H(async () => {
     const S = await import('/src/shared/index.ts');
     const d = S.getMealDef('meal_sausage');

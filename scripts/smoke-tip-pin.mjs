@@ -137,7 +137,8 @@ try {
   const outsidePoint = () => page.evaluate(() => {
     const card = document.querySelector('.inv-root .inv-tooltip.is-pinned');
     const cr = card && !card.hidden ? card.getBoundingClientRect() : null;
-    /* 2026-09-15 3차: 창고 쪽 `STASH 함선 창고` 제목이 없어졌다 (창고 · 가방이 한 카드). 가방 제목은 남아 있다. */
+    /* 2026-09-15 3rd pass: the stash's `STASH 함선 창고` title is gone (창고 · 가방 are one card). The 가방
+       title is still there. */
     for (const s of ['.inv-weight', '.inv-foot', '.inv-panel-bag .inv-title', '.inv-capacity', '.inv-slot-label']) {
       for (const el of document.querySelectorAll(s)) {
         const r = el.getBoundingClientRect();
@@ -362,7 +363,8 @@ try {
     const g = sys.getGrid('bag'); const el = document.querySelector('.inv-grid-bag');
     const spot = item && g.findFreeSlot(item, false);
     if (!spot) return null;
-    // 2026-09-14: 칸 한 변은 창 높이를 탄다 (`inventory/ui/labels.gridCellForHeight`) — 56 · 27 을 적어 두지 않는다
+    // 2026-09-14: a cell's side follows the window height (`inventory/ui/labels.gridCellForHeight`) — 56 · 27 are
+    //   not written down
     const c = parseFloat(getComputedStyle(el).getPropertyValue('--inv-cell')), step = c + 2;
     el.parentElement.scrollTop = Math.max(0, spot.y * step - 40);
     const r = el.getBoundingClientRect();
@@ -425,7 +427,8 @@ try {
     const card = document.querySelector('.inv-root .inv-tooltip.is-pinned');
     const cr = card && !card.hidden ? card.getBoundingClientRect() : null;
     const w = att.rotated ? def.height : def.width, h = att.rotated ? def.width : def.height;
-    // 2026-09-14: 보폭은 격자가 실제로 쓰는 칸에서 (창 높이를 탄다 — `labels.gridCellForHeight`)
+    // 2026-09-14: the pitch comes from the cell the grid actually uses (it follows the window height —
+    //   `labels.gridCellForHeight`)
     const cell = parseFloat(getComputedStyle(gridEl).getPropertyValue('--inv-cell')), step = cell + 2;
     const half = { w: (w * step - 2) / 2, h: (h * step - 2) / 2 };
     const cands = [];

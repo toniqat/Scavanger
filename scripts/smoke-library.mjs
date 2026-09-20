@@ -1,12 +1,19 @@
 // Single-player smoke test for the 서재 (src/housing + src/items + src/hub).
-// 2026-09-13 — 서재 시리즈 · 게임 디스크 전시대 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」), rewritten from the Phase 9 / A-3e smoke:
-//   · 시리즈 몫 = 권당 SHELF_SERIES_VOLUME_SHARE, 전권 = 100 % (서로 다른 권 · 여러 보관함에 걸쳐 · def 한 번만)
-//   · 효과 합산 `getLibraryEffects` · `getLibrarySources` · `getSeriesProgress` · `getBookBonus` / `getSkillGainMul` / `getShelfBonus`
-//   · 보조 가구 배율 · 놓인 보관함은 전부 센다 (2026-09-13 전력 할당 폐지 — 비활성 · 가동 사유 없음) · `housing:libraryChanged` 발행 규칙
-//   · 띠 질의 `isShelfItemWanted` (보관함 보유 = 배치 또는 가구 창고) · 레시피 해금 `isRecipeUnlocked` (꽂혀 있는 동안만)
-//   · 중복 꽂기 거절 (`이미 꽂혀 있는 책입니다`) · 게임 디스크 매체 꽂기 / 빼기 · 회수
-//   · 옛 id 세이브 변환 (`resolveItemAlias` — 치환 · 중복 환불 · tvConsoles 정리 · 다시 쓰기 = 두 번 환불 없음)
-//   · 보관함 화면 (그려진 선반 · 권 번호 배지 · 시리즈 진척 · 시리즈 도감 · 드래그 / 더블클릭 / 교체 / 중복 거절 · 게임 디스크 전시대)
+// 2026-09-13 — the library series · the game disc stand (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」),
+// rewritten from the Phase 9 / A-3e smoke:
+//   · the series share = SHELF_SERIES_VOLUME_SHARE per volume, a whole set = 100 % (distinct volumes · spread over
+//     several holders · each def counted once)
+//   · the folded effects `getLibraryEffects` · `getLibrarySources` · `getSeriesProgress` · `getBookBonus` /
+//     `getSkillGainMul` / `getShelfBonus`
+//   · the support-furniture multiplier · every placed holder counts (2026-09-13 power allocation dropped — no
+//     disabling, no operation reason) · the `housing:libraryChanged` emission rule
+//   · the band query `isShelfItemWanted` (owning a holder = placed or in furniture storage) · the recipe unlock
+//     `isRecipeUnlocked` (only while shelved)
+//   · a duplicate shelving refused (`이미 꽂혀 있는 책입니다`) · shelving / taking a game disc medium · collecting
+//   · the legacy-id save conversion (`resolveItemAlias` — substitution · a duplicate refunded · tvConsoles
+//     sanitized · writing again = no second refund)
+//   · the holder panel (the drawn shelf · volume number badges · series progress · the series catalogue · drag /
+//     double-click / swap / duplicate refused · the game disc stand)
 // Expected numbers are derived from the loaded series table (data/library_series.csv) — a retune of a value does not break this script,
 // the rules do. Usage: node scripts/smoke-library.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
@@ -25,13 +32,14 @@ if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
 /* src/shared/constants.ts — asserted as literals so a silent retune is caught here. */
-const BOOKS_PER_SHELF = 18;  // 2026-09-15 2차 (사용자 결정): 3 층 × 6칸 (한 층이 한 줄, 가운데 구분막 왼쪽 3 · 오른쪽 3)
+const BOOKS_PER_SHELF = 18;  // 2026-09-15 2nd pass (user's decision): 3 tiers × 6 slots (one row per tier, 3 left · 3 right of the middle divider)
 const GAME_SLOTS = 12;       // GAME_DISC_SLOTS_PER_STAND (2026-09-14: 6 → 12)
-/* shared/housing 의 `SHELF_TIERS` · `SHELF_TIER_COLS` (2026-09-14 층당 여러 줄) */
+/* shared/housing's `SHELF_TIERS` · `SHELF_TIER_COLS` (2026-09-14: several rows per tier) */
 const BOOK_TIERS = 3, BOOK_COLS = 6, GAME_TIERS = 3;
-const VOLUME_SHARE = 0.1;    // SHELF_SERIES_VOLUME_SHARE (사용자 결정: 권당 10 %)
-/* 저장된 함선 문서에 찍히는 번호는 계약의 `SHIP_STATE_VERSION` 이 아니라 **디스크 판** `ShipState.SHIP_STATE_VERSION_CURRENT`
-   다 (2026-09-16 에 표본 레벨 · 프로세서 칸이 들어오며 14 가 됐다). 숫자를 박으면 판이 오를 때마다 빨개지므로 부팅 뒤에 읽는다. */
+const VOLUME_SHARE = 0.1;    // SHELF_SERIES_VOLUME_SHARE (user's decision: 10 % per volume)
+/* The number stamped into a saved ship document is not the contract's `SHIP_STATE_VERSION` but the **on-disk**
+   version `ShipState.SHIP_STATE_VERSION_CURRENT` (it became 14 on 2026-09-16 when the sample level · processor cells arrived).
+   Hard-coding the number goes red on every version bump, so it is read after boot. */
 let SHIP_STATE_VERSION = 0;
 const near = (a, b) => Math.abs(a - b) < 1e-6;
 
@@ -60,7 +68,7 @@ try {
   // the 보관함 screen is a station card + 함선 창고 card + 가방 card and is dragged with a real pointer
   await page.setViewport({ width: 1440, height: 900 });
   await page.evaluateOnNewDocument(() => {
-    // 이 스크립트는 튜토리얼을 검사하지 않는다 (scripts/smoke-tutorial.mjs 가 본다) — 끝난 것으로 표시해 둔다.
+    // this script does not check the tutorial (scripts/smoke-tutorial.mjs does) — it is marked as done.
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     // Never let headless Chrome take a real pointer lock (ClipCursor traps the OS cursor on Windows).
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
@@ -172,7 +180,7 @@ try {
   const mSkill = M.effects[0].target, mFull = M.effects[0].value, shSkill = SH.effects[0].target, shFull = SH.effects[0].value;
   const recipeId = RC.effects.find((e) => e.kind === 'recipe').target;
 
-  /* ══ 1. ship · 서재 · 보관함 보유 = 띠 ═════════════════════════════════════ */
+  /* ══ 1. ship · the library · owning a holder = the band ════════════ */
   console.log('hub / 서재 / wanted band');
   await H(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
@@ -197,7 +205,7 @@ try {
   ok(Object.keys(e0.skillGain).length === 0 && e0.raidXp === 0 && e0.recipes.length === 0 && e0.revision >= 1, `empty shelves → empty summary (rev ${e0.revision})`);
   ok(await H((s) => window.__game.ctx.housing.getBookBonus(s), mSkill) === 1, 'getBookBonus = 1 with nothing shelved');
 
-  /* ══ 2. 시리즈 몫 ══════════════════════════════════════════════════════════ */
+  /* ══ 2. The series share ═══════════════════════════════════════════════ */
   console.log('series fraction · sources · uniqueness');
   const rev0 = e0.revision;
   ok(await place(shelfA, 0, M.items[0]) === null, `${M.items[0]} → 책장 A slot 1`);
@@ -234,11 +242,11 @@ try {
   }
   const eFull = await effects();
   ok(near(eFull.skillGain[mSkill], mFull), `all ${M.volumes} volumes → 100 % (${eFull.skillGain[mSkill]})`);
-  // 단편
+  // the one-shot
   await giveStash(SH.items[0], 1);
   ok(await place(shelfB, 1, SH.items[0]) === null && near((await effects()).skillGain[shSkill], shFull), `단편 ${SH.id} → 100 % at once (${shSkill} ${shFull})`);
 
-  /* ══ 3. 보조 가구 · 빼기 (2026-09-13: 전력 할당 폐지 — 멈춘 보관함이 없어 놓인 보관함은 전부 센다) ══ */
+  /* ══ 3. Support furniture · taking out (2026-09-13: power allocation dropped — every placed holder counts) ══ */
   console.log('aux · take');
   const chair = await placeDef('furn_rocking_chair');
   const eAux = await effects();
@@ -262,7 +270,7 @@ try {
   await sleep(30);
   ok((await nLib()) === nL3, 'a no-op housing:changed does not emit housing:libraryChanged');
 
-  /* ══ 4. 레시피 책 ═════════════════════════════════════════════════════════ */
+  /* ══ 4. Recipe books ══════════════════════════════════════════════════ */
   console.log('recipe unlock');
   ok(await H((r) => window.__game.ctx.housing.isRecipeUnlocked(r), recipeId) === false, `${recipeId} locked while ${RC.id} is not shelved`);
   if (D.freeRecipe) ok(await H((r) => window.__game.ctx.housing.isRecipeUnlocked(r), D.freeRecipe) === true, `a recipe without a book (${D.freeRecipe}) is always unlocked`);
@@ -272,7 +280,7 @@ try {
   ok(eR.recipes.includes(recipeId) && await H((r) => window.__game.ctx.housing.isRecipeUnlocked(r), recipeId) === true, `recipe unlocked while shelved (${eR.recipes.join(',')})`);
   ok(await take(shelfB, 2) === null && await H((r) => window.__game.ctx.housing.isRecipeUnlocked(r), recipeId) === false && !(await effects()).recipes.includes(recipeId), 'taken out → locked again');
 
-  /* ══ 5. 디스크 · 레코드 (여러 줄) ═══════════════════════════════════════════ */
+  /* ══ 5. Discs · records (multi-line) ═══════════════════════════════ */
   console.log('disc · record (multi-line)');
   let stand = null, rack = null;
   if (D.disc) {
@@ -299,7 +307,7 @@ try {
     ok(D.record.effects.length === 3 && srcR.some((x) => x.seriesId === D.record.id && x.fraction === 1), `a record (단편, 3 lines) counts 100 % (${D.record.effects.length} lines)`);
   } else skip('no record series in the table');
 
-  /* ══ 6. 게임 디스크 매체 ══════════════════════════════════════════════════ */
+  /* ══ 6. The game disc medium ═══════════════════════════════════════ */
   console.log('game disc medium');
   let gameStand = null;
   if (D.gameStand && D.games.length >= 1) {
@@ -324,7 +332,7 @@ try {
     ok(await take(gameStand, 0) === null && (await countAll(G)) === 2 && await place(gameStand, 0, G) === null, 'take the game disc out and back in');
   } else skip(`game stand / game discs missing (furn_game_stand ${D.gameStand}, discs ${D.games.length})`);
 
-  /* ══ 7. 회수 ═══════════════════════════════════════════════════════════════ */
+  /* ══ 7. Collecting ═══════════════════════════════════════════════════════ */
   console.log('recover');
   const stash0 = await countStash(SH.items[0]);
   ok(await H((u) => window.__game.ctx.housing.recover(u), shelfB) === true, 'recover 책장 B (holds vol II + 단편)');
@@ -333,7 +341,7 @@ try {
   ok((await countStash(SH.items[0])) === stash0 + 1 && !eRec.skillGain[shSkill] && (await lastEv('housing:shelfChanged'))?.count === 0, 'its items went to the 창고, their effects are gone');
   ok(await H((id) => window.__game.ctx.housing.isShelfItemWanted(id), SH.items[0]) === true, 'the recovered 단편 is wanted again (책장 A still owned)');
 
-  /* ══ 8. 보관함 화면 ═══════════════════════════════════════════════════════ */
+  /* ══ 8. The holder panel ═════════════════════════════════════════════ */
   console.log('보관함 panel');
   // shelf A holds III…N; vol I is in the bag and vol II came back to the 창고 with 책장 B → put both back so the panel shows a complete set
   ok(await place(shelfA, 0, M.items[0]) === null && await place(shelfA, 1, M.items[1]) === null, 'vol I + II back on 책장 A (set complete)');
@@ -365,8 +373,9 @@ try {
       grids: [...root.querySelectorAll('[data-tg-grid]')].map((n) => n.dataset.tgGrid).join(','),
     };
   }, M.id);
-  /* 2026-09-15 2차 (사용자 결정 「책장 3층 × 6칸」): 층당 줄 수를 **상수에서 유도**한다 — 하드코딩 2 였던 자리다.
-     BOOKS_PER_SHELF 18 · BOOK_TIERS 3 · BOOK_COLS 6 이면 층당 1 줄이고, 셋 중 하나가 움직여도 이 단언이 따라간다. */
+  /* 2026-09-15 2nd pass (user's decision 「책장 3층 × 6칸」): the rows per tier are **derived from the constants** —
+     this spot used to be a hard-coded 2. With BOOKS_PER_SHELF 18 · BOOK_TIERS 3 · BOOK_COLS 6 it is one row per tier,
+     and moving any of the three carries this assertion along. */
   const BOOK_ROWS_PER_TIER = Math.ceil(BOOKS_PER_SHELF / BOOK_TIERS / BOOK_COLS);
   const BOOK_ROWS = BOOK_TIERS * BOOK_ROWS_PER_TIER;
   ok(!dom.hidden && dom.medium === 'book' && dom.caseMedium === 'book' && dom.tiers === BOOK_TIERS && dom.rows === BOOK_ROWS && dom.slots === BOOKS_PER_SHELF,
@@ -375,7 +384,8 @@ try {
     `한 줄 ${BOOK_COLS} 칸 · 칸 번호는 0 부터 이어진다 (${dom.cols})`);
   ok(dom.filled === M.volumes && dom.vols.includes('I') && dom.vols.includes('II') && dom.full === M.volumes && dom.tip, `volume badges + full-set outline + item tooltip hook on every volume (${dom.vols.join(',')} · full ${dom.full})`);
   ok(/몫 100 %/.test(dom.line) && dom.line.includes(M.name), `slot info line names the series and its share (${dom.line})`);
-  // 2026-09-14 (사용자 결정): 빈 칸은 아무 말도 하지 않고, 정보 줄의 기본 문구 · 보조 가구 줄 · 시리즈 진척 패널은 사라졌다
+  // 2026-09-14 (user's decision): an empty slot says nothing, and the info line's default text · the
+  // support-furniture row · the series progress panel are gone
   ok(dom.emptyLine === '' && dom.info === '' && !dom.aux && !dom.series, `빈 칸 · 기본 정보 줄 · 보조 가구 줄 · 시리즈 진척 제거 (empty '${dom.emptyLine}' · info '${dom.info}')`);
   ok(dom.tabs === '선반|도감' && dom.railTabs === 0 && dom.grids === 'stash,bag', `선반 / 도감 가 상단 가로 탭 · 창고 card left of 가방 (${dom.tabs} · ${dom.grids})`);
   ok(dom.rail[0]?.startsWith('lib:서재') && dom.rail.length >= 2 && dom.railActive === shelfA,
@@ -383,7 +393,7 @@ try {
   ok(dom.dexRows === D.bookSeries && dom.dexOwned && dom.dexPips === M.volumes && dom.dexThumb && dom.dexSub === 0 && new RegExp(`${M.volumes} / ${M.volumes}권`).test(dom.dexState),
     `series 도감 = 썸네일 + 이름 + 모은 수뿐 (${dom.dexRows}/${D.bookSeries} · ${dom.dexState})`);
 
-  // 레일의 「서재」 = 시설 전체 보너스 요약 (효과 이름과 값만)
+  // the rail's 「서재」 = the whole facility's bonus summary (effect names and values only)
   await H(() => document.querySelector('.menu.bookshelf-menu .hs-rail .hs-rail-item[data-uid=""]')?.click());
   await sleep(160);
   const libTab = await H(() => {
@@ -485,7 +495,7 @@ try {
     await sleep(140);
   }
 
-  /* ══ 9. 세이브 · 옛 id 변환 ═══════════════════════════════════════════════ */
+  /* ══ 9. The save · legacy id conversion ═════════════════════════════ */
   console.log('save · legacy alias conversion');
   const tv = await placeDef('furn_tv');
   await H(() => window.__game.ctx.housing.save());

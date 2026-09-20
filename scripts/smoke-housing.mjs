@@ -5,12 +5,13 @@
 // document `ship` (save → `profile.set`, `net:profileLoaded` replace + `housing:loaded` re-emit, stash size follows).
 // Phase 9: v3 fresh state (`books` / `bookDex`), `furn_bookshelf` in the 서재 catalogue, offline `profile.set`. The 서재
 // mechanics themselves are covered by scripts/smoke-library.mjs.
-// 2026-09-13 (전력 할당 폐지, 사용자 결정): the generator starts at Lv.1 and ends at Lv.5 — it is only a build gate per purpose
+// 2026-09-13 (power allocation dropped, user's decision): the generator starts at Lv.1 and ends at Lv.5 — it is only a build gate per purpose
 // (`purposeGeneratorLevel`: 작업실 1 · 온실 · 주방 2 · 연구실 3 · 헬스장 · 서재 4 · 채굴 5) plus the furniture / storage upgrade gate.
 // ShipState v13 clamps old levels into [1, 5] and removes (+ refunds) facilities the ship's generator is too low for.
-// 2026-09-16 (사용자 결정, 표본 전면 개편 · 프로세서 직접 장착): v14 — `sampleLevels` (표본 def id → 회수 횟수) 와
-// `ComputeClusterSlot.processors` (칸마다의 남은 내구도). 이관 코드는 없다: 표본 레벨은 0 부터이고, 옛 `cores` 는
-// 같은 수의 프로세서로 함선 창고에 환불된다 (연산 코어가 아이템 표에서 사라졌다 — smoke-mining 이 그 환불을 본다).
+// 2026-09-16 (user's decision, the sample rework · processors mounted directly): v14 — `sampleLevels` (a sample
+// def id → how many were collected) and `ComputeClusterSlot.processors` (the durability left in each slot). There
+// is no migration code: sample levels start at 0, and the old `cores` are refunded into the stash as the same
+// number of processors (the compute core left the item table — smoke-mining is what checks that refund).
 // Usage: node scripts/smoke-housing.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -27,9 +28,10 @@ const konst = (name) => {
   return Number(m[1]);
 };
 const GRID_COLS = konst('ROOM_GRID_COLS'), GRID_ROWS = konst('ROOM_GRID_ROWS');
-/* 2026-09-12 (사용자 결정 — 시설관리 정리): 기본 개인 함선은 방 8 개 · 조종석은 방 번호 `COCKPIT_ROOM_INDEX`(100) 의 고정 공간이고
-   공용 시설 가구(전술 임플란트 시술대 · 기업 네트워크 컴퓨터)가 처음부터 거기 놓여 있다 (uid f-1 · f-2). 시뮬레이션실 · 휴식 공간은
-   지을 수 없고 관물대 · 표적 레인 · 시뮬레이션 허브는 은퇴, 로드아웃 프리셋 기능은 없어졌다. */
+/* 2026-09-12 (user's decision — the ship-management clean-up): a default personal ship has 8 rooms · the cockpit
+   is the fixed space at room number `COCKPIT_ROOM_INDEX` (100), and the 공용 시설 가구 (전술 임플란트 시술대 ·
+   기업 네트워크 컴퓨터) stand there from the start (uid f-1 · f-2). The simulation room · the lounge cannot be
+   built, 관물대 · 표적 레인 · 시뮬레이션 허브 are retired, and the loadout preset feature was dropped. */
 const ROOM_COUNT = konst('SHIP_ROOM_COUNT');
 const COCKPIT = 100;
 const CHROME = [
@@ -66,9 +68,9 @@ try {
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and
+    // locks room purposes · crafting · the terminal · boarding in that order, so it is marked "already finished"
+    // here (the tutorial itself is what scripts/smoke-tutorial.mjs checks).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -156,7 +158,7 @@ try {
   // 2026-09-07: a new ship is **empty** rooms — the built-in 작업실 + its two benches are gone. 2026-09-12: 8 rooms, and the
   // only furniture is the cockpit's two 공용 시설 가구 (f-1 시술대 · f-2 컴퓨터, room COCKPIT_ROOM_INDEX)
   ok(st0.rooms.length === ROOM_COUNT && ROOM_COUNT === 8 && st0.rooms.every((r) => r.purpose === 'empty' && r.level === 0), `fresh state: all ${ROOM_COUNT} rooms empty`);
-  // 2026-09-13 (전력 할당 폐지): a new ship's generator is already Lv.1 (GENERATOR_START_LEVEL) — there is no 가동 step any more
+  // 2026-09-13 (power allocation dropped): a new ship's generator is already Lv.1 (GENERATOR_START_LEVEL) — there is no 가동 step any more
   ok(st0.generatorLevel === 1 && st0.storageLevel === 0 && st0.presets.length === 0 && st0.furnitureStorage.length === 0, 'fresh state: gen 1 / storage 0 / no presets / empty furniture storage');
   ok(!('powerAlloc' in st0) && !('disabledFurniture' in st0) && !('pausedAt' in st0), 'fresh state carries no power fields (powerAlloc / disabledFurniture / pausedAt)', JSON.stringify(Object.keys(st0)));
   // 2026-09-13: + the cockpit's decor furniture on the old prop spots (f-3 침상 · f-4 / f-5 사물함 · f-6 서랍장)
@@ -171,23 +173,31 @@ try {
      furn_bench_refine (정제). **2026-09-11 (온실 개편)**: the count is no longer asserted — `furn_grow_rack` is
      `retired` and whether `getAllFurnitureDefs` still carries a retired def is housing/'s business (only
      `getFurnitureFor` is contractually filtered). Presence of the defs that matter is what this line guards now. */
-  /* 2026-09-12 (사용자 결정): `furn_repair_bench` 도 은퇴했다 (함선에서는 인벤토리만으로 수리한다). `getAllFurnitureDefs`
-     는 `ACTIVE_FURNITURE_DEFS` 라 은퇴 def 를 걸러 내므로, 여기서는 **없다는 것**을 검사해 되살아나는 것을 막는다. */
+  /* 2026-09-12 (user's decision): `furn_repair_bench` is retired too (in the ship, repairing is done from the
+     inventory alone). `getAllFurnitureDefs` is `ACTIVE_FURNITURE_DEFS` and filters retired defs out, so what is
+     checked here is **that it is gone**, which keeps it from coming back. */
   const furnDefIds = await H(() => window.__game.ctx.housing.getAllFurnitureDefs().map((d) => d.id));
-  // 2026-09-12: 관물대 · 표적 레인 · 시뮬레이션 허브도 은퇴했고, 조종석의 공용 시설 가구 두 점(시술대 · 컴퓨터)이 새로 들어왔다
+  // 2026-09-12: the 관물대 · 표적 레인 · 시뮬레이션 허브 are retired too, and the two 공용 시설 가구 pieces of the
+  // cockpit (시술대 · 컴퓨터) are new
   ok(['furn_bench_gun', 'furn_bench_refine', 'furn_implant_bay', 'furn_corp_computer', 'furn_bookshelf', 'furn_grow_station']
     .every((id) => furnDefIds.includes(id))
     && !['furn_repair_bench', 'furn_grow_rack', 'furn_range_console', 'furn_target_lane', 'furn_sim_hub'].some((id) => furnDefIds.includes(id))
     && furnDefIds.length >= 18,
   `FURNITURE_DEFS exposed (${furnDefIds.length}, incl. implant_bay / corp_computer / bookshelf / bench_refine / grow_station, 은퇴한 repair_bench · grow_rack · range_console · target_lane · sim_hub 제외)`, furnDefIds.join(','));
-  // SHIP_STATE_VERSION (src/shared/constants.ts): 4 = 온실 개편의 `grows`, 5 = 연구실의 `analyses`/`sampleDex`, 6 = 배양조의 `cultures`,
-  // 7 = 방 시설 레벨 제거 (2026-09-12 — 모양은 같고 옛 방 레벨을 한 번만 옮기려고 올렸다)
-  // 8 = 조종석 · 방 8 개 · 시뮬레이션실 / 휴식 공간 제거 (2026-09-12 — 모양은 같고 옛 방 9 · 10 을 한 번만 환불하려고 올렸다)
-  // 9 = 서재 매체 (A-3e, 2026-09-12 — `media` · `mediaDex` · `toggled`, 없던 필드가 생기는 것뿐)
-  // 10 = 조종석 전용 시설 + 조종석 꾸밈 가구 (2026-09-13 — 모양은 같고 옛 소품 자리에 꾸밈 가구를 한 번만 놓으려고 올렸다)
-  // 11 = 요리 재료 티어 (2026-09-13 — 흙 · 배지 내구도 / 소켓 · 배양 스캐폴드 · 분석 결과 · `analysisXp` / `analysisFound`, 없던 필드가 생기는 것뿐)
-  // 12 = 발전기 전력 (2026-09-13) · 13 = 전력 할당 폐지 (2026-09-13 — 발전기 [1, 5] 클램프 · 발전기가 모자란 시설 제거 + 환불 · 전력 필드 버림)
-  // 14 = 표본 전면 개편 + 프로세서 직접 장착 (2026-09-16 — `sampleLevels` 와 `clusters[].processors`, 없던 필드가 생기는 것뿐: 이관 코드 없음)
+  // SHIP_STATE_VERSION (src/shared/constants.ts): 4 = the greenhouse rework's `grows`, 5 = the lab's
+  // `analyses`/`sampleDex`, 6 = the culture tank's `cultures`,
+  // 7 = room facility levels removed (2026-09-12 — same shape, raised only to move the old room levels once)
+  // 8 = the cockpit · 8 rooms · the simulation room / lounge removed (2026-09-12 — same shape, raised only to
+  //     refund the old rooms 9 · 10 once)
+  // 9 = library media (A-3e, 2026-09-12 — `media` · `mediaDex` · `toggled`, only fields that did not exist appear)
+  // 10 = cockpit-only facilities + cockpit decor furniture (2026-09-13 — same shape, raised only to put the decor
+  //      furniture on the old prop spots once)
+  // 11 = cooking material tiers (2026-09-13 — soil · medium durability / sockets · the culture scaffold · analysis
+  //      results · `analysisXp` / `analysisFound`, only fields that did not exist appear)
+  // 12 = generator power (2026-09-13) · 13 = power allocation dropped (2026-09-13 — the generator clamped to
+  //      [1, 5] · facilities the generator falls short for removed + refunded · the power fields thrown away)
+  // 14 = the sample rework + processors mounted directly (2026-09-16 — `sampleLevels` and `clusters[].processors`,
+  //      only fields that did not exist appear: no migration code)
   ok(st0.version === 14 && Array.isArray(st0.books) && st0.books.length === 0 && Array.isArray(st0.bookDex) && st0.bookDex.length === 0
     && Array.isArray(st0.analysisFound) && st0.analysisFound.length === 0 && !!st0.analysisXp && Object.keys(st0.analysisXp).length === 0
     && !!st0.sampleLevels && Object.keys(st0.sampleLevels).length === 0,
@@ -195,14 +205,19 @@ try {
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('library').some((d) => d.id === 'furn_bookshelf' && d.interaction === 'bookshelf') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_bookshelf')), 'furn_bookshelf in the 서재 catalogue only');
   ok(await H(() => { const h = window.__game.ctx.housing; const c = h.getFurnitureFor('cockpit'); return c.length > 0 && c.every((d) => d.room === 'any' || d.room === 'cockpit') && h.getFurnitureFor('range').every((d) => d.room === 'any'); }),
     "조종석 catalogue = 공용('any') 가구 + 조종석 전용 시설 · 시뮬레이션실 전용 가구는 전부 은퇴해 목록에 없다");
-  // Phase 8: workshop also accepts the 정비 벤치, and 온실 accepts the 재배 스테이션 (2026-09-11: 옛 재배층 자리를 그대로 이어받았다)
-  // 2026-09-11 (A-14 · A-3c): 온실에 배양조가 늘어 9 → 10, 새로 열린 주방은 조리대 + 식탁 + 8 any = 10
-  // 2026-09-12 (사용자 결정): 정비 벤치가 은퇴해 작업실이 14 → 13 (작업대 5 + 8 any). 나머지 방은 그대로.
-  // 2026-09-12: 공용(any) 가구가 8 → 10 (전술 임플란트 시술대 · 기업 네트워크 컴퓨터) — 방마다 2 씩 늘었다
-  // 2026-09-13: 시술대 · 컴퓨터가 조종석 전용(cockpit)이 되고 서랍장(any)이 들어와 any 10 → 9 — 조종석은 9 any + 2 전용 = 11
-  // 2026-09-15 3차 (사용자 결정 — 쇼파가 서재 전용): `any` 가 12 → **11** 이라 그 11 을 받는 방이 전부 하나씩 줄었다
-  // (서재만 10 + 11 = 21 로 하나 늘었다). 숫자의 원본은 `data/furniture.csv` 의 `room` 열 하나다.
-  // 2026-09-17 (사용자 결정 — 쇼파가 다시 어느 방에든): any 11 → **12**, 서재 전용 10 → 9 (서재 합계 21 은 그대로)
+  // Phase 8: the workshop also accepts the 정비 벤치, and the greenhouse accepts the 재배 스테이션 (2026-09-11: it
+  // took over the retired 재배층's spot as it stood)
+  // 2026-09-11 (A-14 · A-3c): the culture tank joined the greenhouse 9 → 10; the new kitchen = 조리대 + 식탁 + 8 any = 10
+  // 2026-09-12 (user's decision): the 정비 벤치 retired, so the workshop went 14 → 13 (5 benches + 8 any). The
+  // other rooms are unchanged.
+  // 2026-09-12: shared (any) furniture went 8 → 10 (전술 임플란트 시술대 · 기업 네트워크 컴퓨터) — every room gained 2
+  // 2026-09-13: the 시술대 · 컴퓨터 became cockpit-only and the 서랍장 (any) arrived, so any went 10 → 9 — the
+  // cockpit is 9 any + 2 cockpit-only = 11
+  // 2026-09-15 3rd pass (user's decision — the 쇼파 is library-only): `any` went 12 → **11**, so every room that
+  // takes those 11 lost one (only the library gained one, 10 + 11 = 21). The source of the numbers is the one
+  // `room` column of `data/furniture.csv`.
+  // 2026-09-17 (user's decision — the 쇼파 goes in any room again): any 11 → **12**, library-only 10 → 9 (the
+  // library total 21 is unchanged)
   const FURN_ANY = 12;
   const furnCounts = await H(() => {
     const h = window.__game.ctx.housing;
@@ -212,11 +227,12 @@ try {
   ok(furnCounts.empty === FURN_ANY && furnCounts.workshop === FURN_ANY + 5 && furnCounts.greenhouse === FURN_ANY + 2
     && furnCounts.kitchen === FURN_ANY + 6 && furnCounts.cockpit === FURN_ANY + 2 && furnCounts.library === FURN_ANY + 9,
   `getFurnitureFor: any ${FURN_ANY} · workshop +5 벤치 · greenhouse +2 · kitchen +6 · cockpit +2 전용 · library +9 (2026-09-17 쇼파가 any 로) (${JSON.stringify(furnCounts)})`);
-  /* 아래 화면 검사들은 이 수를 **그때그때 물어서** 쓴다 — 작업대가 하나 늘 때마다 세 자리를 손으로 고치던 것이
-     2026-09-10 정제 작업대에서 실제로 red 를 냈다. 위 한 줄만 카나리아로 남긴다. */
+  /* The screen checks below **ask for** this number as they go — hand-fixing three places every time a bench was
+     added really did go red on the 2026-09-10 정제 작업대. Only the one line above is left as a canary. */
   const workshopFurniture = await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length);
-  // 2026-09-12: 가구 제작 목록은 시설 가구 / 꾸밈용 가구 하위 탭으로 갈린다 — 기본 탭(시설 가구)에 보이는 카드 수
-  // 2026-09-17: 좌석(`seat` — 의자 · 쇼파)은 꾸밈용 가구다 (`shared/housing.isUtilityFurniture`)
+  // 2026-09-12: the furniture craft list splits into the 시설 가구 / 꾸밈용 가구 sub-tabs — the card count on the
+  // default tab (시설 가구)
+  // 2026-09-17: a seat (`seat` — 의자 · 쇼파) is 꾸밈용 가구 (`shared/housing.isUtilityFurniture`)
   const workshopUtility = await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').filter((d) => d.interaction !== 'none' && d.interaction !== 'seat').length);
   ok(await H(() => window.__game.ctx.housing.getPresetCount() === 0 && window.__game.ctx.housing.getCraftCostMul() === 1 && window.__game.ctx.housing.getSkillGainMul('gun_AR') === 1), 'no rooms: 0 presets, cost ×1, skill ×1');
   // `housing:loaded` fired inside init() before the recorder existed; the saved file proves the fresh state was written
@@ -234,7 +250,8 @@ try {
     return {
       index: S.COCKPIT_ROOM_INDEX, room: h.getRoom(C), placed: inCock.length,
       defaultsAt: S.COCKPIT_DEFAULT_FURNITURE.every((d) => inCock.some((f) => f.defId === d.defId)),
-      // 2026-09-13: 꾸밈 가구가 옛 소품 자리에 · 그 칸은 풀렸고 포드 소켓 · 탑승 동선은 여전히 막혀 있다
+      // 2026-09-13: the decor furniture stands on the old prop spots · those cells are released, and the pod socket ·
+  // the boarding path are still blocked
       decorAt: S.COCKPIT_DECOR_FURNITURE.every((d) => inCock.some((f) => f.defId === d.defId && f.x === d.x && f.y === d.y && f.yaw === d.yaw)),
       freed: !S.roomCellBlocked(C, 19, 1) && !S.roomCellBlocked(C, 0, 7) && !S.roomCellBlocked(C, 14, 11),
       podStill: S.roomCellBlocked(C, 16, 8) && S.roomCellBlocked(C, 13, 9) && S.roomCellBlocked(C, 18, 11),
@@ -268,8 +285,9 @@ try {
     '공용 시설 가구는 이미 보유 중 (제작 잠김) · 강화 요구 없음 (maxLevel 1)', JSON.stringify(cockpit));
   ok(cockpit.gymReq.length === 1 && cockpit.gymReq[0].facility === 'generator' && cockpit.gymReq[0].have === 1 && cockpit.gymReq[0].need === 4,
     'purposeRequirements(gym) at 발전기 Lv.1 → 발전기 1/4 (2026-09-13: 헬스장은 발전기 Lv.4)', JSON.stringify(cockpit.gymReq));
-  /* 2026-09-13 (사용자 결정): 조종석 전용 시설은 **회수 거절**(가구 창고로 가지 않는다) · 조종석 안에서 옮기기만 된다.
-     꾸밈 가구(서랍장)는 회수 → 가구 창고 → 다른 방에도 놓을 수 있다 → 조종석 같은 자리에 다시 놓는다. 새 uid 는 f-7 이다. */
+  /* 2026-09-13 (user's decision): a cockpit-only facility **refuses to be recovered** (it never goes to the
+     furniture store) · it can only be moved within the cockpit. Decor furniture (the 서랍장) can be recovered → the
+     furniture store → placed in another room too → and put back on the same cockpit spot. Its new uid is f-7. */
   const bayRound = await H(async (C) => {
     const S = await import('/src/shared/index.ts');
     const h = window.__game.ctx.housing;
@@ -319,9 +337,11 @@ try {
   await H(() => {
     const h = window.__game.ctx.housing;
     h.state.rooms[0] = { purpose: 'workshop', level: 1 };
-    // 2026-09-12: 두 번째 벤치가 `furn_repair_bench` 였는데 그것은 은퇴했다 — 살아 있는 작업대로 바꿨다 (뜻은 같다: 한 방에 둘)
+    // 2026-09-12: the second bench used to be `furn_repair_bench`, which is retired — it was swapped for a live
+  // bench (the point is the same: two in one room)
     h.state.furnitureStorage.push({ defId: 'furn_bench_gun', level: 1, qty: 1 }, { defId: 'furn_bench_gear', level: 1, qty: 1 });
-    // 2026-09-13 (배치 규칙): yaw 0 의 앞은 y 감소 — y 0 은 앞이 벽이라 한 줄 내려 놓는다 (앞 한 줄씩 비움)
+    // 2026-09-13 (placement rules): at yaw 0 the front is decreasing y — y 0 has a wall in front, so it is placed
+  // one row down (one row in front is left clear)
     h.place(0, 'furn_bench_gun', 0, 1, 0);
     h.place(0, 'furn_bench_gear', 0, 4, 0);
   });
@@ -386,10 +406,12 @@ try {
   ok(scrap === 40, `40 폐금속 into the bag (${scrap})`);
   ok((await count('mat_scrap')) === 40, `countDefAll(mat_scrap) 40 (${await count('mat_scrap')})`);
   const gen0 = await H(() => window.__game.ctx.housing.getFacility('generator'));
-  // 2026-09-13 (전력 할당 폐지): 발전기는 Lv.1 로 시작해 Lv.5 가 끝 (GENERATOR_MAX_LEVEL 10 → 5) · Lv.2 = 폐금속 14 · 케이블 4 · 합금 3
+  // 2026-09-13 (power allocation dropped): the generator starts at Lv.1 and ends at Lv.5
+  // (GENERATOR_MAX_LEVEL 10 → 5) · Lv.2 = 폐금속 14 · 케이블 4 · 합금 3
   ok(gen0.level === 1 && gen0.maxLevel === 5 && costKey(gen0.nextCost) === 'mat_scrap:14|mat_cable:4|mat_alloy:3' && /재료 부족/.test(gen0.blocked ?? ''),
     `generator: Lv1/5, next 폐금속 14 · 케이블 4 · 합금 3, short of 케이블 · 합금 with only 폐금속 in the bag (${JSON.stringify(gen0)})`);
-  // 2026-09-12 (사용자 결정): 방 시설(작업실 · 시뮬레이션실)에는 레벨이 없다 — 강화는 방 안의 가구가 한다
+  // 2026-09-12 (user's decision): a room facility (the workshop · the simulation room) has no level — upgrading is
+  // the job of the furniture inside the room
   const ws0 = await H(() => window.__game.ctx.housing.getFacility('workshop'));
   ok(ws0.level === 1 && ws0.maxLevel === 1 && ws0.nextCost === null && /가구/.test(ws0.blocked ?? ''), `workshop has no level to buy (Lv.1/1, no cost, "${ws0.blocked}")`);
   ok(await H(() => window.__game.ctx.housing.upgrade('workshop') === false), 'upgrade(workshop) refused');
@@ -417,7 +439,7 @@ try {
     ok((await lastEv('housing:facilityUpgraded'))?.id === 'generator', 'housing:facilityUpgraded generator');
     const left2 = { scrap: await count('mat_scrap'), cable: await count('mat_cable'), alloy: await count('mat_alloy') };
     ok(left2.scrap === 20 && left2.cable === 6 && left2.alloy === 2, `generator Lv.2 consumed 폐금속 14 · 케이블 4 · 합금 3 (${JSON.stringify(left2)})`);
-    // 2026-09-12: 발전기가 올라가도 작업실 레벨은 열리지 않는다 — 제작 재료 할인도 없다
+    // 2026-09-12: raising the generator opens no workshop level — and there is no craft material discount either
     ok(await H(() => window.__game.ctx.housing.upgrade('workshop') === false && window.__game.ctx.housing.getRoom(0).level === 1
       && window.__game.ctx.housing.getCraftCostMul() === 1), 'generator 2 still buys no 작업실 level; craft cost stays ×1 (discount abolished)');
     // 시설 증축 with the gate open: 발전기 Lv.2 opens the 온실 (it goes through and pays its materials) but not the 헬스장 (Lv.4)
@@ -438,8 +460,9 @@ try {
   await give('mat_scrap', 20);
   ok((await count('mat_scrap')) === scrapNow + 20, 'top-up');
   const st2blocked = await H(() => window.__game.ctx.housing.getFacility('storage').blocked);
-  // 2026-09-15 3차 (사용자 결정): 사유가 **모자란 재료를 열거하지 않는다** — `Rules.MISSING_MATERIALS_REASON` 한 줄이고,
-  // 무엇이 모자란지는 그 옆의 재료 칩이 `.is-short`(빨강)로 말한다. 발전기 게이트는 예전처럼 제 문장을 돌려준다.
+  // 2026-09-15 3rd pass (user's decision): the reason **does not list the materials that are short** — it is the
+  // one line `Rules.MISSING_MATERIALS_REASON`, and what is short is said by the material chips beside it going
+  // `.is-short` (red). The generator gate still returns its own sentence, as before.
   ok(st2blocked && (st2blocked.includes('재료 부족') || st2blocked.includes('발전기')), `storage Lv2 blocked with a 한국어 reason (${st2blocked})`);
 
   console.log('furniture craft / upgrade');
@@ -473,8 +496,9 @@ try {
     }
   }
 
-  /* ── 2026-09-13 (전력 할당 폐지, 사용자 결정): 발전기 Lv.3 → 5 — 레벨이 곧 지을 수 있는 시설이다 ──────────────────────────
-     Each level's cost (data/facility_upgrades.csv) is checked verbatim, handed over exactly into the 함선 창고, and consumed; the
+  /* ── 2026-09-13 (power allocation dropped): generator Lv.3 → 5 ─────────────────────────────────
+     The user's decision: a generator level **is** the set of facilities that can be built. Each level's cost
+     (data/facility_upgrades.csv) is checked verbatim, handed over exactly into the 함선 창고, and consumed; the
      purpose that level opens stops listing a 발전기 requirement. Lv.5 is the end (`최대 레벨입니다`). */
   console.log('발전기 Lv.3 → 5 · 용도별 증축 게이트 (2026-09-13)');
   const ladder = [
@@ -492,8 +516,9 @@ try {
     ok(await H(() => window.__game.ctx.housing.upgrade('generator') === true), `generator → ${step.lv}`);
     const spent = {};
     for (const c of pre.info.nextCost ?? []) spent[c.defId] = (await count(c.defId)) === before[c.defId];
-    // 2026-09-14 (사용자 결정): `purposeRequirements` 는 **채워진 요구도** 돌려준다 (재료 칩처럼 `현재/필요` 를
-    // 늘 보여 준다 — 모자란지는 칩이 `.is-short` 로 말한다). 그래서 강화 뒤에도 줄은 남고 `have` 가 올라간다.
+    // 2026-09-14 (user's decision): `purposeRequirements` returns a **satisfied requirement** too (it always
+    // shows `현재/필요`, the way a material chip does — whether it is short is said by the chip's `.is-short`).
+    // So the row is still there after an upgrade, with `have` raised.
     const post = await H((p) => ({ level: window.__game.ctx.housing.getFacility('generator').level, req: JSON.parse(JSON.stringify(window.__game.ctx.housing.purposeRequirements(p))) }), step.purpose);
     ok(post.level === step.lv && Object.values(spent).every(Boolean)
       && post.req.length === 1 && post.req[0].have === step.lv && post.req[0].need === step.lv,
@@ -538,10 +563,12 @@ try {
   ok(presets.count === 0 && presets.list === 0 && presets.save === false && presets.apply === null && presets.del === false && presets.untouched,
     '프리셋 기능 제거: 슬롯 0 · 저장 / 적용 / 삭제 모두 거절, 세이브의 presets 는 그대로', JSON.stringify(presets));
   ok(presets.skill === 1 && presets.melee === 1, 'getSkillGainMul = 서재 책뿐 (시뮬레이션 허브 항 없음) — 책이 없으면 ×1', JSON.stringify(presets));
-  // 2026-09-08: 임플란트 아이템도 로드아웃의 일부 — captureLoadout 은 inventory 에 그대로 있다 (프리셋이 없어져도)
+  // 2026-09-08: an implant item is part of the loadout too — `captureLoadout` is still in inventory (even with the
+  // presets gone)
   const cap = await H(() => (typeof window.__game.ctx.inventory.captureLoadout === 'function' ? window.__game.ctx.inventory.captureLoadout() : null));
   ok(cap === null || Array.isArray(cap.implantItems), 'captureLoadout carries implantItems (임플란트 아이템 def ids)', JSON.stringify(cap && cap.implantItems));
-  // 휴식 공간은 서재에 합쳐졌다 — 'any' 가구는 서재에 남고, 빈 방으로 되돌리면 가구 창고로 돌아온다
+  // the lounge was merged into the library — 'any' furniture stays in the library, and turning the room back into
+  // an empty room sends it to the furniture store
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(1, 'library') === true && window.__game.ctx.housing.getPlaced(1).length === 1), "room 1 → 서재 keeps its 'any' locker");
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(1, 'empty') === true && window.__game.ctx.housing.getPlaced(1).length === 0 && window.__game.ctx.housing.getStored().find((s) => s.defId === 'furn_locker')?.qty === 2), 'room 1 → empty recovers the locker');
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(2, 'gym') === true && window.__game.ctx.housing.getRoom(2).level === 1), 'inactive purpose (gym) can still be assigned');
@@ -551,12 +578,13 @@ try {
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(7, 'greenhouse') === false && /하나만/.test(window.__game.ctx.housing.purposeBlock(7, 'greenhouse') ?? '')),
     '2026-09-12: a second 온실 is refused too (every purpose is one per ship)');
 
-  /* ══ 온실 개편 — 재배 스테이션 (2026-09-11, 사용자 결정) ═══════════════════════════════════════════════════
-     옛 재배층(`furn_grow_rack`, 스택 4층 × 4칸 · `getPlots` / `plantSeed`)은 **은퇴**했고, 한 대의 재배 스테이션
-     (`furn_grow_station`, maxLevel 3)의 **레벨이 재배층을 연다**: Lv.1 중앙 · Lv.2 아래 · Lv.3 위, 층당
-     `GROW_SLOTS_PER_TIER`(3)칸. 칸은 **토양을 먼저 붓고**(`fillSoil`) 그 위에 심는다(`plantSeedAt`) — 궁합이 맞으면
-     `SOIL_MATCH_SPEEDUP` 만큼 빨리, 아니면 `SOIL_MISMATCH_PENALTY` 만큼 늦게 여물고, 토양은 수확마다 1회 닳는다.
-     방 4(index 3)가 위에서 온실이 됐으므로 거기에 세운다. */
+  /* ══ The greenhouse rework — the grow station (2026-09-11, user's decision) ═════════════════
+     The old 재배층 (`furn_grow_rack`, a stack of 4 layers × 4 slots · `getPlots` / `plantSeed`) is **retired**, and
+     one grow station's (`furn_grow_station`, maxLevel 3) **level opens the tiers**: Lv.1 the middle · Lv.2 the
+     bottom · Lv.3 the top, `GROW_SLOTS_PER_TIER` (3) slots per tier. A slot has **soil poured in first**
+     (`fillSoil`) and is planted on top of it (`plantSeedAt`) — a matching soil ripens `SOIL_MATCH_SPEEDUP` faster,
+     a mismatched one `SOIL_MISMATCH_PENALTY` slower, and the soil wears once per harvest. Room 4 (index 3) became
+     the greenhouse above, so it is put up there. */
   console.log('온실 재배 스테이션 (2026-09-11)');
   const growCat = await H(() => {
     const h = window.__game.ctx.housing;
@@ -585,13 +613,14 @@ try {
   });
   ok(growApi.length === 0, 'HousingRef 재배 스테이션 API 8종', `missing: ${growApi.join(', ')}`);
   if (growApi.length === 0) {
-    // 제작(폐금속 8 · 케이블 2 · 생체 조직 3) + 검사들이 쓰는 토양 · 씨앗. 강화 재료는 강화 직전에 따로 준다.
+    // the craft (폐금속 8 · 케이블 2 · 생체 조직 3) + the soil · seeds the checks use. Upgrade materials are handed
+  // over separately, right before the upgrade.
     await give('mat_scrap', 16); await give('mat_cable', 6);
     const bio = await give('mat_bio_sample', 8);
-    const soilM = await give('soil_mineral', 4);           // 광물토 (rare) — 4번 붓는다
-    const soilH = await give('soil_humus', 2);             // 부엽토 (common, 내구도가 가장 낮다) — 내구도 0 까지 쓰는 것을 짧게 본다 (2026-09-13)
+    const soilM = await give('soil_mineral', 4);           // 광물토 (rare) — poured 4 times
+    const soilH = await give('soil_humus', 2);             // 부엽토 (common, the lowest durability) — a short look at using it down to durability 0 (2026-09-13)
     const seedM = await give('seed_tuber', 2);             // soilTag mineral, 1 h → crop_tuber
-    const seedH = await give('seed_beanpod', 10);          // soilTag humus,   1 h → crop_beanpod (부엽토를 0 까지 닳리고 한 번 더 심는다)
+    const seedH = await give('seed_beanpod', 10);          // soilTag humus,   1 h → crop_beanpod (wears the 부엽토 down to 0 and plants once more)
     ok(bio >= 3 && soilM === 4 && soilH >= 1 && seedM >= 2 && seedH >= 3,
       `토양 · 씨앗 아이템 준비 (광물 ${soilM} · 부엽토 ${soilH} · 덩이줄기 ${seedM} · 콩깍지 ${seedH})`, JSON.stringify({ bio, soilM, soilH, seedM, seedH }));
     const owned = await H(() => window.__game.ctx.housing.getOwnedSoils());
@@ -608,7 +637,8 @@ try {
     const GS = gs.uid;
     ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_grow_station', 0, 0, 0) === false), '작업실에는 놓을 수 없다 (온실 전용)');
 
-    /* ── 2026-09-13 (사용자 결정): 세 층 모두 Lv.1 부터 열려 있다 — 강화는 층이 아니라 성장 속도다 ── */
+    /* ── 2026-09-13 (user's decision): all three tiers are open from Lv.1 — an upgrade buys growth speed, not a
+     tier ── */
     const slots1 = await H((uid) => window.__game.ctx.housing.getGrowSlots(uid), GS);
     ok(slots1.length === 9, `getGrowSlots → 3층 × 3칸 = 9칸을 늘 돌려준다 (${slots1.length})`);
     ok(slots1.every((s) => !s.locked && s.unlockLevel === 1),
@@ -619,7 +649,7 @@ try {
       '새 칸은 흙도 씨앗도 없다', JSON.stringify(slots1[3]));
     ok(await H((uid) => window.__game.ctx.housing.getGrowSlots(`${uid}-nope`).length === 0, GS), '재배 스테이션이 아닌 uid → 빈 배열');
 
-    /* ── 토양이 먼저다 ── */
+    /* ── The soil comes first ── */
     ok(typeof await H((uid) => window.__game.ctx.housing.plantSeedAt(uid, 0, 0, 'seed_tuber'), GS) === 'string',
       '토양 없이 심으면 거부된다 (한국어 사유)');
     ok(await H(() => window.__game.ctx.inventory.countDefAll('seed_tuber')) === seedM, `거부된 파종은 씨앗을 먹지 않는다 (${seedM}개 그대로)`);
@@ -629,7 +659,8 @@ try {
     ok(await H((uid) => window.__game.ctx.housing.fillSoil(uid, 0, 0, 'soil_mineral'), GS) === null, 'fillSoil(중앙 0, 광물토)');
     ok(await H(() => window.__game.ctx.inventory.countDefAll('soil_mineral')) === soilM - 1, `부은 토양 1개가 소모된다 (${soilM} → ${soilM - 1})`);
     const filled = await H((uid) => window.__game.ctx.housing.getGrowSlots(uid).find((s) => s.tier === 0 && s.slot === 0), GS);
-    // 2026-09-13 (요리 재료 티어): 흙에는 내구도가 있다 — 부은 순간 최대이고, soilUsesLeft = 내구도 0 까지 남은 수확 = ceil(최대 / 수확당 마모)
+    // 2026-09-13 (cooking material tiers): soil has durability — full the moment it is poured, and soilUsesLeft =
+  // the harvests left until durability 0 = ceil(max / wear per harvest)
     const soilWear = await H(async () => (await import('/src/shared/index.ts')).SOIL_WEAR_PER_HARVEST);
     ok(filled.soilDefId === 'soil_mineral' && filled.soilTag === 'mineral' && filled.seedDefId === null
       && filled.soilDurabilityMax > 0 && filled.soilDurability === filled.soilDurabilityMax && filled.soilBonusRatio === 1
@@ -641,17 +672,18 @@ try {
     ok(await H((uid) => window.__game.ctx.housing.getGrowSlots(uid).find((s) => s.tier === 0 && s.slot === 0).soilDefId === null, GS), '비운 칸은 흙 없음');
     ok(await H(() => window.__game.ctx.inventory.countDefAll('soil_mineral')) === soilM - 1, '긁어낸 흙은 돌려주지 않는다 — 남은 횟수가 있어도 버려진다 (사용자 결정)');
 
-    /* ── 궁합: 맞는 토양이 안 맞는 토양보다 빨리 여문다 ── */
+    /* ── The match: a matching soil ripens faster than a mismatched one ── */
     const soilConst = await H(async () => { const S = await import('/src/shared/index.ts'); return { match: S.SOIL_MATCH_SPEEDUP, miss: S.SOIL_MISMATCH_PENALTY }; });
     const grew = await H((uid) => {
       const h = window.__game.ctx.housing;
       const r = { fill: [], plant: [] };
       r.fill.push(h.fillSoil(uid, 0, 0, 'soil_mineral'), h.fillSoil(uid, 0, 1, 'soil_mineral'));
-      r.plant.push(h.plantSeedAt(uid, 0, 0, 'seed_tuber'));      // mineral × mineral = 궁합
-      r.plant.push(h.plantSeedAt(uid, 0, 1, 'seed_beanpod'));    // humus  × mineral = 불일치 (둘 다 growHours 1)
+      r.plant.push(h.plantSeedAt(uid, 0, 0, 'seed_tuber'));      // mineral × mineral = a match
+      r.plant.push(h.plantSeedAt(uid, 0, 1, 'seed_beanpod'));    // humus  × mineral = a mismatch (growHours 1 on both)
       const raw = (h.state.grows ?? []).filter((g) => g.uid === uid);
       r.dur = raw.map((g) => ({ tier: g.tier, slot: g.slot, seed: g.seedDefId, ms: g.readyAt - g.plantedAt }));
-      // 2026-09-13: 세 층이 다 열려 있으므로 칸 번호만으로는 층이 갈리지 않는다 — 중앙 층(tier 0)만 본다
+      // 2026-09-13: with all three tiers open, a slot number alone does not tell the tiers apart — only the middle
+    // tier (tier 0) is read
       r.info = h.getGrowSlots(uid).filter((s) => !s.locked && s.tier === 0).map((s) => ({ slot: s.slot, seed: s.seedDefId, seedTag: s.seedTag, matched: s.matched, ready: s.ready, progress: s.progress }));
       return r;
     }, GS);
@@ -669,7 +701,7 @@ try {
     ok(typeof await H((uid) => window.__game.ctx.housing.clearSoil(uid, 0, 0), GS) === 'string', '심긴 칸의 흙은 긁어낼 수 없다');
     ok(typeof await H((uid) => window.__game.ctx.housing.harvestAt(uid, 0, 0), GS) === 'string', '덜 자란 칸은 수확되지 않는다');
 
-    /* ── 시계를 앞당겨 수확: 토양이 1회 닳는다 ── */
+    /* ── Harvesting with the clock wound forward: the soil wears once ── */
     const ripen = (uid) => H((u) => { for (const g of (window.__game.ctx.housing.state.grows ?? [])) if (g.uid === u && g.readyAt) g.readyAt = Date.now() - 1000; }, uid);
     await ripen(GS);
     const cropBefore = await count('crop_tuber');
@@ -683,8 +715,10 @@ try {
     ok(await H((uid) => window.__game.ctx.housing.harvestAllStation(uid), GS) === 1, 'harvestAllStation → 여문 나머지 한 칸(불일치)도 거둔다');
     ok(await H((uid) => window.__game.ctx.housing.getGrowSlots(uid).filter((s) => !s.locked && s.seedDefId !== null).length === 0, GS), '여문 칸이 남지 않았다');
 
-    /* ── 2026-09-13 (요리 재료 티어, 사용자 결정): 다 닳아도 칸은 **비지 않는다** — 부엽토를 내구도 0 까지 쓰고 한 번 더 심는다 ──
-       (옛 규칙: 「마지막 수확에서 흙이 다 닳으면 칸이 통째로 빈다」 — 이제 보너스만 내구도 비율로 줄어 0 에서 사라진다) */
+    /* ── 2026-09-13 (cooking material tiers, user's decision): worn out, a slot is **not emptied** ──
+       The 부엽토 is used down to durability 0 and planted once more. (The old rule: 「when the soil wears out on the
+       last harvest the whole slot empties」 — now only the bonus shrinks with the durability ratio and disappears
+       at 0.) */
     const drain = await H(async ({ uid, wear }) => {
       const h = window.__game.ctx.housing;
       const at = () => JSON.parse(JSON.stringify(h.getGrowSlots(uid).find((s) => s.tier === 0 && s.slot === 2)));
@@ -712,7 +746,8 @@ try {
     ok(drain.again.every((v) => v === null) && drain.end.soilDefId === 'soil_humus' && drain.end.soilDurability === 0 && drain.end.seedDefId === null,
       '내구도 0 인 흙에도 다시 심고 거둘 수 있다', JSON.stringify({ again: drain.again, end: drain.end }));
 
-    /* ── 강화 = 성장 속도 (2026-09-13, 사용자 결정) — 발전기 게이트는 이 검사의 대상이 아니므로 직접 올린다 ── */
+    /* ── An upgrade = growth speed (2026-09-13, user's decision) — the generator gate is not this check's subject,
+     so it is raised directly ── */
     await H(() => { window.__game.ctx.housing.state.generatorLevel = 5; });
     await give('mat_scrap', 12); await give('mat_cable', 8); await give('mat_circuit', 4); await give('mat_alloy', 8); await give('mat_bio_sample', 14);
     await give('soil_humus', 2); await give('seed_beanpod', 2);
@@ -746,7 +781,7 @@ try {
     ok(lv3.find((s) => s.tier === 1 && s.slot === 0)?.soilDefId === 'soil_mineral',
       '강화는 tier 번호를 바꾸지 않는다 — 아래층에 부어 둔 흙이 그 자리에 그대로 있다');
     ok(await H((uid) => window.__game.ctx.housing.upgradeFurniture(uid), GS) === false, 'Lv.3 이 최대');
-    /* 2026-09-11: 옛 API 는 계약에 남아 있지만 "없는 재배층" 만 답한다 */
+    /* 2026-09-11: the old API is still in the contract but only ever answers "there is no 재배층" */
     ok(await H((uid) => window.__game.ctx.housing.getPlots(uid).length === 0 && window.__game.ctx.housing.harvestAll(uid) === 0
       && typeof window.__game.ctx.housing.plantSeed(uid, 0, 'seed_tuber') === 'string', GS),
     '@deprecated 재배층 API 는 재배 스테이션에 대해 "없는 재배층" 으로 답한다 (getPlots [] · plantSeed 사유 · harvestAll 0)');
@@ -754,9 +789,10 @@ try {
     console.log('  TODO(lead): housing/ 의 재배 스테이션 구현이 아직 없다 — 재배 검사 전부 건너뜀');
   }
 
-  /* ── 아이템 툴팁의 토양 · 씨앗 줄 (`src/ui/hud/ItemTip`, 2026-09-11) ──
-     `.item-chip[data-def-id]` 하나를 `ctx.uiRoot` 에 잠깐 붙여 delegated pointerover 를 태운다 — 재배 화면이
-     아니라 툴팁 자체를 보는 검사라 어느 화면에서 열든 같다. 속성 값은 `SOIL_TAG_COLOR` 로 **인라인**으로만 칠한다. */
+  /* ── The soil · seed lines of the item tooltip (`src/ui/hud/ItemTip`, 2026-09-11) ──
+     One `.item-chip[data-def-id]` is hung on `ctx.uiRoot` for a moment to ride the delegated pointerover — this
+     checks the tooltip itself, not the grow screen, so it is the same whichever screen it is opened from. The tag
+     value is painted **inline** and only inline, from `SOIL_TAG_COLOR`. */
   console.log('아이템 툴팁 — 토양 · 씨앗');
   const tip = await H((ids) => {
     const ctx = window.__game.ctx;
@@ -777,7 +813,8 @@ try {
       const row = (k) => vs[ks.indexOf(k)] ?? null;
       return {
         hidden: card.hidden, ks,
-        // 2026-09-13 (요리 재료 티어): 토양 카드는 「수확 n 회」 대신 내구도 최대 · 소켓 칸 수 (ui/hud/ItemTip)
+        // 2026-09-13 (cooking material tiers): the soil card reads max durability · socket count instead of
+  // 「수확 n 회」 (ui/hud/ItemTip)
         tag: row('속성'), uses: row('수확')?.t ?? null, dur: row('내구도')?.t ?? null, sockets: row('소켓 칸')?.t ?? null,
         want: { dur: window.__game.ctx.loot.getItemDef(id)?.soil?.durability ?? null },
         seedSoil: row('맞는 토양'), grow: row('재배 시간')?.t ?? null,
@@ -842,7 +879,7 @@ try {
       cards: root.querySelectorAll('.sm-cards .fcard').length, purposes: root.querySelectorAll('.sm-purposes .sm-purpose').length,
       head: root.querySelector('.sm-bar-head').textContent };
   });
-  // 2026-09-12: 조종석 row 가 맨 위에 늘 있고 그 아래 방 8 개
+  // 2026-09-12: the 조종석 row is always at the top with the 8 rooms under it
   ok(smDom.rooms === ROOM_COUNT + 1 && /방 1/.test(smDom.on), `방 목록: 조종석 + ${ROOM_COUNT} rows, room 1 active (${smDom.on})`, JSON.stringify(smDom));
   ok(smDom.cards === workshopUtility && smDom.purposes === 0 && /작업실/.test(smDom.head), `가구 목록 for the 작업실 — 시설 가구 tab (${smDom.cards} cards, '${smDom.head}')`);
   /* Phase 9 UI pass: 가구 제작 / 가구 창고 tabs on the side panel */
@@ -861,11 +898,12 @@ try {
   await sleep(120);
   const smStore = await H(() => {
     const root = document.querySelector('.ship-manage');
-    // 2026-09-12: 가구 창고도 시설 가구 / 꾸밈용 가구 하위 탭으로 갈린다 — 지금 켜진 탭의 종류만 센다
+    // 2026-09-12: the furniture store splits into the 시설 가구 / 꾸밈용 가구 sub-tabs too — only the kinds on the tab
+  // that is on are counted
     const h = window.__game.ctx.housing;
     const kind = root.querySelector('.sm-subtab.is-on')?.dataset.kind ?? 'utility';
     const stored = new Set(h.getStored().map((s) => s.defId)
-      .filter((id) => !['none', 'seat'].includes(h.getFurnitureDef(id)?.interaction ?? 'none') === (kind === 'utility')));   // 2026-09-17: 좌석은 꾸밈용
+      .filter((id) => !['none', 'seat'].includes(h.getFurnitureDef(id)?.interaction ?? 'none') === (kind === 'utility')));   // 2026-09-17: a seat is 꾸밈용
     return {
       cardsHidden: root.querySelector('.sm-cards').hidden, storeHidden: root.querySelector('.sm-store').hidden,
       rows: root.querySelectorAll('.sm-store .fcard').length, stored: stored.size,
@@ -876,8 +914,9 @@ try {
   ok(smStore.storeHidden === false && smStore.cardsHidden && smStore.rows === smStore.stored,
     `가구 창고 tab lists every stored def (${smStore.rows} / ${smStore.stored})`, JSON.stringify(smStore));
   ok(smStore.rows === 0 || smStore.firstFits, '이 방에 놓을 수 있는 가구가 목록 맨 위에 온다', JSON.stringify(smStore));
-  /* 2026-09-09: 창고 카드 클릭은 선택만, 배치는 카드 오른쪽 `배치` 버튼(.fcard-place)이 첫 빈 칸에 곧바로 놓는다.
-     맞지 않는 카드(`is-blocked`)와 자리가 없는 카드는 버튼이 꺼지고 `.fcard-note` 가 사유(`<용도> 전용` / `자리 없음`)를 적는다. */
+  /* 2026-09-09: clicking a store card only selects it; placing is the `배치` button on the card's right
+     (`.fcard-place`), which puts the piece straight into the first free cell. On a card that does not fit
+     (`is-blocked`) and on one with no spot the button is off and `.fcard-note` writes why (`<용도> 전용` / `자리 없음`). */
   const smPlace = await H(() => {
     const root = document.querySelector('.ship-manage');
     const cards = [...root.querySelectorAll('.sm-store .fcard')];
@@ -921,8 +960,10 @@ try {
   } else {
     ok(true, 'no placeable store row in 방 1 right now — 배치 click-through skipped', JSON.stringify(smPlace));
   }
-  /* 2026-09-11 (C-27): 자동 배치 2차 패스 — 문 앞 여유 구역을 피해서는 자리가 없을 때만 구역 안을 쓰되, 문 폭 4칸 중
-     인접 2칸은 깊이 전부 비워 둔다. 규칙은 순수 함수라 실제 함선을 건드리지 않고 합성 상태로 검사한다 (우현 방 5 = 문이 x 0 쪽). */
+  /* 2026-09-11 (C-27): auto placement's 2nd pass — the clearance zone in front of the door is used only when there
+     is no spot that avoids it, and even then 2 of the door's 4 cells, the adjacent ones, are left clear to their
+     full depth. The rule is a pure function, so it is checked on a synthetic state without touching the real ship
+     (starboard room 5 = the door is on the x 0 side). */
   const autoPlace2 = await H(async () => {
     const R = await import('/src/housing/Rules.ts');
     const S = await import('/src/shared/index.ts');
@@ -934,9 +975,10 @@ try {
     const mk = (furniture) => ({ rooms: Array.from({ length: S.SHIP_ROOM_COUNT }, () => ({ purpose: 'lounge', level: 1 })), furniture, storage: [] });
     let n = 0;
     const piece = (x, y) => ({ uid: `ap${n++}`, defId: 'furn_crate', room, x, y, yaw: 0, level: 1 });
-    // ① 빈 방: 1차 패스 그대로 — 구역 밖
+    // ① an empty room: the 1st pass as it stands — outside the zone
     const empty = R.autoPlaceSpot(mk([]), room, crate);
-    // ② 구역 밖을 전부 채운다 → 2차 패스가 구역 안을 하나씩 내주다가 통로 두 줄이 남으면 멈춘다
+    // ② fills everything outside the zone → the 2nd pass hands out cells inside it one at a time and stops once
+    // two rows of walkway are left
     const full = [];
     for (let x = 0; x < COLS; x++) for (let y = 0; y < ROWS; y++) if (!inZone(x, y)) full.push(piece(x, y));
     const st = mk(full);
@@ -949,7 +991,8 @@ try {
     }
     const allInZone = taken.every(([x, y]) => inZone(x, y));
     const passageLeft = R.doorPassageOpen(st, room);
-    // ③ 손으로 이미 통로를 막아 둔 방(인접 두 줄이 없다): 2차 패스는 아무것도 주지 않지만 `canPlaceAt` 은 그대로 허용한다
+    // ③ a room whose walkway is already blocked by hand (the two adjacent rows are gone): the 2nd pass gives
+    // nothing, but `canPlaceAt` still allows it
     const blocked = mk([...full, piece(door.x, door.y), piece(door.x, door.y + 2)]);
     const blockedSpot = R.autoPlaceSpot(blocked, room, crate);
     const manualStillOk = R.canPlaceAt(blocked, room, crate, door.x, door.y + 1, 0);
@@ -1014,7 +1057,8 @@ try {
   });
   ok(clrConf.open && /제거/.test(clrConf.title) && clrConf.chips > 0,
     '시설 제거 asks first and shows the materials it hands back', JSON.stringify(clrConf));
-  // 2026-09-12 (사용자 결정): 시설 제거 확정은 빨간 `시설 제거` 버튼을 1초 누르고 있어야 한다 — 클릭으로는 안 된다
+  // 2026-09-12 (user's decision): confirming a facility removal needs the red `시설 제거` button held for 1 s — a
+  // click does not do it
   const clickOnly = await H((i) => { document.querySelector('.ship-manage .sm-confirm .sm-confirm-ok').click(); return window.__game.ctx.housing.getRoom(i)?.purpose ?? null; }, spare);
   ok(clickOnly !== 'empty', `a plain click on 시설 제거 does not confirm (${clickOnly})`);
   await H(() => document.querySelector('.ship-manage .sm-confirm .sm-confirm-ok').dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true })));
@@ -1056,12 +1100,12 @@ try {
       `${label} 로 시설 관리를 닫아도 일시정지 메뉴가 뜨지 않는다`, JSON.stringify(left));
   }
 
-  // 2026-09-12 (프리셋 기능 제거): openPresetMenu 는 아무것도 열지 않는다 — 프리셋 메뉴 DOM 자체가 없다
+  // 2026-09-12 (the preset feature dropped): `openPresetMenu` opens nothing — there is no preset menu DOM at all
   await H(() => window.__game.ctx.housing.openPresetMenu());
   await sleep(100);
   const preDom = await H(() => ({ el: !!document.querySelector('.preset-menu'), open: window.__game.ctx.housing.isMenuOpen, blocker: window.__game.ctx.uiBlockers.has('housing') }));
   ok(!preDom.el && !preDom.open && !preDom.blocker, 'openPresetMenu() is a no-op — no preset panel, no blocker', JSON.stringify(preDom));
-  // 조종석은 시설 관리의 편집 대상이다 (방 목록 맨 위)
+  // the cockpit is one of the things 시설 관리 edits (at the top of the 방 목록)
   await H((C) => window.__game.ctx.housing.openShipManage(C), COCKPIT);
   await sleep(120);
   const cockMng = await H((C) => {
@@ -1087,7 +1131,8 @@ try {
     window.__realProfileDesc = Object.getOwnPropertyDescriptor(net, 'profile') ?? null;
     Object.defineProperty(net, 'profile', { value: fake, configurable: true, writable: true });
   });
-  // 2026-09-12: 방 9 는 없다 (방 8 개) · 휴식 공간은 지을 수 없다 → 방 7(index 6) 과 서재로 같은 검사를 한다
+  // 2026-09-12: there is no room 9 (8 rooms) · the lounge cannot be built → the same check runs on room 7
+  // (index 6) and the library
   await give('mat_scrap', 40); await give('mat_alloy', 10); await give('mat_cable', 4);
   await H(() => { window.__game.ctx.housing.setRoomPurpose(6, 'kitchen'); window.__game.ctx.housing.save(); });
   ok(await H(() => window.__fakeProfile.sets.includes('ship') && window.__fakeProfile.docs.ship.rooms[6].purpose === 'kitchen'), "offline profile (available false): save still calls profile.set('ship') — ProfileSync queues it (Phase 9)");
@@ -1149,7 +1194,8 @@ try {
   ok(after.generatorLevel === before.generatorLevel && after.storageLevel === 1 && after.rooms[0].level === before.rooms[0].level, `facility levels persisted (gen ${after.generatorLevel}, storage ${after.storageLevel})`);
   ok(after.furniture.length === before.furniture.length && after.furniture.some((f) => f.uid === 'f-11' && f.defId === 'furn_bench_gun') && after.furniture.filter((f) => f.room === COCKPIT).length === 6, `furniture persisted incl. the cockpit's 조종석 전용 시설 + 꾸밈 가구 (${after.furniture.length})`);
   ok(JSON.stringify(after.furnitureStorage) === JSON.stringify(before.furnitureStorage), 'furniture storage persisted');
-  // 2026-09-12 (프리셋 기능 제거): savePreset 은 거절되고 세이브의 presets 필드는 손대지 않은 채 그대로 오간다
+  // 2026-09-12 (the preset feature dropped): `savePreset` is refused and the save's presets field travels through
+  // untouched
   ok(JSON.stringify(after.presets) === JSON.stringify(before.presets), 'presets field persisted untouched (feature removed, save kept)', JSON.stringify(after.presets));
   ok(await H(() => window.__game.ctx.housing.getStashSize().rows === 30), 'stash size 30 rows after reload');
   await give('mat_scrap', 20); await give('mat_cable', 4);   // the bag is not persisted — only the stash is
@@ -1166,19 +1212,22 @@ try {
   await setup();
   const san = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
   const sanStore = san.furnitureStorage.map((e) => e.defId).sort().join(',');
-  /* 2026-09-07: no room-1 invariant any more. 2026-09-14 (사용자 결정 — `NEEDS_GREENHOUSE` 가 비었다):
-     연구실은 더 이상 온실을 먼저 요구하지 않으므로 방 1 은 **연구실로 남고** 방 레벨만 1 로 깎인다
-     (발전기 Lv.5 = clamp 99 → 5 라 증축 게이트도 통과한다). 나머지 정리(잘못된 방 · 겹침 · 프리셋)는 그대로다. */
+  /* 2026-09-07: no room-1 invariant any more. 2026-09-14 (user's decision — `NEEDS_GREENHOUSE` is empty):
+     the lab no longer asks for a greenhouse first, so room 1 **stays a lab** and only its room level is cut to 1
+     (generator Lv.5 = clamp 99 → 5, so it passes the build gate too). The rest of the sanitizing (a wrong room ·
+     an overlap · presets) is unchanged. */
   ok(san.rooms.length === ROOM_COUNT && san.rooms[0].purpose === 'lab' && san.rooms[0].level === 1 && san.generatorLevel === 5 &&san.furniture.filter((f) => f.room !== COCKPIT).length === 1 && san.furniture.find((f) => f.room !== COCKPIT)?.uid === 'f-3' && san.furniture.find((f) => f.room !== COCKPIT)?.defId === 'furn_crate' && san.furniture.filter((f) => f.room === COCKPIT).map((f) => f.uid).sort().join(',') === 'f-4,f-5,f-6,f-7,f-8,f-9' && san.presets[0].name === '프리셋' && san.presets[0].implant === null && (san.presets[0].implantItems ?? []).join(',') === 'imp_strength_1', `corrupt save sanitised: 연구실은 온실 없이도 남는다 (2026-09-14), gen clamped, bad rooms / purpose / overlap dropped (${JSON.stringify({ r0: san.rooms[0], g: san.generatorLevel, f: san.furniture, p: san.presets[0] })})`);
-  /* 2026-09-12: 예전에는 여기 `furn_repair_bench` 가 같이 나왔다 — v1→v2 마이그레이션이 옛 프로필에 정비 벤치를
-     한 개 지급했기 때문이다. 정비 벤치가 은퇴하면서 그 지급도 걷어냈으므로(지급 줄이 은퇴 가구를 걸러 내는
-     두 자리보다 **아래**에 있어, 남겨 두면 배치도 안 되는 가구가 가구 창고에 쌓였다) 이제 작업대 하나뿐이다. */
+  /* 2026-09-12: `furn_repair_bench` used to come out here as well — the v1→v2 migration granted an old profile one
+     정비 벤치. That grant was taken out along with the retirement of the 정비 벤치 (the grant line sits **below** the
+     two places that filter retired furniture out, so leaving it piled furniture that could not even be placed into
+     the furniture store), so there is only the one bench now. */
   ok(sanStore === 'furn_bench_gun', `furniture that no longer fits its room went to storage, not the bin (${sanStore})`);
 
-  /* ── 온실 개편 (2026-09-11): v3 세이브의 옛 재배층은 **사라지고 재료가 함선 창고로 돌아온다** ──
-     `FurnitureDef.retired` 의 계약: 배치돼 있든 가구 창고에 있든 `ShipState.sanitize` 가 그 가구를 걷어내고
-     `craft` 재료를 창고로 환불한다. 함께 남아 있던 v3 `plots` 도 같이 사라진다 (사용자 결정: 옛 것 폐기).
-     세이브를 심기 전에 `save()` 로 디바운스를 비운다 — pagehide flush 가 심어 둔 파일을 덮어쓰면 검사가 무의미해진다. */
+  /* ── The greenhouse rework (2026-09-11): a v3 save's old 재배층 **disappears and its materials come back** ──
+     The `FurnitureDef.retired` contract: placed or in the furniture store alike, `ShipState.sanitize` sweeps that
+     furniture out and refunds its `craft` materials into the stash. The v3 `plots` left beside it go with it (the
+     user's decision: the old is dropped). The debounce is flushed with `save()` before the save is seeded — a
+     pagehide flush overwriting the seeded file would make the check meaningless. */
   console.log('세이브 마이그레이션 (v3 옛 재배층 → 은퇴 + 환불)');
   const rackCraft = await H(() => (window.__game.ctx.housing.getFurnitureDef('furn_grow_rack')?.craft ?? []).map((c) => ({ defId: c.defId, qty: c.qty })));
   ok(rackCraft.length > 0, `옛 재배층의 제작 재료가 def 에 남아 있다 (환불의 근거) — ${JSON.stringify(rackCraft)}`);
@@ -1192,7 +1241,7 @@ try {
   await H(() => window.__game.ctx.housing.save());
   await H(() => {
     const st = JSON.parse(localStorage.getItem('scav.s1.ship'));
-    st.version = 3;                                   // v3 = 온실 개편 이전
+    st.version = 3;                                   // v3 = before the greenhouse rework
     st.rooms[6] = { purpose: 'greenhouse', level: 1 };
     st.furniture = st.furniture.filter((f) => f.room !== 6);
     st.furniture.push({ uid: 'f-700', defId: 'furn_grow_rack', room: 6, x: 0, y: 0, yaw: 0, level: 1, layer: 0 });
@@ -1213,7 +1262,8 @@ try {
       room6: h.getRoom(6).purpose,
     };
   });
-  // 환불은 `ctx.inventory` 가 생긴 **첫 프레임**(HousingSystem.update → flushRetiredRefund)에 들어간다 — 한 프레임 기다린다
+  // the refund lands on the **first frame** `ctx.inventory` exists (HousingSystem.update → flushRetiredRefund) —
+  // one frame is waited out
   await waitFor(page, (want) => {
     const inv = window.__game.ctx.inventory;
     const items = typeof inv?.getStashItems === 'function' ? inv.getStashItems() : [];
@@ -1221,7 +1271,8 @@ try {
     return n >= want.n;
   }, '은퇴 가구 환불', 15000, { id: refundIds[0], n: (stashBeforeMig[refundIds[0]] ?? 0) + rackCraft[0].qty * 2 }).catch(() => null);
   const stashAfterMig = await stashOf(refundIds);
-  ok(mig.version === 14, `로드하면 세이브가 v14 로 올라온다 (v${mig.version})`);   // 2026-09-13: v10 = 조종석 전용 시설 · 꾸밈 가구, v11 = 요리 재료 티어, v13 = 전력 할당 폐지 · 2026-09-16: v14 = 표본 개편 · 프로세서 칸
+  ok(mig.version === 14, `로드하면 세이브가 v14 로 올라온다 (v${mig.version})`);   // 2026-09-13: v10 = cockpit-only facilities · decor furniture, v11 = cooking material tiers, v13 = power
+  // allocation dropped · 2026-09-16: v14 = the sample rework · processor slots
   ok(!mig.anyRack && !mig.placed.includes('furn_grow_rack') && mig.room6 === 'greenhouse',
     '배치된 · 창고의 옛 재배층이 모두 사라진다 (온실 방 자체는 남는다)', JSON.stringify(mig));
   ok(mig.plots === 0, `v3 의 plots 도 함께 사라진다 (${mig.plots})`);
@@ -1237,7 +1288,8 @@ try {
   const emptyRoomSay = await H(() => { const h = window.__game.ctx.housing; const i = h.state.rooms.findIndex((r) => r.purpose === 'empty'); return { i, say: i < 0 ? null : h.removeRoomFacility(i), rooms: h.state.rooms.map((r) => r.purpose).join(',') }; });
   ok(/빈 방/.test(emptyRoomSay.say ?? ''), `removeRoomFacility on a 빈 방 refuses with a reason (방 ${emptyRoomSay.i}: ${emptyRoomSay.say} — ${emptyRoomSay.rooms})`);
   ok(await H(() => window.__game.ctx.housing.facilityRefund(2).length === 0), 'a room with no facility refunds nothing');
-  // 2026-09-12: 시뮬레이션실은 지을 수 없다 — 같은 검사를 채굴 시설로 한다 (증축 재료 = 환불 재료)
+  // 2026-09-12: the simulation room cannot be built — the same check runs on the mining facility (build materials
+  // = refunded materials)
   await give('mat_circuit', 4); await give('mat_alloy', 6);
   const mineSetup = await H(() => {
     const h = window.__game.ctx.housing;
@@ -1269,9 +1321,11 @@ try {
   ok(removed.refund.every((c) => removed.stashAfter[c.defId] === removed.stashBefore[c.defId] + c.qty),
     `build materials refunded into the 함선 창고 (${JSON.stringify(removed.stashBefore)} → ${JSON.stringify(removed.stashAfter)})`);
 
-  /* ── 2026-09-12: 방 시설 레벨 제거 — v6 → v7 마이그레이션 (순수 함수, 실제 함선은 건드리지 않는다) ──
-     사격장 Lv.n 은 관물대 · 시뮬레이션 허브 레벨로 옮겨지고(배치된 것은 max, 창고에만 있으면 한 점), 둘 다 없으면 쓴
-     재료가 환불된다. 작업실 Lv.n 은 옮길 곳이 없어 늘 환불이다. 이미 v7 인 세이브는 다시 옮기지 않는다. */
+  /* ── 2026-09-12: room facility levels removed — the v6 → v7 migration (a pure function, the real ship is left
+     alone) ──
+     A 사격장 Lv.n moves into the 관물대 · 시뮬레이션 허브 levels (max for a placed one, a single piece when it is
+     only in the store), and with neither of them there the materials spent are refunded. A 작업실 Lv.n has nowhere
+     to go, so it is always a refund. A save that is already v7 is never moved again. */
   console.log('세이브 마이그레이션 — v7 방 시설 레벨 · v8 방 8 개 / 시뮬레이션실 · 휴식 공간 제거 / 조종석');
   const migRooms = await H(async () => {
     const S = await import('/src/housing/ShipState.ts');
@@ -1283,7 +1337,7 @@ try {
     const bag = (list) => Object.fromEntries([...new Set(list.map((x) => x.defId))].sort().map((id) => [id, q(list, id)]));
     const def = (id) => SH.FURNITURE_DEF_MAP.get(id);
     const retiredLeft = (st) => st.furniture.concat(st.furnitureStorage).some((x) => def(x.defId)?.retired);
-    // A: v6 — 작업실 Lv.3 (방 1) + 사격장 Lv.4 (방 6, 관물대 배치) + 창고의 시뮬레이션 허브 ×2
+    // A: v6 — 작업실 Lv.3 (room 1) + 사격장 Lv.4 (room 6, a 관물대 placed) + 시뮬레이션 허브 ×2 in the store
     const a = rooms10(); a[0] = { purpose: 'workshop', level: 3 }; a[5] = { purpose: 'range', level: 4 };
     const outA = { refund: [] };
     const sa = S.sanitize({ ...base, version: 6, rooms: a,
@@ -1295,7 +1349,8 @@ try {
     R.mergeCost(wantA, R.roomRefundCost('range', 1));
     R.mergeCost(wantA, R.legacyRoomLevelCost('range', 4));
     R.mergeCost(wantA, R.legacyRoomLevelCost('workshop', 3));
-    // B: v7 10-room save — 방 9 주방 (식탁) · 방 10 서재 (책장 + 책 1권) · 방 7 휴식 공간 (사물함) · 방 4 온실 · 가구 창고에 시술대
+    // B: a v7 10-room save — room 9 kitchen (식탁) · room 10 library (책장 + 1 book) · room 7 lounge (사물함) ·
+    // room 4 greenhouse · a 시술대 in the furniture store
     const b = rooms10(); b[3] = { purpose: 'greenhouse', level: 1 }; b[6] = { purpose: 'lounge', level: 1 }; b[8] = { purpose: 'kitchen', level: 1 }; b[9] = { purpose: 'library', level: 1 };
     const outB = { refund: [] };
     const sb = S.sanitize({ ...base, version: 7, rooms: b,
@@ -1309,11 +1364,11 @@ try {
     const wantB = [];
     for (const p of ['lounge', 'kitchen', 'library']) R.mergeCost(wantB, R.roomRefundCost(p, 1));
     R.mergeCost(wantB, [{ defId: 'book_drill_ar_1', qty: 1 }]);
-    // C: v7, 8 rooms, 작업실 Lv.3 — 다시 옮기지 않는다 (공용 시설 가구만 채워진다)
+    // C: v7, 8 rooms, 작업실 Lv.3 — never moved again (only the 공용 시설 가구 are filled in)
     const c = rooms10().slice(0, 8); c[0] = { purpose: 'workshop', level: 3 };
     const outC = { refund: [] };
     const sc = S.sanitize({ ...base, version: 7, rooms: c, furniture: [], furnitureStorage: [] }, outC);
-    // D: 그 결과(v8, 두 점을 다 가진 세이브)를 다시 읽으면 아무것도 바뀌지 않는다
+    // D: reading the result back (v8, a save that has both pieces) changes nothing
     const outD = { refund: [] };
     const sd = S.sanitize(JSON.parse(JSON.stringify(sc)), outD);
     const inCockpit = (st) => st.furniture.filter((f) => f.room === SH.COCKPIT_ROOM_INDEX);
@@ -1326,9 +1381,10 @@ try {
     Object.assign(bayE, { room: 1, x: 0, y: 0, yaw: 0 });
     const outE = { refund: [] };
     const se = S.sanitize(JSON.parse(JSON.stringify(fe)), outE);
-    /* F (2026-09-13, v13 — 전력 할당 폐지): a v12 save at 발전기 Lv.2 with a 서재 (방 2, 책장 placed) · 온실 (방 4) · 연구실 (방 5).
-       서재 needs Lv.4 and 연구실 Lv.3 → both removed, their 시설 증축 refunded, the 책장 to furniture storage; the 온실 (Lv.2) stays.
-       The old power fields are dropped. */
+    /* F (2026-09-13, v13 — power allocation dropped): a v12 save at 발전기 Lv.2 with a library (room 2, a 책장
+       placed) · a greenhouse (room 4) · a lab (room 5). The library needs Lv.4 and the lab Lv.3 → both removed,
+       their 시설 증축 refunded, the 책장 to furniture storage; the greenhouse (Lv.2) stays. The old power fields
+       are dropped. */
     const f8 = rooms10().slice(0, 8); f8[1] = { purpose: 'library', level: 1 }; f8[3] = { purpose: 'greenhouse', level: 1 }; f8[4] = { purpose: 'lab', level: 1 };
     const outF = { refund: [] };
     const sf = S.sanitize({ ...base, version: 12, generatorLevel: 2, rooms: f8,
@@ -1390,8 +1446,9 @@ try {
      The reported bug ("재료가 충분해 보이는데 제작이 안 됨"): the picker only explained a block in a tooltip on a disabled
      button and the generator could not be raised from that screen. Now there is a 발전기 row under the 방 목록, every
      block reason is printed inline, and each build / upgrade is confirmed in a centred popup.
-     2026-09-13 (전력 할당 폐지, 사용자 결정): the generator starts at Lv.1, so a fresh ship builds its 작업실 straight away — the
-     row has no 가동 / `is-hint` any more. 2026-09-14 (사용자 결정): the per-level unlock list (`.sm-gen-unlocks`) is gone too —
+     2026-09-13 (power allocation dropped, user's decision): the generator starts at Lv.1, so a fresh ship builds its
+     작업실 straight away — the row has no 가동 / `is-hint` any more. 2026-09-14 (user's decision): the per-level
+     unlock list (`.sm-gen-unlocks`) is gone too —
      each 용도 카드 carries its own 발전기 칩 (`buildFacilityChip`, `현재/필요`); the higher purposes print
      `발전기 레벨 N 필요 (현재 M)`. The 기본 지급품 covers the 작업실 **or** 발전기 Lv.2, so the 케이블 is topped up before Lv.2. */
   console.log('fresh ship → 작업실 → 발전기 Lv.2 from 시설 관리 (Phase 12 · 2026-09-13)');
@@ -1424,8 +1481,8 @@ try {
     return { gen: !!gen, hint: gen?.classList.contains('is-hint') ?? null, rowBlocked: gen?.classList.contains('is-blocked') ?? null, inPicker: !!root.querySelector('.sm-purposes .sm-gen'),
       genBtn: gen?.querySelector('.sm-gen-btn')?.textContent, genDisabled: gen?.querySelector('.sm-gen-btn')?.disabled, genChips: gen?.querySelectorAll('.sm-cost .item-chip').length,
       genNote: gen?.querySelector('.sm-block')?.textContent ?? '', lv: gen?.querySelector('.hd .lv')?.textContent ?? '',
-      // 2026-09-14 (사용자 결정): 레벨별 해금 목록(`.sm-gen-unlocks`)은 없어졌다 — 「이 용도는 발전기 Lv.n 이 필요하다」는
-      // 용도 지정 카드의 **발전기 칩**(`buildFacilityChip`)이 그 자리에서 말한다
+      // 2026-09-14 (user's decision): the per-level unlock list (`.sm-gen-unlocks`) is gone — 「this purpose needs
+      // generator Lv.n」 is said on the spot by the **generator chip** (`buildFacilityChip`) on the 용도 지정 card
       unlocks: root.querySelectorAll('.sm-gen-unlock, .sm-gen-unlocks').length };
   });
   const pick0 = await H(() => {
@@ -1437,7 +1494,7 @@ try {
       reasons: [...root.querySelectorAll('.sm-purposes .sm-purpose .sm-block')].map((e) => e.textContent),
       workshopBlocked: root.querySelector('.sm-purpose[data-purpose="workshop"]')?.classList.contains('is-blocked') ?? null,
       why: Object.fromEntries(['workshop', 'greenhouse', 'kitchen', 'lab', 'gym', 'library', 'mining'].map((p) => [p, reasonOf(p)])),
-      // 2026-09-14: 용도 카드마다 발전기 레벨 칩 (`현재/필요`, 모자라면 `.is-short`)
+      // 2026-09-14: a generator level chip on every purpose card (`현재/필요`, `.is-short` when short)
       chips: Object.fromEntries(['workshop', 'greenhouse', 'kitchen', 'lab', 'gym', 'library', 'mining'].map((p) => {
         const c = root.querySelector(`.sm-purpose[data-purpose="${p}"] .facility-chip`);
         return [p, c ? `${c.querySelector('.facility-chip-have').textContent}/${c.querySelector('.facility-chip-need').textContent}${c.classList.contains('is-short') ? '!' : ''}` : ''];
@@ -1454,7 +1511,8 @@ try {
     JSON.stringify({ unlocks: gen0Row.unlocks, chips: pick0.chips }));
   ok(pick0.purposes === assignableN && pick0.blocked === assignableN - 1 && pick0.disabled === 0 && pick0.workshopBlocked === false && pick0.why.workshop === '',
     `작업실 is buildable on a fresh ship; the other ${assignableN - 1} purposes are blocked but none is a disabled button (${pick0.blocked} blocked, ${pick0.disabled} disabled)`, JSON.stringify(pick0));
-  // 2026-09-14 (사용자 결정 — `NEEDS_GREENHOUSE` 가 비었다): 연구실 · 주방도 온실이 아니라 **발전기 레벨**이 막는다
+  // 2026-09-14 (user's decision — `NEEDS_GREENHOUSE` is empty): the lab · the kitchen are blocked by the
+  // **generator level** too, not by a greenhouse
   const genGated = assignable.filter((a) => a.need > 1);
   ok(pick0.reasons.length === assignableN - 1 && genGated.every((a) => pick0.why[a.p] === `발전기 레벨 ${a.need} 필요 (현재 1)`),
     `each blocked row prints its reason inline — 발전기 레벨 N 필요 per purpose (온실 선행은 없어졌다) (${genGated.map((a) => `${a.p}: ${pick0.why[a.p]}`).join(' · ')})`, JSON.stringify(pick0.why));
@@ -1513,7 +1571,8 @@ try {
   ok(gen2.level === 2 && gen2.mats === '2,0,0', `확인 → 발전기 Lv.2, 폐금속 16 → 2 · 케이블 4 → 0 · 합금 3 → 0 (${gen2.mats})`);
   ok(gen2.lv === 'Lv.2 / 5' && gen2.unlocks === 0, `row refreshed: ${gen2.lv} (해금 목록 없음)`, JSON.stringify(gen2));
   // another empty room's picker follows: 온실 is no longer 발전기-gated (only short of materials), 헬스장 · 연구실 still are
-  // (2026-09-14: 온실 선행이 없어져 연구실도 발전기 레벨이 막는다), and every card carries its 발전기 칩
+  // (2026-09-14: with the greenhouse prerequisite gone, the lab is blocked by the generator level too), and every
+  // card carries its 발전기 칩
   await H(() => window.__game.ctx.housing.setManageRoom(7));
   await sleep(150);
   const pick2 = await H(() => {
@@ -1527,7 +1586,7 @@ try {
   await H(() => window.__game.ctx.housing.setManageRoom(3));
   await sleep(150);
 
-  /* ── 2026-09-12: 가구 제작 하위 탭 · 이미 보유 중 · 선택 → 위치 이동 상태 · 놓을 수 없는 곳 토스트 ─────────── */
+  /* ── 2026-09-12: craft sub-tabs · owned · select → move state · refused toast ─── */
   console.log('시설 관리 — 하위 탭 · 위치 이동 상태 (2026-09-12)');
   const lockerUid = await H(() => {
     const h = window.__game.ctx.housing;
@@ -1568,7 +1627,7 @@ try {
   ok(decor.seatsDecor, '2026-09-17: 의자 · 쇼파는 꾸밈용 가구 탭에 있다 (작업실에도 놓인다)', JSON.stringify(decor));
   await H(() => document.querySelector('.ship-manage .sm-subtab[data-kind="utility"]').click());
 
-  // 선택만 한다: 시설 관리의 클릭 경로(`primary`)는 놓인 조각을 집지 않는다
+  // only selects: 시설 관리's click path (`primary`) does not pick up a placed piece
   const guideLabels = () => H(() => window.__game.getSystem('hud').keyGuide.entries.map((e) => e.label).join(' · '));
   const pickNot = await H((uid) => {
     const m = window.__game.getSystem('hub').housing;
@@ -1582,7 +1641,7 @@ try {
   await waitSim(0.15);
   const sel1 = await H(() => ({ open: window.__game.getSystem('hud').shipManage.isInspectOpen, uid: window.__game.getSystem('hud').shipManage.inspectedUid,
     moveBtn: !!document.querySelector('.ship-manage .sm-ins-move') }));
-  // 2026-09-12 (사용자 결정): 인스펙터의 위치 이동 버튼은 없어졌다 — E 또는 LMB 꾹 누르기로 든다
+  // 2026-09-12 (user's decision): the inspector's move button is gone — a piece is lifted with E or by holding LMB
   ok(sel1.open && sel1.uid === lockerUid && !sel1.moveBtn, 'selected → 인스펙터 (no 위치 이동 button any more)', JSON.stringify(sel1));
   ok((await guideLabels()) === '위치 이동 · 닫기', `key guide while selected: E 위치 이동 only (${await guideLabels()})`);
   await H((uid) => window.__game.ctx.bus.emit('housing:moveRequested', { uid }), lockerUid);
@@ -1592,7 +1651,7 @@ try {
   ok(mv1.moving && mv1.uid === lockerUid && mv1.ev?.active === true && mv1.ev?.uid === lockerUid,
     'housing:moveRequested → move state (housing:moveStateChanged)', JSON.stringify(mv1));
   ok((await guideLabels()) === '설치 · 회전 · 회수 · 닫기', `key guide in the move state: LMB 설치 · R 회전 · X 회수 (${await guideLabels()})`);
-  // 놓을 수 없는 곳: 방 밖 · 겹침 → 거부 + 인스펙터 위 토스트, 상태는 그대로
+  // a spot it cannot go: outside the room · an overlap → refused + a toast above the inspector, state unchanged
   const refused = await H(() => {
     const m = window.__game.getSystem('hub').housing;
     m.cursorInRoom = false; m.placeMoving();
@@ -1616,7 +1675,7 @@ try {
   }, lockerUid);
   ok(placedOk.at[0] === placedOk.spot.x && placedOk.at[1] === placedOk.spot.y && !placedOk.moving && placedOk.inspected === lockerUid,
     'a valid click puts it down and ends the move state (인스펙터 stays on the piece)', JSON.stringify(placedOk));
-  // E 로 들고 C 로 되돌린다 (제자리)
+  // lifted with E and put back with C (in place)
   await tap('KeyE');
   await waitSim(0.15);
   const byE = await H(() => ({ moving: window.__game.getSystem('hub').housing.moving }));
@@ -1632,7 +1691,7 @@ try {
   const byX = await H((uid) => ({ gone: !window.__game.ctx.housing.getPlacedByUid(uid), rec: window.__ev['housing:furnitureRecovered'].at(-1)?.uid,
     moving: window.__game.getSystem('hub').housing.moving, open: window.__game.getSystem('hud').shipManage.isInspectOpen }), lockerUid);
   ok(byX.gone && byX.rec === lockerUid && !byX.moving && !byX.open, 'X in the move state recovers the piece and closes the 인스펙터', JSON.stringify(byX));
-  // 가구 창고에서 새로 놓는 것도 같은 상태다 — 놓으면(남은 수량이 있어도) 끝난다
+  // placing a new piece from the furniture store is the same state — it ends once placed (even with quantity left)
   const fromStore = await H(async () => {
     const h = window.__game.ctx.housing, m = window.__game.getSystem('hub').housing;
     h.state.furnitureStorage.push({ defId: 'furn_crate', level: 1, qty: 2 });
@@ -1655,10 +1714,11 @@ try {
   await H(() => window.__game.ctx.housing.closeShipManage());
   await sleep(80);
 
-  /* ── 2026-09-12: 원격 가구 연출 (캐릭터 버프 · 가구 자세 동기화 §6-C) ─────────────────────────────────────────────
-     같은 함선(`hubSite`)의 분대원 ref 가 `furniturePose.furnitureUid` 로 가리키는 조각을 그 사람의 위상으로 돌린다. 릴레이 없이
-     `hub.debugRemoteFurniture` 로 가짜 ref 를 심는다 (HudSystem.debugRemotes 와 같은 모양). 조각의 움직이는 그룹은 이름으로 찾는다
-     — `FurnitureLeisure` 의 rigGroup 이름: barbell · plates · belt · crank · flywheel. */
+  /* ── 2026-09-12: remote furniture presentation (character buffs · furniture pose sync §6-C) ─────
+     The piece a squadmate ref on the same ship (`hubSite`) points at through `furniturePose.furnitureUid` is turned
+     by that person's phase. With no relay, a fake ref is planted with `hub.debugRemoteFurniture` (the same shape
+     as `HudSystem.debugRemotes`). A piece's moving group is found by name — the rigGroup names of
+     `FurnitureLeisure`: barbell · plates · belt · crank · flywheel. */
   console.log('원격 가구 연출 (2026-09-12)');
   const gymRoom = await H(() => {
     const h = window.__game.ctx.housing;
@@ -1681,7 +1741,8 @@ try {
   const bikeUid = gymRoom >= 0 ? await placeGym('furn_exercise_bike') : null;
   ok(!!rackUid, `a 벤치 랙 is placed in a 헬스장 (room ${gymRoom}) — treadmill ${treadUid} · bike ${bikeUid}`);
   await waitFor(page, (uid) => !!window.__game.getSystem('hub').furnitureLayer?.objectOf(uid), 'bench rack model', 10000, rackUid);
-  // rig 읽기: 바 y · 원반 보임 · 벨트 z · 크랭크 x (모델이 재빌드되면 그룹이 바뀌므로 매번 uid 로 다시 찾는다)
+  // reading the rig: bar y · plates visible · belt z · crank x (the groups change when the model is rebuilt, so
+  // they are looked up by uid every time)
   const rigState = (uids) => H((u) => {
     const layer = window.__game.getSystem('hub').furnitureLayer;
     const g = (uid) => (uid ? layer.objectOf(uid) : null);
@@ -1698,7 +1759,7 @@ try {
   const poseUid = await H((uid) => window.__game.getSystem('hub').furnitureLayer.poseFor(uid)?.furnitureUid ?? null, rackUid);
   ok(poseUid === rackUid, `poseFor(bench rack).furnitureUid names the piece (${poseUid})`);
   ok(rest0.plates === false && Math.abs(rest0.barY - (0.4 + 0.81 - 0.07)) < 1e-3 && rest0.staged === '', 'at rest: plates hidden, bar on its J hooks (y 1.14), nothing staged', JSON.stringify(rest0));
-  // 가짜 원격 분대원: 우리와 같은 함선 · 벤치 랙 위상 0 (가슴)
+  // a fake remote squadmate: the same ship as ours · bench rack phase 0 (at the chest)
   await H((u) => {
     const hub = window.__game.getSystem('hub');
     const mk = (id, slot, pose) => ({ id, name: `원격 ${slot}`, slot, connected: true, stale: false, suspended: false, hubSite: hub.hubSite, furniturePose: pose });
@@ -1709,34 +1770,35 @@ try {
     ];
     hub.debugRemoteFurniture(window.__fpRemotes);
   }, U);
-  await waitSim(0.8);   // UNRACK_S 0.6 초 — 바가 거치대에서 가슴 위로 다 옮겨 간다
+  await waitSim(0.8);   // UNRACK_S 0.6 s — the bar finishes moving off the rack and over the chest
   const low = await rigState(U);
   ok(low.plates === true && Math.abs(low.barY - (0.4 + 0.5)) < 0.01 && Math.abs(low.barZ - (0.6 - 0.03)) < 0.01,
     `remote bench phase 0 → plates on, bar on the chest (y ${low.barY?.toFixed(3)} ≈ 0.90, z ${low.barZ?.toFixed(3)} ≈ 0.57)`, JSON.stringify(low));
   ok(low.staged.includes(`bench:${rackUid}`), `layer.remoteStage lists the bench (${low.staged})`);
   if (bikeUid) ok(Math.abs(low.crankX - (-Math.PI / 2)) < 1e-3, `remote bike 0.25 revolutions → crank −π/2 (${low.crankX?.toFixed(3)})`);
   const belt0 = low.beltZ;
-  // 위상을 옮긴다: 벤치 1 (팔 다 편 자리) · 트레드밀 +1 걸음 · 사이클 +2.5 바퀴
+  // the phase is moved on: bench 1 (arms fully extended) · treadmill +1 stride · bike +2.5 turns
   await H(() => { const r = window.__fpRemotes; r[0].furniturePose.phase = 1; if (r[1].furniturePose) r[1].furniturePose.phase = 11; if (r[2].furniturePose) r[2].furniturePose.phase = 2.75; });
   await waitSim(0.1);
   const high = await rigState(U);
   ok(Math.abs(high.barY - (0.4 + 0.81)) < 0.01 && Math.abs(high.barZ - (0.6 + 0.06)) < 0.01, `remote bench phase 1 → bar at arms' length (y ${high.barY?.toFixed(3)} ≈ 1.21)`, JSON.stringify(high));
-  // 한 걸음 = RUN_BELT_SPEED 2.4 / RUN_STRIDE_HZ 2.8 m, 줄무늬 간격 0.18 로 감긴다
+  // one stride = RUN_BELT_SPEED 2.4 / RUN_STRIDE_HZ 2.8 m, wound on at a 0.18 stripe pitch
   const stride = 2.4 / 2.8, spacing = 0.18, wrap = (x) => ((x % spacing) + spacing) % spacing;
   if (treadUid) ok(Math.abs(high.beltZ - wrap(belt0 + stride)) < 1e-3, `remote treadmill +1 step → belt +${stride.toFixed(3)} m wrapped (${belt0?.toFixed(3)} → ${high.beltZ?.toFixed(3)})`);
   if (bikeUid) ok(Math.abs(high.crankX - (-Math.PI * 2 * 0.75)) < 1e-3, `remote bike 2.75 revolutions → crank −1.5π (${high.crankX?.toFixed(3)})`);
-  // 위상이 0 으로 되돌아가도 (자세 재시작) 벨트는 거꾸로 감기지 않는다 · 방을 다시 지어도 새 rig 가 곧바로 같은 자리를 받는다
+  // even when the phase goes back to 0 (a pose restart) the belt never winds backwards · and rebuilding the room
+  // hands the new rig the same position at once
   await H((room) => { const r = window.__fpRemotes; if (r[1].furniturePose) r[1].furniturePose.phase = 0; window.__game.getSystem('hub').furnitureLayer.rebuildRoom(room); }, gymRoom);
   await waitSim(0.1);
   const rebuilt = await rigState(U);
   ok(rebuilt.plates === true && Math.abs(rebuilt.barY - (0.4 + 0.81)) < 0.01, 'a rebuilt room: the new bench model is found by uid and staged again (plates on, bar up)', JSON.stringify(rebuilt));
   if (treadUid) ok(Math.abs(rebuilt.beltZ - high.beltZ) < 1e-3, `treadmill phase reset 11 → 0: belt does not spin back (${high.beltZ?.toFixed(3)} → ${rebuilt.beltZ?.toFixed(3)})`);
-  // 다른 함선에 있는 분대원은 연출하지 않는다
+  // a squadmate on another ship is not animated
   await H(() => { const r = window.__fpRemotes; for (const x of r) x.hubSite = 'someone-else'; });
   await waitSim(0.1);
   const otherSite = await rigState(U);
   ok(otherSite.staged === '' && otherSite.plates === false && Math.abs(otherSite.barY - (0.4 + 0.81 - 0.07)) < 1e-3, 'a remote in another hubSite stages nothing — rig restored', JSON.stringify(otherSite));
-  // 같은 함선으로 돌아와 다시 올라간 뒤, 자세가 끝나면(furniturePose null) 원래대로
+  // once back on the same ship and up on it again, it returns to rest when the pose ends (furniturePose null)
   await H(() => { const hub = window.__game.getSystem('hub'); for (const x of window.__fpRemotes) x.hubSite = hub.hubSite; });
   await waitSim(0.8);
   const again = await rigState(U);
@@ -1747,9 +1809,11 @@ try {
     `the pose ends → plates hidden, bar back on the hooks (y ${ended.barY?.toFixed(3)}), nothing staged`, JSON.stringify({ again, ended }));
   await H(() => { window.__game.getSystem('hub').debugRemoteFurniture(null); delete window.__fpRemotes; });
 
-  /* ── 2026-09-13: 요리 미니게임 (hub §6-4) — 조리대 · 자동 조리 가구 E 배선 · 조리 연출 ─────────────────────────────────────
-     조리대 E = `openCookStation(그 uid)`, 자동 조리 가구 E = 함선의 조리대 uid 로 같은 화면. 세션 · 단계 · 박자 이벤트는 버스로 직접 흘려
-     hub 연출만 본다 (조리대 화면 · 미니게임 판정은 smoke-cooking 몫). 도구 그룹 이름은 `FurnitureKitchen.cookBenchTools` 의 `cook-*`. */
+  /* ── 2026-09-13: the cooking minigame (hub §6-4) — E wiring of 조리대 · auto appliances · presentation ───
+     E on a 조리대 = `openCookStation(that uid)`, E on an auto appliance = the same screen on the ship's 조리대 uid.
+     The session · step · beat events are pushed straight onto the bus and only hub's presentation is read (the
+     조리대 screen · the minigame judgement are smoke-cooking's business). The tool group names are the `cook-*` of
+     `FurnitureKitchen.cookBenchTools`. */
   console.log('조리대 · 자동 조리 가구 · 조리 연출 (2026-09-13)');
   const kitchen = await H(() => {
     const h = window.__game.ctx.housing;
@@ -1777,7 +1841,8 @@ try {
       const calls = [];
       h.openCookStation = (uid) => { calls.push(uid); };
       const bi = it(u.bench), gi = it(u.grill);
-      // 2026-09-16 (접시 모델): 식탁 가구가 없으면 조리대 · 자동 조리 가구 프롬프트가 그렇게 말한다 — 식탁이 있을 때의 프롬프트는 질의를 덮어 본다
+      // 2026-09-16 (the plate model): with no 식탁 the 조리대 · auto appliance prompts say so — the prompt with a 식탁
+  // present is checked by overriding the query
       const noTable = { bench: bi?.getPrompt() ?? null, grill: gi?.getPrompt() ?? null, has: h.hasDiningTable() };
       h.hasDiningTable = () => true;
       const prompts = { bench: bi?.getPrompt() ?? null, grill: gi?.getPrompt() ?? null, noTable };

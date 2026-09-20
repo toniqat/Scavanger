@@ -1,5 +1,5 @@
-// game/ smoke: the 브라우저 재개 게이트 ('좌측 클릭으로 게임 재개'), the desktop-shell cursor rules, the way the
-// 일시정지 메뉴 stacks over an open screen, and **ESC 닫기** (2026-09-09).
+// game/ smoke: the browser resume gate ('좌측 클릭으로 게임 재개'), the desktop-shell cursor rules, the way the
+// 일시정지 메뉴 stacks over an open screen, and **the ESC close** (2026-09-09).
 //
 // The gate's trigger is a screen whose re-lock the browser refuses — a screen closed by its own key (Tab / M / E)
 // re-locks at once because a real key carries activation, while **Escape carries none**. 2026-09-09: ESC closes the
@@ -48,13 +48,13 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts on its own on a fresh profile and
+    // locks room purpose · craft · terminal · boarding in that order, so it is marked "already done" here
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs checks).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     // Realistic lock stub: grant = lock taken (async `pointerlockchange`, like the real thing); refuse = rejected promise.
     window.__lockCalls = { req: 0, exit: 0, refused: 0, lastReqAt: 0 };
-    // 2026-09-10: Escape 가 페이지에 닿은 시각 — 재잠금 요청이 그 키를 피해 갔는지 재는 기준.
+    // 2026-09-10: when Escape reached the page — the baseline for judging whether the re-lock dodged that key.
     window.__escAt = 0;
     window.addEventListener('keydown', (e) => { if (e.code === 'Escape') window.__escAt = performance.now(); }, true);
     window.__lockEl = null;
@@ -258,7 +258,7 @@ try {
   await waitState('(s) => !s.menuVis && s.locked', '게임으로 돌아가기 → locked', 5000);
   ok((await state()).locked && !(await state()).gateVis, '게임으로 돌아가기 (a click) re-locks without a gate');
 
-  /* ── 8. ESC 닫기: 맨 위 화면 하나 (2026-09-09) ───────────────────────────── */
+  /* ── 8. The ESC close: one screen, the top one (2026-09-09) ──────────────── */
   console.log('8. ESC 는 열린 화면 중 맨 위 하나를 닫는다 (브라우저도) — 비어 있을 때만 일시정지 메뉴');
   await grant(false);
   await openContainer('test:8');
@@ -278,11 +278,11 @@ try {
   await P(() => [...document.querySelectorAll('.menu.pause button')].find((b) => b.textContent.includes('게임으로 돌아가기')).click());
   await waitState('(s) => !s.menuVis && s.locked', 'resumed (8)', 5000);
 
-  /* ── 8b. ESC 로 닫은 뒤의 재잠금은 그 키를 피해서 나간다 (2026-09-10) ─────────
-   * exe 에서 ESC 로 화면을 닫으면 조작이 죽고 좌클릭을 해야 살아나던 문제. Escape 를 처리하는 중에 락을
-   * 요청하면 Chromium 이 허가했다가 같은 Escape 로 도로 가져가고(= 사용자 해제) 그 뒤 ~1.25초 동안 모든
-   * 재요청을 거부한다 — 어떤 제스처로도 앞당겨지지 않는다. 그래서 `Input` 은 Escape 를 뗀 뒤
-   * `LOCK_ESCAPE_DEFER_MS` 가 지나서야 요청을 **한 번** 보낸다. */
+  /* ── 8b. The re-lock after an ESC close goes out around that key (2026-09-10) ─
+   * In the exe, closing a screen with ESC killed control until a left click brought it back. A lock requested while
+   * Escape is being handled is granted by Chromium and taken straight back by that same Escape (= a user exit), after
+   * which every re-request is refused for ~1.25 s — no gesture brings that forward. So `Input` sends the request
+   * **once**, and only after `LOCK_ESCAPE_DEFER_MS` has passed since Escape was released. */
   console.log('8b. ESC 로 화면을 닫으면 재잠금 요청이 Escape 를 피해 나가고, 클릭 없이 카메라가 돌아온다');
   await openContainer('test:8b');
   await waitState('(s) => s.invVis && s.cursor', 'container for the deferred-relock test', 5000);
@@ -297,7 +297,7 @@ try {
     'and it waited out the Escape (≥150 ms after the key) instead of asking during it',
     `${Math.round(s.lock.lastReqAt - s.escAt)} ms`);
   ok((await gateEvents()).length === gateN8b, '재개 게이트는 뜨지도 않았다 (요청이 거부되지 않았으므로)');
-  // LIFO: 두 겹으로 열려 있으면 ESC 한 번은 **나중에 열린 것** 하나만 닫는다 (`shared/escape`).
+  // LIFO: with two screens open, one ESC closes only **the one opened later** (`shared/escape`).
   await P(() => {
     const e = window.__game.ctx.escape;
     window.__esc = [];
@@ -315,7 +315,8 @@ try {
   ok((await state()).menuVis && (await P(() => window.__game.ctx.escape.size)) === 0, '스택이 비면 그때 일시정지 메뉴');
   await P(() => [...document.querySelectorAll('.menu.pause button')].find((b) => b.textContent.includes('게임으로 돌아가기')).click());
   await waitState('(s) => !s.menuVis && s.locked', 'resumed after the LIFO check', 5000);
-  // 한 걸음만 되돌린 화면은 **스택에 남는다** (`false` 를 돌려준다) — 하우징 모드가 가구만 내려놓는 경우가 그것이다.
+  // A screen that only stepped one step back **stays on the stack** (it returns `false`) — ship management putting
+  // down the held furniture alone is that case.
   await P(() => {
     const e = window.__game.ctx.escape;
     window.__steps = 0;
@@ -353,12 +354,13 @@ try {
   await P(() => window.__scavShellRelock());
   await waitState('(s) => s.locked', 'hook re-locked', 5000);
   ok((await state()).locked, '__scavShellRelock re-locks once no screen owns the cursor');
-  // 2026-09-10: Alt 커서는 제거됐다 — 셸에서 Alt 를 눌러도 커서 소유자가 생기지 않고 커서는 숨은 채다
+  // 2026-09-10: the Alt cursor is gone — Alt in the shell creates no cursor owner and the cursor stays hidden
   await tap('AltLeft'); await waitSim(0.15);
   s = await state();
   ok(s.blockers.length === 0 && s.nocursor && s.locked, 'Alt no longer shows the OS cursor in the shell (no owner, lock kept)', JSON.stringify(s));
-  // 2026-09-09 (사용자 결정): 셸에서는 **ESC 가 일시정지 메뉴도 닫는다**. 브라우저는 §2 그대로 클릭 전용이다 —
-  // 셸에서만 메인 프로세스가 ESC key-up 에 activation 을 주므로 닫는 즉시 카메라가 돌아온다.
+  // 2026-09-09 (user's decision): in the shell **ESC closes the 일시정지 메뉴 too**. The browser stays click-only, as
+  // in §2 — only in the shell does the main process give the ESC key-up an activation, so the camera comes back
+  // the moment it closes.
   await tap('Escape');
   await waitState('(s) => s.menuVis', 'pause menu (desktop ESC test)', 5000);
   await tap('Escape');

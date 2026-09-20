@@ -1,12 +1,16 @@
-// 2026-09-10 — 씬의 광원 개수 감시. three.js 는 `projectObject` 에서 보이지 않는 가지를 통째로 건너뛰므로
-// 숨긴 그룹 · 씬 밖의 광원은 세지 않는다. 그 개수가 **플레이 중에** 바뀌면 그 프레임에 씬의 모든 머티리얼이
-// 셰이더를 다시 컴파일한다 — 한 프레임이 통째로 멈춘다 (2026-09-10 "함선 도착 렉" 의 정체).
+// 2026-09-10 — watching the scene's light count. three.js skips an invisible branch whole in `projectObject`, so
+// a hidden group · a light outside the scene is not counted. If that number changes **while playing**, every
+// material in the scene recompiles its shader on that frame — one whole frame stalls (what the 2026-09-10 「ship
+// arrival hitch」 really was).
 //
-// 이 스크립트는 세션을 처음부터 끝까지 돌리면서 매 프레임 개수를 세고, **숫자가 한 번이라도 바뀌면 실패**한다.
-// (2차, 2026-09-10) 예전에는 로드 경계(허브 구축 · 미션 시작)를 허용했지만 이제 `core/LightBudget` 이 여분 광원으로
-// 개수를 세션 내내 고정하므로 경계도 예외가 아니다 — 멀티에서 도킹 · 강하가 몇 초씩 멈추던 것이 바로 그 경계였다.
-// 함선 ↔ 도킹 컷씬 ↔ 공유 함선 · 격납고 ↔ 행성, 분대원 포드 강하까지 돈다. 진짜 광원이 예산 안인지도 본다.
-// 지금까지 이 그물에 걸린 것: 탈출 함선 · 신호탄 · 헬포드 · 분대장 기기 · 원격 포드 · 함선 인테리어 (6).
+// This script runs a session from start to finish, counts on every frame, and **fails the moment the number changes
+// even once**. (Second pass, 2026-09-10) load boundaries (building the hub · starting a mission) used to be allowed,
+// but `core/LightBudget` now pins the count for the whole session with padding lights, so a boundary is no exception
+// either — those boundaries were exactly where docking · the drop stalled for seconds in multiplayer.
+// It runs the ship ↔ the docking cutscene ↔ the shared ship · the hangar ↔ a planet, and the squadmate pod drops.
+// It also looks at whether the real lights stay inside the budget.
+// Caught in this net so far: the extraction ship · the flare · the hellpod · the squad-leader device · remote pods ·
+// the ship interior (6).
 //
 // Usage: node scripts/smoke-lights.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
@@ -55,8 +59,9 @@ try {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory, 'boot');
-  // C-44 (2026-09-11): 부팅 때 저장된 화면 설정을 한 번 발행하는 것(`SettingsMenu.bind` → `ui:displayChanged`)은 사용자
-  // 조작이 아니다 — 예전에는 그것이 `perfChecked` 를 세워 자동 블룸 끄기(perf guard)가 한 번도 돌지 않았다.
+  // C-44 (2026-09-11): publishing the stored display settings once at boot (`SettingsMenu.bind` →
+  // `ui:displayChanged`) is not a user action — it used to set `perfChecked`, so the automatic bloom-off (the perf
+  // guard) never ran at all.
   const boot = await page.evaluate(() => ({ perfChecked: window.__game.perfChecked, bloom: window.__game.isPostProcessing, t: window.__game.ctx.time }));
   ok(boot.perfChecked === false || !boot.bloom, `부팅 설정 발행이 perf guard 를 끄지 않는다 (perfChecked ${boot.perfChecked}, t ${boot.t.toFixed(1)} s)`);
   await page.evaluate(() => {
@@ -69,9 +74,10 @@ try {
     window.__log = [];
     // exactly what `WebGLRenderer.projectObject` would collect
     window.__count = () => { let n = 0; window.__game.ctx.scene.traverseVisible((o) => { if (o.isLight && !o.isAmbientLight) n++; }); return n; };
-    // 2026-09-10 2차: 세는 시점은 **그리는 순간**이다 (`scene.onBeforeRender` — three.js 가 광원을 모으기 직전).
-    // 타이머로 세면 전환(네트워크 메시지 핸들러 안의 도킹 시작 등)과 다음 프레임의 여분 광원 보충 사이 — 아무것도
-    // 그려지지 않는 틈 — 까지 잡아서, 셰이더가 한 번도 보지 않은 숫자로 실패한다.
+    // 2026-09-10 second pass: the moment to count is **the moment of drawing** (`scene.onBeforeRender` — right
+    // before three.js gathers the lights). Counting on a timer also catches the gap between a transition (docking
+    // starting inside a network message handler, say) and the next frame topping the padding lights back up — a gap
+    // in which nothing is drawn at all — and then fails on a number no shader ever saw.
     let prev = -1;
     const scene = window.__game.ctx.scene;
     const prevHook = scene.onBeforeRender;
@@ -87,7 +93,8 @@ try {
   const mark = (m) => P((m) => { window.__mark = m; }, m);
   const waitSim = async (s) => { const t0 = await P(() => window.__game.ctx.time); await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${s}s`, 180000, t0 + s); };
 
-  // 진짜 점광원(여분 제외)이 `SCENE_POINT_LIGHT_BUDGET` 안이어야 여분이 개수를 붙잡을 수 있다
+  // The real point lights (padding aside) have to stay inside `SCENE_POINT_LIGHT_BUDGET` for the padding to be
+  // able to hold the count
   const budgetOk = async (label) => {
     const b = await P(() => {
       const L = window.__game.lights;
@@ -103,7 +110,7 @@ try {
   await waitSim(1.0);
   await budgetOk('개인 함선');
 
-  // 도킹 → 공유 함선 · 격납고 → 도킹 해제. 릴레이가 필요하다 (`npm run verify` 러너가 띄운다)
+  // Docking → the shared ship · the hangar → undocking. It needs a relay (the `npm run verify` runner starts one)
   const online = await waitFor(page, () => window.__game.ctx.net?.connected, 'relay', 10000).then(() => true, () => false);
   if (!online) {
     console.log('  skip 도킹 구간 (릴레이 없음 — 단독 실행)');
@@ -140,11 +147,12 @@ try {
   await waitSim(3.0);
   await budgetOk('레이드');
 
-  /* ── 화면 설정 토글 (2026-09-11, C-44) ──────────────────────────────────────────────────────────────────────
-     블룸은 렌더 타깃(컴포저 ↔ 캔버스)을, 그림자는 프로그램 키의 `shadowMapEnabled` 를 바꾸므로 둘 다 lit 머티리얼을
-     한 번 전부 다시 컴파일한다. 값이 **실제로 바뀔 때만** `holdForScene()` 으로 hold 하고, 같은 값이 다시 오면
-     (부팅 · 전체화면 · 해상도) 아무것도 안 한다. hold 가 풀린 뒤 몇 프레임 동안 프로그램이 새로 생기지 않아야
-     "재컴파일이 hold 안에서 끝났다" 이다. 스폰이 끼어들지 않게 그동안 timeScale 을 0 으로 둔다. */
+  /* ── Display setting toggles (2026-09-11, C-44) ───────────────────────────────────────────────────────
+     Bloom changes the render target (the composer ↔ the canvas) and shadows change the program key's
+     `shadowMapEnabled`, so both recompile every lit material once. It holds through `holdForScene()` **only when a
+     value really changes**, and does nothing when the same value arrives again (boot · fullscreen · resolution). No
+     new program appearing over the few frames after the hold is released is what 「the recompile finished inside the
+     hold」 means. timeScale is kept at 0 meanwhile so that no spawn cuts in. */
   await mark('화면 설정 토글');
   const disp0 = await P(() => ({ bloom: window.__game.isPostProcessing, shadows: window.__game.hasShadows, holding: window.__game.shaders.holding }));
   await P(() => { window.__game.ctx.timeScale = 0; });
@@ -173,10 +181,11 @@ try {
   await settle('되돌리기');
   ok(await P(() => window.__game.perfChecked === true), '플레이어가 블룸을 직접 바꾸면 perf guard 는 물러난다 (perfChecked)');
 
-  /* ── perf guard 가 끈 블룸을 설정 화면이 안다 (2026-09-11, C-58) ─────────────────────────────────────────────────
-     guard 는 첫 90 초 · 느린 프레임 240 이 조건이라 스모크에서 자연히 켜지지 않는다 → `debugForcePerfGuard()` 로 같은 경로를
-     돌린다. 설정 행은 저장값(켬)을 그대로 두고 `꺼짐 (성능 자동)` 을 보이고, 토스트 1회, 설정의 다른 재발행(전체화면 ·
-     그림자 · 해상도 = `emitDisplay`)은 블룸을 되켜지 않으며, 플레이어가 행을 한 번 누르면 켜진다. 부팅당 1회. */
+  /* ── The settings screen knows the bloom the perf guard turned off (2026-09-11, C-58) ────────────────
+     The guard needs the first 90 s · 240 slow frames, so it never fires by itself in a smoke → the same path is run
+     through `debugForcePerfGuard()`. The settings row leaves the stored value (on) alone and shows
+     `꺼짐 (성능 자동)`, the toast comes once, the settings' other re-publishes (fullscreen · shadows · resolution =
+     `emitDisplay`) do not turn bloom back on, and one press of the row by the player does. Once per boot. */
   if (disp0.bloom) {
     await mark('perf guard 자동 블룸 끄기 (C-58)');
     const g = await P(() => {
@@ -199,13 +208,13 @@ try {
     await settle('자동 블룸 끄기');
     const re = await P(() => {
       const e = window.__game, s = e.getSystem('hud').settings;
-      s.emitDisplay();   // 전체화면 · 그림자 · 해상도 변경과 부팅 복원이 내는 바로 그 발행
+      s.emitDisplay();   // exactly the publish a fullscreen · shadow · resolution change and the boot restore make
       return { bloom: e.isPostProcessing, holding: e.shaders.holding, sent: window.__c58.disp.slice(), autoOff: s.isBloomAutoOff };
     });
     ok(!re.bloom && !re.holding && re.autoOff && re.sent.at(-1) === false, '설정의 다른 재발행은 guard 가 끈 블룸을 되켜지 않는다 (발행 bloom=false)', JSON.stringify(re));
     const on = await P(() => {
       const e = window.__game, s = e.getSystem('hud').settings;
-      s.bloomRow.click();   // 플레이어가 행을 누른다 (꺼짐 → 켜기)
+      s.bloomRow.click();   // the player presses the row (꺼짐 → 켜기)
       return { bloom: e.isPostProcessing, holding: e.shaders.holding, autoOff: s.isBloomAutoOff, pill: s.bloomRow.textContent, stored: s.displaySettings.bloom };
     });
     ok(on.bloom && on.holding && !on.autoOff && on.pill === '켬' && on.stored === true, '행을 한 번 누르면 블룸이 켜지고 표시는 평소대로', JSON.stringify(on));
@@ -220,14 +229,16 @@ try {
   }
   await P(() => { window.__game.ctx.timeScale = 1; });
 
-  // 분대장 기기의 광원은 기기 안이 아니라 씬에 미리 심겨 있어야 한다 (`game/parts/Leader`)
+  // The squad-leader device's light has to be planted in the scene in advance, not inside the device
+  // (`game/parts/Leader`)
   const led = await P(() => {
     const l = window.__game.ctx.scene.getObjectByName('LeaderDeviceLight');
     return l ? { found: true, intensity: l.intensity } : { found: false };
   });
   ok(led.found && led.intensity === 0, '분대장 기기 광원이 init 때 씬에 심겨 있다 (intensity 0)', JSON.stringify(led));
 
-  // 분대원 포드: 예전에는 처음 강하하는 분대원마다 `new Hellpod()` 가 씬에 들어가 전부 재컴파일했다 (실측 2.7 · 3.1초)
+  // Squadmate pods: a `new Hellpod()` used to enter the scene for every squadmate dropping for the first time
+  // and recompile everything (measured 2.7 · 3.1 s)
   await mark('분대원 포드 강하 (새 peer 둘)');
   const podCount = await P(() => {
     const pods = window.__game.getSystem('remotePlayers')?.pods;
@@ -241,8 +252,8 @@ try {
   ok(podCount === 2, `분대원 포드 둘이 배정된다 (count ${podCount})`);
   await waitSim(4.0);
 
-  // 재접속 복귀 → `hellpod.hide()`, 이어서 구조선 강하 → `hellpod.start()`.
-  // 고치기 전에는 이 둘이 광원 개수를 1 내렸다가 1 올렸다 (= 전체 셰이더 재컴파일 2회).
+  // A rejoin restore → `hellpod.hide()`, then a rescue drop → `hellpod.start()`.
+  // Before the fix these two dropped the light count by 1 and raised it by 1 again (= two full shader recompiles).
   await mark('rejoin restoreState (hellpod.hide)');
   await P(() => {
     const c = window.__game.ctx;
@@ -281,7 +292,8 @@ try {
   const log = await P(() => window.__log);
   console.log('  광원 개수가 바뀐 지점:');
   for (const e of log) console.log(`    ${String(e.from).padStart(3)} → ${String(e.to).padStart(3)}   [${e.phase}] ${e.mark}`);
-  // 허용: 첫 집계(-1) 하나. 로드 경계도 예외가 아니다 (2026-09-10 2차 — `core/LightBudget`).
+  // Allowed: the first tally (-1) alone. A load boundary is no exception either (2026-09-10 second pass —
+  // `core/LightBudget`).
   const bad = log.filter((e) => e.from >= 0);
   ok(bad.length === 0, '세션 내내 씬의 광원 개수가 한 번도 바뀌지 않는다 (함선 · 도킹 · 행성 · 포드 포함)',
     bad.map((e) => `${e.from}→${e.to} @ ${e.mark}`).join(' | '));

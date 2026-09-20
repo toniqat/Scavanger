@@ -6,9 +6,10 @@
 // one done:true, {t:0} on cancel), ship 수리 of a 회복 스프레이 (캔 1 + 소독약 1, a can at gauge 0 stays an item — tooltip
 // `게이지 0 / 200`, broken tile bar, `scav.s1.loadout` round trip), 임플란트 tooltips (장착칸 · stat lines · perk · 망가짐 +
 // repair chips), the catalog's 임플란트 tab and the grid ops progression relies on (tryAddToStash / takeItem …).
-// 2026-09-10 (제작 대개편 2단계): 분해 산출이 **남은 내구도**를 탄다 (미리보기 · 실제 산출이 같은 레시피를 본다),
-// 방탄복 수리가 재료를 실제로 소비한다 (예전에는 공짜였다), 수리 · 분해 팝업에 내구도 구간 표시,
-// 정제 작업대(다섯 번째 작업대) + 제작 패널의 작업대 탭 · 94줄에서의 정렬 · 홀드 중 재배치 금지.
+// 2026-09-10 (the big craft rework, step 2): the 분해 yield follows the **remaining durability** (the preview and
+// the real yield read the same recipe), 방탄복 repair really consumes materials (it used to be free), the repair ·
+// 분해 popups show the durability bucket, the 정제 작업대 (a fifth bench) + the bench tabs of the craft panel ·
+// the sort at 94 rows · no re-layout during a hold.
 // Usage: node scripts/smoke-inventory-p6.mjs [http://localhost:5273/]   (needs `npm run dev`)
 //
 // Timing: Engine clamps dt to 50 ms and the frame rate depends on the machine, so every wait is on simulation time
@@ -53,9 +54,9 @@ try {
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts on its own in a new profile
+    // and locks room purposes · crafting · the terminal · boarding in that order, so it is marked here as
+    // "already finished" (the tutorial itself is covered by scripts/smoke-tutorial.mjs).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -76,10 +77,11 @@ try {
     const canvas = document.getElementById('game-canvas');
     Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
     /**
-     * 2026-09-16 (사용자 결정 「목록은 우리가 그린다」, `src/shared/dropdown.ts`) — 필터는 더 이상 네이티브
-     * `<select>` 가 아니므로 `.value =` 로 몰 수 없다. 사람이 하는 그대로 **트리거를 눌러 목록을 펼치고 항목을
-     * 클릭한다**. 목록(`.dd-pop`)은 `document.body` 바로 아래에 **열려 있는 동안만** 있으므로 창 안에서 찾지
-     * 않는다 — 그것이 스크롤 상자에 안 잘리는 이유이기도 하다. 항목은 글자로 고른다 (`✱ 전체` 처럼 글리프 + 이름).
+     * 2026-09-16 (user's decision 「목록은 우리가 그린다」, `src/shared/dropdown.ts`) — the filter is no longer a
+     * native `<select>`, so it cannot be driven with `.value =`. It is done the way a person does it: **press the
+     * trigger to open the list and click an option**. The list (`.dd-pop`) sits directly under `document.body` and
+     * only **while it is open**, so it is not looked for inside the window — which is also why no scroll box
+     * clips it. An option is picked by its text (a glyph + the name, like `✱ 전체`).
      */
     window.__pickFilter = (scope, label) => {
       const dd = document.querySelector(`${scope} .inv-filter-sel`);
@@ -89,7 +91,7 @@ try {
       if (!pop) throw new Error(`filter list did not open at ${scope}`);
       const opt = [...pop.querySelectorAll('.dd-opt')].find((b) => b.textContent.includes(label));
       if (!opt) throw new Error(`no filter option ${label}`);
-      opt.click();                               // 고르면 목록은 스스로 닫힌다
+      opt.click();                               // picking one closes the list on its own
       if (document.querySelector('.dd-pop')) throw new Error('filter list stayed open after a pick');
     };
     window.__ev = {};
@@ -154,8 +156,9 @@ try {
   ok(cat.onTab === '전체' && cat.search, '전체 tab active, search box present');
   ok(cat.weaponGrades >= 5, `every weapon grade is its own tile (돌격소총 ×${cat.weaponGrades})`);
   ok(cat.hub && cat.leftOfStash, 'catalog sits left of the stash in the ship screen');
-  /* 2026-09-13 (사용자 결정): 무한 상자가 열린 동안에는 무한 상자 · 창고 · 가방만 — 장비 열 · 퀵슬롯 · 주머니는 숨고
-     드롭 대상도 아니며, 하단 안내 줄은 없고, 창은 가로로 스크롤되지 않는다. */
+  /* 2026-09-13 (user's decision): while 무한 상자 is open there is only 무한 상자 · 창고 · 가방 — the equipment
+     column · the quick slots · the pouch are hidden and are not drop targets, there is no hint line at the
+     bottom, and the window never scrolls horizontally. */
   const catLayout = await page.evaluate(() => {
     const root = document.querySelector('.inv-root');
     const shown = (sel) => { const el = root.querySelector(sel); return !!el && !el.hidden && getComputedStyle(el).display !== 'none'; };
@@ -171,7 +174,7 @@ try {
     '무한 상자 배치 — 장비 열 · 퀵슬롯 · 주머니 숨김, 창고 · 가방만, 하단 안내 줄 없음', JSON.stringify(catLayout));
   ok(catLayout.hscroll <= 1, `무한 상자 배치에서 가로 스크롤 없음 (1680 px, 넘침 ${catLayout.hscroll} px)`);
 
-  // tabs: 무기 shows only primary defs (2026-09-10: 보조무기 카테고리 제거)
+  // tabs: 무기 shows only primary defs (2026-09-10: the secondary weapon category was removed)
   await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '무기').click());
   const weaponTab = await page.evaluate(() => {
     const loot = window.__game.ctx.loot;
@@ -213,7 +216,8 @@ try {
   const freeCell = await page.evaluate(() => {
     const inv = window.__game.getSystem('inventory');
     const g = inv.getGrid('bag');
-    // 2026-09-14: 칸 한 변은 창 높이를 탄다 (`inventory/ui/labels.gridCellForHeight`) — 56 · 27 을 적어 두지 않는다
+    // 2026-09-14: a cell's side follows the window height (`inventory/ui/labels.gridCellForHeight`) — 56 · 27 are
+    //   not written down
     const el = document.querySelector('.inv-grid-bag');
     const c = parseFloat(getComputedStyle(el).getPropertyValue('--inv-cell')), step = c + 2;
     for (let y = 0; y < g.rows; y++) for (let x = 0; x < g.cols; x++) if (!g.cellUid(x, y)) {
@@ -248,7 +252,8 @@ try {
   const stashAfter = await page.evaluate(() => { const s = window.__game.getSystem('inventory').getStashItems(); return { n: s.length, alloy: s.filter((i) => i.defId === 'mat_alloy').reduce((n, i) => n + i.qty, 0) }; });
   // 2026-09-07: the 기본 지급품 already put 합금 판 in the 창고, so the drag merges into that stack instead of adding a tile
   ok(stashAfter.n === stashBefore + 1 && stashAfter.alloy > alloyBefore, `mouse drag into the stash created a 합금 판 stack (${alloyBefore} → ${stashAfter.alloy})`);
-  // 2026-09-17 (사용자 결정): 창고와 가방이 둘 다 보이면(함선) 무한 상자 더블클릭은 창고가 먼저다 — 확인한 뒤 그 타일을 걷어 낸다
+  // 2026-09-17 (user's decision): when both 창고 and 가방 are visible (the ship), a 무한 상자 double-click goes
+  //   to the 창고 first — check that, then take the tile back out
   const dblHub = await page.evaluate(() => {
     const sys = window.__game.getSystem('inventory');
     const owned = new Set([...sys.getStashItems(), ...sys.getAllItems()].map((i) => i.defId));
@@ -262,9 +267,11 @@ try {
     return out;
   });
   ok(dblHub && dblHub.r === 'ok' && dblHub.inStash && dblHub.bagSame, '함선: 무한 상자 더블클릭(takeFromCatalog)은 창고로 간다', JSON.stringify(dblHub));
-  /* 2026-09-13 (사용자 결정): 무한 상자가 열린 동안 장비 열은 숨고 드롭 대상도 아니다 — 예전의 「카탈로그 타일을
-     주무기 II 칸에 끌어다 놓기」는 화면에서 할 수 없다. 칸이 숨었는지 보고, 카탈로그 → 장비칸 규칙 자체는 시스템 경로
-     (`dropFromCatalog`, 드롭 판정과 같은 함수)로 검증한다 — 아래 프리셋 검사가 이 AR III 를 주무기 II 로 기대한다. */
+  /* 2026-09-13 (user's decision): while 무한 상자 is open the equipment column is hidden and is not a drop target
+     — the old 「drag a catalog tile onto the 주무기 II slot」 cannot be done on screen any more. The check is that
+     the slot is hidden, and the catalog → equipment slot rule itself is verified through the system path
+     (`dropFromCatalog`, the same function the drop test uses) — the preset check below expects this AR III in
+     주무기 II. */
   await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '무기').click());
   const equipHidden = await page.evaluate(() => getComputedStyle(document.querySelector('.inv-equip')).display === 'none'
     && document.querySelector('.inv-slot-primary2 .inv-slot-body').getBoundingClientRect().width === 0);
@@ -277,7 +284,8 @@ try {
     return l.primary2 ? { r, id: l.primary2.defId, dur: l.primary2.durability, mag: l.primary2.ammoInMag } : { r };
   });
   ok(p2 && p2.id === 'wpn_ar_g3' && p2.dur > 0 && p2.mag > 0, `dropFromCatalog onto 주무기 II equipped a loaded AR III (${JSON.stringify(p2)})`);
-  // double-click → 2026-09-17 (사용자 결정): 창고와 가방이 둘 다 보이는 함선에서는 창고가 먼저 (가방은 그대로)
+  // double-click → 2026-09-17 (user's decision): in the ship, where both 창고 and 가방 are visible, the 창고
+  //   comes first (the 가방 is left alone)
   await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '소모품').click());
   const stimTile = await centre('.inv-cat-item[data-def="heal_bandage"] .inv-tile');
   const stimCount = () => page.evaluate(() => ({ bag: window.__game.ctx.inventory.countWhere((d) => d.id === 'heal_bandage'), stash: window.__game.getSystem('inventory').getStashItems().filter((i) => i.defId === 'heal_bandage').reduce((n, i) => n + i.qty, 0) }));
@@ -329,20 +337,23 @@ try {
   ok(grid.cells === 300, `stash grid re-rendered at 10×30 (${grid.cells} cells)`);
   ok(grid.scrolls && /\/ 300/.test(grid.count), `stash panel scrolls and shows / 300 (${grid.count})`);
 
-  /* ── 2026-09-12: 가방 틀 · 자동 정렬 · 필터 (2026-09-18: 틀 폐지 — 격자 = 장착한 가방, 카드가 장비 열 높이) ── */
+  /* ── 2026-09-12: the bag frame · 자동 정렬 · the filter (2026-09-18: the frame is gone — the grid = the
+     equipped bag, the card takes the equipment column's height) ── */
   console.log('bag box · auto sort · filter');
   const frame = await page.evaluate(() => {
     const sys = window.__game.getSystem('inventory'), g = sys.getGrid('bag');
     const bagDefs = window.__game.ctx.loot.getAllItemDefs().filter((d) => d.bag);
     const el = document.querySelector('.inv-grid-bag');
     const maxRows = Math.max(...bagDefs.map((d) => d.bag.rows));
-    // 2026-09-14: 칸 한 변은 창 높이를 탄다 (`inventory/ui/labels.gridCellForHeight`) — 54 를 적어 두지 않는다
+    // 2026-09-14: a cell's side follows the window height (`inventory/ui/labels.gridCellForHeight`) — 54 is not
+    //   written down
     const cell = parseFloat(getComputedStyle(el).getPropertyValue('--inv-cell'));
     const rect = (sel) => Math.round(document.querySelector(sel).getBoundingClientRect().height);
     return { allFive: bagDefs.every((d) => d.bag.cols === 5), cols: g.cols, rows: g.rows, cells: el.querySelectorAll('.inv-cell').length, cell,
       // offsetHeight, not the bounding rect: the window's open transition (`.inv-layout` scale 0.985) shrank 670 → 660 mid-tween
       h: el.offsetHeight, want: g.rows * (cell + 2) - 2, maxRows,
-      // 2026-09-18 (사용자 결정): 높이를 장비 열에 맞추는 것은 **카드**다 (격자가 아니라) — 둘 다 줄 높이를 받는다
+      // 2026-09-18 (user's decision): what matches the equipment column's height is the **card**, not the grid
+      //   — both take the row height
       cardH: rect('.inv-panel-grids'), equipH: rect('.inv-equip'),
       readoutsInSide: !!document.querySelector('.inv-bag-side > .inv-bag-readouts > .inv-weight') };
   });
@@ -380,16 +391,17 @@ try {
     const bag = read('.inv-grid-bag', 'bag'), stash = read('.inv-grid-stash', 'stash');
     const right = [...bag, ...stash].every((t) => t.dim === (t.cat !== 'ammo'));
     const stashChipOn = document.querySelector('.inv-panel-stash .inv-filter-sel').classList.contains('is-on');
-    // 창고 쪽 컨트롤이 「전체」를 고르면 두 격자가 함께 풀린다 (필터 상태는 창 하나가 들고 있다)
+    // picking 「전체」 on the 창고 side's control clears both grids at once (one window holds the filter state)
     window.__pickFilter('.inv-panel-stash', '전체');
     const cleared = document.querySelectorAll('.inv-tile.is-filtered-out').length === 0;
     return { right, stashChipOn, cleared, n: bag.length + stash.length, ammo: [...bag, ...stash].filter((t) => t.cat === 'ammo').length };
   });
   ok(filt.right && filt.n > 0, `탄약 chip dims every non-ammo tile in the bag and the stash (${filt.ammo}/${filt.n} lit)`, JSON.stringify(filt));
   ok(filt.stashChipOn && filt.cleared, 'the chip state is shared by both grids and 전체 clears the dimming', JSON.stringify(filt));
-  /* 2026-09-16 (사용자 결정 「목록은 우리가 그린다」): 펼친 목록은 **`document.body` 바로 아래**에 떠서 어떤
-     스크롤 상자에도 잘리지 않고(그것이 네이티브를 버린 값이다), 불투명한 어두운 바탕 + 밝은 글자라 호버 전에도
-     읽힌다. 항목 수는 `FILTER_GROUPS` 그대로다 — 스모크에 숫자를 적지 않고 "하나보다 많다"만 본다. */
+  /* 2026-09-16 (user's decision 「목록은 우리가 그린다」): the open list floats **directly under `document.body`**,
+     so no scroll box clips it (that is what dropping the native one bought), and it is an opaque dark background
+     + light text, so it reads before a hover. The option count is `FILTER_GROUPS` as it stands — the smoke
+     writes no number and only checks "more than one". */
   const popLook = await page.evaluate(() => {
     const dd = document.querySelector('.inv-panel-bag .inv-filter-sel');
     dd.querySelector('.dd-trigger').click();
@@ -397,7 +409,7 @@ try {
     if (!pop) return { opened: false };
     const rgba = (s) => (s.match(/[\d.]+/g) ?? []).map(Number);
     const pcs = getComputedStyle(pop);
-    // 고른 항목(`.is-sel`)은 강조색 글자다 — 평범한 목록 칸을 본다
+    // the picked option (`.is-sel`) is in the accent colour — an ordinary list cell is what gets measured
     const opt = pop.querySelector('.dd-opt:not(.is-sel)');
     const ocs = getComputedStyle(opt);
     const bg = rgba(pcs.backgroundColor), fg = rgba(ocs.color);
@@ -405,14 +417,14 @@ try {
     const out = {
       opened: true, onBody: pop.parentElement === document.body, fixed: pcs.position === 'fixed',
       z: Number(pcs.zIndex), opts: pop.querySelectorAll('.dd-opt').length,
-      // 트리거 바로 아래(또는 위)에 붙고 화면 안에 선다
+      // sits right under (or over) the trigger and stays on screen
       placed: Math.abs(r.top - t.bottom) < 40 || Math.abs(r.bottom - t.top) < 40,
       inView: r.left >= 0 && r.right <= window.innerWidth && r.top >= 0 && r.bottom <= window.innerHeight,
       bg: pcs.backgroundColor, fg: ocs.color,
       opaque: bg.length === 3 || bg[3] === 1, dark: Math.max(bg[0], bg[1], bg[2]) < 40,
       light: Math.min(fg[0], fg[1], fg[2]) > 180 && (fg.length === 3 || fg[3] >= 0.7),
     };
-    dd.querySelector('.dd-trigger').click();     // 같은 트리거를 다시 누르면 닫힌다
+    dd.querySelector('.dd-trigger').click();     // pressing the same trigger again closes it
     out.closes = !document.querySelector('.dd-pop');
     return out;
   });
@@ -420,13 +432,14 @@ try {
     'the filter list is our own: a fixed layer under <body> (z 400), placed on the trigger, and it closes again', JSON.stringify(popLook));
   ok(popLook.opaque && popLook.dark && popLook.light, 'filter list: opaque dark background, light option text', JSON.stringify(popLook));
 
-  /* ── 2026-09-16 (사용자 결정): 가방 머리의 `모두 창고로 이동` ─────────────────────────────────────────── */
+  /* ── 2026-09-16 (user's decision): the bag header's `모두 창고로 이동` ──────────────────────── */
   console.log('모두 창고로 이동');
   const moveAll = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     const bag = sys.getGrid('bag'), stash = sys.getStash();
     const tools = [...document.querySelectorAll('.inv-panel-bag .inv-bag-tools > *')].map((n) => n.classList.contains('inv-repair-open-btn') ? 'repair' : n.classList.contains('inv-stash-all-btn') ? 'stashAll' : n.classList.contains('inv-sort-btn') ? 'sort' : n.classList.contains('inv-filter-sel') ? 'filter' : '?');
-    // 가방에 두 개 (하나는 즐겨찾기 — 즐겨찾기도 옮긴다), 퀵슬롯 · 장착 장비는 그대로여야 한다
+    // two in the bag (one of them a favourite — favourites move too); the quick slots · equipped gear must be
+    //   untouched
     const smg = ctx.loot.createItem('wpn_smg', 1), scrap = ctx.loot.createItem('mat_scrap', 2);
     const placed = bag.autoPlace(smg) && bag.autoPlace(scrap);
     const favBefore = i.isFavorite('wpn_smg');
@@ -462,7 +475,7 @@ try {
     const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory'), loot = ctx.loot;
     const bag = sys.getGrid('bag'), stash = sys.getStash();
     const snap = stash.snapshot();
-    // 창고를 꽉 채운 뒤 한 칸만 비운다 — 가득 찬 스택이라 무엇도 합쳐 들어가지 않는다
+    // fill the 창고 and then free a single cell — the stacks are full, so nothing can merge in
     const scrapDef = loot.getItemDef('mat_scrap');
     let last = null;
     for (let y = 0; y < stash.rows; y++) for (let x = 0; x < stash.cols; x++) {
@@ -527,7 +540,8 @@ try {
     const cap = i.captureLoadout();
     return { cap, armor: armorDef?.id ?? null, smg: !!ctx.loot.getItemDef('wpn_smg') };
   });
-  // 2026-09-10: 보조무기가 사라져 starter 는 주무기 I 에 기관단총을 준다; AR III 는 위에서 주무기 II 로 끌어다 놓았다
+  // 2026-09-10: the secondary weapon is gone, so the starter puts a 기관단총 in 주무기 I; the AR III was dragged
+  //   into 주무기 II above
   ok(preset.cap && preset.cap.primary === 'wpn_smg' && preset.cap.primary2 === 'wpn_ar_g3' && preset.cap.secondary === null && preset.cap.bag === 'bag_common', `captureLoadout reflects the current kit (${JSON.stringify(preset.cap)})`);
   const applied = await page.evaluate((p) => {
     const ctx = window.__game.ctx, i = ctx.inventory;
@@ -568,8 +582,9 @@ try {
   const bench = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory;
     const panel = document.querySelector('.inv-panel-craft');
-    /* 2026-09-15 3차: 줄 목록이 **썸네일 격자**가 됐다 — 레시피 하나하나는 `.inv-craft-cell[data-recipe]`,
-       `.inv-craft-row` 는 이제 고른 것 하나의 상세 패널이다 (튜토리얼 선택자를 위해 그 이름을 함께 갖는다). */
+    /* 2026-09-15 3rd pass: the row list became a **thumbnail grid** — each recipe is
+       `.inv-craft-cell[data-recipe]`, and `.inv-craft-row` is now the detail panel of the one that is picked
+       (it keeps that name as well, for the tutorial's selector). */
     const rows = [...panel.querySelectorAll('.inv-craft-cell')].map((r) => ({ id: r.dataset.recipe, locked: r.classList.contains('is-bench-locked') }));
     const all = ctx.loot.getAllRecipes();
     // Phase 8: 분해 (`break_*`) moved to the item right-click menu, so the bench panel no longer lists it
@@ -578,13 +593,15 @@ try {
     const expectLocked = all.filter((r) => r.station === 'ship' && r.bench === 'gun' && (r.benchLevel ?? 1) > 2 && skill(r.skill) >= r.skillRequired).map((r) => r.id);
     return {
       open: i.isOpen, hidden: panel.hidden, blockers: [...ctx.uiBlockers], title: panel.querySelector('.inv-title').textContent,
-      /* 2026-09-16 (사용자 결정): 썸네일에 작업대 레벨 조건을 그리지 않는다 — 잠긴 칸은 `.is-bench-locked` 로만 알아본다.
-         사유는 상세 카드의 홀드 버튼 라벨(`lockedReason`)에 남아 있다. 0 이 아니면 딱지가 되살아난 것이다. */
+      /* 2026-09-16 (user's decision): the bench level requirement is not drawn on the thumbnail — a locked cell
+         is known only by `.is-bench-locked`. The reason lives on in the hold button label of the detail card
+         (`lockedReason`). Anything but 0 means the tag came back. */
       rows, expectOpen, expectLocked, lockTags: panel.querySelectorAll('.inv-craft-locktag').length,
-      // 2026-09-08: 수리 목록은 패널 아래가 아니라 `모두 수리` 가 여는 모달 팝업이다.
-      // 2026-09-14 (사용자 결정): 그 버튼이 **작업대 헤더 → 가방 필터 칩 줄 맨 왼쪽**(`.inv-repair-open-btn`,
-      // `.inv-bag-tools` 안)으로 옮겼다 — 그래서 창(document) 기준으로 찾는다. ⚠ `.inv-repair-all` 은
-      // `RepairPanel` 팝업의 실행 버튼이 이미 쓰는 다른 이름이다.
+      // 2026-09-08: the repair list is not below the panel — it is the modal popup `모두 수리` opens.
+      // 2026-09-14 (user's decision): that button moved **from the bench header to the far left of the bag's
+      // filter chip row** (`.inv-repair-open-btn`, inside `.inv-bag-tools`), so it is looked up against the
+      // document. ⚠ `.inv-repair-all` is a different name, already used by the run button of the `RepairPanel`
+      // popup.
       repairShown: !document.querySelector('.inv-repair-open-btn').hidden,
       timeChips: panel.querySelectorAll('.inv-craft-chip.is-time').length,
       hold: i.craftDuration(expectOpen[0] ?? 'make_wpn_ar'),
@@ -599,13 +616,15 @@ try {
   ok(lockedIds.length === bench.expectLocked.length && bench.expectLocked.every((id) => lockedIds.includes(id)) && bench.lockTags === 0, `${lockedIds.length} locked level-3 rows (${lockedIds.join(', ') || 'none defined yet'})`);
   ok(!openIds.some((id) => bench.expectLocked.includes(id)), 'no level-3 recipe is craftable at level 2');
   ok(bench.repairShown, '가방 필터 줄에 `모두 수리` 버튼이 있다 (2026-09-14 — 작업대 헤더에서 옮겨 왔다)');
-  // 2026-09-08: 모든 레시피가 같은 1 초 홀드 — 시간 칩은 더 이상 그리지 않는다
+  // 2026-09-08: every recipe is the same 1 s hold — the time chip is not drawn any more
   ok(bench.hold === 1 && bench.timeChips === 0, `제작 홀드는 레시피와 무관하게 1 s (${bench.hold} s, 시간 칩 ${bench.timeChips}개)`);
 
-  /* ── 2026-09-15 4차 (사용자 결정): 제작 배치 — 창고 · 가방 격자 없음 · 조합 목록 5칸 · 상세는 오른쪽 별도 카드 · 칸 호버 = 산출물 툴팁 ── */
+  /* ── 2026-09-15 4th pass (user's decision): the craft layout — no 창고 · 가방 grids · the recipe list is 5
+     columns · the detail is a separate card on the right · hovering a cell = the output tooltip ── */
   const craftLayout = await page.evaluate(() => {
     const root = document.querySelector('.inv-root');
-    // 조상 카드(`.inv-panel-grids`)가 `display: none` 이면 자식의 computed display 는 그대로라 — 실제로 그려지는가(`getClientRects`)로 본다
+    // when the ancestor card (`.inv-panel-grids`) is `display: none` a child's computed display is unchanged, so
+    //   the test is whether it is really drawn (`getClientRects`)
     const shown = (sel) => { const el = root.querySelector(sel); return !!el && !el.hidden && el.getClientRects().length > 0; };
     const list = root.querySelector('.inv-craft-list');
     const cols = getComputedStyle(list).gridTemplateColumns.split(' ').filter(Boolean).length;
@@ -635,7 +654,7 @@ try {
     `상세 머리 = 아이콘 좌상단 · 오른쪽 이름 · 그 아래 종류 · 등급 ("${craftLayout.head?.kind}")`, JSON.stringify(craftLayout.head));
   ok(craftLayout.costs >= 1 && craftLayout.btn, '상세에 재료 칩과 제작 버튼이 있다');
   {
-    // 칸에 올리면 산출물의 인벤토리 툴팁 (떠다니는 첫 `.inv-tooltip`) — 떠나면 내려간다
+    // hovering a cell gives the output's inventory tooltip (the first floating `.inv-tooltip`) — leaving hides it
     const cellSel = `.inv-craft-cell[data-recipe="${openIds[0]}"]`;
     const at = await centre(cellSel);
     await page.mouse.move(at.x, at.y, { steps: 3 });
@@ -671,8 +690,9 @@ try {
   });
   ok(JSON.stringify(discount.cost) === JSON.stringify(discount.expect), `craft cost ×0.8 ceil (${discount.id}: ${discount.cost.join('/')})`);
   ok(discount.chip === '작업실 할인 −20 %', `discount chip '${discount.chip}'`);
-  /* ── 5b. 수리 팝업 (2026-09-08) ───────────────────────────────── */
-  // `모두 수리` → 모달 팝업: 닳은 것만 · 가로로 긴 줄(내구도 막대) · 아래에 합계 재료 · × 로 제외
+  /* ── 5b. the repair popup (2026-09-08) ────────────────────── */
+  // `모두 수리` → a modal popup: worn items only · wide rows (a durability bar) · the material totals below ·
+  //   × excludes a row
   const dmg = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory;
     i.tryAddItem(ctx.loot.createItem('mat_scrap', 40));
@@ -702,7 +722,8 @@ try {
   ok(modal.rows.length > 0 && modal.rows.length < modal.full && modal.rows.every((r) => r.bar && r.x),
     `닳은 장비만 줄로 뜬다 — 내구도 막대 + × (${modal.rows.length} / 보유 ${modal.full})`, JSON.stringify(modal.rows));
   ok(modal.totals > 0 && /\(\d+\)/.test(modal.btn), `아래에 합계 재료 ${modal.totals}종 · 버튼 "${modal.btn}"`);
-  // 2026-09-10 (제작 대개편): 수리 재료 = 제작 재료 × 남은 내구도 구간의 배수 — 줄마다 그 구간이 보인다
+  // 2026-09-10 (the big craft rework): repair materials = craft materials × the multiplier of the remaining
+  //   durability bucket — every row shows that bucket
   const repBucket = await page.evaluate(() => ({
     buckets: [...document.querySelectorAll('.inv-modeless-repair .inv-repair-bucket')].map((e) => e.textContent),
     hint: document.querySelector('.inv-modeless-repair .inv-rep-hint')?.textContent ?? '',
@@ -752,28 +773,33 @@ try {
     return { t1, rows, t2, gearBtn, gadgetBtn: !document.querySelector('.inv-repair-open-btn').hidden };
   });
   ok(gear.t1 === '장비 작업대 Lv.1' && gear.gearBtn && !gear.rows.some((n) => /AR|SMG|P-2/.test(n)), `gear bench repairs no weapons (${gear.rows.join(', ') || 'empty'})`);
-  /* 2026-09-12 (정비 벤치 은퇴): 여기는 예전에 `gadget bench has no 수리 button` 이었다. 정비 벤치 가구가
-     사라지면서 "어느 작업대냐" 가 수리의 조건이 아니게 됐고(`parts/Crafting.benchRepairRows` — 함선이면
-     무기 · 방탄복 · 가방 전부, 레이드 중에는 빈 목록), 함선에서는 어느 작업대 창에서도 뜨는 것이 맞다.
-     2026-09-14: 버튼이 아예 작업대 헤더를 떠나 **가방 필터 줄**에 산다 — 작업대와 무관하다는 것이 더 분명해졌다. */
+  /* 2026-09-12 (정비 벤치 retired): this used to be `gadget bench has no 수리 button`. With the 정비 벤치
+     furniture gone, "which bench" stopped being a condition for repair
+     (`parts/Crafting.benchRepairRows` — in the ship it is weapons · 방탄복 · 가방, all of them, and an empty
+     list during a raid), so in the ship it is right for it to show in any bench window.
+     2026-09-14: the button left the bench header altogether and lives on the **bag filter row** — which makes
+     it even plainer that it has nothing to do with the bench. */
   ok(gear.t2 === '가젯 작업대 Lv.1' && gear.gadgetBtn, '가젯 작업대에서도 `모두 수리` 가 보인다 (버튼은 가방 줄에 있다)');
 
-  /* ── 2026-09-10 (제작 대개편 2단계): 가공 작업대 · 작업대 목록 ───────────
-     2026-09-12 (사용자 결정): 가로 탭 줄(`.inv-craft-tabs` + `전체` 탭)이 **맨 왼쪽 세로 작업대 리스트**
-     (`.inv-craft-benches` > `.inv-craft-bench[data-bench]`) 로 바뀌었다. 항목은 `빠른제작`(field) + 함선에
-     **실제로 설치된** 작업대(`getBenchLevel > 0`) 뿐이고 `전체` 탭은 없다 — 94 줄짜리 한 목록을 읽을 수 없다는
-     것이 애초에 탭을 만든 이유였으니, 그 자리를 리스트가 그대로 잇는다. 같은 배치에서 `refine` 의 이름만
-     '정제 작업대' → '가공 작업대' 로 바뀌었다 (kind 는 계약이라 그대로). */
+  /* ── 2026-09-10 (the big craft rework, step 2): 가공 작업대 · the bench list ──
+     2026-09-12 (user's decision): the horizontal tab row (`.inv-craft-tabs` + the `전체` tab) became a **vertical
+     bench list down the far left** (`.inv-craft-benches` > `.inv-craft-bench[data-bench]`). Its entries are
+     `빠른제작` (field) + the benches **actually built** in the ship (`getBenchLevel > 0`), and there is no `전체`
+     tab — one 94-row list being unreadable was why the tabs existed in the first place, so the list takes that
+     job over unchanged. In the same layout only the name of `refine` changed, '정제 작업대' → '가공 작업대' (the
+     kind is a contract and stays). */
   const refine = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     i.openBenchCraft('refine', 3);
     sys['ui'].refreshCraft();
     const title = document.querySelector('.inv-panel-craft .inv-title').textContent;
-    // 작업대를 열고 들어와도 리스트는 뜨고 **그 작업대 항목이 선택된 채**다 (예전엔 탭 줄 자체가 숨었다)
+    // entering through a bench still shows the list, **with that bench's entry selected** (the tab row used to
+    //   hide itself)
     const benchOnEntry = document.querySelector('.inv-craft-bench[data-bench="refine"]')?.classList.contains('is-on') ?? false;
     const refineRecipes = ctx.loot.getAllRecipes().filter((r) => r.bench === 'refine').map((r) => r.outputDefId);
     i.closeBench();
-    // 함선에 작업대가 다 깔린 상태를 흉내낸다 → 가방의 `제작`(작업대 없음) = 작업실 묶음: 빠른제작 + 작업실 작업대 5종
+    // fake a ship with every bench built → the bag's `제작` (no bench) = the workshop set: 빠른제작 + the 5
+    //   workshop benches
     const origBench = ctx.housing.getBenchLevel, origSkill = ctx.progression.getSkill;
     ctx.housing.getBenchLevel = () => 3;
     ctx.progression.getSkill = () => 99;
@@ -782,7 +808,8 @@ try {
     const benchList = () => [...document.querySelectorAll('.inv-craft-bench')].map((b) => ({ id: b.dataset.bench, text: b.textContent, on: b.classList.contains('is-on') }));
     const tabs = benchList();
     const eyebrowField = document.querySelector('.inv-panel-craft .inv-eyebrow').textContent;
-    // 2026-09-13 (사용자 결정): 작업대를 열면 **그 작업대가 속한 시설**의 작업대만 — 연구실 · 주방
+    // 2026-09-13 (user's decision): opening a bench lists only the benches of **the facility that bench belongs
+    //   to** — the lab · the kitchen
     i.openBenchCraft('extract', 3);
     sys['ui'].refreshCraft();
     const labList = benchList();
@@ -791,8 +818,9 @@ try {
     document.querySelector('.inv-craft-bench[data-bench="print"]')?.click();
     const labAfterClick = benchList();
     i.closeBench();
-    /* 2026-09-13 (요리 미니게임): 조리대는 제작 창을 열지 않는다 — 토스트 `조리대에서 요리하세요` 로 끝나고, 조리대 레시피는
-       일반 제작 목록 어디에도 없다 (작업대가 다 깔리고 숙련 99 인 지금도). 조리대를 이름으로 물을 때만 목록이 나온다. */
+    /* 2026-09-13 (the cooking minigame): the 조리대 never opens the craft window — it ends at the toast
+       `조리대에서 요리하세요`, and 조리대 recipes are nowhere in the ordinary craft list (not even now, with every
+       bench built and the skill at 99). The list only appears when the 조리대 is asked for by name. */
     const cookToasts = [];
     const offCookToast = ctx.bus.on('ui:notify', (p) => cookToasts.push(p.text));
     i.openBenchCraft('cook', 2);
@@ -814,10 +842,11 @@ try {
     const rowsAll = document.querySelectorAll('.inv-craft-cell').length;
     document.querySelector('.inv-craft-bench[data-bench="refine"]')?.click();
     const rowsRefine = [...document.querySelectorAll('.inv-craft-cell')].map((r) => r.dataset.recipe);
-    // 정렬 규약: 만들 수 있는 줄이 위로 (2026-09-10). `전체` 가 없어졌으므로 가장 긴 목록인 빠른제작에서 본다
+    // sort rule: craftable rows come first (2026-09-10). With `전체` gone it is checked on 빠른제작, the longest
+    //   list
     document.querySelector('.inv-craft-bench[data-bench="field"]')?.click();
     const ready = [...document.querySelectorAll('.inv-craft-cell')].map((r) => (r.classList.contains('is-locked') ? 0 : 1));
-    // 홀드 중에는 줄을 옮기지 않는다 (누르는 버튼의 DOM 이 움직이면 pointerleave 로 제작이 취소된다)
+    // rows never move during a hold (moving the pressed button's DOM cancels the craft through pointerleave)
     const first = [...document.querySelectorAll('.inv-craft-cell:not(.is-locked)')][0]?.dataset.recipe ?? null;
     let orderKept = true;
     if (first) {
@@ -836,16 +865,19 @@ try {
     };
   });
   ok(refine.title === '가공 작업대 Lv.3', `가공 작업대가 다섯 번째 작업대로 열린다 ('${refine.title}')`);
-  /* 2026-09-13 (암호화폐 채굴): 연산 코어(`refine_compute_core`)가 가공 작업대에 더해져 7 → 8 종.
-     2026-09-16 (사용자 결정 — 연산 코어 폐지 · 채광 개편): 그 줄이 사라지고 연마재 분쇄(`refine_abrasive`)가 들어와 **여전히 8종**이다.
-     프로세서는 이제 가공 작업대가 아니라 연구실 조합대(`mix_processor`)에서 나온다 — 그래서 여기 목록에 없다. */
+  /* 2026-09-13 (crypto mining): the 연산 코어 (`refine_compute_core`) joined the 가공 작업대, 7 → 8 kinds.
+     2026-09-16 (user's decision — the 연산 코어 dropped · the mining rework): that row went and 연마재 분쇄
+     (`refine_abrasive`) came in, so it is **still 8**. The processor now comes from the lab 조합대
+     (`mix_processor`) rather than the 가공 작업대 — which is why it is not in this list. */
   ok(refine.refineRecipes.length === 8 && !refine.refineRecipes.includes('mat_compute_core') && refine.refineRecipes.includes('mat_abrasive'),
     `가공 레시피 8종 · 연산 코어 줄 없음 · 연마재 분쇄 포함 (${refine.refineRecipes.join(', ')})`);
   ok(refine.benchOnEntry, '작업대를 열고 들어오면 리스트에서 그 작업대가 선택된 채다');
-  /* 2026-09-11 (연구실): 추출기 · 조합대가 더해져 7 → 9 종.
-     2026-09-12 (사용자 결정): `전체` 탭이 없어져 **10 개**다 (빠른제작 + 작업대 9종), 그리고 맨 위가 빠른제작이다.
-     2026-09-13 (사용자 결정): 리스트는 **같은 시설**의 작업대만이다 (`data/furniture.csv` 의 room). 가방의 `제작` 은
-     작업실 묶음 = 빠른제작 + 총기 · 장비 · 가젯 · 의학 · 가공 = **6 개**. */
+  /* 2026-09-11 (the lab): the 추출기 · 조합대 joined, 7 → 9 kinds.
+     2026-09-12 (user's decision): with the `전체` tab gone it is **10** (빠른제작 + 9 benches), and 빠른제작 is at
+     the top.
+     2026-09-13 (user's decision): the list holds only the benches of **the same facility** (the room column in
+     `data/furniture.csv`). The bag `제작` is the workshop set = 빠른제작 + 총기 · 장비 · 가젯 · 의학 · 가공 =
+     **6**. */
   const ids = (list) => list.map((t) => t.id).join(',');
   ok(ids(refine.tabs) === 'field,gun,gear,gadget,medical,refine' && refine.tabs.some((t) => t.id === 'refine' && /가공 작업대/.test(t.text)),
     `제작 패널 작업대 목록 = 작업실 묶음 ${refine.tabs.length}개 — 맨 위 빠른제작, 연구실 · 주방 작업대 없음 (${refine.tabs.map((t) => t.text).join(' · ')})`, JSON.stringify(refine.tabs));
@@ -864,7 +896,7 @@ try {
   ok(refine.ready.length > 1 && /^1*0*$/.test(refine.ready.join('')),
     `만들 수 있는 줄이 위로 (준비 ${refine.ready.filter(Boolean).length} / ${refine.ready.length})`);
   ok(refine.orderKept, `홀드 중에는 줄이 움직이지 않는다 (${refine.holdRecipe})`);
-  // 닫기 leaves bench mode, window stays; Tab (또는 Esc — 2026-09-09) closes the window
+  // 닫기 leaves bench mode, window stays; Tab (or Esc — 2026-09-09) closes the window
   await page.evaluate(() => document.querySelector('.inv-craft-close').click());
   await sleep(100);
   const closed = await page.evaluate(() => ({ bench: window.__game.getSystem('inventory').getBench(), panel: document.querySelector('.inv-panel-craft').hidden, open: window.__game.ctx.inventory.isOpen }));
@@ -876,7 +908,7 @@ try {
   const benchMission = await page.evaluate(() => { const ctx = window.__game.ctx; const was = ctx.phase; ctx.phase = 'playing'; ctx.inventory.openBenchCraft('gun', 1); const r = { open: ctx.inventory.isOpen, bench: window.__game.getSystem('inventory').getBench() }; ctx.phase = was; return r; });
   ok(!benchMission.open && benchMission.bench === null, 'openBenchCraft is refused outside the hub');
 
-  /* ── 5b. Phase 12: 분해 게이지 ───────────────────────────────────── */
+  /* ── 5b. Phase 12: 분해 게이지 (the salvage gauge) ───────────────── */
   console.log('분해 게이지');
   await page.evaluate(() => {
     window.__ev['inventory:disassembleProgress'] = [];
@@ -888,15 +920,16 @@ try {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     i.consumeWhere((d) => d.id === 'ammo_light', 9999);
     i.consumeWhere((d) => d.id === 'mat_gunpowder', 9999);
-    /* 수량은 `data/salvage.csv` 에서 유도한다 (2026-09-14 탄약 밸런스로 한 번에 뜯는 발수가 바뀌었다) —
-       한 번 뜯고도 두 번째 홀드를 시작할 수 있도록 두 번분을 만든다. */
+    /* The quantity is derived from `data/salvage.csv` (the 2026-09-14 ammo balance changed how many rounds one
+       salvage takes) — enough for two runs is made, so a second hold can start after the first one. */
     const rec = ctx.loot.getAllRecipes().find((r) => r.id === 'break_ammo_light');
     const need = rec?.inputs?.[0]?.qty ?? 40;
     const powderOut = (rec?.outputDefId === 'mat_gunpowder' ? rec.outputQty : rec?.extraOutputs?.find((o) => o.defId === 'mat_gunpowder')?.qty) ?? 1;
     const stackMax = ctx.loot.getItemDef('ammo_light')?.stackMax ?? need;
     const ammo = ctx.loot.createItem('ammo_light', Math.min(stackMax, need));
     i.tryAddItem(ammo);
-    // 한 스택에 두 번분이 안 들어가면(`stackMax`) 스택을 더 쌓는다 — 재료는 가방 + 창고 합계로 센다
+    // when two runs do not fit in one stack (`stackMax`) more stacks are added — the materials are counted as
+    //   가방 + 창고 together
     while (i.countWhere((d) => d.id === 'ammo_light') < need * 2) {
       const extra = ctx.loot.createItem('ammo_light', Math.min(stackMax, need));
       if (!i.tryAddItem(extra)) break;
@@ -915,11 +948,12 @@ try {
   ok(dis.opened && dis.idle && dis.isBtn, 'openDisassemble: the 분해 button is the gauge and reads empty while idle', JSON.stringify(dis));
   ok(dis.stripped, 'no separate 분해 게이지 bar and no `1회 분해 · n s` hint line');
   ok(dis.running && dis.label === '분해 중…', `분해 button starts the hold (${dis.dur.toFixed(2)} s)`);
-  /* 2026-09-15: 표본을 **한 evaluate 안에서** 모은다. 예전에는 `waitSim(dis.dur * 0.15)` 로 네 번 페이지를
-     왕복했는데, `craftDuration()` 은 언제나 `CRAFT_HOLD_TIME`(1.0 s)이고 `waitSim` 은 Node 에서 100 ms 마다
-     폴링하므로 한 걸음이 0.15 s 가 아니라 0.22 s 쯤이었다 — 부하가 걸리면 3·4 번째 표본을 읽기 전에 작업이
-     끝나 게이지가 0 으로 돌아갔고, "자라고 있다" 가 0 % 를 보고 깨졌다. 재는 것은 처음부터 "홀드가 도는
-     동안 채움이 단조 증가한다" 였으니, 작업이 끝나는 순간(`craftProgress()` null) 표집을 멈춘다. */
+  /* 2026-09-15: the samples are collected **inside one evaluate**. It used to round-trip to the page four times
+     with `waitSim(dis.dur * 0.15)`, but `craftDuration()` is always `CRAFT_HOLD_TIME` (1.0 s) and `waitSim`
+     polls every 100 ms from Node, so one step was about 0.22 s rather than 0.15 s — under load the job finished
+     before the 3rd · 4th sample was read, the gauge went back to 0, and "it is growing" broke on a 0 %. What is
+     measured was always "the fill increases monotonically while the hold runs", so sampling stops the moment the
+     job ends (`craftProgress()` null). */
   const samples = await page.evaluate(async () => {
     const sys = window.__game.getSystem('inventory');
     const p = sys['ui'].disassemblePanel;
@@ -927,14 +961,15 @@ try {
     const out = [];
     const t0 = performance.now();
     while (performance.now() - t0 < 5000) {
-      if (!sys.craftProgress()) break;                 // 끝난 뒤의 0 % 는 표본이 아니다
+      if (!sys.craftProgress()) break;                 // a 0 % after the end is not a sample
       out.push({ w: fill(), t: p.progress });
       await new Promise((r) => setTimeout(r, 60));
     }
     return out;
   });
   const widths = samples.map((s) => s.w);
-  // 마지막 표본이 100 % 인 것은 정상이다 (t = 0.9999 에서 아직 도는 중) — 상한을 걸면 그게 또 타이밍 판정이 된다
+  // a last sample at 100 % is normal (still running at t = 0.9999) — capping it would only make this a timing
+  //   test again
   const grew = widths.length >= 3 && widths.every((w, k) => k === 0 || w >= widths[k - 1]) && widths[0] < 20 && widths[widths.length - 1] > widths[0] + 20;
   ok(grew, `button fill growing across the hold (${widths.length} samples: ${widths.map((w) => w.toFixed(1)).join(' → ')} %)`, JSON.stringify(samples));
   ok(samples.length > 0 && samples.every((s) => Math.abs(s.w - s.t * 100) < 0.2), 'fill width = job progress', JSON.stringify(samples));
@@ -951,7 +986,8 @@ try {
       sameUid: evs.every((e) => e.uid === uid), monotone: before.every((e, k) => k === 0 || e.t >= before[k - 1].t), maxT: Math.max(...before.map((e) => e.t)),
       rateOk: before.length <= Math.ceil(30 * 1.5) + 4,
       emptyAfter: (parseFloat(document.querySelector('.inv-dis-btn .inv-craft-fill').style.width) || 0) === 0, progressAfter: p.progress,
-      // 2026-09-15 3차 (사용자 결정): 산출물은 **함선 창고 먼저** — 가방만 세면 0 이다 (`countDefAll` = 가방 + 창고)
+      // 2026-09-15 3rd pass (user's decision): the outputs go to the **함선 창고 first** — counting only the 가방
+      //   gives 0 (`countDefAll` = 가방 + 창고)
       ammo: i.countWhere((d) => d.id === 'ammo_light'), powder: i.countDefAll('mat_gunpowder'), msg: document.querySelector('.inv-dis-msg')?.textContent,
     };
   }, dis.uid);
@@ -975,8 +1011,9 @@ try {
   ok(cancel.mid.w > 0 && cancel.mid.t > 0 && cancel.mid.evs > 0, `second hold running (t ${cancel.mid.t.toFixed(2)})`, JSON.stringify(cancel.mid));
   ok(cancel.w === 0 && cancel.t === 0 && cancel.job === null && cancel.label === '분해' && cancel.open, 'clicking again cancels: fill emptied, job gone, dialog still open');
   ok(cancel.last && cancel.last.t === 0 && cancel.last.done === false && !cancel.anyDone, 'cancel reports {t:0, done:false} and never done', JSON.stringify(cancel.last));
-  /* 넣을 자리를 먼저 본다 (2026-09-08; 2026-09-09 부터 함선에서는 **가방 → 창고**): no room refuses the 분해
-     up front instead of after the hold. 함선 안이므로 가방만 채워서는 막히지 않는다 — 창고가 받는다. */
+  /* The room is checked first (2026-09-08; since 2026-09-09 in the ship it is **가방 → 창고**): no room refuses
+     the 분해 up front instead of after the hold. Inside the ship, filling only the 가방 does not block it — the
+     창고 takes it. */
   const noRoom = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     const p = sys['ui'].disassemblePanel;
@@ -984,8 +1021,9 @@ try {
     const read = () => ({ room: i.craftHasRoom('break_ammo_light'), disabled: btn().disabled, label: btn().querySelector('span').textContent });
     const before = read();
     /* the 화약 stack this run already made would absorb the output on its own — clear it, then fill every free cell.
-       2026-09-15 3차: 분해 산출이 **창고로** 가므로 창고의 화약도 함께 비운다 — 안 그러면 창고의 부분 스택이
-       산출물을 통째로 흡수해 "자리가 없다"가 될 수 없다 (`roomForOutputs` 의 `dryMerge`). */
+       2026-09-15 3rd pass: the 분해 yield goes **to the 창고**, so the 화약 sitting in the 창고 is emptied too —
+       otherwise a partial stack there absorbs the whole output and "no room" can never happen (`dryMerge` in
+       `roomForOutputs`). */
     i.consumeWhere((d) => d.id === 'mat_gunpowder', 9999);
     const stash0 = sys.getStash();
     for (const p of [...stash0.items()]) if (p.item.defId === 'mat_gunpowder') stash0.remove(p.item.uid);
@@ -994,7 +1032,7 @@ try {
     const stackMax = ctx.loot.getItemDef('mat_scrap')?.stackMax ?? 1;
     for (let k = 0; k < 400; k++) { const it = ctx.loot.createItem('mat_scrap', stackMax); if (!i.tryAddItem(it)) break; junk.push({ uid: it.uid, qty: stackMax }); }
     p.refresh();
-    const bagOnly = read();                       // 2026-09-09: 가방만 꽉 차서는 아직 막히지 않는다
+    const bagOnly = read();                       // 2026-09-09: a full 가방 alone does not block it yet
     // now close the stash too — that is the only state with nowhere left to put the output
     const stash = sys.getStash();
     const stashed = [];
@@ -1016,12 +1054,14 @@ try {
   ok(!noRoom.restored, 'and it comes back once the bag has room again');
   await page.evaluate(() => window.__game.getSystem('inventory')['ui'].disassemblePanel.close());
 
-  /* ── 5b-2. 폐금속 공급 (2026-09-08): 고물 분해 ─────────────────────
-   * 화약은 넘치는데 폐금속만 말라 탄약을 못 만들던 문제의 세 갈래 중 하나. 기계 부품은 `extraOutputs` 로 두
-   * 재료를 한 번에 내고, 무기 / 방탄복 분해는 **클릭한 그 인스턴스**만 사라지며 부착물은 먼저 가방으로 돌아온다. */
+  /* ── 5b-2. the 폐금속 supply (2026-09-08): salvaging 고물 ──────
+   * One of the three branches of the problem where 화약 overflowed while only 폐금속 ran dry and no ammo could
+   * be made. 기계 부품 gives two materials at once through `extraOutputs`, and salvaging a weapon / 방탄복
+   * removes **only the clicked instance**, with the attachments going back to the 가방 first. */
   console.log('고물 분해');
-  /* 2026-09-15 3차 (사용자 결정 「산출물은 함선 창고 먼저」): 분해도 같은 길을 타므로 함선에서는 재료가 **창고**로 간다.
-     그래서 아래 검사들은 ① 비울 때 창고까지 비우고(`__purgeAll`) ② 셀 때 `countDefAll`(가방 + 창고)로 센다. */
+  /* 2026-09-15 3rd pass (user's decision 「산출물은 함선 창고 먼저」): 분해 takes the same path, so in the ship
+     the materials go to the **창고**. The checks below therefore ① empty the 창고 as well (`__purgeAll`) and
+     ② count with `countDefAll` (가방 + 창고). */
   await page.evaluate(() => {
     window.__purgeAll = (pred) => {
       const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
@@ -1057,11 +1097,12 @@ try {
     `기계 부품 1 → 폐금속 ${partsOut.scrap} + 전력 케이블 ${partsOut.cable} (extraOutputs)`, JSON.stringify(partsOut));
   await page.evaluate(() => window.__game.getSystem('inventory')['ui'].disassemblePanel.close());
 
-  // 무기 분해: 같은 돌격소총 두 정 중 클릭한 쪽만, 소켓의 부착물은 가방으로
+  // weapon 분해: of two identical 돌격소총 only the one that was clicked; the socketed attachment goes to the 가방
   const gunSetup = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     window.__purgeAll((d) => d.id === 'mat_scrap' || d.id === 'wpn_dmr' || d.id === 'att_brake');
-    // 2026-09-10: 권총(보조무기)이 사라져 지정사수소총 2정(4×1)으로 검사한다 — 시작 소지품을 건드리지 않고 가방에 들어간다
+    // 2026-09-10: the 권총 (the secondary weapon) is gone, so the check uses two 지정사수소총 (4×1) — they fit
+    //   in the 가방 without touching the starting kit
     const keep = ctx.loot.createItem('wpn_dmr', 1);
     const shred = ctx.loot.createItem('wpn_dmr', 1);
     const brake = ctx.loot.createItem('att_brake', 1);
@@ -1088,8 +1129,9 @@ try {
     `무기 분해는 클릭한 그 한 정만 갈아 폐금속 ${gunOut.scrap} (남은 총 ${gunOut.guns})`, JSON.stringify(gunOut));
   ok(gunSetup.attached && gunOut.brakeBack, '소켓에 물려 있던 총구 제동기는 분해 전에 가방으로 돌아온다');
 
-  // 방탄복 분해. 2026-09-10 (제작 대개편): 산출 = **제작 재료 × 남은 내구도 구간의 배수**(내림) 라서
-  // 만피 방탄복 I(폐금속 10 + 천조각 6 + 구동 코어 2) 은 ×0.40 → 폐금속 4 + 천조각 2 다 (예전 상수 3 이 아니다).
+  // 방탄복 분해. 2026-09-10 (the big craft rework): the yield = **the craft materials × the multiplier of the
+  // remaining durability bucket** (floored), so a full 방탄복 I (폐금속 10 + 천조각 6 + 구동 코어 2) is ×0.40 →
+  // 폐금속 4 + 천조각 2 (not the old constant 3).
   const armorOut = await page.evaluate(async () => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     i.consumeWhere((d) => d.id === 'mat_scrap', 9999);
@@ -1105,9 +1147,10 @@ try {
   ok(armorOut.recipeId === 'break_armor_1' && armorOut.out === 4 && armorOut.station === 'field',
     `방탄복 I 도 현장에서 분해된다 → 폐금속 ${armorOut.out} (${armorOut.recipeId})`, JSON.stringify(armorOut));
 
-  /* ── 2026-09-10: 분해 산출이 남은 내구도를 탄다 ────────────────────────
-     예전에는 `getAllRecipes()` 의 정적 줄(구간 4 기준)을 그대로 썼기 때문에 5 % 남은 방탄복도 만피와 똑같이
-     폐금속 4 + 천조각 2 를 뱉었다. 미리보기 · 자리 검사 · 실제 산출 셋이 같은 레시피를 봐야 한다. */
+  /* ── 2026-09-10: 분해 yield follows remaining durability ────
+     It used to take the static row of `getAllRecipes()` (bucket 4), so a 방탄복 with 5 % left spat out the same
+     폐금속 4 + 천조각 2 as a full one. The preview · the room check · the real yield must all read the same
+     recipe. */
   const durSalvage = await page.evaluate(async () => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     const mats = (d) => d.id === 'mat_scrap' || d.id === 'mat_cloth' || d.id === 'mat_core';
@@ -1139,7 +1182,7 @@ try {
   ok(durSalvage.wrecked.got.scrap === 1 && durSalvage.wrecked.got.cloth === 0 && durSalvage.wrecked.gone,
     `망가진 방탄복은 적게 나온다 — 폐금속 ${durSalvage.wrecked.got.scrap} + 천조각 ${durSalvage.wrecked.got.cloth}`, JSON.stringify(durSalvage.wrecked.got));
 
-  /* ── 2026-09-10: 분해 팝업에 내구도 구간이 뜬다 (사양서 §4) ──────────── */
+  /* ── 2026-09-10: 분해 popup: durability bucket (spec §4) ─ */
   const disNote = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     const max = ctx.loot.getItemDef('armor_1').durabilityMax;
@@ -1149,13 +1192,13 @@ try {
     const note = document.querySelector('.inv-modeless-disassemble .inv-dur-note');
     const out = { opened, hidden: note?.hidden ?? true, text: note?.textContent ?? '' };
     sys['ui'].disassemble.close();
-    // 내구도가 없는 것(탄약)에는 구간 줄이 없다 — 있지도 않은 게이지를 설명하지 않는다
+    // something with no durability (ammo) has no bucket line — it never explains a gauge that is not there
     i.tryAddItem(ctx.loot.createItem('ammo_light', 30));
     const ammo = i.getAllItems().find((x) => x.defId === 'ammo_light');
     out.ammoOpened = sys['ui'].openDisassemble(ammo.uid);
     out.ammoNote = !document.querySelector('.inv-modeless-disassemble .inv-dur-note')?.hidden;
     sys['ui'].disassemble.close();
-    // 뒷정리: 다음 검사(회복 스프레이)가 쓸 가방 칸을 남겨 둔다
+    // cleanup: leave 가방 cells free for the next check (회복 스프레이)
     i.consumeWhere((d) => d.id === 'armor_1' || d.id === 'ammo_light', 9999);
     return out;
   });
@@ -1190,8 +1233,9 @@ try {
     const tt = sys['ui']['tooltip'];
     tt.show(still, def, 10, 10);
     const rows = [...tt.el.querySelectorAll('.inv-tt-stats .k')].map((k) => `${k.textContent} ${k.nextElementSibling.textContent}`);
-    /* 2026-09-12 (사용자 결정): 내구도 · 게이지는 수치 표의 한 줄이 아니라 **가로 게이지**(`.inv-tt-durbar`) 다 —
-       무기 2×2 게이지와 같은 `.track`/`.fill` 마크업이고 숫자는 `.n` 에 그대로 남아 있다 (`0 / 200`). */
+    /* 2026-09-12 (user's decision): durability · the gauge is not a row of the stat table but a **horizontal
+       gauge** (`.inv-tt-durbar`) — the same `.track` / `.fill` markup as the weapon 2×2 gauge, with the number
+       still in `.n` (`0 / 200`). */
     const dur = tt.el.querySelector('.inv-tt-durbar');
     const gauge = dur ? {
       k: dur.querySelector('.k')?.textContent, n: dur.querySelector('.n')?.textContent,
@@ -1212,7 +1256,8 @@ try {
   ok(spray.short1 === false && spray.repaired === true && spray.durAfter === 200, `repair with materials → 200 (${spray.durAfter})`);
   ok(spray.cans === 2 && spray.anti === 2 && spray.full === null, `materials consumed (캔 3 → ${spray.cans}, 소독약 3 → ${spray.anti}); a full can is not repairable`);
   ok(spray.stillDur === 0 && spray.stillQty === 1 && JSON.stringify(spray.infoEmpty) === JSON.stringify(['mat_can×1', 'mat_antiseptic×1']), 'a spray at gauge 0 stays in the bag and is repairable (캔 1 + 소독약 1)', JSON.stringify(spray));
-  // 2026-09-12: 숫자가 사라지면 안 된다 — 게이지 막대와 `0 / 200` 이 같은 줄에 함께 있고, 빈 통은 채움 0 % 다
+  // 2026-09-12: the number must not disappear — the gauge bar and `0 / 200` sit on the same line, and an empty
+  //   can is 0 % filled
   ok(spray.gauge && spray.gauge.k === '게이지' && spray.gauge.n === '0 / 200' && spray.gauge.fill === '0%' && spray.gauge.broken && !spray.gauge.inStats,
     `tooltip shows the 게이지 bar with 0 / 200 (${JSON.stringify(spray.gauge)})`, JSON.stringify(spray.rows));
   ok(spray.tileBroken && spray.tileBar, 'tile carries the broken gauge bar');
@@ -1220,9 +1265,10 @@ try {
   const sprayFile = await page.evaluate(() => { const f = JSON.parse(localStorage.getItem('scav.s1.loadout') ?? 'null'); const e = (f?.bag ?? []).filter((x) => x.defId === 'heal_spray'); return { n: e.length, durs: e.map((x) => x.durability) }; });
   ok(sprayFile.n === 2 && sprayFile.durs.includes(0) && sprayFile.durs.includes(200), `scav.s1.loadout keeps durability 0 (${JSON.stringify(sprayFile.durs)})`);
 
-  /* ── 5c-2. 2026-09-10 (제작 대개편): 방탄복 수리는 더 이상 공짜가 아니다 ──
-     예전 `repair()` 는 `getEffectiveStats(item)` 이 null 이면(= 방탄복) 재료 없이 만피로 되돌렸다.
-     이제 `getRepairCost` 가 방탄복에도 값을 주므로 (제작 재료 × 구간 배수, 올림) 그 재료를 실제로 소비한다. */
+  /* ── 5c-2. 2026-09-10 (the big craft rework): 방탄복 repair is no longer free ──
+     The old `repair()` restored to full with no materials whenever `getEffectiveStats(item)` was null
+     (= 방탄복). `getRepairCost` now answers for 방탄복 too (craft materials × the bucket multiplier, rounded
+     up), so those materials really are consumed. */
   console.log('방탄복 수리 (재료 소비)');
   const armorRepair = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
@@ -1297,7 +1343,7 @@ try {
   ok(imp.toStash === true && imp.found === 'imp_strength_2' && imp.inBag === null && imp.taken === 1 && imp.gone === null, 'tryAddToStash → findItemAnywhere → takeItem(1) → gone for an implant instance', JSON.stringify(imp));
   ok(imp.where === 'bag' && imp.stillInBag && imp.takenBack === 1, `tryAddItemAnywhere puts an implant in the ${imp.where}`);
   ok(imp.quick === false && imp.quickSlots === 0 && imp.equipTarget === null && imp.equipTry.every((r) => r === false), 'implants are never quick-slottable and fit no equipment slot');
-  // 2026-09-08 (ESC = 항상 일시정지): the window closes on Tab, the key that opened it.
+  // 2026-09-08 (ESC = always 일시정지): the window closes on Tab, the key that opened it.
   await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (Tab)');
 
@@ -1338,7 +1384,7 @@ try {
   await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (mission)');
 
-  /* ── 7. 제작 UI 2차 (2026-09-09): 썸네일 · `이름 ×n` · 설명 줄 없음 · 제작 수량 ──
+  /* ── 7. craft UI 2nd pass (2026-09-09): thumbnail · `이름 ×n` · no description line · craft quantity ──
      Last on purpose: it fills the bag with its own materials and really crafts, so nothing after it could be
      confused by the leftovers. A fresh page puts the profile's bag back, and 작업대 needs a hub phase. */
   console.log('제작 수량');
@@ -1363,7 +1409,8 @@ try {
   await sleep(350);
   ok(stocked.max >= 3, `재료를 채우면 3회 이상 만들 수 있다 (max ${stocked.max})`, JSON.stringify(stocked));
 
-  /* 2026-09-15 3차: 썸네일 · 제목 · 스테퍼는 이제 **고른 레시피 하나의 상세**에만 있다 — 먼저 목록 칸을 눌러 고른다. */
+  /* 2026-09-15 3rd pass: the thumbnail · title · stepper now live only in **the detail of the one picked
+     recipe** — a list cell is clicked to pick it first. */
   await page.evaluate((id) => document.querySelector(`.inv-craft-cell[data-recipe="${id}"]`)?.click(), RID);
   await sleep(200);
   const rowLook = await page.evaluate((id) => {
@@ -1379,7 +1426,8 @@ try {
       hasTile: !!tile, tipHook: thumb?.dataset.itemTip !== undefined && !!thumb?.dataset.defId,
       w: tile ? parseInt(tile.style.width, 10) : -1, h: tile ? parseInt(tile.style.height, 10) : -1,
       defW: def?.width, defH: def?.height,
-      // 2026-09-14: 칸 한 변은 창 높이를 탄다 (`inventory/ui/labels.gridCellForHeight`) — 54 를 적어 두지 않는다
+      // 2026-09-14: a cell's side follows the window height (`inventory/ui/labels.gridCellForHeight`) — 54 is
+      //   not written down
       cell: tile ? parseFloat(getComputedStyle(tile).getPropertyValue('--inv-cell')) : -1,
       desc: !!row.querySelector('.inv-craft-desc'),
       stepper: !!row.querySelector('.inv-craft-count') && row.querySelectorAll('.inv-craft-step').length === 2,
@@ -1387,8 +1435,9 @@ try {
       outputQty: recipe?.outputQty,
     };
   }, RID);
-  /* 2026-09-15 3차 (사용자 결정): 스테퍼는 `지금 목표 / 최대 제작 가능` 두 수를 읽는다 — 앞의 수만 떼어 본다.
-     최댓값은 그때 가진 재료가 정하므로 스모크가 숫자를 적지 않고 "앞 ≤ 뒤" 만 못 박는다. */
+  /* 2026-09-15 3rd pass (user's decision): the stepper reads two numbers, `지금 목표 / 최대 제작 가능` — only the
+     first is taken. The maximum is decided by the materials held at that moment, so the smoke writes no number
+     and only pins down "the first ≤ the second". */
   const stepTarget = (text) => Number(String(text ?? '').split('/')[0].trim());
   const stepMax = (text) => Number(String(text ?? '').split('/')[1]?.trim() ?? NaN);
   ok(!rowLook.missing && rowLook.hasTile && rowLook.tipHook,
@@ -1430,14 +1479,16 @@ try {
     const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory');
     const recipe = ctx.loot.getAllRecipes().find((r) => r.id === id);
     const cost = sys.craftCost(recipe);
-    /* 2026-09-16 (사용자 결정 「숙련은 재료 환급에만 관여한다」, `shared/craftRefund.ts`): 제작이 끝나면 소모한
-       재료가 **개당 굴림**으로 일부 돌아온다 (가방 먼저). 여기서 재는 것은 「수량 스테퍼가 재료를 n 배로 뺀다」
-       하나이므로 숙련을 0 으로 잡아 굴림을 끈다 (확률은 숙련 0 에서 정확히 0 이다 — 환급 자체는
-       `smoke-library-consumers` · `smoke-housing` 이 본다). */
+    /* 2026-09-16 (user's decision 「숙련은 재료 환급에만 관여한다」, `shared/craftRefund.ts`): when a craft ends,
+       some of the materials it consumed come back on a **per-unit roll** (the 가방 first). What is measured here
+       is only 「the quantity stepper takes n times the materials」, so the skill is set to 0 to turn the roll off
+       (the chance is exactly 0 at skill 0 — the refund itself is covered by `smoke-library-consumers` ·
+       `smoke-housing`). */
     const origSkill = ctx.progression.getSkill;
     ctx.progression.getSkill = () => 0;
     const before = cost.map((c) => sys.countDef(c.defId));
-    // 2026-09-15 3차: 산출물은 함선 창고 먼저 — 가방만 세면 0 이다 (`countDefAll` = 가방 + 창고)
+    // 2026-09-15 3rd pass: the outputs go to the 함선 창고 first — counting only the 가방 gives 0
+    //   (`countDefAll` = 가방 + 창고)
     const outBefore = sys.countDefAll(recipe.outputDefId);
     const started = [];
     const off = ctx.bus.on('craft:started', (p) => started.push(p));
@@ -1459,7 +1510,7 @@ try {
   await page.evaluate(() => window.__game.ctx.inventory.closeAll());
   await sleep(150);
 
-  /* ── 8. 창고는 `hides('stashItem', defId)` 가 막는 아이템을 그리지 않는다 (2026-09-09) ── */
+  /* ── 8. the 창고 never draws an item blocked by `hides('stashItem', defId)` (2026-09-09) ── */
   const stashHide = await page.evaluate(async () => {
     const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory');
     const first = [...sys.getStash().items()][0];
@@ -1489,9 +1540,10 @@ try {
     ok(stashHide.back, '튜토리얼이 끝나면 그 자리에 다시 나타난다');
   }
 
-  /* ── 9. 2026-09-13 요리 미니게임 → 2026-09-16 접시 모델 (사용자 결정): 요리는 아이템이 아니다 — 조리는 재료만 뺀다 (`consumeCookInputs`) ──
-   * 옛 요리 품질 스택 · 타일 ★ 배지 · 격자 툴팁 품질 줄 · `completeCook` 산출물 검사는 요리 아이템이 없어져 걷어냈다
-   * (접시 · 품질 · 식사는 `smoke-cooking` 이 본다). */
+  /* ── 9. 2026-09-13 the cooking minigame → 2026-09-16 the plate model (user's decision) ──
+   * A meal is not an item — cooking only takes the inputs (`consumeCookInputs`). The old checks for the meal
+   * quality stack · the tile's ★ badge · the grid tooltip quality line · `completeCook` outputs were removed
+   * with the meal item (the plate · quality · meals are covered by `smoke-cooking`). */
   console.log('조리 재료 (접시 모델)');
   if (await page.evaluate(() => window.__game.ctx.phase !== 'hub')) {
     await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
@@ -1512,15 +1564,16 @@ try {
     r.api = typeof i.consumeCookInputs === 'function' && typeof i.completeCook !== 'function' && typeof i.useMealItem !== 'function';
     r.notCook = i.cookBlock('make_bandage', 3);
     r.level = i.cookBlock('cook_sausage', 1);
-    /* 숙련 게이트 (2026-09-16, 사용자 결정 「제작에 숙련은 전혀 관여하지 않는다」 + 같은 날 2차 「읽는 쪽은 남긴다」):
-       `data/recipes.csv` 의 `skillRequired` 는 이제 전부 0 이라 숙련은 **아무 요리도 막지 않는다**. 그래도 기계는
-       살아 있어야 한다 (csv 숫자만 올리면 다시 잠긴다) — 그래서 살아 있는 레시피의 숫자를 잠깐 올려 두 가지를 함께 본다.
-       숙련이 늘 하는 일(재료 환급)은 아래 소비량 계산에서 끈다. */
+    /* The skill gate (2026-09-16, user's decision 「제작에 숙련은 전혀 관여하지 않는다」 + the 2nd pass the same
+       day 「읽는 쪽은 남긴다」): every `skillRequired` in `data/recipes.csv` is 0 now, so the skill **blocks no
+       cook at all**. The machinery still has to be alive (raising the csv number alone locks it again) — so a
+       live recipe number is raised for a moment and both things are checked together. What the skill always
+       does (the material refund) is turned off for the consumption count below. */
     const origSkill = ctx.progression.getSkill;
     ctx.progression.getSkill = () => 0;
     const soup = loot.getAllRecipes().find((x) => x.id === 'cook_mushroom_soup');
     r.skillZero = soup.skillRequired;
-    r.skillOff = i.cookBlock('cook_mushroom_soup', 3);     // 숙련 0 인데도 막히지 않는다 (사유는 재료)
+    r.skillOff = i.cookBlock('cook_mushroom_soup', 3);     // not blocked even at skill 0 (the reason is materials)
     soup.skillRequired = 10;
     r.skill = i.cookBlock('cook_mushroom_soup', 3);
     soup.skillRequired = r.skillZero;
@@ -1548,7 +1601,8 @@ try {
     r.expect = { firstStash: 2, secondStash: 1 };
     r.events = events;
     r.cost = cost;
-    // 소비량을 다 센 뒤에야 숙련을 되돌린다 — 숙련이 0 인 동안에는 재료 환급 굴림이 없다 (`shared/craftRefund`)
+    // the skill is restored only after the consumption has been counted — at skill 0 there is no material
+    //   refund roll (`shared/craftRefund`)
     ctx.progression.getSkill = origSkill;
     for (const id of Object.keys(cost)) clear(id);
     return r;

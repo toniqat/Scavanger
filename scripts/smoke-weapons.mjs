@@ -1,11 +1,12 @@
 // Single-player smoke test for the weapon package (grades / durability / ammo v2 / 3 slots / sockets / bags / repair)
 // + Phase 7 `ctx.weapons.remoteState` (held item / throwing / cooking / attachments) and remote-grenade damage
 // + Phase 9 barrier purity (`raycastBarrier` emits nothing, `damageBarrier` once per resolved hit) and status `attacker` from the uniques.
-// + Phase 12 (2026-09-08): 정밀 사격 (SR shot on the crosshair ray at 30 / 150 m), `ctx.enemies.reportShot` per local shot,
-//   회복 스프레이 gauge 200 / stays at 0 / `item:channelChanged`, perks quick_heal · auto_revive · kill_stamina (137 checks).
-// + 2026-09-12: 하이브리드 사격 판정 (no left drift past a post the crosshair clears · a post 1.6 m ahead of the muzzle
+// + Phase 12 (2026-09-08): precision fire (an SR shot on the crosshair ray at 30 / 150 m), `ctx.enemies.reportShot` per
+//   local shot, the heal spray gauge 200 / stays at 0 / `item:channelChanged`, perks quick_heal · auto_revive ·
+//   kill_stamina (137 checks).
+// + 2026-09-12: hybrid shot resolution (no left drift past a post the crosshair clears · a post 1.6 m ahead of the muzzle
 //   → red marker + `weapon:aimBlocked` + `.reticle.blocked` + the shot lands on it · 5 m out blocks nothing · a wall under
-//   the crosshair is no warning · `services.aimShot` on the crosshair line), 어깨 전환 X (right → left → right).
+//   the crosshair is no warning · `services.aimShot` on the crosshair line), the shoulder swap X (right → left → right).
 // Usage: node scripts/smoke-weapons.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -47,9 +48,9 @@ try {
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and locks
+    // room purposes · crafting · the terminal · boarding in that order, so it is marked "already done" here
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -94,20 +95,21 @@ try {
   console.log('hub / 수리 진입점');
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
-  /* 2026-09-12 (사용자 결정): **정비 벤치 가구가 은퇴했다** (`data/furniture.csv` 의 `retired=1`) — 함선에서는
-     가구 없이 인벤토리에서 재료만 갖다 바치면 수리된다. 여기 있던 블록(작업실에 벤치를 심고 E 로 여닫아
-     `hub:workbenchToggled` 를 확인)은 통째로 무효다: 은퇴한 def 는 `getFurnitureFor` 에도 `place` 에도 오지 않고
-     `hub/ui/WorkbenchMenu` · `hub/Workbench` 는 파일째 없어졌다.
-     그래서 **은퇴했다는 사실 자체**를 검사해 되살아나는 것을 막고, 수리 동작은 아래 `unload / repair / broken`
-     절의 `inventory.repairWeapon` 이 그대로 지킨다 (거기가 처음부터 진짜 수리 검사였다). */
-  await sleep(1500);                      // 서버 프로필의 `ship` 문서가 허브보다 한 박자 늦게 도착해 상태를 덮는다
+  /* 2026-09-12 (user's decision): **the `정비 벤치` furniture is retired** (`retired=1` in `data/furniture.csv`) — in the
+     ship a repair needs no furniture at all, only the materials handed over from the inventory. The block that stood here
+     (plant a bench in the workshop, open and close it with E, confirm `hub:workbenchToggled`) is void end to end: a
+     retired def reaches neither `getFurnitureFor` nor `place`, and `hub/ui/WorkbenchMenu` · `hub/Workbench` are gone as
+     files. So **the fact of the retirement itself** is what is checked, to stop it coming back, and the repair behaviour
+     is still guarded by `inventory.repairWeapon` in the `unload / repair / broken` section below (that was the real repair
+     check from the start). */
+  await sleep(1500);                      // the server profile's `ship` document arrives a beat after the hub and overwrites the state
   const retired = await page.evaluate(() => {
     const h = window.__game.ctx.housing;
     if (!h) return null;
     const room = h.state.rooms.findIndex((r) => r.purpose === 'workshop');
     return {
       inCatalogue: h.getFurnitureFor('workshop').some((d) => d.id === 'furn_repair_bench'),
-      // 창고에 억지로 넣어도 배치되지 않는다 — sanitize 가 은퇴 가구를 걷어내고 재료로 환불한다
+      // Forcing it into the store still does not place it — sanitizing takes retired furniture out and refunds it as materials
       placed: room >= 0 ? h.place(room, 'furn_repair_bench', 0, 0, 0) : null,
     };
   });
@@ -116,18 +118,19 @@ try {
   const ids = await page.evaluate(() => window.__game.ctx.interactables.all().map((i) => i.id));
   ok(ids.includes('hub_terminal'), 'terminal still registered');
   ok(!ids.some((id) => id === 'hub_workbench'), '공유 함선의 붙박이 정비 벤치도 없다', ids.join(','));
-  // Phase 9: the 배리어 implant is chosen on the ship (setEquipped is hub-only) and deployed in the mission below
+  // Phase 9: the barrier implant is chosen on the ship (setEquipped is hub-only) and deployed in the mission below
   const eqBar = await page.evaluate(() => { const imp = window.__game.ctx.implants; return imp ? { ok: imp.setEquipped('barrier'), eq: imp.equipped } : null; });
   ok(eqBar && eqBar.ok && eqBar.eq === 'barrier', 'hub: 배리어 implant equipped (setEquipped)', JSON.stringify(eqBar));
 
-  // 2026-09-07: the starter kit is 권총 I / 가방 I / 방탄복 I only — the 돌격소총 and its ammo come out of the
-  // 함선 창고 (기본 지급품). Equip them here so the ballistics assertions below have their AR and 90 준중량탄.
+  // 2026-09-07: the starter kit is `권총` I / `가방` I / `방탄복` I only — the `돌격소총` and its ammo come out of the
+  // ship stash (the starter grant). Equip them here so the ballistics assertions below have their AR and 90 `준중량탄`.
   const armed = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     const ar = ctx.loot.createItem('wpn_ar');
     const added = inv.tryAddItem(ar) && inv.equip(ar.uid, 'primary');
-    // 2026-09-10: 보조무기 칸이 사라져 시작 지급품이 주무기 I 에 기관단총을 준다 — 돌격소총으로 갈아 끼우면
-    // 그 기관단총이 가방으로 밀려 내려온다. 이 스크립트는 돌격소총만 쓰므로 바로 치워 가방을 비워 둔다.
+    // 2026-09-10: the secondary weapon slot is gone, so the starter grant puts the `기관단총` in `주무기` I — swapping
+    // the `돌격소총` in pushes that SMG down into the bag. This script uses the AR only, so the SMG is taken away at once
+    // to leave the bag empty.
     for (const it of inv.getAllItems()) if (it.defId === 'wpn_smg') inv.takeItem(it.uid);
     for (const q of [50, 40]) inv.tryAddItem(ctx.loot.createItem('ammo_medium', q));
     return { added, primary: inv.getLoadout().primary?.defId, medium: inv.countWhere((d) => d.category === 'ammo' && d.ammoType === 'medium') };
@@ -154,7 +157,7 @@ try {
   });
   ok(stats.ar && stats.ar.damage === 17 && stats.ar.maxDurability === 500 && stats.ar.ammoType === 'medium', 'AR I stats (17 dmg — 2026-09-17 피해 1/3, 500 dur, medium)', JSON.stringify(stats.ar));
   ok(stats.g3 && stats.g3.damage === 21 && stats.g3.grade === 3 && stats.name3 === '돌격소총 III', 'AR III: +24 % damage, class name + roman numeral', `${stats.g3?.damage} ${stats.name3}`);
-  await key('Digit1');   // 주무기 I 를 손에 든다
+  await key('Digit1');   // takes `주무기` I into the hand
   await waitSim(0.8);
   const eq = await lastEv('weapon:equipped');
   ok(eq && eq.slot === 'primary' && eq.reserveRounds === 90, 'weapon:equipped primary, reserve = 90 medium rounds in bag', JSON.stringify(eq));
@@ -174,7 +177,7 @@ try {
   ok(afterReload.bag === 90 - (45 - afterFire.mag), 'reload consumes bag rounds', `bag=${afterReload.bag}`);
 
   console.log('slots');
-  // 2026-09-10: 무기 칸은 주무기 I · II 둘뿐이다 (보조무기 · 3번 키 제거).
+  // 2026-09-10: the weapon slots are `주무기` I · II and nothing else (the secondary weapon · the 3 key were removed).
   await key('Digit3');
   await waitSim(0.5);
   ok((await lastEv('weapon:equipped')).slot === 'primary', '3 은 이제 아무 칸도 가리키지 않는다 (주무기 I 그대로)');
@@ -189,7 +192,7 @@ try {
   ok(eq2 && eq2.slot === 'primary2' && eq2.weaponId === 'smg_g2', '2 → 주무기 II (SMG II)', JSON.stringify(eq2));
   const sw = await lastEv('weapon:swapStarted');
   ok(sw && sw.slot === 'primary2' && sw.duration > 0, 'weapon:swapStarted for 주무기 II', JSON.stringify(sw));
-  // 2026-09-07 (커서 rework): the 이전 무기 key is retired — V is 구르기 now, so a weapon swap is 1 / 2 only.
+  // 2026-09-07 (the cursor rework): the previous-weapon key is retired — V is the roll now, so a weapon swap is 1 / 2 only.
   await key('KeyV');
   await waitSim(0.8);
   ok((await lastEv('weapon:equipped')).slot === 'primary2', 'V no longer swaps weapons (it rolls)');
@@ -269,12 +272,14 @@ try {
   ok((await rsNow()).held === null, '1 → gun back in hand, heldItemId null');
   await waitSim(3.5);
   /* remote (visual-only) grenade replicas now damage the local player — same radius / falloff as our own frags.
-   * 2026-09-15 (폭발 2단 계단): 3.0 m 는 이제 **안쪽 띠**(< GRENADE_RADIUS 7.2 × EXPLOSION_FULL_FRACTION 0.5 = 3.6)라
-   * 250 × 0.6 = 150 이 들어와 체력 100 인 몸이 **죽는다** — 그 뒤의 회복 · 스프레이 절이 통째로 시체 위에서 돌았다.
-   * 그래서 5.0 m(바깥 띠, 250 × 0.6 × 0.6 = 90)로 던지고 잰 뒤 풀피로 돌려놓는다. 「복제 수류탄이 나를 때린다」는
-   * 그대로 검사되고, 아래 절들은 살아 있는 몸에서 시작한다.
-   * 2026-09-17 (피해 1/3 — GRENADE_DAMAGE 60 · EXPLOSION_OUTER_MUL 0.5): 5 m 바깥 띠는 60 × 0.6 × 0.5 = 18 뿐이라 방탄복 실드가
-   * 다 먹고 체력은 그대로였다. 3.0 m 안쪽 띠(60 × 0.6 = 36 — 체력 100 이 죽지 않는다)로 던지고 **체력 + 실드** 감소를 잰다. */
+   * 2026-09-15 (the two-step explosion): 3.0 m is now the **inner band** (< GRENADE_RADIUS 7.2 ×
+   * EXPLOSION_FULL_FRACTION 0.5 = 3.6), so 250 × 0.6 = 150 comes in and a body on 100 hp **dies** — the healing · spray
+   * sections after it then ran over a corpse end to end. So it was thrown at 5.0 m (the outer band,
+   * 250 × 0.6 × 0.6 = 90), measured, and healed back to full. 「a replica grenade hits me」 is still checked, and the
+   * sections below start from a living body.
+   * 2026-09-17 (damage cut to 1/3 — GRENADE_DAMAGE 60 · EXPLOSION_OUTER_MUL 0.5): the 5 m outer band is only
+   * 60 × 0.6 × 0.5 = 18, which the armor shield ate whole and left hp untouched. It is thrown at the 3.0 m inner band
+   * (60 × 0.6 = 36 — 100 hp does not die) and the drop in **hp + shield** is measured. */
   await page.evaluate(() => { window.__ev['grenade:exploded'] = []; window.__game.ctx.bus.on('grenade:exploded', (p) => window.__ev['grenade:exploded'].push(1)); });
   const hpG = await page.evaluate(() => { const p = window.__game.ctx.player; p.heal(1000); return p.hp + (p.shield ?? 0); });
   await page.evaluate(() => { const ctx = window.__game.ctx; const g = window.__game.getSystem('weapons').grenades; const p = ctx.player.position; const o = new p.constructor(p.x + 3.0, p.y + 0.5, p.z); g.throw(o, new p.constructor(0, 0, 0), true, 0.05); });
@@ -282,7 +287,7 @@ try {
   const rg = await page.evaluate(() => { const p = window.__game.ctx.player; return { hp: p.hp + (p.shield ?? 0), rawHp: p.hp, shield: p.shield ?? null, exploded: window.__ev['grenade:exploded'].length }; });
   ok(rg.hp < hpG - 20, `visual-only replica grenade damages the local player — hp + shield (${hpG} → ${rg.hp.toFixed(0)})`, JSON.stringify(rg));
   ok(rg.exploded === 0, 'replica explosion emits no grenade:exploded (enemies do not hear it)');
-  await page.evaluate(() => window.__game.ctx.player.heal(1000));   // 아래 절들은 풀피에서 시작한다
+  await page.evaluate(() => window.__game.ctx.player.heal(1000));   // the sections below start from full hp
   await page.evaluate(() => { const p = window.__game.ctx.player; if (p.isDowned) p.revive(); p.heal(1000); });
   await waitSim(0.3);
 
@@ -299,8 +304,8 @@ try {
   await waitSim(0.3);
   const hKey = await page.evaluate(() => ({ held: window.__game.ctx.weapons.remoteState.heldItemId, eq: window.__ev['quick:equipped'].length }));
   ok(hKey.held === null && hKey.eq === 0, 'H does nothing any more (the Keys.STIM reader is gone)', JSON.stringify(hKey));
-  // 회복약 into the hand through the quick slot N + T tap, player damaged so the hold is allowed to start
-  // 2026-09-07: each 회복 소모품 has its own hold (`ItemDef.heal.useTime`) — the 회복주사 keeps this section's 2 s.
+  // The healing item into the hand through the quick slot N + a T tap, the player damaged so the hold is allowed to start
+  // 2026-09-07: each healing consumable has its own hold (`ItemDef.heal.useTime`) — the `회복주사` keeps this section's 2 s.
   const stimReady = await page.evaluate(() => {
     const ctx = window.__game.ctx; const inv = ctx.inventory; const p = ctx.player;
     p.heal(1000);
@@ -322,7 +327,7 @@ try {
   ok(!!first && first.holding === true && first.t === 0, 'LMB press → heal:holdChanged {holding:true, t:0}', JSON.stringify(first));
   ok(!!last1 && last1.t > 0 && last1.t < 1, `gauge rising after 0.6 s (t=${last1 ? last1.t.toFixed(2) : 'none'})`);
   ok(h1.used === 0, 'nothing is consumed before the 2 s hold completes');
-  // 소모품 사용 중 이동 속도 50 % (`CONSUMABLE_SLOW_MUL`), read off the controller the player system writes
+  // Movement speed 50 % while a consumable is in use (`CONSUMABLE_SLOW_MUL`), read off the controller the player system writes
   const slowed = await page.evaluate(() => window.__game.getSystem('player')?.controller?.speedMultiplier ?? null);
   ok(slowed !== null && slowed <= 0.55, `사용 중 이동 속도가 절반으로 (speedMultiplier=${slowed})`);
   await mUp(0);
@@ -347,7 +352,7 @@ try {
   const denied = await ev('heal:holdChanged');
   await mUp(0);
   ok(denied.length === 0, 'full hp refuses to start the hold', JSON.stringify(denied));
-  /* ── 회복 스프레이 (2026-09-07): 게이지 채널, 사용 중 이동 50 % ── */
+  /* ── the heal spray (2026-09-07): gauge, 50 % ──── */
   const sprayReady = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory, p = ctx.player;
     const can = ctx.loot.createItem('heal_spray');
@@ -420,11 +425,11 @@ try {
   await waitSim(0.2);
   const again = await page.evaluate((n) => ({ newEvents: window.__ev['item:channelChanged'].length - n, last: window.__ev['heal:holdChanged'].slice(-1)[0], speed: window.__game.getSystem('player')?.controller?.speedMultiplier ?? null }), chCount);
   ok(again.newEvents === 0 && again.speed > 0.9, 'restarting an empty can is refused (no item:channelChanged, no slow)', JSON.stringify(again));
-  // every end path closes the ticker: 전투불능 while spraying (agent F asked for active:false on death / screens too)
+  // every end path closes the ticker: going downed while spraying (agent F asked for active:false on death / screens too)
   await page.evaluate((uid) => { const ctx = window.__game.ctx; ctx.inventory.updateItem(uid, { durability: 150 }); ctx.player.heal(1000); ctx.player.takeDamage(40); window.__ev['item:channelChanged'] = []; }, sprayReady.uid);
   await mDown(0);
   await waitSim(0.4);
-  // 2026-09-08: solo lethal damage kills outright now, so the 전투불능 state is entered directly.
+  // 2026-09-08: solo lethal damage kills outright now, so the downed state is entered directly.
   await page.evaluate(() => { const d = window.__game.ctx.progression?.derived; if (d?.perks) d.perks.auto_revive = false; if (d) d.gritChance = 0; window.__game.ctx.player.enterDowned(); });
   await waitSim(0.4);
   await mUp(0);
@@ -452,7 +457,7 @@ try {
   await tap('KeyR');
   await waitSim(0.2);
   ok((await ev('weapon:reloadStarted')).length >= 1, 'R starts a reload', JSON.stringify(relSet));
-  await tap('Digit2');   // 2026-09-10: 보조무기(3번) 칸이 사라져 주무기 II 로 교체한다
+  await tap('Digit2');   // 2026-09-10: the secondary weapon (3) slot is gone, so this swaps to `주무기` II
   await waitSim(0.4);
   const rc = await lastEv('weapon:reloadCancelled');
   ok(!!rc && rc.weaponId === 'ar', 'a swap mid-reload emits weapon:reloadCancelled', JSON.stringify(rc));
@@ -580,8 +585,9 @@ try {
     ctx.enemies.killAll();
     if (!window.__arUid) window.__arUid = inv.getLoadout().primary?.uid ?? null;
     const item = loot.createItem(id, 1);
-    /* 2026-09-10: 유니크는 4×2 라 **이어진** 자리가 필요하다. 이 절에 오기까지 남은 부착물 조각들이
-     * 가방을 조각내면 빈 칸이 넉넉해도 안 들어간다 — 여기서 쓰지 않는 부착물부터 치우고 다시 시도한다. */
+    /* 2026-09-10: a unique is 4×2, so it needs a **contiguous** spot. When the attachment pieces left over on the way
+     * to this section fragment the bag it will not fit however many free cells there are — the attachments this section
+     * does not use are cleared first and it is tried again. */
     if (!inv.tryAddItem(item)) {
       for (const it of inv.getAllItems()) {
         if (loot.getItemDef(it.defId)?.category !== 'attachment') continue;
@@ -637,7 +643,7 @@ try {
   await waitSim(0.5);
 
   console.log('정밀 사격 / reportShot (Phase 12)');
-  // 저격소총 I + 중량탄, zero spread: the shot must land on the crosshair ray (camera centre) at any distance
+  // `저격소총` I + `중량탄`, zero spread: the shot must land on the crosshair ray (camera centre) at any distance
   const srSet = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     ctx.enemies.killAll();
@@ -901,7 +907,7 @@ try {
   await mUp(2);
   await waitSim(0.6);
 
-  // F. 어깨 전환 (X): the camera slides to the left shoulder and back
+  // F. the shoulder swap (X): the camera slides to the left shoulder and back
   const sideNow = () => page.evaluate(() => {
     const ctx = window.__game.ctx; const rig = window.__game.getSystem('player').rig; const V = ctx.camera.position.constructor;
     const d = new V(); rig.getLookDir(d); const right = new V(-d.z, 0, d.x).normalize();
@@ -1005,8 +1011,10 @@ try {
     stamina: !!document.querySelector('.hud .stamina'),
     staminaFull: document.querySelector('.hud .stamina')?.classList.contains('full'),
     dur: !!document.querySelector('.weapon .dur, .weapon .durability, .weapon [class*="dur"]'),
-    /* 2026-09-10: 상단 슬롯 칸(.wslots)은 없어졌다 — 패널은 썸네일 + 큰 잔탄 + 작은 예비탄이다.
-       2026-09-11 (C-26): 헬퍼만 남았던 `ui/hud/SlotStrip.ts` 도 지웠다. `.wslots` 0 단언은 되살아나지 않는지 보려고 남긴다. */
+    /* 2026-09-10: the top slot strip (.wslots) is gone — the panel is a thumbnail + the magazine in large + the reserve
+       in small.
+       2026-09-11 (C-26): `ui/hud/SlotStrip.ts`, which held nothing but a helper, was deleted too. The `.wslots` 0
+       assertion is kept to watch that it does not come back. */
     thumb: !!document.querySelector('.weapon .wthumb'),
     mag: document.querySelector('.weapon .mag')?.textContent ?? null,
     reserve: document.querySelector('.weapon .reserve')?.textContent ?? null,

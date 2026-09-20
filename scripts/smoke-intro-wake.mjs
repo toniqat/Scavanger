@@ -1,19 +1,25 @@
-// Smoke (2026-09-14): 캐릭터 확정 팝업 → 튜토리얼 오프닝 (기상 연출).
+// Smoke (2026-09-14): the character confirm popup → the tutorial opening (the intro wake).
 //
-// 한 번의 **진짜 흐름**으로 돈다: 빈 슬롯에 캐릭터 생성창을 열고 → 능력치 주사위 → `확정` → 요약 카드 검사 →
-// 클릭 한 번으로는 안 만들어진다 → `만들기` 1초 홀드 → `location.reload()` → 자동 시작이 튜토리얼 레이드로 간다 →
-// 기상 연출 동안 / 끝난 뒤를 잰다.
+// It runs one **real flow**: open the character creation window on an empty slot → roll the stats → `확정` → check the
+// summary card → one click creates nothing → a 1 s hold on `만들기` → `location.reload()` → the auto-start enters the
+// tutorial raid → measure during the intro wake and after it.
 //
-//   ① 확정 팝업: 「정말로 만들겠습니까?」 없음 · 본문 줄 숨김 · 능력치 5칸 가로 게이지 = 값 / CREATE_STAT_MAX ·
-//      얼굴 정지 썸네일(data:image, 미리보기 GL 이 있을 때) · 홀드 안내 · 클릭 한 번은 실행되지 않는다 · 홀드 도중 진행도.
-//   ② 검은 페이드가 **실제로 중간값을 지난다** — CSS 전이가 아니라 `HudSystem` 이 칠한 값(`screenFadeShown`). 이 PC 처럼
-//      OS 가 애니메이션 효과를 끄면 CSS 전이는 0.01 ms 로 잘려 한 프레임에 끝났다(그게 「페이드가 안 된다」였다).
-//   ③ 연출이 **끝난다** — `player:introWakeDone` · 튜토리얼이 `wake` 를 떠난다 · 오버라이드 해제. 옛 버그: 타이머가
-//      음수로 넘어간 프레임에 `endIntroWake` 가 「연출 중이 아니다」로 읽고 돌아가 카메라가 옆자리에 영영 남았다.
-//   ④ 카메라 복귀가 **이어진다** — 옆 카메라는 백뷰에서 멀리 있고, 마지막 연출 프레임과 첫 평소 프레임의 카메라가 붙어 있다.
-//   ⑤ 연출 동안 나침반 opacity 0 · Tab 이 가방을 안 연다 → 끝나면 나침반이 0 과 1 사이를 지나 1 이 되고 Tab 이 연다.
-//      2026-09-16: 크로스헤어(`.hud.gameplay .reticle`)도 같다 — 연출 프레임 내내 0, 끝나면 중간값을 지나 1 (`TUTORIAL_RETICLE_FADE_S`).
-//   ⑥ 튜토리얼 레이드 내내 좌측 상단 시계 · 상단 중앙 탈출 타이머가 없다(`display: none`).
+//   ① The confirm popup: no 「정말로 만들겠습니까?」 line · the body line hidden · five stat bars = value / CREATE_STAT_MAX ·
+//      a still face thumbnail (data:image, when a preview GL context exists) · the hold hint ·
+//      one click does not run it · the progress while the hold is held.
+//   ② The black fade **really passes a middle value** — not a CSS transition but the value `HudSystem` painted
+//      (`screenFadeShown`). On a PC like this one, where the OS turns animation effects off, a CSS transition
+//      is clipped to 0.01 ms and ended in a single frame (that was 「페이드가 안 된다」).
+//   ③ The wake **ends** — `player:introWakeDone` · the tutorial leaves `wake` · the override is released. An old
+//      bug: on the frame the timer crossed below zero, `endIntroWake` read it as 「no wake is running」 and returned,
+//      so the camera stayed at the side seat forever.
+//   ④ The camera hand-back is **continuous** — the side camera is far from the back view, and the last wake frame
+//      and the first ordinary frame sit right next to each other.
+//   ⑤ During the wake the compass opacity is 0 and Tab does not open the bag → once it ends the compass passes
+//      between 0 and 1 and reaches 1, and Tab opens it.
+//      2026-09-16: the crosshair (`.hud.gameplay .reticle`) is the same — 0 for every wake frame, then through a
+//      middle value to 1 once it ends (`TUTORIAL_RETICLE_FADE_S`).
+//   ⑥ Throughout the tutorial raid there is no clock top left and no extraction timer top centre (`display: none`).
 //
 // Usage: node scripts/smoke-intro-wake.mjs [http://localhost:5273/] [shotDir]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
@@ -58,7 +64,8 @@ try {
   await page.evaluateOnNewDocument(() => {
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    // 저장소는 **처음 한 번만** 비운다 — 캐릭터를 만든 뒤의 새로고침은 그 캐릭터로 들어가야 한다.
+    // The storage is cleared **only the first time** — the reload after the character is made has to enter with
+    // that character.
     try { if (!sessionStorage.getItem('__introWakeSmoke')) { localStorage.clear(); sessionStorage.setItem('__introWakeSmoke', '1'); } } catch { /* ignore */ }
   });
   await quietViteHmr(page, { parkRelay: true });
@@ -76,14 +83,14 @@ try {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await boot();
 
-  /* ── ① 확정 팝업 ─────────────────────────────────────────────────────── */
+  /* ── ① The confirm popup ─────────────────────────────────────────────── */
   console.log('① 캐릭터 확정 팝업');
   const pop = await page.evaluate(async () => {
     const hud = window.__game.getSystem('hud');
     const title = hud.title;
     title.openCreate(1);
     const cc = title.create;
-    await new Promise((r) => setTimeout(r, 700));      // 미리보기가 몇 프레임 그리게
+    await new Promise((r) => setTimeout(r, 700));      // let the preview draw a few frames
     cc.rollStats();
     cc.askConfirm();
     const ask = cc.ask;
@@ -104,16 +111,17 @@ try {
   ok(!pop.text.includes('정말로'), '「정말로 만들겠습니까?」 줄이 없다');
   ok(pop.bodyHidden, '글 본문 줄은 숨는다 (요약은 카드)');
   ok(pop.stats.length === 5, '능력치 다섯 칸', `(${pop.stats.length})`);
-  // 2026-09-15 2차 (사용자 결정): 가로 5열 → **세로 5행** (행마다 이름 · 게이지 · 값 한 줄)
+  // 2026-09-15 2nd pass (user's decision): five columns across → **five rows down** (name · gauge · value per row)
   ok(new Set(pop.stats.map((s) => Math.round(s.row))).size === 5, '다섯 칸이 세로 다섯 줄', JSON.stringify(pop.stats.map((s) => Math.round(s.row))));
-  // 브라우저가 `scaleX(0.2000)` 을 `scaleX(0.2)` 로 정규화해 돌려주므로 숫자로 비교한다
+  // The browser normalises `scaleX(0.2000)` to `scaleX(0.2)` before giving it back, so the comparison is numeric
   const scaleOf = (sx) => Number(/scaleX\(([-\d.]+)\)/.exec(sx)?.[1] ?? NaN);
   ok(pop.stats.every((s) => Math.abs(scaleOf(s.sx) - Math.max(0, Math.min(1, s.v / pop.max))) < 1e-3), '게이지 = 값 / 5', JSON.stringify(pop.stats.map((s) => [s.v, s.sx])));
   if (pop.hasPreview) {
     ok(pop.faceSrc?.startsWith('data:image/png'), '얼굴 정지 썸네일(data:image)', `(${pop.faceSrc})`);
     ok(pop.faceBox && Math.abs(pop.faceBox[0] - pop.faceBox[1]) < 2, '썸네일은 정사각형', JSON.stringify(pop.faceBox));
   } else console.log('  skip 얼굴 썸네일 (미리보기 GL 없음)');
-  // 2026-09-15 2차: 「1초 동안 누르고 있어야」 안내 줄 대신 **버튼 안의 좌클릭 홀드 키캡**(`.keycap.kc-btn`)이 말한다
+  // 2026-09-15 2nd pass: instead of a 「1초 동안 누르고 있어야」 hint line, **the left-click hold keycap inside the
+  // button** (`.keycap.kc-btn`) says it
   ok(pop.holdCap, '만들기 버튼 안에 좌클릭 홀드 키캡');
   await shot(page, 'confirm-popup');
 
@@ -136,7 +144,7 @@ try {
   await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 });
   ok(true, '홀드가 끝나면 캐릭터를 만들고 새로고침한다');
 
-  /* ── ②–⑥ 튜토리얼 오프닝 ─────────────────────────────────────────────── */
+  /* ── ②–⑥ The tutorial opening ────────────────────────────────────────── */
   await boot();
   await page.evaluate(() => {
     const g = window.__game, ctx = g.ctx, hud = g.getSystem('hud'), pl = g.getSystem('player');
@@ -204,7 +212,7 @@ try {
       compMid: post.some((x) => x.comp > 0.02 && x.comp < 0.98), compEnd: f[f.length - 1].comp,
       compWakeZero: f.filter((x) => x.waking).every((x) => x.comp === 0),
       retWakeZero: f.filter((x) => x.waking).every((x) => x.ret === 0),
-      // 실패했을 때 어느 프레임이 범인인지 바로 보이게 (첫 3개: 몇 번째 프레임 · 그때의 opacity · 앞뒤 waking)
+      // So a failure names the guilty frame at once (the first 3: which frame · its opacity · waking either side)
       retBad: f.map((x, i) => ({ i, t: x.t, ret: x.ret, wake: x.waking, prevWake: f[i - 1]?.waking ?? null }))
         .filter((x) => x.wake && x.ret !== 0).slice(0, 3),
       wakeFirst: f.findIndex((x) => x.waking), frames: f.length,
@@ -222,7 +230,7 @@ try {
   ok(after.compWakeZero, '연출 프레임 내내 나침반이 보이지 않았다');
   ok(after.compMid, '나침반이 서서히 나타난다 (중간값)');
   ok(after.compEnd === 1, '나침반이 다 나타났다', `(${after.compEnd})`);
-  // 2026-09-16 (사용자 결정): 크로스헤어는 카메라가 평소 시점으로 돌아올 때까지 없고, 그 뒤 서서히 나타난다
+  // 2026-09-16 (user's decision): no crosshair until the camera is back at its ordinary view, then it fades in
   ok(after.retWakeZero, '연출 프레임 내내 크로스헤어가 보이지 않았다', JSON.stringify({ bad: after.retBad, wakeFirst: after.wakeFirst, frames: after.frames }));
   ok(after.retFirstPost !== null && after.retFirstPost < 0.5, '연출이 끝난 첫 프레임에 크로스헤어가 한 번에 켜지지 않는다', `(${after.retFirstPost})`);
   ok(after.retMid, '크로스헤어가 서서히 나타난다 (중간값)');

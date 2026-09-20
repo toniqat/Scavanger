@@ -41,9 +41,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 1680, height: 900 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts on its own in a new profile
+    // and locks room purposes · crafting · the terminal · boarding in that order, so it is marked here as
+    // "already finished" (the tutorial itself is covered by scripts/smoke-tutorial.mjs).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor traps the OS cursor in the hidden window).
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
@@ -120,7 +120,7 @@ try {
   await enterHub();
   let snap = await snapshot();
   // 2026-09-07: the starter is the minimum kit; every other weapon starts in the 창고
-  // 2026-09-10: 보조무기가 사라져 최소 지급품은 기관단총 I (예전에는 권총 I)
+  // 2026-09-10: the secondary weapon is gone, so the minimum kit is 기관단총 I (it used to be 권총 I)
   ok(snap.slots.primary?.defId === 'wpn_smg' && snap.slots.secondary === null && snap.slots.bag?.defId === 'bag_common' && snap.slots.armor?.defId === 'armor_1' && snap.slots.primary2 === null,
     'first hub entry hands out the starter loadout (기관단총 I / 가방 I / 방탄복 I)', JSON.stringify(snap.slots));
   const granted = await page.evaluate(() => {
@@ -273,7 +273,7 @@ try {
     const stashScrap = inv.getStashItems().find((i) => i.defId === 'mat_bio_sample');
     const fromStash = stashScrap ? inv.takeItem(stashScrap.uid, 2) : -1;
     const stashAfter = stashScrap ? inv.findItemAnywhere(stashScrap.uid)?.qty ?? 0 : 0;
-    const equipped = inv.takeItem(inv.getLoadout().primary.uid);   // 2026-09-10: 보조무기 칸 제거
+    const equipped = inv.takeItem(inv.getLoadout().primary.uid);   // 2026-09-10: the secondary slot was removed
     const unknown = inv.takeItem('no-such-uid');
     const zero = ammo ? inv.takeItem(ammo.uid, 0) : -1;
     const stashGem = inv.takeItem(stashUid);
@@ -294,9 +294,10 @@ try {
     for (const g of inv.getAllItems().filter((i) => i.defId === 'gem_amber').slice(0, 2)) inv.takeItem(g.uid); // the bag is full of gems here
     const pre = inv.countDef(DEF);
     const stim = ctx.loot.createItem(DEF, 2);
-    // 2026-09-14: 주운 소모품은 빈 휠 칸이 있으면 **그리로** 간다 (`parts/AutoQuick`) — 이 검사는 그 다음을,
-    //   즉 「가방에 있는 스택을 setQuickSlot 이 **옮긴다**」 를 보므로 주운 경로가 아닌 `tryAddItemAnywhere`
-    //   (상점 · 제작 · 수확 — 「받았다」의 경로라 자동 장착을 타지 않는다)로 가방에 넣고 시작한다.
+    // 2026-09-14: a picked-up consumable goes **straight there** when a wheel cell is free (`parts/AutoQuick`) —
+    //   this check is about the step after that, 「setQuickSlot **moves** a stack that is in the bag」, so the
+    //   stack is put in the bag through `tryAddItemAnywhere` (shop · craft · harvest — the 「handed over」 path,
+    //   which never takes the auto quick-slot route), not through the picked-up path.
     const added = inv.tryAddItemAnywhere(stim) === 'bag';
     const inBagBefore = inv.getGrid('bag').items().some((p) => p.item.uid === stim.uid);
     const moved = inv.setQuickSlot(4, stim.uid);
@@ -354,7 +355,8 @@ try {
   await sleep(150);
   const screen = await page.evaluate(() => {
     const root = document.querySelector('.inv-root');
-    // 2026-09-16: 우측 상단 `CREDITS` 알약은 없어졌다 — 보유 크레딧은 가방 바닥 줄 오른쪽 끝의 글자(`.inv-credits-value`)
+    // 2026-09-16: the top-right `CREDITS` pill is gone — the credits held are the text at the right end of the
+    //   bag's bottom row (`.inv-credits-value`)
     const cr = root.querySelector('.inv-panel-bag .inv-foot .inv-credits-value');
     const corp = [...root.querySelectorAll('.scr-tab')].find((b) => b.textContent === '기업');
     const meta = window.__game.ctx.meta;
@@ -407,7 +409,7 @@ try {
   await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (mission)');
 
-  /* ── 8. Phase 10: 분대원 장비 열람 (captureCrewLoadout / createCrewLoadoutView) ── */
+  /* ── 8. Phase 10: viewing a squadmate's gear (captureCrewLoadout / createCrewLoadoutView) ── */
   console.log('crew loadout view');
   const doc = await page.evaluate(() => {
     const sys = window.__game.getSystem('inventory');
@@ -472,8 +474,9 @@ try {
     return out;
   }, doc.doc);
   ok(view.bad.every(Boolean) && view.ok && view.root, 'createCrewLoadoutView: a non-loadout document → null, a captured one → a `.crew-loadout` view', JSON.stringify(view.bad));
-  // 2026-09-10: 보조무기 칸이 사라져 넷이었고, 2026-09-11 (A-15) 주머니가 붙어 **다섯**이다
-  //   (주무기 I · II · 가방 · 방탄복 · 주머니 = `LOADOUT_SLOTS`). 크루 카드는 칸만 그리고 주머니 내용물은 안 싣는다.
+  // 2026-09-10: the secondary slot went away, leaving four, and 2026-09-11 (A-15) added the pouch — **five**
+  //   (주무기 I · II · 가방 · 방탄복 · 주머니 = `LOADOUT_SLOTS`). The crew card draws the slots only; it never
+  //   carries the pouch contents.
   ok(view.slots === 5 && view.bagTiles === doc.bag && view.quickCells === 8 && view.name === '대원 A',
     'the view draws 장비 (5 slots) · 가방 (the document\'s stacks, unknown defs skipped) · 빠른 사용 (8 cells)', JSON.stringify({ slots: view.slots, tiles: view.bagTiles, expect: doc.bag, cells: view.quickCells }));
   ok(view.stash === 0 && view.credits === 0, 'no 함선 창고 column and no 크레딧 pill in a crew view', JSON.stringify(view));
@@ -481,7 +484,7 @@ try {
   ok(view.blockersSame && view.locked, 'EmbeddedView contract: no ui blocker, the pointer lock is untouched', JSON.stringify({ blockers: view.blockersSame, locked: view.locked }));
   ok(view.afterDispose === 0, 'dispose() empties the host');
 
-  /* ── 8b. LOADOUT_SAVE_VERSION 1 → 현재 버전 migration (2026-09-09; v3 부터 `pouch`) ───────
+  /* ── 8b. LOADOUT_SAVE_VERSION 1 → the current version, migration (2026-09-09; `pouch` from v3) ──
    * Before this change `quick[i]` was an **index into `bag`** and the stack stayed in the grid. `sanitizeLoadoutSave`
    * now lifts those stacks out of `bag` into `quick` on read, so an existing player's file lands in the new model
    * (wheel = its own container) instead of showing the same stim twice. A hand-written v1 document is the only way
@@ -553,8 +556,9 @@ try {
   await reload();
   const again = await page.evaluate(() => window.__game.getSystem('inventory').getStashItems().length);
   ok(again === retro.n, `the grant does not repeat on the next launch (${again})`);
-  // 캐릭터 삭제 (2026-09-09): `새 캐릭터로 시작` 은 캐릭터 선택창 슬롯 카드의 `삭제` 가 됐다. 지우는 것은
-  // **그 슬롯 하나**(`scav.s<n>.*`)이고 공용 설정(오디오 · 키 · 화면)은 남는다. 확정은 1초 홀드다.
+  // Character deletion (2026-09-09): `새 캐릭터로 시작` became the `삭제` on a slot card of the character select
+  // screen. What it erases is **that one slot** (`scav.s<n>.*`); the shared settings (audio · keys · display)
+  // stay. The confirm is a 1 s hold.
   const shown = await page.evaluate(() => {
     localStorage.setItem('scav.audio', '{"master":0.5}');
     localStorage.setItem('scav.keybinds', '{}');
@@ -567,9 +571,10 @@ try {
     const del = card && [...card.querySelectorAll('.csl-actions .ui-btn.danger')].find((b) => b.textContent === '삭제');
     if (!del) return { btn: true, del: false };
     del.click();
-    // 2026-09-10: 설정(서버 설정)도 자기 `AskPopup` 을 갖는다 — 그쪽은 `.set-ask` 로 표시되어 있고
-    // 문서 순서상 **먼저** 오므로, 걸러 내지 않으면 숨어 있는 그 팝업을 집는다.
-    // 2026-09-15: 타이틀도 레이드 포기 팝업(`.tm-ask`)을 갖고 선택창보다 먼저 온다 — 선택창 안의 것만 집는다
+    // 2026-09-10: 설정 (서버 설정) has an `AskPopup` of its own — that one is marked `.set-ask` and comes
+    // **first** in document order, so without filtering it out the hidden popup is what gets picked.
+    // 2026-09-15: the title screen also has the raid-abandon popup (`.tm-ask`) and it too comes before the
+    // select screen — only the one inside the select screen is picked.
     const ask = document.querySelector('.char-select .tm-ask');
     return {
       btn: true, del: true, shown: !!ask && !ask.hidden,
@@ -580,7 +585,8 @@ try {
   });
   ok(shown.btn && shown.del && shown.shown && shown.hold && /창고|진행도/.test(shown.body),
     '게임 시작 → 슬롯 카드의 삭제 → 무엇이 사라지는지 적힌 홀드 확정 팝업', JSON.stringify(shown));
-  // 홀드가 끝나야 지워진다 — 그냥 클릭은 아무 일도 없어야 하고, 스모크는 슬롯을 직접 지워 뒷일을 확인한다
+  // Only a finished hold erases it — a bare click must do nothing, and the smoke then erases the slot itself to
+  //   check what follows
   const bareClick = await page.evaluate(() => {
     document.querySelector('.char-select .tm-ask .ui-btn:last-child')?.click();
     return localStorage.getItem('scav.s1.meta');

@@ -957,7 +957,7 @@ everything else was prose brought back in line with code that already existed.
 - **The retyped-label check became a script.** `scripts/check-comment-labels.mjs` reads the whole tree, not just this
   pass's diff, and is **advisory** (exit 0, not run by `verify`) because its near-miss list legitimately holds
   templates and historical names. Rejected: gating `verify` on it (unrunnable until every template is reworded);
-  leaving it as the scratchpad one-off `docs/COMMENT_I18N_PLAN.md` §3 step 4b describes — that one only ever sees
+  leaving it as the scratchpad one-off the comment-translation plan's §3 step 4b describes (`git show bb4eb2c:docs/COMMENT_I18N_PLAN.md`) — that one only ever sees
   the current diff, so a label an earlier pass retyped stays invisible forever.
 
 ## 2026-09-19 — 성능 측정 방식 · How performance is measured (perf Phase 0)

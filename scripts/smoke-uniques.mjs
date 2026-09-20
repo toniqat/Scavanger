@@ -39,9 +39,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts on its own in a new profile
+    // and locks room purposes · crafting · the terminal · boarding in that order, so it is marked here as
+    // "already finished" (the tutorial itself is covered by scripts/smoke-tutorial.mjs).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     // never take a real pointer lock in headless mode (Windows ClipCursor trap); the script fakes `pointerLockElement`
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
@@ -139,7 +139,7 @@ try {
   await P((y) => window.__face(y), yaw0);
   await waitSim(0.3);
 
-  /* ───────────── 화염방사기 ───────────── */
+  /* ───────── flamethrower ────────── */
   console.log('u_flame');
   await clearEv();
   const eqF = await P(() => window.__equip('wpn_u_flame', 'ammo_fuel', 100));
@@ -181,7 +181,7 @@ try {
   await waitSim(0.3);
   ok((await P(() => window.__heal())).hp >= 100, 'player patched up after the flame section');
 
-  /* ───────────── 전격총 ───────────── */
+  /* ────────── shock gun ────────── */
   console.log('u_shock');
   await clearEv();
   const eqS = await P(() => window.__equip('wpn_u_shock', 'ammo_cell', 60));
@@ -251,7 +251,7 @@ try {
   await waitSim(0.3);
   await P(() => window.__heal());
 
-  /* ───────────── 표창 + 용검 ───────────── */
+  /* ────────── shuriken + 용검 ────────── */
   console.log('u_shuriken');
   await clearEv();
   const eqK = await P(() => window.__equip('wpn_u_shuriken', 'ammo_shuriken', 40));
@@ -309,7 +309,7 @@ try {
   await waitSim(0.3);
   await P(() => window.__heal());
 
-  /* ───────────── 컴포짓 보우 ───────────── */
+  /* ───────── composite bow ────────── */
   console.log('u_bow');
   await waitSim(2.0);
   await clearEv();
@@ -431,7 +431,7 @@ try {
   await waitSim(0.3);
   await P(() => window.__heal());
 
-  /* ───────────── 바주카 ───────────── */
+  /* ─────────── bazooka ─────────── */
   console.log('u_bazooka');
   await clearEv();
   const eqZ = await P(() => window.__equip('wpn_u_bazooka', 'ammo_rocket', 6));
@@ -467,8 +467,9 @@ try {
   const reloaded = await P(() => ({ mag: window.__loadout().mag, reload: window.__ev['weapon:reloadStarted'].length }));
   ok(reloaded.reload >= 1, 'empty tube reloads itself (weapon:reloadStarted)', JSON.stringify(reloaded));
   ok(reloaded.mag === 3, `tube reloaded to 3 rockets (${reloaded.mag})`);
-  /* 2026-09-15 (사용자 결정): 넉백 거리 ×BAZOOKA_KNOCKBACK_DIST_MUL 0.5, 지상이면 ×BAZOOKA_GROUNDED_DIST_MUL 0.5 한 번 더 —
-     속도에는 제곱근이다 (15 × √0.5 × √0.5 = 7.5). 지상 폭발은 로켓 점프가 아니다 (넉백이 `grounded` 를 먼저 끄던 버그). */
+  /* 2026-09-15 (user's decision): knockback distance ×BAZOOKA_KNOCKBACK_DIST_MUL 0.5, and ×BAZOOKA_GROUNDED_DIST_MUL
+     0.5 once more while grounded — on the speed that is a square root (15 × √0.5 × √0.5 = 7.5). A grounded blast
+     is not a rocket jump (the bug was the knockback turning `grounded` off first). */
   await P(() => window.__killAll());
   await clearEv();
   await waitFor(page, () => window.__game.ctx.player.isGrounded, 'grounded before the feet blast', 30000);
@@ -494,10 +495,11 @@ try {
   await P(() => { window.__kb.length = 0; });
   await P(() => window.__heal());
   const hpJump = await P(() => window.__game.ctx.player.hp);
-  // 2026-09-09: 이 구간은 원래부터 경합이었다 — 7 m/s 점프의 공중 체류가 GRAVITY 24 에서 0.58 초뿐이라
-  // `look` · `click` 의 puppeteer 왕복이 조금만 늦어도 로켓이 터지기 전에 착지해 `!isGrounded` 가 깨진다.
-  // 더 세게 뛰면 이번엔 폭발이 BAZOOKA_ALT_RADIUS 밖으로 멀어져 넉백도 로켓 점프도 안 난다(높이가 곧 거리다).
-  // 그래서 **점프를 그대로 두고 시간을 늦춘다** — timeScale 0.2 면 같은 왕복이 시뮬 시간을 1/5 만 먹는다.
+  // 2026-09-09: this stretch was a race from the start — a 7 m/s jump stays airborne only 0.58 s at GRAVITY 24,
+  // so the slightest delay in the `look` · `click` puppeteer round trip lands the shooter before the rocket goes
+  // off and `!isGrounded` breaks. Jumping harder pushes the blast outside BAZOOKA_ALT_RADIUS instead, so neither
+  // the knockback nor the rocket jump happens (height is distance here). So **the jump is left alone and time is
+  // slowed down** — at timeScale 0.2 the same round trip eats a fifth of the simulation time.
   await P(() => { window.__game.ctx.timeScale = 0.2; });
   await P(() => window.__game.ctx.player.applyImpulse(new (window.__game.ctx.player.position.constructor)(0, 7, 0)));
   await waitSim(0.15);
@@ -521,7 +523,8 @@ try {
   ok(!air.grounded && air.pitch < -0.6, `airborne and looking down before the shot (pitch ${air.pitch?.toFixed(2)})`, JSON.stringify(air));
   ok(jump.alt === 1, 'RMB rocket → weapon:altFired');
   ok(!jump.grounded, 'still airborne when the rocket went off (the condition the super jump needs)', JSON.stringify({ vy: jump.vy, grounded: jump.grounded }));
-  // 2026-09-15 (사용자 결정): 로켓 점프 임펄스도 거리 ×0.5 → 속도 ×√0.5 (BAZOOKA_SUPER_JUMP 17 → 12.02)
+  // 2026-09-15 (user's decision): the rocket-jump impulse also takes distance ×0.5 → speed ×√0.5
+  //   (BAZOOKA_SUPER_JUMP 17 → 12.02)
   ok(jump.blast.length === 1 && Math.abs(jump.blast[0].impulse[1] - 17 * Math.SQRT1_2) < 0.01, `player:blastJump with BAZOOKA_SUPER_JUMP 17 × √0.5 (${jump.blast[0]?.impulse?.[1]?.toFixed(3)})`, JSON.stringify({ blast: jump.blast, dbg: jump.dbg }));
   ok(jump.kb.length === 1 && !jump.kb[0].grounded && Math.abs(jump.kb[0].s - 15 * Math.SQRT1_2) < 0.01, `airborne knockback speed 15 × √0.5 (${jump.kb[0]?.s?.toFixed(3)})`, JSON.stringify(jump.kb));
   // 2026-09-14: horizontal boost = BAZOOKA_JUMP_FORWARD 8 × √0.5 × min(1, speed / PLAYER_WALK_SPEED 4.2) — this jump is straight up
@@ -549,7 +552,7 @@ try {
   await waitSim(0.3);
   await P(() => window.__heal());
 
-  /* ───────────── 미니건 ───────────── */
+  /* ─────────── minigun ─────────── */
   console.log('u_minigun');
   await waitSim(1.0);
   await clearEv();

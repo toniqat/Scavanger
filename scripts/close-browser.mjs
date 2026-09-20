@@ -1,53 +1,56 @@
 /**
- * 스모크 공용 헬퍼: 헤드리스 Chrome 을 **기다리지 않고** 닫는다 (2026-09-16). 스모크가 아니다 — `verify.mjs` 는 `SMOKES`
- * 표에 적힌 파일만 돌린다.
+ * A shared smoke helper: closes a headless Chrome **without waiting for it** (2026-09-16). Not a smoke — `verify.mjs`
+ * only runs the files listed in the `SMOKES` map.
  *
- * 왜: Windows 에서 D3D11(ANGLE) 로 렌더하던 Chrome 이 **다른 Chrome 이 아직 돌고 있을 때** 정상 종료(`browser.close()` →
- * CDP `Browser.close`)되면, 브라우저 프로세스가 CDP 를 끊은 뒤에도 CPU 0 · 스레드 `LpcReply` 대기로 **최대 2분** 살아 있다.
- * puppeteer 는 그 프로세스가 끝날 때까지(`hasClosed()`, 제한 시간 없음) 기다리므로 스모크 프로세스가 검사를 다 끝내고도
- * 그만큼 레인을 붙잡는다. 여럿이 걸리면 ~120초 간격으로 **한꺼번에** 풀린다 — 「스모크 묶음이 같은 초에 끝난다」의 정체다.
- * 잰 값 (7800X3D · RTX 4080 SUPER, `verify:all` 4레인): 스모크 프로세스 시간 5476초 중 **2244초(41 %)** 가 이 대기였고
- * 전체 26분 46초. 재현: 게임을 띄운 헤드리스 Chrome 4대를 15초 간격으로 닫으면 첫 대만 0.3초, 나머지는 85~220초.
- * 혼자 도는 스모크 · SwiftShader 에서는 안 걸린다. 오디오를 끄거나(`AudioContext` 제거) crashpad 를 끄거나
- * `--use-angle=d3d11on12` 로 바꿔도 그대로 걸린다 — 플래그로는 못 막는다.
- * 프로세스 트리를 `taskkill /T /F` 로 죽이면 ~0.25초에 사라지고 뒤따르는 Chrome 도 걸리지 않는다.
+ * Why: on Windows, a Chrome that was rendering through D3D11 (ANGLE) and is closed normally (`browser.close()` →
+ * CDP `Browser.close`) **while other Chromes are still rendering** stays alive for **up to 2 minutes** after the browser
+ * process drops CDP — 0 CPU, its threads waiting in `LpcReply`. puppeteer waits for that process to end (`hasClosed()`,
+ * no timeout), so the smoke process holds its lane that long after every check has already passed. Several stuck at
+ * once are released **together** in ~120 s steps — that is what 「a group of smokes finishes in the same second」 is.
+ * Measured (7800X3D · RTX 4080 SUPER, `verify:all` on 4 lanes): **2244 s (41 %)** of the 5476 s of smoke process time
+ * was this wait, 26 min 46 s over all. To reproduce: close four headless Chromes running the game 15 s apart — only the
+ * first takes 0.3 s, the rest 85–220 s. A smoke running on its own, or on SwiftShader, never hits it. Turning audio off
+ * (removing `AudioContext`), turning crashpad off, or switching to `--use-angle=d3d11on12` changes nothing — no flag
+ * stops it. Killing the process tree with `taskkill /T /F` makes it vanish in ~0.25 s and the Chromes behind it stay clear.
  *
- * 그런데 `taskkill` 도 만능이 아니다 (2026-09-17, E-12 「중간 8개가 2배」 추적 중 확인): 커널 대기에 걸린 chrome 은
- * 종료 요청을 받고도 곧바로 회수되지 않아 **트리 일부(대개 gpu-process + crashpad-handler 2개)가 살아남고**, puppeteer 의
- * `close()` 는 그 프로세스가 사라지고 임시 프로필 폴더가 지워질 때까지 **제한 시간 없이** 기다린다. 그날 실측: 4레인 실행
- * 두 번에서 **스모크 8개 전부**가 마지막 검사를 통과한 뒤 `N passed` 를 찍지 못한 채 teardown 에서 멈췄고, 30분 뒤에도
- * 살아 있었다(러너는 레인이 풀리기만 기다렸다). 남은 chrome 이 살아 있는 동안은 WMI `Win32_Process` 열거까지 타임아웃하고,
- * 그것들을 죽이는 순간 멈춰 있던 스모크가 한꺼번에 풀렸다 — 「중간 묶음만 2배」의 모양 그대로다.
- * 그래서 `close()` 를 **기다리지 않는다**: 트리를 죽인 뒤 `CLOSE_GIVE_UP_MS` 만 기다리고 버린다. 정상 종료는 0~1 ms 라
- * 이 시간에 걸릴 일이 없고, 걸린 경우에는 레인이 대신 붙잡히지 않는다.
- * 확인: 이전에 2배를 잰 것과 같은 16개 묶음 · 4레인에서 **중간 8개가 141~157 s → 64~84 s**(단독 실행값 69~85 s)로 돌아오고
- * 전체가 5분 6초 · 16/16 초록, 끝난 직후 chrome 프로세스 0 · 남은 임시 프로필 0 이었다.
+ * `taskkill` is not the whole answer either (2026-09-17, found while chasing E-12 「the middle 8 run at 2×」): a chrome
+ * caught in a kernel wait is not reaped the moment it is asked to quit, so **part of the tree survives (usually the two
+ * gpu-process + crashpad-handler)**, and puppeteer's `close()` waits **with no timeout** for that process to go and the
+ * temp profile folder to be deleted. Measured that day: in two 4-lane runs **all 8 smokes** passed their last check and
+ * then stopped in teardown without printing `N passed`, and were still alive 30 minutes later (the runner was only
+ * waiting for its lanes to come free). While the leftover chromes lived, even WMI `Win32_Process` enumeration timed out,
+ * and the instant they were killed every stalled smoke was released at once — the shape of 「only the middle group runs
+ * at 2×」 exactly. So `close()` is **not waited on**: the tree is killed, `CLOSE_GIVE_UP_MS` is given and the rest
+ * abandoned. A normal close takes 0–1 ms, so it never hits that limit, and when it does the lane is not held in its place.
+ * Confirmed: on the same 16-smoke set · 4 lanes that measured the 2×, **the middle 8 went 141–157 s → 64–84 s** (69–85 s
+ * run on their own), the whole set 5 min 6 s · 16/16 green, with 0 chrome processes and 0 temp profiles left behind.
  *
- * 어떻게: 먼저 트리를 죽이고 `browser.close()` 를 제한 시간과 경주시킨 뒤, puppeteer 가 못 지우고 간 임시 프로필
- * (`%TEMP%/puppeteer_dev_chrome_profile-*`)을 직접 한 번 지운다. 스모크는 프로필을 다시 쓰지 않으므로
- * (`userDataDir` 을 쓰는 스크립트가 없다) 잃는 것이 없다. 그래도 남는 폴더는 `verify.mjs` 가 실행 시작에 쓸어낸다.
- * `puppeteer.connect` 로 붙은 브라우저(`process()` 가 null)와 Windows 가 아닌 곳은 예전처럼 정상 종료한다.
+ * How: the tree is killed first, `browser.close()` is raced against a timeout, and the temp profile puppeteer did not
+ * get to delete (`%TEMP%/puppeteer_dev_chrome_profile-*`) is removed once by hand. A smoke never reuses a profile
+ * (no script passes `userDataDir`), so nothing is lost. Folders that survive even that are swept by `verify.mjs` at the
+ * start of a run. A browser attached with `puppeteer.connect` (`process()` is null), and anything not Windows, closes
+ * normally as before.
  *
- * 쓰는 법: `browser.close()` 대신
+ * How to use it: instead of `browser.close()`
  *
  *   import { closeBrowser } from './close-browser.mjs';
  *   await closeBrowser(browser);
  *
- * 던지지 않는다 — 이미 죽은 브라우저를 닫아도 조용히 끝난다.
+ * It never throws — closing a browser that is already dead ends quietly.
  */
 import { spawnSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
 
-/* 정상 종료는 0~1 ms 다 (2026-09-17, 브라우저 1대 · 4대 실측). 이 시간을 넘긴다는 것은 커널 대기에 걸렸다는 뜻이고,
-   그 대기는 30분도 안 끝난 적이 있으므로 레인을 붙잡지 않고 버린다. */
+/* A normal close takes 0–1 ms (2026-09-17, measured with 1 browser and with 4). Going past this means it is caught in a
+   kernel wait, and such a wait has once gone unfinished for 30 minutes, so the lane is abandoned rather than held. */
 const CLOSE_GIVE_UP_MS = 5_000;
 
-/** puppeteer 가 만든 임시 프로필만 지운다 — 사용자가 지정한 `userDataDir` 은 건드리지 않는다. */
+/** Removes only a temp profile puppeteer itself made — a `userDataDir` the caller chose is left alone. */
 function removeTempProfile(proc) {
   const arg = (proc?.spawnargs ?? []).find((a) => a.startsWith('--user-data-dir='));
   const dir = arg?.slice('--user-data-dir='.length).replace(/^"|"$/g, '');
   if (!dir || !/puppeteer_dev_chrome_profile-/.test(dir)) return;
-  try { rmSync(dir, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 }); } catch { /* 살아남은 chrome 이 쥐고 있다 */ }
+  try { rmSync(dir, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 }); } catch { /* a surviving chrome is holding it */ }
 }
 
 export async function closeBrowser(browser) {
@@ -57,7 +60,7 @@ export async function closeBrowser(browser) {
     spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
   }
   const closed = browser.close().catch(() => { /* already gone */ });
-  // 타이머는 unref — 이 대기 때문에 스모크 프로세스가 더 살아 있으면 안 된다.
+  // The timer is unref'd — this wait must never be the reason the smoke process outlives its work.
   await Promise.race([closed, new Promise((r) => { const t = setTimeout(r, CLOSE_GIVE_UP_MS); t.unref?.(); })]);
   if (process.platform === 'win32') removeTempProfile(proc);
 }

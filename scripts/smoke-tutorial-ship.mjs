@@ -1,28 +1,34 @@
 // Tutorial **ship track** smoke (② `ship`: one step `stats`) — TODO E-12, 2026-09-15.
-// 2026-09-15 (사용자 결정): `ravenQuest` 가 순서에서 빠졌다. 레이븐의 첫 연락은 **함선 트랙이 끝난 뒤**, 어느 트랙도
-//   돌지 않을 때 온다 (`meta/parts/NpcQuests.tutorialBlocks`) — 5 는 「증축 트랙을 건너뛰면 온다」를 본다.
-// 2026-09-16 (사용자 결정): `messenger`(메신저 열기)도 빠졌다. 옛 저장의 `messenger` · `ravenQuest` 는 「함선 트랙 끝」.
-// 2026-09-16 2차 (사용자 결정): `levelUp` 도 빠져 `stats` 한 단계에 목표 넷이 순차 공개된다 (메뉴 열기 → 캐릭터 탭 → ＋ → 확정).
-//   포커스가 목표를 따라 옮겨 가고, 확정하는 **그 자리에서** 트랙이 끝난다 — 증축 트랙은 메뉴를 닫을 때 시작한다.
-// 2026-09-18 (사용자 결정 — 증축 안내 · 출격 안내 분리): 트랙이 넷이다 (`raid ship build raid2`). 이 스모크가 보는 것은 그대로 함선 트랙이고,
-//   5 절의 `skipTrack('build')` 은 이제 「증축을 건너뛰면 출격도 이어지지 않는다」까지 함께 본다 (그래서 어느 트랙도 안 돈다 → 레이뺈).
-//   함선 트랙 동안 `시설 관리` 힌트는 숨고 시설 관리에 들어갈 수 없다 (`shipManage` 게이트).
+// 2026-09-15 (user's decision): `ravenQuest` left the order. Raven's first contact arrives **after the ship track
+//   ends**, when no track is running (`meta/parts/NpcQuests.tutorialBlocks`) — 5 checks 「it arrives once the build
+//   track is skipped」.
+// 2026-09-16 (user's decision): `messenger` (opening the messenger) left too. An old save's `messenger` ·
+//   `ravenQuest` read as 「the ship track is done」.
+// 2026-09-16 2nd pass (user's decision): `levelUp` left as well, so the single step `stats` reveals four objectives
+//   in sequence (open the menu → the 캐릭터 tab → ＋ → confirm). The focus follows the objectives, and the track ends
+//   **right where** the confirm happens — the build track starts when the menu closes.
+// 2026-09-18 (user's decision — 증축 안내 · 출격 안내 split apart): there are four tracks (`raid ship build raid2`).
+//   What this smoke checks is still the ship track, and 5's `skipTrack('build')` now also checks 「skipping the build
+//   track never chains into the launch track」 (so no track runs → Raven).
+//   While the ship track runs the `시설 관리` hint hides and ship management cannot be entered (the `shipManage` gate).
 //
 // The raid track (①) is driven by its own smoke; this one sets up the moment that track ends for real and drives the rest with
 // **real input** wherever the player judges something:
-//   0. 레이드 완주 — the tutorial system's own completion path (`extract` → `advance()` → `finish(false)`) leaves `pendingShip`, and
-//      the tutorial raid XP (`TUTORIAL_RAID_XP`) lands a fresh Lv.1 character on exactly Lv.2 with one stat point.
-//   1. 트랙 순서 — entering the personal ship starts the ship track `stats` (1/1), only 「메뉴 열기」 visible, the control guide
+//   0. Raid completed — the tutorial system's own completion path (`extract` → `advance()` → `finish(false)`) leaves
+//      `pendingShip`, and the tutorial raid XP (`TUTORIAL_RAID_XP`) lands a fresh Lv.1 character on exactly Lv.2 with
+//      one stat point.
+//   1. Track order — entering the personal ship starts the ship track `stats` (1/1), only 「메뉴 열기」 visible, the control guide
 //      carries the menu key, ship gates; `시설 관리` hint hidden, M / `openShipManage` refused.
-//   2. 메뉴 · 캐릭터 탭 — Tab ticks 「메뉴 열기」; the spotlight hole is exactly the 캐릭터 tab button; a real click ticks the tab row.
+//   2. The menu · the 캐릭터 tab — Tab ticks 「메뉴 열기」; the spotlight hole is exactly the 캐릭터 tab button;
+//      a real click ticks the tab row.
 //   3. stats — hole = the **visible** stat column with a ＋ glyph in the callout; ＋ by mouse ticks 「능력치 하나 상승」 and the focus
 //      moves to `포인트 투자 확정`; a short press does nothing, a real 1 s hold spends the point → the track ends at once (no focus),
 //      the menu stays open, the build track waits (no intro card, `isTrackDone('ship')` false, no contact).
 //   4. close — Tab closes the menu → the build track starts (intro card) in the same ship; `shipManage` is open again.
 //   6. old saves + reload — `load()` reads `messenger` / `ravenQuest` as "ship track done", `levelUp` as `stats`; a save left at
 //      `stats` with the objective done ends the ship track on entering the ship → build intro; level and the spent point survive.
-//   5. 레이븐 — `skipTrack('build')` leaves no track running → within `NPC_OFFER_CHECK_S` Raven's first contact arrives (only Raven:
-//      greeting lines + two choices, no quest card), the button returns with an unread badge.
+//   5. Raven — `skipTrack('build')` leaves no track running → within `NPC_OFFER_CHECK_S` Raven's first contact
+//      arrives (only Raven: greeting lines + two choices, no quest card), the button returns with an unread badge.
 //
 // Usage: node scripts/smoke-tutorial-ship.mjs [http://localhost:5273/]   (needs `npm run dev`; no relay needed)
 import puppeteer from 'puppeteer-core';
@@ -154,7 +160,7 @@ try {
   await page.goto(BASE, { waitUntil: 'load' });
   await setup();
 
-  /* ── 0. 레이드 완주 → pendingShip + 레벨 2 ─────────────────────────────── */
+  /* ── 0. Raid completed → pendingShip + level 2 ─────────────────────────── */
   console.log('0. 레이드 완주');
   const raidEnd = await P(() => {
     const t = window.__game.ctx.tutorial;
@@ -187,11 +193,11 @@ try {
   ok(xp.level === 2 && xp.points === xp.per,
     `TUTORIAL_RAID_XP ${xp.raidXp} = 정확히 Lv.2 · 능력치 포인트 ${xp.per} (지급: ${xp.via})`, JSON.stringify(xp));
 
-  /* ── 1. 함선에 들어서면 함선 트랙 — 순서 raid → ship → build ─────────── */
+  /* ── 1. Entering the ship starts the ship track — raid → ship → build ── */
   console.log('1. 트랙 순서');
   await enterShip();
   await waitStep('stats');
-  await sleep(700);   // 목표 줄은 반 박자 늦게 그려진다 (TUTORIAL_STEP_DELAY_S)
+  await sleep(700);   // the objective rows are drawn half a beat late (TUTORIAL_STEP_DELAY_S)
   const s1 = await P(async () => {
     const S = await import('/src/shared/index.ts');
     const t = window.__game.ctx.tutorial;
@@ -226,7 +232,8 @@ try {
     `목표 패널: 함선 안내 · 첫 목표 「메뉴 열기」 하나만 보인다 (${s1.panelTrack} / ${s1.objs.join('|')})`);
   ok(s1.controls.includes('메뉴 열기') && !s1.lit, '우측 조작 가이드에 메뉴 여는 키 · 창이 닫혀 있어 포커싱은 없다', JSON.stringify(s1));
 
-  // 2026-09-16 2차: 함선 트랙 동안 우하단 `시설 관리` 힌트는 숨고 시설 관리에 들어갈 수 없다 (M 키 포함)
+  // 2026-09-16 2nd pass: while the ship track runs the bottom-right `시설 관리` hint hides and ship management
+  // cannot be entered (the M key included)
   await tapKey('KeyM');
   await sleep(300);
   const s1m = await P(() => {
@@ -240,7 +247,7 @@ try {
   ok(s1m.modeAfterM === false && s1m.hides === true && !!s1m.reason && !!s1m.block && s1m.hint === false && s1m.open === false && s1m.mode === false,
     '함선 트랙 동안 시설 관리 힌트가 숨고 M · openShipManage 가 거절된다', JSON.stringify(s1m));
 
-  /* ── 2. 메뉴 열기 → 캐릭터 탭 (포커스가 탭으로 옮겨 간다) ─────────────── */
+  /* ── 2. Open the menu → the 캐릭터 tab (the focus moves to the tab) ───── */
   console.log('2. 메뉴 · 캐릭터 탭');
   await tapKey('Tab');
   await waitFor(page, () => window.__objDone('메뉴 열기') === true, 'statsMenu ticked', 10000).catch(() => null);
@@ -262,7 +269,7 @@ try {
   const s2c = await P(() => ({ step: window.__game.ctx.tutorial.step, tab: window.__game.ctx.inventory.screenTab }));
   ok(s2c.step === 'stats' && s2c.tab === 'character', '캐릭터 탭을 누르면 (inventory:opened 없이) 둘째 목표가 체크된다', JSON.stringify(s2c));
 
-  /* ── 3. 능력치 ＋ → 1초 홀드 확정 (포커스: ＋ 열 → 확정 버튼) ─────────── */
+  /* ── 3. Stat ＋ → a 1 s hold (focus: the ＋ column → confirm) ─────────── */
   console.log('3. stats');
   await waitSpot('능력치 하나', 'spotlight (능력치 열)');
   const s3 = await P(() => {
@@ -326,7 +333,8 @@ try {
   await sleep(750);
   await page.mouse.up();
   ok(midHold.step === 'stats' && midHold.holding && midHold.points === pre.points, '누르고 있는 동안은 게이지만 찬다 (0.55 s)', JSON.stringify(midHold));
-  // 2026-09-16 2차: 확정하는 **그 자리에서** 포커싱이 걷히고 함선 트랙이 끝난다 — 증축 트랙은 메뉴를 닫을 때 시작한다
+  // 2026-09-16 2nd pass: the focus is taken down and the ship track ends **right where** the confirm happens — the
+  // build track starts when the menu closes
   await waitFor(page, () => window.__ev['tutorial:finished'].some((f) => f.track === 'ship'), 'tutorial:finished ship', 10000).catch(() => null);
   await sleep(1200);
   const s3b = await P((pre) => {
@@ -355,7 +363,7 @@ try {
     `포인트가 실제로 들어갔다 (${pre.id} ${pre.base} → ${s3b.value}, 남은 포인트 ${s3b.points})`, JSON.stringify(s3b));
   ok(s3b.savedPoints === 0 && s3b.savedValue === pre.base + pre.points, '투자는 즉시 프로필에 저장된다 (scav.s1.profile)', JSON.stringify(s3b));
 
-  /* ── 4. 메뉴를 닫으면 증축 트랙이 이어진다 ──────────────────────────────── */
+  /* ── 4. Closing the menu chains into the build track ────────────────────── */
   console.log('4. 메뉴 닫기 → 증축 트랙');
   const n0 = await P(() => window.__ev['tutorial:changed'].length);
   await tapKey('Tab');
@@ -374,8 +382,9 @@ try {
     };
   }, n0);
   ok(!s4b.open && s4b.shipDone && s4b.track === 'build' && s4b.step === 'intro' && s4b.popup && s4b.popupTitle === '튜토리얼'
-    // 2026-09-17: 증축 트랙은 7 단계였다 (묶인 목표 줄). 2026-09-18: 돌격소총 장착에서 끝나 **5 단계**이고,
-    //   터미널 · 레이드는 뒤따르는 `raid2`(출격 안내) 2 단계로 갈렸다.
+    // 2026-09-17: the build track was 7 steps (grouped objective rows). 2026-09-18: it ends at equipping the
+    //   assault rifle, so **5 steps**, and the terminal · raid steps split off into the 2 steps of the `raid2`
+    //   (`출격 안내`) track that follows.
     && s4b.trail.join(' ') === 'build:intro:1/5',
   `메뉴를 닫은 뒤에야 같은 함선에서 증축 트랙이 시작된다 (${s4b.trail.join(' → ')})`, JSON.stringify(s4b));
   ok(s4b.shipManage === false, '증축 트랙에서는 시설 관리가 막히지 않는다 (manage 단계가 연다)', JSON.stringify(s4b));
@@ -383,7 +392,7 @@ try {
     '메신저는 한 번도 열리지 않았고 증축 트랙에서도 감춰진다', JSON.stringify(s4b));
   ok(s4b.contacts.length === 0, '증축 트랙이 도는 동안에도 연락은 없다', JSON.stringify(s4b.contacts));
 
-  /* ── 6. 옛 저장 · 확정 뒤 닫기 전에 새로고침 ───────────────────────────────── */
+  /* ── 6. Old saves · a reload after the confirm but before the close ────────── */
   console.log('6. 옛 저장 · 새로고침');
   const remap = await P(() => {
     const sys = window.__game.getSystem('tutorial');
@@ -401,7 +410,8 @@ try {
     '옛 저장의 messenger · ravenQuest 는 「함선 트랙 끝」으로 읽힌다 (되돌려 붙일 단계가 없다)', JSON.stringify(remap));
   ok(remap.stats?.step === 'stats' && remap.stats?.done === false, 'stats 저장은 그대로 이어진다', JSON.stringify(remap));
   ok(remap.levelUp?.step === 'stats' && remap.levelUp?.done === false, '옛 저장의 levelUp 은 stats 로 이어진다 (2026-09-16 2차)', JSON.stringify(remap));
-  // 확정은 적혀 있는데 트랙이 남은 옛 저장 (2026-09-16 1차 — 화면을 닫을 때 끝나던 때) — 증축 트랙은 아직 기록이 없다
+  // An old save with the confirm written down but the track still running (2026-09-16 1st pass — when it ended on
+  // closing the screen) — the build track has no record yet
   await P(() => localStorage.setItem('scav.s1.tutorial', JSON.stringify({
     version: 2, tracks: { raid: { step: null, done: true }, ship: { step: 'stats', done: false } }, pendingShip: false, objectives: ['statsSpent'],
   })));
@@ -423,10 +433,12 @@ try {
     '확정 뒤 닫기 전에 새로고침해도, 함선에 들어서면 함선 트랙이 끝나고 증축 트랙이 이어진다', JSON.stringify(s6));
   ok(s6.level === 2 && s6.points === 0 && s6.value === pre.base + pre.points, '투자한 포인트 · 레벨이 새로고침을 견딘다', JSON.stringify(s6));
 
-  /* ── 5. 레이븐 — 튜토리얼이 끝나야 쓴다 ──────────────────────────────── */
+  /* ── 5. Raven — writes only once the tutorial is over ────────────────── */
   console.log('5. 레이븐 (튜토리얼 뒤)');
-  // 증축 트랙을 건너뛰면 어느 트랙도 돌지 않는다 → 다음 평가(`NPC_OFFER_CHECK_S` 주기)에서 레이뺈이 첫 연락을 보낸다.
-  // 2026-09-18: 그 「어느 트랙도」에는 새 트랙 `raid2`「출격 안내」도 들어간다 — 건너뛴 사람에게는 이어지지 않는다 (`pendingRaid2` 는 완주에만 선다).
+  // Skipping the build track leaves no track running → at the next check (the `NPC_OFFER_CHECK_S` period) Raven
+  // sends the first contact.
+  // 2026-09-18: that 「no track」 includes the new `raid2` 「출격 안내」 track — it never chains for someone who
+  //   skipped it (`pendingRaid2` is raised only by a completion).
   await P(() => window.__game.ctx.tutorial.skipTrack('build'));
   const s5 = await P(async () => {
     const S = await import('/src/shared/index.ts');

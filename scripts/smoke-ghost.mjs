@@ -10,8 +10,8 @@
 // keeps a non-simulated body for NET_GHOST_PARK_S (the whole raid since 2026-09-07) (`getParkedGhosts`), restored by a rejoin inside the window, expired
 // after it (`debugExpireParked`), cleared by demotion / `game:abort`.
 // Phase 10: the soldier model's `shoulderSocket` (weaponSocket still at -PI/2, `SoldierPose.carry`) and
-// **부상자 들쳐메기** — `findCarriable` / `carry` / the revive prompt following the socket / the automatic drop when
-// the body is revived / `setCarriedBy` riding along on a carrier's shoulder (`debugCarryLocal`).
+// **shouldering a downed squadmate** — `findCarriable` / `carry` / the revive prompt following the socket / the
+// automatic drop when the body is revived / `setCarriedBy` riding on a carrier's shoulder (`debugCarryLocal`).
 // Usage: node scripts/smoke-ghost.mjs [http://localhost:5273]   (needs `npm run dev` or a private `npx vite --port 5303`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -50,9 +50,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a fresh profile and
+    // locks room purposes · crafting · the terminal · boarding one after another, so here it is marked 「already
+    // finished」 (the tutorial itself is smoke-tutorial.mjs's business).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -505,8 +505,9 @@ try {
   await P(() => { window.__rp.debugClear(); });
   await waitSim(0.2);
 
-  // 2026-09-15 (B-14): 낙하 착지 피드백 — `parts/Fall` 이 피해와 함께 `camera:shake` 를 내고, 멀티면 `fall` 을 보낸다.
-  // 받는 쪽 `remotePlayers.receiveFall` 의 네 겹(모양 · 보낸 사람 · 거리 · 요율). 릴레이 없이 가짜 로비 멤버로 몬다.
+  // 2026-09-15 (B-14): the fall landing feedback — `parts/Fall` publishes `camera:shake` along with the damage
+  // and, in multiplayer, sends `fall`. The receiving side's four layers in `remotePlayers.receiveFall` (shape ·
+  // sender · distance · rate). Driven with a fake lobby member, with no relay.
   console.log('fall feedback (B-14): camera:shake + fall wire + remote guard');
   await P(() => { const p = window.__game.ctx.player; p.restoreState({ position: p.position.clone(), yaw: 0, hp: 100, downHp: 0, state: 0 }); });
   await waitSim(0.5);

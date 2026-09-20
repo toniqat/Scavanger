@@ -1,5 +1,5 @@
 // Single-player smoke test for Phase 4 (enemies): rogue guards + shots, faction clash, artillery shell interception,
-// toxic burst friendly fire, behemoth armour plate, lootable corpses. Phase 6 block at the end: 전소 / 감전 statuses
+// toxic burst friendly fire, behemoth armour plate, lootable corpses. Phase 6 block at the end: the incinerated / shocked statuses
 // (applyStatus incinerated / shocked, events, frozen writhe, recovery) and the player hooks (teleport, consumeStamina,
 // startMelee('heavy'), setViewWiden).
 // Usage: node scripts/smoke-phase4.mjs [http://localhost:5273]   (needs `npm run dev`)
@@ -43,9 +43,9 @@ try {
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a new profile and locks
+    // room purposes · crafting · the terminal · boarding in that order, so it is marked "already done" here
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -87,9 +87,10 @@ try {
   await waitFor(page, () => !window.__game.ctx.player.isDropping, 'hellpod exit', 10000);
   await waitSim(0.3);
 
-  /* 2026-09-13 (행성별 적 팩션): 상자 경비는 폐지됐다 — 레이드 시작 인간형은 행성 threat 별 거점 그룹이다
-     (자세한 검사는 scripts/smoke-faction-sites.mjs). 행성 없는 이 레이드는 threat 1 = 안드로이드뿐이라,
-     아래 로그 사격 절을 위해 스폰에서 먼 개활지에 로그 하나를 직접 세운다. */
+  /* 2026-09-13 (enemy factions per planet): crate guards were dropped — the humanoids a raid starts with are the site
+     groups for the planet threat (scripts/smoke-faction-sites.mjs checks them in detail). This raid has no planet, so
+     threat 1 = androids only, and one rogue is placed by hand on open ground far from the spawn for the rogue-fire
+     section below. */
   console.log('site groups (no planet = threat 1) + one rogue for the fire test');
   const guards = await P(() => {
     const sys = window.__sys; const world = window.__game.ctx.world;
@@ -143,11 +144,12 @@ try {
   const dmg = await P(() => ({ hp: window.__game.ctx.player.hp, attacked: window.__ev['enemy:attacked'].filter((a) => a.type === 'rogue' || a.type === 'rogue_boss').length, shots: window.__ev['enemy:shot'].length, hits: window.__ev['enemy:shot'].filter((s) => s.hit).length }));
   ok(dmg.shots >= 1, `rogue keeps firing (${dmg.shots} shots, ${dmg.hits} hits, player hp ${dmg.hp}) — a full 4-round burst depends on the cover cycle timing`);
 
-  /* 여기까지가 플레이어가 맞아야 하는 유일한 절이다. 이 뒤로는 로그가 몇 분 동안 계속 쏘는데 아무도 그 피해를
-     검사하지 않고, **맞아 죽으면 레이드가 실패로 끝난다** — `player:died` → `game:raidFailed` → phase 'dead'.
-     2026-09-09 에 완전 사망의 자동 부활이 없어졌으므로 `respawnAt` 으로 몸만 일으켜도 그 레이드는 되돌아오지
-     않는다 (phase 는 `RAID_FAILED_AUTO_RETURN_S` 뒤 함선으로 갈 뿐이고 `uiBlockers` 에 'menu' 가 남는다).
-     그래서 **사후에 되살리지 않고 애초에 죽지 않게** 한다 — 이 뒤의 모든 절은 적 쪽만 검사한다. */
+  /* This is the only section where the player is meant to be hit. From here on the rogue keeps firing for minutes with
+     nobody checking that damage, and **being shot dead ends the raid in failure** — `player:died` → `game:raidFailed` →
+     phase 'dead'. Full death lost its auto-revive on 2026-09-09, so putting the body back on its feet with `respawnAt`
+     does not bring that raid back (the phase only goes to the ship after `RAID_FAILED_AUTO_RETURN_S`, and 'menu' stays in
+     `uiBlockers`). So the body is kept from dying in the first place rather than revived afterwards — every section below
+     checks the enemy side only. */
   await P(() => {
     const pl = window.__game.ctx.player;
     window.__healGuard = setInterval(() => { if (pl.hp < pl.maxHp) pl.heal(pl.maxHp - pl.hp); }, 100);
@@ -176,10 +178,10 @@ try {
   console.log('artillery shell + interception');
   const art = await P(() => {
     const sys = window.__sys; const ctx = window.__game.ctx; const p = ctx.player.position;
-    // 2026-09-17: 앞 구간의 로그 · 안드로이드가 남아 있으면 포병이 그쪽(곁에 벌레 없음)을 표적으로 잡아 쏘지 않는다 — 판을 비우고 시작한다
+    // 2026-09-17: with the rogue · androids of the earlier stretch still around, the artillery takes one of them as its target (no bug beside it) and never fires — the field is cleared first
     sys.killAll();
     const a = sys.debugSpawn('artillery', { x: p.x + 95, z: p.z }, true);
-    // 2026-09-17: 포병은 표적 곁(ARTILLERY_AI.supportRadius)에 다른 벌레가 있어야 쏜다 — 곁에 스캐빈저 하나를 세우고, 1회 소환은 미리 써 버린 것으로 둔다
+    // 2026-09-17: the artillery fires only with another bug beside its target (ARTILLERY_AI.supportRadius) — one scavenger is placed beside it, and its one summon is left marked as already spent
     if (a) { a.summonDone = true; sys.debugSpawn('scavenger', { x: p.x + 2, z: p.z + 2 }, false); }
     return a ? { id: a.id, faction: a.faction } : null;
   });
@@ -267,7 +269,7 @@ try {
     // looted → prompt flips
     const lifeBefore = s.corpseLife;
     ctx.bus.emit('crate:looted', { crateId: `corpse:${s.id}` });
-    // 2026-09-16 (빈 시체 제거): a second rogue corpse that nobody opens — it must keep the normal lifetime
+    // 2026-09-16 (empty corpses removed): a second rogue corpse that nobody opens — it must keep the normal lifetime
     const keep = sys.debugSpawn('rogue', { x: p.x - 2, z: p.z + 2 }, false);
     if (keep) keep.takeDamage(5000);
     return { id: s.id, dead: s.isDead, found: !!it, hold: it?.holdTime, radius: it?.radius, prompt, can, calls: stub.calls, hadInventoryFn: had, hadLoot, promptAfter: it ? it.getPrompt() : null, canAfter: it ? it.canInteract() : null, corpseLife: lifeBefore, spawned: window.__ev['corpse:spawned'].length,
@@ -278,7 +280,7 @@ try {
   ok(corpse && corpse.calls.length === 1 && corpse.calls[0].id === `corpse:${corpse.id}` && corpse.calls[0].title === '시체', `interact() → openContainerItems('corpse:<id>', items, pos, '시체') (items ${corpse?.calls[0]?.n}, loot impl present: ${corpse?.hadLoot}, inventory impl present: ${corpse?.hadInventoryFn})`);
   ok(corpse && corpse.promptAfter === '수색 완료' && corpse.canAfter === false, 'crate:looted marks the corpse searched (수색 완료, no re-open)');
   ok(corpse && corpse.corpseLife === 45, `corpse lifetime ${corpse?.corpseLife} s`);
-  /* 2026-09-16 (사용자 결정 — 빈 시체 제거): an opened-and-emptied enemy corpse sinks after the delay and goes; an unopened one stays */
+  /* 2026-09-16 (user's decision — empty corpses removed): an opened-and-emptied enemy corpse sinks after the delay and goes; an unopened one stays */
   const K16 = await P(async () => { const m = await import('/src/shared/constants.ts'); return { delay: m.CORPSE_EMPTY_REMOVE_DELAY_S, sink: m.CORPSE_EMPTY_SINK_S }; });
   ok(corpse && corpse.emptied === true && Math.abs(corpse.lifeAfter - (corpse.deathT + K16.delay + K16.sink)) < 0.05 && corpse.fadeS === K16.sink,
     `emptied enemy corpse: lifetime cut to death + ${K16.delay} + ${K16.sink} s, sink over ${K16.sink} s`, JSON.stringify(corpse));
@@ -373,7 +375,7 @@ try {
     ctx.enemies.applyStatus(b.id, 'shocked', 0.5, 1);
     ctx.enemies.applyStatus(b.id, 'shocked', 0.5, 1);   // per-tick caller: no second event
     const r = { id: b.id, slow: b.slowFactor, slowTimer: b.slowTimer, shock: b.shockTimer, incap: b.isIncapacitated, ev: window.__ev['enemy:shocked'].length };
-    ctx.enemies.applyStatus(b.id, 'incinerated', 0, 0.6);   // short 전소 → returns to chase afterwards
+    ctx.enemies.applyStatus(b.id, 'incinerated', 0, 0.6);   // short incineration → returns to chase afterwards
     return r;
   });
   ok(shk && shk.ev === 1 && shk.slow === 0.5 && shk.slowTimer === 1 && shk.shock > 0 && !shk.incap, `applyStatus('shocked', 0.5, 1) → enemy:shocked once, slowFactor 0.5 for 1 s, spark ${shk?.shock}`, JSON.stringify(shk));
@@ -381,9 +383,11 @@ try {
   const rec = await P((id) => { const b = window.__sys.active.find((e) => e.id === id); return b ? { incap: b.isIncapacitated, state: b.state, combatant: b.isCombatant, writhe: b.anim.writhe, dead: b.isDead } : null; }, shk.id);
   ok(rec && !rec.incap && rec.state !== 'stagger' && rec.combatant && rec.writhe < 0.2, `전소 over → back to ${rec?.state}, combatant again (writhe ${rec?.writhe?.toFixed(2)})`, JSON.stringify(rec));
 
-  /* ── 2026-09-11: C 항목 배치 (적) ────────────────────────────────────────────────────────────────────────
-     C-14 재해 구역 안의 적 = 조용한 피해 · C-51 타입별 타격음 · C-47 베헤모스 돌진 → 드론 · C-24 곡사포 거절 뒤 재배치.
-     재해 · 드론은 스텁을 인스턴스에 덮어씌웠다가 되돌린다 (프로토타입 getter / 메서드가 다시 보인다). */
+  /* ── 2026-09-11: the C batch (enemies) ──────────────────────────────────────────────────────────────
+     C-14 an enemy inside a hazard zone = silent damage · C-51 the hit sound per type · C-47 a behemoth charge → drones ·
+     C-24 the artillery moves on after a refusal.
+     The hazard · the drones are stubbed onto the instance and then restored (the prototype getter / method shows through
+     again). */
   console.log('C batch: hazard DoT on enemies (C-14)');
   const hz0 = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const p = ctx.player.position; const w = ctx.world;
@@ -419,7 +423,7 @@ try {
     if (!victim) return null;
     const ids = [];
     const off = ctx.bus.on('audio:play', (a) => ids.push(a.id));
-    // 2026-09-18: `stats.height` — `hitTarget` 이 공격자 머리에서 벽 차폐를 본다 (`parts/Damage.meleeClear`)
+    // 2026-09-18: `stats.height` — `hitTarget` measures the wall occlusion from the attacker's head (`parts/Damage.meleeClear`)
     const fake = (type) => ({ id: 77000 + ids.length, type, faction: type.startsWith('rogue') ? 'rogue' : 'bug', stats: { height: 1.2 }, position: victim.position.clone(), target: null });
     const run = (type) => { ids.length = 0; sys.lastAudio.clear(); sys.hitTarget(fake(type), 1, 0, victim.asTarget); return ids.slice(); };
     const r = { hammer: run('rogue_hammer'), warrior: run('warrior'), behemoth: run('behemoth') };
@@ -434,7 +438,7 @@ try {
   const dr0 = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const p = ctx.player.position; const w = ctx.world;
     const V = ctx.player.position.constructor;
-    // 맵 안쪽(플레이어와 맵 중심 사이)에서 중심 쪽으로 달리게 한다 — 맵 밖을 향한 돌진은 첫 프레임에 경직된다
+    // It is made to run toward the centre from inside the map (between the player and the map centre) — a charge aimed out of the map staggers on the first frame
     const bx = p.x * 0.6, bz = p.z * 0.6 + (p.z > 0 ? -30 : 30);
     const dirX = bx > 0 ? -1 : 1;
     const b = sys.debugSpawn('behemoth', { x: bx, z: bz }, false);
@@ -468,11 +472,11 @@ try {
   console.log('C batch: artillery refusal → clear spot, no ping-pong, refusal cap (C-24)');
   const ar0 = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const p = ctx.player.position;
-    sys.killAll();   // 2026-09-17: 표적이 플레이어여야 곁의 스캐빈저가 사격 조건을 채운다
+    sys.killAll();   // 2026-09-17: the target has to be the player for the scavenger beside it to satisfy the firing condition
     const a = sys.debugSpawn('artillery', { x: p.x + 70, z: p.z + 20 }, true);
     if (!a) return null;
-    sys.fireShell = () => false;                 // 궤적이 늘 막힌 척 — 재배치 규칙만 본다
-    a.summonDone = true; sys.debugSpawn('scavenger', { x: p.x + 2, z: p.z - 2 }, false);   // 2026-09-17: 사격 조건(표적 곁의 벌레) · 1회 소환 제외
+    sys.fireShell = () => false;                 // pretends the trajectory is always blocked — only the move rule is looked at
+    a.summonDone = true; sys.debugSpawn('scavenger', { x: p.x + 2, z: p.z - 2 }, false);   // 2026-09-17: the firing condition (a bug beside the target) · the one summon taken out of the way
     a.dug = 1; a.shellTimer = 0; a.shellRefusals = 0;
     window.__art = { id: a.id, legs: [] };
     return { id: a.id, p: [a.position.x, a.position.z] };
@@ -491,16 +495,17 @@ try {
     else if (legs.length >= 2 && s.refusals === 0 && s.timer > 5) { legs.push({ key: 'cap', ...s }); break; }
   }
   await P(() => { delete window.__sys.fireShell; const a = window.__sys.active.find((x) => x.id === window.__art.id); if (a) a.kill(false); });
-  // 옆걸음의 방향 = (표적 방향) × (이동 방향) 의 부호. 예전 규칙은 거절마다 부호를 뒤집었다.
+  // The sidestep's direction = the sign of (direction to the target) × (direction of travel). The old rule flipped that sign on every refusal.
   const side = (l) => { const tx = l.t[0] - l.p[0], tz = l.t[1] - l.p[1]; const mx = l.mt[0] - l.p[0], mz = l.mt[1] - l.p[1]; return Math.sign(tx * mz - tz * mx); };
   const walked = legs.slice(0, 2).map((l) => Math.hypot(l.mt[0] - l.p[0], l.mt[1] - l.p[1]));
   ok(legs.length >= 2 && walked.every((d) => d >= 6), `C-24: 거절되면 사전 검사한 자리로 옮긴다 (다리 ${legs.length}, 거리 ${walked.map((d) => d.toFixed(1)).join(' · ')} m)`, JSON.stringify(legs));
   ok(legs.length >= 2 && side(legs[0]) !== 0 && side(legs[0]) === side(legs[1]), 'C-24: 연속 거절에도 좌우를 번갈아 뒤집지 않는다 (X-4 핑퐁 없음)', JSON.stringify(legs.map((l) => ({ side: side(l), mt: l.mt }))));
   ok(legs.some((l) => l.key === 'cap' || l.refusals === 0 && l.timer > 5), `C-24: 연속 ARTILLERY_AI.maxRefusals(3) 번이면 거절 카운터를 비우고 refusalCooldown 동안 쉰다`, JSON.stringify(legs.map((l) => ({ r: l.refusals, timer: +l.timer.toFixed(1) }))));
   // player hooks: the rogues have been shooting at the player for minutes — clear the field and get back on our feet first
-  /* 2026-09-09: 전투불능은 `revive()` 로 일어나지만 **완전 사망에는 자동 부활이 없다** — 구조선뿐이고 솔로에는
-     그마저 없다. 월드에 구조물 · 선로가 들어오면서 적 배치가 바뀌어 이 구간에서 실제로 맞아 죽었고, 죽은 몸으로는
-     아래 훅(스태미나 · 근접 · 넉백)이 전부 거절된다. 훅을 검사하려면 먼저 산 몸이어야 하므로 그 자리에서 되살린다. */
+  /* 2026-09-09: a downed body gets up with `revive()`, but **full death has no auto-revive** — only the rescue drop, and
+     solo does not even have that. Structures · rails moving into the world changed the enemy placement and the body really
+     was shot dead in this stretch, and a dead body refuses every hook below (stamina · melee · knockback). A hook needs a
+     living body to be checked at all, so it is revived on the spot. */
   const state = await P(() => {
     const ctx = window.__game.ctx; const pl = ctx.player;
     window.__sys.killAll();
@@ -509,11 +514,11 @@ try {
     if (pl.isDead) pl.respawnAt(pl.position.clone(), pl.yaw);
     return was;
   });
-  /* 회복 가드를 여기서 걷는다 — 아래 훅(스태미나 · 근접 · 넉백)은 체력을 건드리지 않는다. */
+  /* The heal guard is taken down here — the hooks below (stamina · melee · knockback) do not touch hp. */
   await P(() => { clearInterval(window.__healGuard); window.__healGuard = 0; });
-  /* `revive()` / `respawnAt` 은 즉시지만 전투불능 화면이 닫히며 `uiBlockers` 가 비는 데 몇 프레임 걸린다.
-     `canAct()` 가 `ctx.isControlActive()` 를 보므로 그 전에 `startMelee` 를 부르면 조용히 거절된다 (2026-09-09).
-     고정 시간으로 기다리지 않는다 — 조작이 실제로 돌아온 것을 조건으로 기다린다. */
+  /* `revive()` / `respawnAt` are immediate, but the downed screen takes a few frames to close and empty `uiBlockers`.
+     `canAct()` reads `ctx.isControlActive()`, so calling `startMelee` before that is refused silently (2026-09-09).
+     This does not wait a fixed time — it waits on the condition that control really came back. */
   await waitFor(page, () => {
     const ctx = window.__game.ctx;
     return ctx.isControlActive() && !ctx.player.isDead && !ctx.player.isDowned;
@@ -524,8 +529,9 @@ try {
     const tx = from.x + 25, tz = from.z - 18;
     const pitch0 = pl.pitch;
     pl.teleport(new V(tx, 400, tz));
-    /* 2026-09-09: 걷는 바닥은 지형 높이가 아니라 `getSurfaceY` 다 — 순간이동 지점에 전차 데크(2.05 m)나
-       구조물 슬래브가 있으면 발은 그 윗면에 놓인다. 지형만 보면 그때마다 "떠 있다" 로 잘못 잡는다. */
+    /* 2026-09-09: the walking floor is `getSurfaceY`, not the terrain height — with a tram deck (2.05 m) or a structure
+       slab at the teleport spot the feet land on its top face. Reading the terrain alone catches that as "floating" every
+       time. */
     const ground = ctx.world.getSurfaceY(tx, tz);
     return { tx, tz, dx: pl.position.x - tx, dz: pl.position.z - tz, dy: pl.position.y - ground, vel: pl.velocity.length(), pitchKept: Math.abs(pl.pitch - pitch0) < 1e-6, was: null };
   });
@@ -544,7 +550,7 @@ try {
   ok(st && st.a === false && st.s1 === 10 && st.b === true && st.s2 === 5, `consumeStamina: 50 of 10 refused (stays ${st?.s1}), 5 of 10 → ${st?.s2}`, JSON.stringify(st));
   const hv = await P(() => {
     const ctx = window.__game.ctx; const pl = ctx.player;
-    // 거절되면 왜인지 함께 찍는다 — `canAct()` 는 여러 게이트의 AND 라 실패 메시지만으로는 원인을 못 좁힌다
+    // Prints why on a refusal — `canAct()` is an AND of several gates, so the failure message alone does not narrow the cause down
     const gate = { dead: pl.isDead, downed: pl.isDowned, phase: ctx.phase, blockers: [...ctx.uiBlockers], control: ctx.isControlActive() };
     const started = pl.startMelee('heavy');
     return { started, meleeing: pl.isMeleeing, fov0: ctx.camera.fov, gate };
@@ -568,11 +574,12 @@ try {
     const st = window.__game.ctx.loot.getEffectiveStats(i);
     return { d: i.defId, q: i.qty, dur: i.durability, max: st ? st.maxDurability : 0 };
   }));
-  // 2026-09-13: 로그 총은 팩션 등급 분포(I 85 · II 14 · III 1 %)로 다시 매겨진다 — 같은 계열이면 된다
-  /* 2026-09-15: 절대값(`dur <= 90`)으로 재지 않는다 — `data/loot_corpse_rolls.csv` 는 **그 총의 최대 내구도 대비**
-     0.05~0.15 를 굴리고 최대치는 등급마다 `WEAPON_GRADE_DURABILITY_STEP` 만큼 커진다. 등급 II SMG 는 정상적으로
-     100 을 넘겨 굴러 3 % 쯤 빨갛게 떴다 (제품 결함이 아니라 판정 결함). 정말 보려는 것은 "시체 총은 낡아서
-     나온다" = 자기 최대치 대비 비율이 낮다는 것뿐이다. 반올림 여유로 상한은 0.15 가 아니라 0.16 을 쓴다. */
+  // 2026-09-13: a rogue's gun is re-rolled on the faction grade distribution (I 85 · II 14 · III 1 %) — the same class is enough
+  /* 2026-09-15: this is not measured against an absolute (`dur <= 90`) — `data/loot_corpse_rolls.csv` rolls 0.05–0.15
+     **of that gun's own max durability**, and the maximum grows by `WEAPON_GRADE_DURABILITY_STEP` per grade. A grade II
+     SMG legitimately rolled past 100 and went red about 3 % of the time (a flawed check, not a flawed product). What this
+     really looks for is only "a corpse gun comes out worn" = a low ratio against its own maximum. The cap is 0.16 rather
+     than 0.15, as slack for the rounding. */
   const wornGun = rolled.find((i) => /^wpn_smg(_g[23])?$/.test(i.d));
   const wornRatio = wornGun && wornGun.max > 0 && wornGun.dur !== undefined ? wornGun.dur / wornGun.max : -1;
   ok(wornRatio > 0 && wornRatio <= 0.16 && rolled.some((i) => i.d === 'ammo_light'),

@@ -1,15 +1,21 @@
-// 탐사 차량 스모크 (2026-09-13, R2 — src/world/rover).
+// Rover smoke (2026-09-13, R2 — src/world/rover).
 //
-// 왜 있나: 레이드당 한 대 도는 자동 장갑차의 흐름(정차 → 탑승 → 결제 → 유예 → 이동 → 도착 강제 하차 → 순환 → 파괴)이
-// 여러 폴더(world 차량 · player 탑승 · meta 크레딧)에 걸쳐 있어, 하나가 어긋나면 조용히 "못 탄다 / 안 간다" 가 된다.
+// Why it exists: the flow of the one automated armoured car per raid (the dwell → boarding → the fare → the grace →
+// travel → a forced dismount on arrival → the patrol loop → destruction) spans several folders (world's vehicle ·
+// player's riding · meta's credits), so one of them slipping quietly becomes 「cannot board / does not go」.
 //
-// 검사 (차량이 있는 첫 시드에서, 싱글 = 자기가 호스트):
-//   1. `ctx.world.rover` · 정류장 4–5곳 · 경로 길이 · 정차(stopped) · 체력 가득 · targetable
-//   2. 탑승 상호작용 프롬프트 · 홀드 시간 → 탑승: localAboard · player.roverRide · riders 'local' · 정류장 공개 · 목적지 선택 열기
-//   3. 요금: 10 단위 · [150, 600] · 현재 정류장 거절 · 결제 → 크레딧 차감 = 요금 · departing · tripStarted(local)
-//   4. 유예 뒤 trip · 이동 중 탑승 프롬프트 거절 · 치트 arrive → 도착 · 강제 하차 · 목적지 곁
-//   5. 순환 출발(depart) · 곁에 세운 적에게 포탑이 쏜다 (주위를 비우고, 발사 시점의 표적으로 「쐈다」 와 「hp 가 줄었다」 를 한 몸에 묶는다)
-//   6. 다시 도착 → 탑승 → 피해 → 체력 0 → destroyed · 탑승자 하차 · targetable false · 탑승 거절
+// Checks (on the first seed with a rover, solo = this client is the host):
+//   1. `ctx.world.rover` · 4–5 stations · the route length · stopped · full hp · targetable
+//   2. The boarding interaction's prompt · hold time → boarding: localAboard · player.roverRide · 'local' in riders ·
+//      the stations revealed · the destination picker opening
+//   3. The fare: in steps of 10 · [150, 600] · the current station refused · paying → the credits taken = the fare ·
+//      departing · tripStarted(local)
+//   4. `trip` after the grace · the boarding prompt refused while moving · the cheat `arrive` → arrival · a forced
+//      dismount · beside the destination
+//   5. Departing on the patrol loop (`depart`) · the turret firing at an enemy stood beside it (the surroundings are
+//      cleared, and the target at the moment of the shot ties 「it fired」 and 「its hp went down」 to one body)
+//   6. Arriving again → boarding → damage → hp 0 → destroyed · the rider dismounts · targetable false · boarding
+//      refused
 //
 // Usage: node scripts/smoke-rover.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -38,7 +44,7 @@ async function waitFor(page, fn, label, timeout = 90000, arg) {
   }
   throw new Error(`timeout waiting for ${label}`);
 }
-/** 실시간이 아니라 시뮬레이션 시간으로 기다린다. */
+/** Waits on simulation time rather than the wall clock. */
 async function waitSim(page, seconds) {
   const t0 = await page.evaluate(() => window.__game.ctx.time);
   await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${seconds}s`, 120000, t0 + seconds);
@@ -104,9 +110,10 @@ try {
     ok(s1.state === 'stopped' && !!s1.stationId, `처음에는 정류장에 서 있다 (${s1.state} @ ${s1.stationId})`);
     ok(s1.hp === 2000 && s1.maxHp === 2000 && s1.targetable, `체력 ${s1.hp}/${s1.maxHp} · targetable`);
 
-    // 강하가 끝나고 몸이 설 때까지 기다린 뒤 차량 옆으로
+    // Wait until the drop is over and the body is standing, then go over beside the vehicle
     await waitFor(page, () => { const p = window.__game.ctx.player; return p && !p.isDropping && !p.isDead; }, 'player landed', 40000);
-    // 브라우저에서 도는 함수 그 자체다 — `waitFor` 가 `page.evaluate(fn)` 으로 넘긴다 (안에서 `page` 를 부르면 ReferenceError 가 조용히 삼켜진다)
+    // This function itself runs in the browser — `waitFor` hands it over through `page.evaluate(fn)` (calling
+    // `page` inside it raises a ReferenceError that is swallowed silently)
     const tpNear = () => {
       const ctx = window.__game.ctx, rv = ctx.world.rover, v = rv.vehicle, p = ctx.player;
       const c = Math.cos(v.yaw), s = Math.sin(v.yaw), off = rv.halfWidth + 1.8;
@@ -211,14 +218,17 @@ try {
     /* ── 5 ── */
     await page.evaluate(() => { window.__game.ctx.bus.emit('cheat:rover', { action: 'depart' }); });
     await waitFor(page, () => window.__game.ctx.world.rover.vehicle.state === 'patrol', 'patrol', 20000);
-    // 포탑은 사거리(ROVER_TURRET_RANGE) 안의 **가장 가까운** 적을 골라 직접 때린다 (src/world/rover/parts/Turret.ts).
-    // 그래서 「쐈다」(rover:fired 수)와 「이 적의 hp 가 줄었다」를 따로 보면 서로 다른 몸 둘을 보고 판정하게 된다 —
-    // 더 가까운 벌레가 있으면 20발을 쏘고도 세워 둔 적은 hp 그대로다 (docs/TODO.md B-22). 두 조건을 한 몸에 묶는다:
-    //   ① 세우기 전에 살아 있는 다른 적을 모두 치운다. 순환 주행은 5초 동안 40 m 넘게 가므로 「지금 자리 반경」으로
-    //      잘라서는 모자라다. 죽이지 않고 despawn — 시체 · 전리품 · 죽음 연출을 만들지 않는 가장 얕은 제거다.
-    //      알(isEgg)은 queryNear 가 기본으로 걸러내 표적 경쟁에 끼지 않으므로 그대로 둔다.
-    //   ② rover:fired 에는 표적이 실려 있지 않다 (from · to 뿐). 사건이 오는 그 순간의 포탑 표적(ts.targetId — 바로 앞줄에서
-    //      takeDamage 를 맞은 그 적이다)을 함께 적어 둔다. 포탑 상태는 RoverRef 에 없으므로 world 시스템의 Rover 로 간다.
+    // The turret picks the **nearest** enemy inside its range (ROVER_TURRET_RANGE) and hits it directly
+    // (src/world/rover/parts/Turret.ts). So reading 「it fired」 (the rover:fired count) and 「this enemy's hp went
+    // down」 apart judges two different bodies — with a closer bug around it can fire 20 rounds and the enemy stood
+    // here keeps its hp (docs/TODO.md B-22). The two conditions are tied to one body:
+    //   ① every other living enemy is cleared away before it is stood up. The patrol loop covers more than 40 m in
+    //      5 s, so cutting by 「a radius around the current spot」 is not enough. They are despawned rather than
+    //      killed — the shallowest removal, which makes no corpse · loot · death performance. Eggs (isEgg) are left
+    //      alone: queryNear filters them out by default, so they never compete for the target.
+    //   ② rover:fired does not carry its target (only from · to). The turret's target at the moment the event
+    //      arrives (ts.targetId — the enemy that took takeDamage on the line just before) is noted alongside. The
+    //      turret state is not on RoverRef, so it is reached through the world system's Rover.
     const cleared = await page.evaluate(() => {
       const es = window.__game.getSystem('enemies');
       const others = es.getEnemies().filter((e) => !e.isDead && !e.isEgg);
@@ -255,7 +265,8 @@ try {
     });
     const firedAfter = (await events(page, 'rover:fired')).length;
     if (spawn) {
-      // 치운 뒤에 새로 솟은 적을 쏜 발이 섞였을 수 있다 — 그대로 찍어 두되, 판정은 이 적에게 간 발수로만 한다
+      // Rounds fired at an enemy that surfaced after the clear-out may be mixed in — they are printed as they
+      // are, but the judgement uses only the rounds that went to this enemy
       if (shot.others.length) console.log(`  --   포탑이 다른 적도 쐈다 (id ${shot.others.join(', ')})`);
       ok(firedAfter > firedBefore && shot.mine > 0 && (shot.dead || shot.hp < spawn.hp),
         `순환 중 포탑이 곁의 적을 쏜다 (다른 적 ${cleared}마리 치움 · ${firedAfter - firedBefore}발 중 이 적에게 ${shot.mine}발 · hp ${spawn.hp} → ${shot.hp})`,
@@ -270,7 +281,8 @@ try {
     const again = await page.evaluate(() => {
       const ctx = window.__game.ctx, rv = ctx.world.rover;
       ctx.interactables.all().find((i) => i.id === 'rover:board').interact();
-      // 포탑 검사에서 맞은 적이 어그로로 차량을 한 번 쳤을 수 있다 (적 ↔ 차량, 정상) — 절대값이 아니라 이번 피해의 차이를 본다
+      // The enemy hit during the turret check may have struck the vehicle once out of aggro (enemy ↔ vehicle,
+      // which is normal) — the difference this damage makes is read, not the absolute value
       const before = rv.vehicle.hp;
       rv.damage(100);
       return { aboard: rv.localAboard, before, hp: rv.vehicle.hp };

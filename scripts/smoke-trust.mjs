@@ -1,19 +1,19 @@
-// Two-client smoke for the E-4 trust paths (2026-09-11, 커밋 `9bd72ce`(계약) · `b3fc2f0`(구현) + C-57 · X-6):
-//   (d) 함선 호출 = 호스트 경유 — a non-host `strat call` / `strat sync` is ignored, `stratq call` is validated (kind ·
+// Two-client smoke for the E-4 trust paths (2026-09-11, commits `9bd72ce` (contract) · `b3fc2f0` (implementation) + C-57 · X-6):
+//   (d) ship calls go through the host — a non-host `strat call` / `strat sync` is ignored, `stratq call` is validated (kind ·
 //       host-only · range · per-caller cooldown · callId owner) and a real non-host call reaches both clients with `by`.
-//   (a)(b) 버프 — the receiver's `BuffGuard` clamps a forged boost, trims an over-budget heal, refuses a heal / cloak from a
-//       sender out of range; the 스프레이 sender skips a squad-mate behind a wall.
-//   (c) 계약 — a relayed kill `contractHit` is ignored, a real squad kill (host ⇄ replica) counts the squad share through
+//   (a)(b) buffs — the receiver's `BuffGuard` clamps a forged boost, trims an over-budget heal, refuses a heal / cloak from a
+//       sender out of range; the heal spray's sender skips a squad-mate behind a wall.
+//   (c) contracts — a relayed kill `contractHit` is ignored, a real squad kill (host ⇄ replica) counts the squad share through
 //       `enemy:squadKill`, non-kill hits are rate-limited, a `meta sync` nobody asked for is ignored.
 //   C-57 `crate opened` — unknown id / far sender refused, a near sender accepted, the host only re-hands verified ids.
-//   X-6 넉백 — a `HitRequest.kb` from a sender far from the enemy is refused; the per-sender DPS budget trims a flood.
+//   X-6 knockback — a `HitRequest.kb` from a sender far from the enemy is refused; the per-sender DPS budget trims a flood.
 // Appended 2026-09-11 (E-8, docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」):
 //   (a) `explode` — junk `p` / out-of-range `dmg` · `r` dropped on shape, a blast 220 m from the sender refused, a
 //       legitimate one next to the sender still damages the enemy (the guard must not eat real play), a flood shares
 //       the `hit` DPS bucket. Observed through the host's `EnemySystem.hitGuardStats` **deltas** (it never resets).
 //   (b) `HitRequest.st` — unknown bits only are masked away (and the same request's damage still lands), a status on
 //       an enemy 90 m from the sender is refused, the same one from 10 m lands, a burst runs the status bucket dry.
-//   (c) 거절된 함선 호출 — the host answers a refused `stratq call` with `strat deny` and the caller's optimistically
+//   (c) a refused ship call — the host answers a refused `stratq call` with `strat deny` and the caller's optimistically
 //       started cooldown comes all the way back; a forged `callId` gets no answer at all, and a `deny` that is not
 //       from the lobby host (or not addressed to my own `callId`) refunds nothing.
 // A **private** lobby joined by code (never quick match): a public lobby left by another run would join the squad.
@@ -85,8 +85,8 @@ const waitSim = async (page, sec) => {
   await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${sec}s`, 120000, t0 + sec);
 };
 /**
- * 2026-09-14: 탑승(E)은 **앉기만** 한다 — 출격 준비 경고도 여기서 뜨지 않고, 준비는 `readyUp` 의 스페이스
- * 1초 홀드다 (`hub/parts/Pods.boardPod` · `toggleReady`).
+ * 2026-09-14: boarding (E) **only sits down** — the launch readiness warning does not come up here either, and
+ * readying up is the 1 s Space hold in `readyUp` (`hub/parts/Pods.boardPod` · `toggleReady`).
  */
 const boardPod = (page) => page.evaluate(() => {
   const ctx = window.__game.ctx;
@@ -96,23 +96,24 @@ const boardPod = (page) => page.evaluate(() => {
   return 'ok';
 });
 /**
- * 준비 (2026-09-14 사용자 결정: 탑승 ≠ 준비). 앉은 채 스페이스를 `UI_HOLD_CONFIRM_S`(1 s) 꾹 눌러야
- * `net.setReady(true)` 가 나간다. `hub/ui/ReadyPanel.tickHold` 가 **시뮬레이션 dt** 를 쌓으므로 벽시계
- * `sleep` 으로는 차지 않는다 — `waitSim` 으로 재고 그동안 키는 눌린 채로 둔다. 홀드가 끝나면 출격 준비
- * 경고가 설 수 있고(기본 지급품에는 주무기가 없다) `그래도 준비` 로 넘긴다 — 막는 경고가 아니다.
- * ⚠ `tickHold` 는 `HUB_READY_BLOCKER` 말고 다른 blocker 가 하나라도 있으면 세지 않으므로 실패하면
- * 그때의 blocker 목록을 함께 돌려준다.
+ * Readying up (2026-09-14 user's decision: boarding ≠ ready). Space must be held for `UI_HOLD_CONFIRM_S` (1 s) while
+ * seated before `net.setReady(true)` goes out. `hub/ui/ReadyPanel.tickHold` accumulates **simulation dt**, so a
+ * wall-clock `sleep` never fills it — it is measured with `waitSim` and the key is left down meanwhile. When the hold
+ * ends the launch readiness warning may stand (the starter grant carries no primary), and `그래도 준비` passes it — it
+ * is not a blocking warning.
+ * ⚠ `tickHold` does not count while any blocker other than `HUB_READY_BLOCKER` is held, so on a failure the blocker
+ * list of that moment is returned along with it.
  */
 const readyUp = async (page) => {
   const key = (type) => page.evaluate((t) => document.body.dispatchEvent(new KeyboardEvent(t, { code: 'Space', key: ' ', bubbles: true })), type);
   await key('keydown');
-  await waitSim(page, 1.4);          // 1 s + 프레임 여유
+  await waitSim(page, 1.4);          // 1 s + slack for frames
   await key('keyup');
   const out = await page.evaluate(() => {
     const ctx = window.__game.ctx, hub = window.__game.getSystem('hub');
     const warn = document.querySelector('.launch-warn');
     const warned = !!warn && !warn.hidden;
-    // 확인은 **읽기 전에** 누른다 — `그래도 준비` 의 콜백이 그 자리에서 `setReadyLocal(true)` 를 부른다
+    // The confirm is clicked **before** reading — `그래도 준비`'s callback calls `setReadyLocal(true)` on the spot
     if (warned) [...warn.querySelectorAll('.hub-foot .ui-btn')].find((b) => b.textContent === '그래도 준비')?.click();
     return { warned, ready: hub.readyLocal, boarded: hub.boardedSlot, blockers: [...ctx.uiBlockers] };
   });
@@ -158,7 +159,7 @@ try {
   await waitFor(A, () => window.__game.ctx.player.isInPod, 'A in pod', 10000);
   ok((await boardPod(B)) === 'ok', 'B boards pod');
   await waitFor(B, () => window.__game.ctx.player.isInPod, 'B in pod', 10000);
-  // 2026-09-14: 탑승 ≠ 준비 — 둘 다 스페이스를 1초 꾹 눌러야 카운트다운이 돌고 발사된다
+  // 2026-09-14: boarding ≠ ready — both have to hold Space for 1 s before the countdown runs and the pods launch
   const rA = await readyUp(A);
   ok(rA.ok, `A 스페이스 1초 홀드 → 준비 (경고 ${rA.warned})`, JSON.stringify(rA));
   const rB = await readyUp(B);
@@ -282,7 +283,7 @@ try {
   ok(Math.round(farBuff.hp) === 30 && farBuff.heal?.reason === 'range', `a heal from 70 m is refused (${farBuff.heal?.reason})`);
   ok(!farBuff.cloaked && farBuff.cloak?.reason === 'range', `a cloak from 70 m is refused (${farBuff.cloak?.reason})`);
 
-  // back next to A; the 스프레이 skips A behind a wall on B's side
+  // back next to A; the heal spray skips A behind a wall on B's side
   await moveTo(B, pa[0] + 5, pa[2]);
   await seesAt(B, ids.A, pa, 1.5, 'B sees A again');
   await seesAt(A, idB, [pa[0] + 5, 0, pa[2]], 1.5, 'A sees B back');
@@ -434,7 +435,7 @@ try {
     ok(flood.stats.dropped + flood.stats.trimmed > 0 && flood.lost < 20000 * 0.8, `a 40 × 500 hit flood is capped by the per-sender DPS budget ${JSON.stringify(flood)}`);
   }
 
-  /* ── E-8 (a) explode 요청 가드 ────────────────────────────────────────── */
+  /* ── E-8 (a) the explode request guard ────────────────────────────────── */
   console.log('E-8 (a) explode guard');
   /** First in-bounds point `dist` m from (bx, bz) — the same 16-direction scan the (d) range test above uses. */
   const pointAt = (bx, bz, dist) => A.evaluate(([bx, bz, dist]) => {
@@ -469,7 +470,7 @@ try {
   const boomId = boomAt ? await spawnBag(boomAt) : null;
   ok(boomId !== null, `a punching bag stands 40 m from the sender (${boomId})`);
   if (boomId !== null) {
-    // ① 모양 — a junk `p` used to sail through: `NaN` fails every `>` comparison, so the falloff check would **not**
+    // ① shape — a junk `p` used to sail through: `NaN` fails every `>` comparison, so the falloff check would **not**
     //    skip the enemy and it would take `NaN` damage. (`NaN` becomes `null` on the JSON wire; both are refused.)
     let g0 = await guard();
     const e0 = await enemyAt(boomId);
@@ -493,7 +494,7 @@ try {
     ok(dGuard(g0, g1).explodeShape === 2, `\`dmg\` 9999 and \`r\` 999 are both dropped on shape ${JSON.stringify(dGuard(g0, g1))}`);
     ok(e2.hp === e1.hp, `…and neither of them touched the enemy (${e1.hp} → ${e2.hp})`);
 
-    // ③ 거리 — the blast centre must be within `EXPLODE_SOURCE_REACH` (150 + 40 = 190 m) of the sender's snapshot
+    // ③ range — the blast centre must be within `EXPLODE_SOURCE_REACH` (150 + 40 = 190 m) of the sender's snapshot
     const farBoom = await pointAt(pbNow[0], pbNow[2], 220);
     const farId = farBoom ? await spawnBag(farBoom) : null;
     const f0 = farId !== null ? await enemyAt(farId) : null;
@@ -507,7 +508,7 @@ try {
       ok(!!f1 && f1.hp === f0.hp, `…and the enemy standing in it takes nothing (${f0.hp} → ${f1?.hp})`);
     } else console.log('  skip far explode test (no in-bounds point 220 m from B)');
 
-    // ④ 정당한 폭발은 통과한다 — the point of the guard is that real play is untouched. The X-6 flood above drained
+    // ④ a legitimate blast passes — the point of the guard is that real play is untouched. The X-6 flood above drained
     //    the shared per-sender DPS bucket (5000 hp/s × 2 s), so give it wall-clock time to refill first.
     await sleep(2500);
     g0 = await guard();
@@ -519,7 +520,7 @@ try {
     ok(b0.hp - b1.hp > 25, `a legitimate blast next to the sender damages the enemy (${b0.hp} → ${b1.hp})`);
     ok(noneMoved(dGuard(g0, g1)), `…and not one guard counter moved for it ${JSON.stringify(dGuard(g0, g1))}`);
 
-    // ⑤ 요율 — `explode` spends the **same** bucket as `hit` (separate ones would double the total)
+    // ⑤ rate — `explode` spends the **same** bucket as `hit` (separate ones would double the total)
     g0 = await guard();
     const r0 = await enemyAt(boomId);
     await sendExplode(r0.p, 5, 500, 40);
@@ -530,7 +531,7 @@ try {
     ok(dRate.trimmed + dRate.dropped > 0 && r0.hp - r1.hp < 40 * 500 * 0.8, `40 × 500 explode requests are capped by the shared DPS budget (lost ${Math.round(r0.hp - r1.hp)}) ${JSON.stringify(dRate)}`);
   }
 
-  /* ── E-8 (b) `HitRequest.st` 가드 ─────────────────────────────────────── */
+  /* ── E-8 (b) the `HitRequest.st` guard ────────────────────────────────── */
   console.log('E-8 (b) status guard');
   // bits of `ENEMY_STATUS_BITS` (shared/net.ts): BURNING 1 · SLOWED 2 · INCINERATED 4 · SHOCKED 8
   const ST_SLOWED = 1 << 1, ST_INCINERATED = 1 << 2, ST_UNKNOWN = 1 << 7;
@@ -546,7 +547,7 @@ try {
   const stFar = farAt ? await spawnBag(farAt) : null;
   ok(stNear !== null && stFar !== null, `status targets stand 10 m / 90 m from the sender (${stNear} / ${stFar})`);
   if (stNear !== null && stFar !== null) {
-    // ① 비트 — only unknown bits: the status half is skipped, the damage half is **not**
+    // ① bits — only unknown bits: the status half is skipped, the damage half is **not**
     let s0 = await guard();
     const n0 = await enemyAt(stNear);
     await sendHit(stNear, n0.p, { dmg: 25, st: ST_UNKNOWN, dur: 6 });
@@ -556,7 +557,7 @@ try {
     ok(dGuard(s0, s1).statusBits === 1 && !n1.incap && !n1.burn && !n1.slow, `an \`st\` of unknown bits only (1<<7) puts no status on the enemy ${JSON.stringify({ d: dGuard(s0, s1), n1 })}`);
     ok(n0.hp - n1.hp > 5, `…while the same request's damage still lands (${n0.hp} → ${n1.hp})`);
 
-    // ② 거리 — 전소 from 90 m away
+    // ② range — incineration from 90 m away
     s0 = await guard();
     const f0 = await enemyAt(stFar);
     await sendHit(stFar, f0.p, { dmg: 0, st: ST_INCINERATED, dur: 6 });
@@ -566,7 +567,7 @@ try {
     ok(dGuard(s0, s1).statusRange === 1, `an INCINERATED request on an enemy 90 m from the sender is refused ${JSON.stringify(dGuard(s0, s1))}`);
     ok(!f1.incap, `…and that enemy never burns out (incapacitated ${f1.incap})`);
 
-    // ③ 정당한 상태이상은 통과한다 (positive control)
+    // ③ a legitimate status passes (positive control)
     s0 = await guard();
     const n2 = await enemyAt(stNear);
     await sendHit(stNear, n2.p, { dmg: 0, st: ST_INCINERATED, dur: 6 });
@@ -576,7 +577,7 @@ try {
     const dNear = dGuard(s0, s1);
     ok(n3.incap && dNear.statusBits === 0 && dNear.statusRange === 0 && dNear.statusRate === 0, `the same 전소 from 10 m lands ${JSON.stringify({ incap: n3.incap, d: dNear })}`);
 
-    // ④ 요율 — the status bucket is a **count** bucket (60/s, 2 s burst), separate from the DPS one
+    // ④ rate — the status bucket is a **count** bucket (60/s, 2 s burst), separate from the DPS one
     s0 = await guard();
     const n4 = await enemyAt(stNear);
     await sendHit(stNear, n4.p, { dmg: 0, st: ST_SLOWED, dur: 2 }, 200);
@@ -585,7 +586,7 @@ try {
     ok(dGuard(s0, s1).statusRate > 0, `200 status requests in a burst run the per-sender status bucket dry ${JSON.stringify(dGuard(s0, s1))}`);
   }
 
-  /* ── E-8 (c) 거절된 함선 호출 → 쿨타임 환불 ──────────────────────────── */
+  /* ── E-8 (c) a refused ship call → cooldown refund ───────────────────── */
   console.log('E-8 (c) refused ship call → refund');
   const pbCall = await posOf(B);
   const outOfRange = await pointAt(pbCall[0], pbCall[2], 175);   // > STRAT_MAX_CALL_RANGE (150), still in bounds
@@ -611,7 +612,7 @@ try {
     ok(!!back && back.why === 'range', `…the caller accepts it with the host's own reason ${JSON.stringify(back)}`);
     ok(!!back && back.cd === 0 && back.total === 0, `…and the optimistic cooldown is refunded in full ${JSON.stringify(back)}`);
 
-    // 위조 `callId` 에는 답하지 않는다 — the sentinel proves `refuse` actively cleared `lastDenySent`
+    // A forged `callId` gets no answer — the sentinel proves `refuse` actively cleared `lastDenySent`
     await A.evaluate(() => { const s = window.__game.getSystem('stratagems'); s.lastCallRefusal = null; s.lastDenySent = 'range'; });
     const denyBefore = await B.evaluate(() => window.__game.getSystem('stratagems').lastCallDeny);
     await B.evaluate(([callId, p]) => window.__game.ctx.net.send({ t: 'stratq', ev: 'call', callId, kind: 'supply_drop', p, seed: 7 }, 'host'), [`${ids.A}-forged`, outOfRange]);
@@ -621,7 +622,7 @@ try {
     ok((await B.evaluate(() => window.__game.getSystem('stratagems').lastCallDeny)) === denyBefore, `…so nothing comes back to the forger (${denyBefore})`);
   } else console.log('  skip deny / refund test (no in-bounds point 175 m from B)');
 
-  // 남의 쿨타임은 되돌릴 수 없다 — ① the sender is not the lobby host, ② the callId is not the receiver's own
+  // Somebody else's cooldown cannot be refunded — ① the sender is not the lobby host, ② the callId is not the receiver's own
   await A.evaluate(() => { const s = window.__game.getSystem('stratagems'); s.lastCallDeny = null; s.startCooldown(90); });
   await B.evaluate((id) => window.__game.ctx.net.send({ t: 'strat', ev: 'deny', callId: `${id}-forged`, reason: 'bounds' }, id), ids.A);
   await waitSim(A, 0.6);

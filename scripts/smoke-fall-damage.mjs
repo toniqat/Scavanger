@@ -1,22 +1,28 @@
-// 전역 낙하 피해 + 착지 피드백 스모크 (2026-09-15, TODO E-12 · B-14).
+// Global fall damage + the landing feedback (2026-09-15, TODO E-12 · B-14).
 //
-// 왜 있나: 낙하 피해는 `player/PlayerController`(높이를 잰다) → `player/parts/Fall`(피해 · `player:fell` · `camera:shake`)
-// → `audio/AudioSystem.fallImpact`(착지음 + 재질 발소리) · `ui/hud/FallVignette`(붉은 비네트) 로 네 폴더에 걸쳐 있다.
-// `smoke-ghost` 끝 절은 `Fall.onLanded` 를 **직접** 불러 와이어 검사만 한다 — 이 스크립트는 몸을 실제로 공중에 올려
-// **중력으로 떨어뜨리는** 게임 안 경로 전체를 본다. 기대값은 전부 `data/constants.csv` 에서 읽는다 (코드에 숫자 없음).
+// Why it exists: fall damage spans four folders — `player/PlayerController` (measures the height) → `player/parts/Fall`
+// (the damage · `player:fell` · `camera:shake`) → `audio/AudioSystem.fallImpact` (the landing sound + the material
+// footstep) · `ui/hud/FallVignette` (the red vignette). The last section of `smoke-ghost` calls `Fall.onLanded`
+// **directly** and checks the wire only — this script lifts the body into the air for real and looks at the whole in-game
+// path that **drops it under gravity**. Every expected value is read from `data/constants.csv` (no number in the code).
 //
-// 검사 (솔로 레이드, 튜토리얼 아님):
-//   1. 식: 안전 높이 아래 · 바로 위 · 12 m 를 실제로 떨어뜨려 체력 손실 ≈ min(MAX, (h − SAFE) × PER_M), 안전 높이 아래는
-//      피해도 `player:fell` 도 없다 (40 m 는 5 번의 치사 낙하가 상한 MAX 요청을 본다)
-//   2. 실드 우회 (2026-09-16 사용자 결정): 방탄복 실드가 가득 차 있어도 낙하 피해는 전부 체력으로 — 실드는 한 점도 줄지 않는다
-//   3. 치사 낙하: 솔로는 곧장 `player:died` (전투불능 없음)
-//   4. 남이 띄운 몸(점프대와 같은 `ctx.player.applyImpulse` · `applyKnockback` · 낙하 중 임펄스)은 그 착지에서 면제, 다음 평범한 낙하는 아프다
-//   5. `player:fell {height, damage = 실제 손실, rule 'normal'}`
-//   6. 피해 착지마다 `camera:shake` 정확히 한 번 {min(FALL_SHAKE_MAX, 피해 × PER_DAMAGE), FALL_SHAKE_S} · `fall_impact` 한 번(위치 없음,
-//      무거울수록 낮은 피치 · 큰 볼륨) + 발밑 재질 발소리 층 · `.fall-vignette` 불투명도 min(1, 피해 / FULL) → 시뮬레이션 시간
-//      FALL_VIGNETTE_S 뒤 0 · hidden. 피해 없는 착지는 이 중 아무것도 없다
-//   7. 분대원 낙하: `remotePlayers.receiveFall`(가짜 로비 멤버) 5 m → 감쇠된 `fall_impact` (+ 발소리 층), 50 m → 거절 · 무음,
-//      audio 자신의 곡선도 50 m 의 `player:remoteFell` 을 무음으로 · 비네트는 반응하지 않는다
+// Checks (a solo raid, not the tutorial):
+//   1. The formula: real drops from below the safe height · just above it · 12 m give an HP loss ≈ min(MAX, (h − SAFE) ×
+//      PER_M), and below the safe height there is neither damage nor `player:fell` (40 m, in 5, is the lethal fall that
+//      sees the request capped at MAX)
+//   2. The shield bypass (2026-09-16, user's decision): even with the armor shield full, fall damage goes entirely to HP —
+//      the shield does not drop by a point
+//   3. A lethal fall: solo goes straight to `player:died` (never downed)
+//   4. A body something else lifted (`ctx.player.applyImpulse` as the jump pad does · `applyKnockback` · an impulse
+//      mid-fall) is exempt on that landing, and the next ordinary fall hurts again
+//   5. `player:fell {height, damage = what was actually lost, rule 'normal'}`
+//   6. Every damaging landing gives exactly one `camera:shake` {min(FALL_SHAKE_MAX, damage × PER_DAMAGE), FALL_SHAKE_S} ·
+//      one `fall_impact` (no position; the heavier the fall the lower the pitch · the louder it is) + the material footstep
+//      layer under the feet · `.fall-vignette` at opacity min(1, damage / FULL) → 0 · hidden after FALL_VIGNETTE_S of
+//      simulation time. A landing with no damage has none of it
+//   7. A squadmate's fall: `remotePlayers.receiveFall` (a fake lobby member) at 5 m → an attenuated `fall_impact` (+ the
+//      footstep layer), at 50 m → refused · silent; audio's own curve keeps a 50 m `player:remoteFell` silent too, and the
+//      vignette does not react
 //
 // Usage: node scripts/smoke-fall-damage.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -34,7 +40,7 @@ const CHROME = [
 if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
 const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
-/** `data/constants.csv` 의 숫자 하나. */
+/** One number out of `data/constants.csv`. */
 const CSV = readFileSync(new URL('../data/constants.csv', import.meta.url), 'utf8');
 function k(name) {
   const m = CSV.match(new RegExp(`^${name},([^,\\r\\n]+)`, 'm'));
@@ -94,7 +100,7 @@ try {
     Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
   });
 
-  /* ── 함선: 방탄복을 입는다 (함선에서 실드가 가득 찬 채로 출격한다) ───────────────────── */
+  /* ── The ship: armor on (launch with the shield full) ───────── */
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub');
   const armor = await page.evaluate(() => {
@@ -102,12 +108,12 @@ try {
     const was = ctx.inventory.getEquipped('armor');
     const before = { armor: was ? was.defId : null, shield: ctx.player.shield, max: ctx.player.maxShield };
     const it = ctx.loot.createItem('armor_4');
-    if (it) { ctx.inventory.tryAddItemAnywhere(it); try { ctx.inventory.equip(it.uid, 'armor'); } catch { /* 이미 입음 */ } }
+    if (it) { ctx.inventory.tryAddItemAnywhere(it); try { ctx.inventory.equip(it.uid, 'armor'); } catch { /* already worn */ } }
     const eq = ctx.inventory.getEquipped('armor');
     return { before, now: eq ? eq.defId : null };
   });
   ok(armor.now === 'armor_4', `armor equipped in the ship (${JSON.stringify(armor)})`);
-  // 실드는 **함선 프레임**에서만 새 최대치로 찬다 (`syncShield` — 레이드 중 교체는 채워 주지 않는다). 그래서 출격 전에 한 프레임 이상 기다린다.
+  // The shield fills to a new maximum only on a **ship frame** (`syncShield` — a swap mid-raid does not fill it). So this waits at least one frame before the launch.
   const hubShield = await waitFor(page, (prevMax) => { const p = window.__game.ctx.player; return p.maxShield > 0 && p.maxShield !== prevMax && p.shield === p.maxShield && `${p.shield}/${p.maxShield}`; }, 'hub shield refill', 20000, armor.before.max);
   ok(!!hubShield, `ship refilled the shield to the new armor's max before deploy (${hubShield})`);
 
@@ -116,7 +122,7 @@ try {
   await waitFor(page, () => window.__game.ctx.world.ready, 'world ready', 30000);
   await waitFor(page, () => { const p = window.__game.ctx.player; return p.spawned && p.controlsEnabled && !p.isDropping && p.isGrounded; }, 'landed', 40000);
 
-  /* ── 계측: 버스 기록 · AudioSystem.play 스파이 · applyDamage 스파이 · 시뮬레이션 대기 도우미 · 평지 찾기 ─────── */
+  /* ── Instrumentation: bus records · play / applyDamage spies · waits · flat ground ─── */
   const setup = await page.evaluate(async () => {
     const G = window.__game, ctx = G.ctx, bus = ctx.bus;
     const ps = G.getSystem('player'), hud = G.getSystem('hud'), audio = G.getSystem('audio'), en = G.getSystem('enemies');
@@ -142,14 +148,14 @@ try {
       return play(id, pos, vol, pitch, auto, panOnly, dedupe, rateLimit);
     };
     const applyDamage = ps.applyDamage.bind(ps);
-    // 2026-09-16: 출처 · 옵션(`bypassShield`)까지 그대로 넘긴다 — 셋만 넘기면 낙하의 실드 우회가 스파이에서 사라진다
+    // 2026-09-16: the source · the options (`bypassShield`) are passed straight through — passing the first three only loses the fall's shield bypass in the spy
     ps.applyDamage = (amount, from, dot, ...rest) => {
       const before = pool();
       const r = applyDamage(amount, from, dot, ...rest);
       R.dmg.push({ amount, dot: !!dot, hasFrom: !!from, source: rest[0]?.kind ?? null, bypass: !!rest[1]?.bypassShield, before, after: pool(), t: ctx.time });
       return r;
     };
-    // 시뮬레이션 시간 대기 (dt 는 50 ms 로 잘린다)
+    // A wait on simulation time (dt is clamped to 50 ms)
     window.__simWait = (sec) => new Promise((res) => { const t = ctx.time + sec; const f = () => (ctx.time >= t ? res() : setTimeout(f, 15)); f(); });
     window.__simUntil = (pred, simTimeout) => new Promise((res) => {
       const t = ctx.time + simTimeout;
@@ -159,10 +165,10 @@ try {
     window.__calm = () => { try { en.killAll(); ctx.enemies.setThreatLevel(0); if (en.spawner) en.spawner.timer = 1e9; } catch { /* no enemies */ } };
     window.__calm();
 
-    // AudioContext 를 깨운다 — `fallImpact` 는 `play` 를 부르기 **전에** running 을 본다
+    // Wakes the AudioContext — `fallImpact` looks for running **before** it calls `play`
     try { audio.ensureContext(); await audio.ac?.resume(); } catch { /* keep state */ }
 
-    // 평지: 반지름 2 m 링의 지형 높이 차 < 0.15, 위로 60 m 기둥에 장애물 없음, 몸이 밀려나지 않음, 경계 안
+    // Flat ground: the terrain height spread over a 2 m ring < 0.15, no obstacle in the 60 m column above, the body is not pushed out, inside the bounds
     const w = ctx.world, p0 = ctx.player.position;
     const down = new V3(0, -1, 0), o = new V3(), q = new V3();
     let spot = null;
@@ -209,8 +215,9 @@ try {
   if (setup.grit > 0) { console.log(`  note: gritChance ${setup.grit} → forced 0 for the run`); }
 
   /**
-   * 한 번의 낙하 (페이지 안): 풀 채우기 → 무적 시간이 끝날 때까지 → 평지 위 `h` m 로 순간이동 → 공중 → 착지 →
-   * 비네트 곡선 샘플 (절반 · FALL_VIGNETTE_S + 여유). `mode`: 'drop' | 'impulse' | 'knockback' | 'midair'.
+   * One fall (inside the page): fill the pools → wait out the invulnerability → teleport `h` m above the flat spot →
+   * airborne → landing → sample the vignette curve (halfway · FALL_VIGNETTE_S + slack). `mode`: 'drop' | 'impulse' |
+   * 'knockback' | 'midair'.
    */
   const drop = (h, mode = 'drop', lift = 0) => page.evaluate(async ({ h, mode, lift, VIG_S }) => {
     const G = window.__game, ctx = G.ctx, R = window.__rec, s = window.__spot;
@@ -218,7 +225,7 @@ try {
     const V3 = ctx.camera.position.constructor;
     window.__calm();
     if (ctx.progression?.derived && ctx.progression.derived.gritChance > 0) ctx.progression.derived.gritChance = 0;
-    // 지난 착지에서 벗어나 풀을 채운다 (무적 시간 INVULN 이 끝나야 다음 피해가 들어간다)
+    // Gets clear of the previous landing and fills the pools (the next damage lands only once the INVULN window is over)
     ctx.player.teleport(new V3(s.x, s.g, s.z), undefined, true);
     await window.__simWait(0.35);
     ctx.player.heal(1e6); ps.chargeShield(1e6);
@@ -247,7 +254,7 @@ try {
     const tLand = ctx.time;
     const yLand = ctx.player.position.y;
     const at = { hp: ps.hp, shield: ps.shield, pool: ps.hp + ps.shield, dead: ps.isDead, downed: ps.isDowned, trauma: ps.rig.trauma };
-    // 비네트: 절반 지점 · 끝 (+0.15 s)
+    // The vignette: halfway · at the end (+0.15 s)
     await window.__simWait(VIG_S * 0.5);
     const vigMid = hud.fallVignetteOpacity;
     const el = document.querySelector('.fall-vignette');
@@ -260,7 +267,7 @@ try {
     };
   }, { h, mode, lift, VIG_S: C.VIG_S });
 
-  /** 피해 없는 착지: 피해 · 사건 · 흔들림 · 착지음 · 비네트 모두 없음. */
+  /** A landing with no damage: no damage · no event · no shake · no landing sound · no vignette. */
   const checkQuiet = (r, label) => {
     const fi = r.snd.filter((x) => x.id === 'fall_impact');
     ok(r.landed && r.fell.length === 0 && r.dmg.length === 0 && near(r.start.pool, r.at.pool, 1e-6),
@@ -269,11 +276,11 @@ try {
       `${label}: no camera:shake, no fall_impact, vignette stays off`, JSON.stringify({ shake: r.shake, fi, vigMid: r.vigMid, vigEnd: r.vigEnd }));
   };
   const table = [];
-  /** 피해 착지: 식 · 사건 모양 · 흔들림 · 소리 · 비네트. 돌려주는 값 = 로컬 `fall_impact` 기록 (분대원 비교용). */
+  /** A damaging landing: the formula · the event shape · the shake · the sound · the vignette. The return value is the local `fall_impact` record (to compare the squadmate against). */
   const checkHurt = (r, label, { lethal = false } = {}) => {
     const measuredH = r.y0 - r.yLand;
     const expectReq = fallDamage(measuredH);
-    const loss = r.start.hp - r.at.hp;   // 2026-09-16: 낙하는 체력만 깎는다 (치사 낙하는 사망이 실드를 따로 비운다)
+    const loss = r.start.hp - r.at.hp;   // 2026-09-16: a fall takes HP only (on a lethal fall, death empties the shield separately)
     const fell = r.fell[0];
     const fallDmg = r.dmg.filter((d) => !d.hasFrom && !d.dot);
     table.push({ label, h: r.h, measuredH: +measuredH.toFixed(3), reportedH: fell ? +fell.height.toFixed(3) : null, expected: +Math.min(expectReq, r.start.hp).toFixed(3),
@@ -286,23 +293,23 @@ try {
       `${label}: applyDamage asked for min(MAX, (h − SAFE) × PER_M) = ${expectReq.toFixed(2)} (got ${fallDmg[0] ? fallDmg[0].amount.toFixed(2) : '—'})`, JSON.stringify(r.dmg));
     ok(fallDmg.length === 1 && fallDmg[0].source === 'fall' && fallDmg[0].bypass === true,
       `${label}: the request carries source 'fall' + bypassShield`, JSON.stringify(fallDmg));
-    // 2026-09-16: 낙하 피해는 실드를 건너뛴다 — 손실은 체력에서만, 상한도 체력이다
+    // 2026-09-16: fall damage skips the shield — the loss comes out of HP only, and HP is the cap too
     ok(near(loss, Math.min(expectReq, r.start.hp), 0.01) && near(fell.damage, loss, 0.01),
       `${label}: HP loss ${loss.toFixed(2)} = min(damage, hp ${r.start.hp}) and player:fell.damage ${fell.damage.toFixed(2)} = actually dealt`);
     if (!lethal) ok(near(r.at.shield, r.start.shield, 1e-6), `${label}: shield untouched (${r.start.shield} → ${r.at.shield})`);
     ok(fell.rule === 'normal' && fell.keys === 'damage,height,rule', `${label}: payload {height, damage, rule:'normal'} (${fell.keys}, rule ${fell.rule})`);
-    // 흔들림
+    // The shake
     ok(r.shake.length === 1 && near(r.shake[0].intensity, shakeFor(fell.damage), 1e-9) && near(r.shake[0].duration, C.SHAKE_S, 1e-9) && near(r.shake[0].t, fell.t, 1e-9),
       `${label}: one camera:shake {${shakeFor(fell.damage).toFixed(3)}, ${C.SHAKE_S}} on the landing frame`, JSON.stringify(r.shake));
     ok(r.at.trauma > 0, `${label}: the rig took the shake (trauma ${r.at.trauma.toFixed(3)})`);
-    // 소리
+    // The sound
     const fi = r.snd.filter((x) => x.id === 'fall_impact');
     const layer = r.snd.filter((x) => x.id.startsWith('footstep_') && near(x.t, fell.t, 1e-9));
     ok(fi.length === 1 && !fi[0].hasPos && !fi[0].panOnly && near(fi[0].t, fell.t, 1e-9),
       `${label}: one local fall_impact, no position (vol ${fi[0]?.vol.toFixed(3)}, pitch ${fi[0]?.pitch.toFixed(3)})`, JSON.stringify(fi));
     ok(layer.length === 1 && !layer[0].hasPos && layer[0].dedupe === false && (!setup.mat || layer[0].id === `footstep_${setup.mat}`),
       `${label}: + surface footstep layer ${layer[0]?.id} (vol ${layer[0]?.vol.toFixed(3)}, pitch ${layer[0]?.pitch.toFixed(3)})`, JSON.stringify(layer));
-    // 비네트
+    // The vignette
     const want = vignetteFor(fell.damage);
     ok(near(fell.vig, want, 1e-3) && fell.vigHidden === false && near(fell.vigStyle, want, 2e-3),
       `${label}: .fall-vignette shown at opacity ${fell.vig.toFixed(3)} ≈ min(1, ${fell.damage.toFixed(1)} / ${C.VIG_FULL}) = ${want.toFixed(3)}`, JSON.stringify(fell));
@@ -312,7 +319,7 @@ try {
     return { fi: fi[0], layer: layer[0], damage: fell.damage };
   };
 
-  /* ── 1 · 5 · 6. 높이별 식 + 사건 + 피드백 ─────────────────────────────────────── */
+  /* ── 1 · 5 · 6. the formula by height + the event + the feedback ─────── */
   console.log(`1/5/6. formula by real falls (SAFE ${C.SAFE} m, PER_M ${C.PER_M}, MAX ${C.MAX})`);
   const low = await drop(C.SAFE - 2);
   ok(low.airborne && low.airTime > 0.3, `${C.SAFE - 2} m: body actually fell (${low.airTime.toFixed(2)} s air)`);
@@ -323,7 +330,7 @@ try {
   const s6 = checkHurt(await drop(C.SAFE + 1), `${C.SAFE + 1} m (just above safe)`);
   const s12 = checkHurt(await drop(12), '12 m');
 
-  /* ── 2. 실드 우회 (2026-09-16 사용자 결정: 모든 낙하 피해는 체력으로 곧장) ───────────────── */
+  /* ── 2. the shield bypass (2026-09-16: fall damage goes to HP) ─────── */
   console.log('2. fall damage bypasses the armor shield (HP only)');
   const S = setup.maxShield;
   const dHalf = Math.min(setup.maxHp * 0.5, C.MAX);
@@ -338,7 +345,7 @@ try {
   ok(!!r12 && r12.shield.split('→')[0] === r12.shield.split('→')[1] && r12.hp.split('→')[0] !== r12.hp.split('→')[1],
     `12 m (63 < shield ${S}) still came out of HP (hp ${r12?.hp}, shield ${r12?.shield})`);
 
-  /* ── 4. 남이 띄운 몸은 착지까지 면제 ─────────────────────────────────────────────── */
+  /* ── 4. a body something else lifted is exempt until it lands ────────── */
   console.log('4. launched bodies are exempt until landing');
   const liftFor = (m) => Math.sqrt(2 * C.GRAVITY * m);
   const imp = await drop(0, 'impulse', liftFor(15));
@@ -352,7 +359,7 @@ try {
   checkQuiet(mid, 'impulse mid-fall (20 m drop)');
   checkHurt(await drop(12), '12 m after the launches (exemption did not stick)');
 
-  /* ── 7. 분대원 낙하 착지음 ───────────────────────────────────────────────────────── */
+  /* ── 7. the squadmate fall landing sound ─────────────────────────────────── */
   console.log('7. remote fall sound (in-game receive path)');
   const remote = await page.evaluate(async ({ dmg }) => {
     const G = window.__game, ctx = G.ctx, R = window.__rec;
@@ -379,7 +386,7 @@ try {
       const pFar = [cam.x + 50, cam.y, cam.z];
       out.farReject = rp.receiveFall({ t: 'fall', p: pFar, d: dmg }, 'peer-far');
       out.farEv = R.remoteFell.length - m1.rf;
-      // audio 자신의 곡선도 50 m 는 무음이다 (검사를 거치지 않은 사건을 직접 낸다)
+      // audio's own curve is silent at 50 m too (this emits the event directly, past the check)
       ctx.bus.emit('player:remoteFell', { peerId: 'peer-direct', position: new V3(...pFar), damage: dmg });
       await window.__simWait(0.1);
       out.farSnd = R.snd.slice(m1.snd).filter((x) => x.id === 'fall_impact' || (x.id.startsWith('footstep_') && x.hasPos));
@@ -404,7 +411,7 @@ try {
   ok(remote.vigNear === 0 && remote.vigNearLater === 0 && remote.vigFar === 0 && remote.shake === 0 && remote.fell === 0,
     'remote falls: no vignette, no camera:shake, no player:fell', JSON.stringify({ v: [remote.vigNear, remote.vigNearLater, remote.vigFar], shake: remote.shake, fell: remote.fell }));
 
-  /* ── 3. 치사 낙하 (마지막 — 죽으면 사망 흐름이 시작된다) ─────────────────────────── */
+  /* ── 3. the lethal fall (last — dying starts the death flow) ──── */
   console.log('3. lethal fall (solo → dead, no downed)');
   const lethalH = 40;
   const leth = await drop(lethalH);

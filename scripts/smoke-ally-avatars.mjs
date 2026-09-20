@@ -1,10 +1,12 @@
-// 2026-09-15 (안드로이드 분대원 — src/player): `ctx.allies` 가 말하는 몸을 player 가 어떻게 그리는가.
-// `remotePlayers.debugAllyBody()` 로 몸을 주입해 allies/ 없이도 검사한다: 안드로이드 외형(얼굴 조각 교체 · SoldierModel.isAndroid) ·
-// 자세 매핑(stand · crouch · downed · dormant = 회색 + 실루엣 없음 · carry) · 감춰진 · 죽은 몸은 그리지 않음 · 손에 든 총 · 방탄복 판 ·
-// 몸 풀 재사용(같은 SoldierModel 이 돌아온다) · 쓰러진 기의 `revive:ally:<id>` 상호작용(프롬프트 · 완료 → requestRevive) ·
-// 안드로이드가 업은 로컬 플레이어(`carrierOf` → setCarriedBy) · **업은 아바타가 사라져도 풀려난다**(B-64) ·
-// `ally:fired` 연출이 씬의 점광원 개수를 바꾸지 않는다 · **전설 유니크 6종의 사격음**과 weapons ↔ player 표 일치(B-63) ·
-// 안드로이드 얼굴 초상 · 분대에 안드로이드가 있으면 솔로 PC 도 즉사하지 않고 쓰러진다.
+// 2026-09-15 (android squadmates — src/player): how player draws the bodies `ctx.allies` describes.
+// Bodies are injected with `remotePlayers.debugAllyBody()`, so it checks without allies/: the android look (the face
+// pieces swapped · SoldierModel.isAndroid) · pose mapping (stand · crouch · downed · dormant = grey + no silhouette ·
+// carry) · hidden · dead bodies are not drawn · the gun in the hand · armor plates · body-pool reuse (the same
+// SoldierModel comes back) · the `revive:ally:<id>` interaction on a downed unit (prompt · completion → requestRevive) ·
+// the local player carried by an android (`carrierOf` → setCarriedBy) · **the carry is released even when the carrier
+// avatar disappears** (B-64) · the `ally:fired` shot FX does not change the scene's point-light count · **the six
+// legendary uniques' shot sounds** and weapons ↔ player agreeing on one table (B-63) · the android face portrait ·
+// with an android on the squad a solo PC goes down instead of dying outright.
 // Usage: node scripts/smoke-ally-avatars.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -105,7 +107,8 @@ try {
 
   const look = await P(() => {
     const m = window.__rp.getAllyAvatars().getAvatar('ally-a').model;
-    // 안드로이드 조각(얼굴판 · 바이저 띠 · 관절)과 사람 얼굴 조각(볏 · 바이저 · 챙)의 visible 이 정확히 반대여야 한다
+    // The android pieces (face plate · visor band · joints) and the human face pieces (crest · visor · brim) must
+    // carry exactly opposite visible flags
     const before = { on: m.isAndroid };
     m.setAndroidLook(false);
     const human = [];
@@ -179,7 +182,8 @@ try {
   await P(() => {
     const ctx = window.__game.ctx;
     window.__calls = [];
-    // `ctx.allies` 는 클래스 인스턴스일 수 있어 Object.assign 으로는 메서드가 안 넘어온다 — 계약 전체를 직접 세운다
+    // `ctx.allies` may be a class instance, so Object.assign does not carry its methods over — the whole
+    // contract is built by hand
     window.__allies0 = ctx.allies;
     ctx.allies = {
       roster: [], simulating: false,
@@ -236,12 +240,14 @@ try {
   ok(!c3.isCarried && c3.inScene, 'put down again → the body is back in the scene', JSON.stringify(c3));
 
   /*
-   * 2026-09-20 (B-64): 업고 있던 **아바타가 사라져도** 풀려나야 한다. 예전 해제 조건은 `AllyAvatars.has(myCarrier)` 였고
-   * 그건 「그 아바타가 아직 있나」를 묻는 말이라, 몸이 목록에서 빠지면 영영 업힌 채로 남았다. 두 모양을 다 본다:
-   *   ① `localId` 가 있는 경우, ② 없는 경우(`ALLY_LOCAL_PEER` = 서버 없는 솔로) — 아래 peer 경로가 `if (!localId) return`
-   *   으로 먼저 빠지므로 ②는 아무도 풀어줄 수 없던 쪽이다. 2026-09-20 확인: 옛 코드에서 실제로 빨개지는 것은 ②뿐이고
-   *   (①은 peer 경로가 `setCarriedBy(null)` 을 대신 불러 준다) ①은 회귀 방지용으로 함께 남긴다.
-   * 검사가 끝나면 다음 검사들이 쓰는 몸(`ally-a`)을 그대로 다시 넣어 둔다.
+   * 2026-09-20 (B-64): the carry must be released **even when the carrier avatar disappears**. The old release
+   * condition was `AllyAvatars.has(myCarrier)`, which asks 「is that avatar still there」, so once the body left the list
+   * the player stayed carried forever. Both shapes are checked:
+   *   ① with a `localId`, ② without one (`ALLY_LOCAL_PEER` = solo with no server) — the peer path below leaves first on
+   *   `if (!localId) return`, so ② is the half nobody could release. Confirmed 2026-09-20: what really goes red on the
+   *   old code is ② alone (on ① the peer path calls `setCarriedBy(null)` instead), and ① is kept beside it as a guard
+   *   against a regression.
+   * When the checks are done the body the next ones use (`ally-a`) is put back exactly as it was.
    */
   console.log('the carry is released even when the carrier avatar disappears (B-64)');
   const reinject = () => P(() => {
@@ -254,7 +260,8 @@ try {
     const solo = shape !== 'localId';
     await P((isSolo) => {
       const ctx = window.__game.ctx;
-      // localId 는 NetSystem 의 getter 다 — 인스턴스에 같은 이름을 얹어 가리고, 끝나면 delete 로 되돌린다
+      // localId is a getter on NetSystem — a property of the same name is laid over the instance to hide it,
+      // and a delete restores it afterwards
       if (!isSolo && ctx.net) Object.defineProperty(ctx.net, 'localId', { get: () => 'me', configurable: true });
       else if (ctx.net) delete ctx.net.localId;
       window.__b.carrying = (ctx.net && ctx.net.localId) || 'local';
@@ -268,9 +275,10 @@ try {
     });
     ok(up.isCarried && up.onSocket, `[${shape}] the android shouldered us`, JSON.stringify(up));
     /*
-     * 아바타 자체를 없앤다. 목록에서 빼기(`debugAllyClear`)**만** 하면 부족하다 — 몸을 지우는 스윕은 `lateUpdate` 에서
-     * 돌고 `updateCarries` 는 `update` 에서 도는 탓에, 그 다음 프레임 한 번은 아바타가 아직 살아 있어서 옛 `has()` 조건도
-     * 우연히 성립한다. 아바타가 **먼저** 사라지는 진짜 구멍(풀 반납 · 함선 전환 등)을 만들려면 같은 틱에 `clear()` 까지 부른다.
+     * The avatar itself is removed. Taking it off the list (`debugAllyClear`) **alone** is not enough — the sweep that
+     * deletes bodies runs in `lateUpdate` while `updateCarries` runs in `update`, so for one following frame the avatar
+     * is still alive and the old `has()` condition happens to hold. To make the real hole, where the avatar disappears
+     * **first** (returned to the pool, a ship transition and so on), `clear()` is called in the same tick.
      */
     await P(() => { const mgr = window.__rp.getAllyAvatars(); window.__rp.debugAllyClear('ally-a'); mgr.clear(); });
     await waitSim(0.5);
@@ -302,9 +310,10 @@ try {
   ok(fx.shots === 6 && fx.id === 'shot_rifle', 'every shot plays the weapon class sound', JSON.stringify(fx));
 
   /*
-   * 2026-09-20 (B-63): 전설 유니크를 든 안드로이드도 플레이어와 **같은 소리**를 낸다. 표가 둘로 갈라져 있던 동안
-   * 여섯 자루 모두 `shot_rifle` 로 떨어졌다. 위 검사가 `shot_` 로 거르는 바람에 활 · 표창의 `melee_swing` 은 세지도
-   * 않았으므로, 여기서는 나온 `audio:play` id 를 거르지 않고 그대로 모은다. def id 는 `data/weapons_unique.csv` 의 값이다.
+   * 2026-09-20 (B-63): an android holding a legendary unique makes **the same sound** the player does. While the table
+   * was split in two, all six fell back to `shot_rifle`. The check above filters on `shot_`, so the bow's and the
+   * shuriken's `melee_swing` was never even counted — here every `audio:play` id that comes out is collected
+   * unfiltered. The def ids are the values in `data/weapons_unique.csv`.
    */
   console.log('an android holding a legendary plays that unique\'s shot sound (B-63)');
   const UNIQUE_SHOT_SOUNDS = [
@@ -333,8 +342,9 @@ try {
   }
 
   /*
-   * 표가 하나라는 것 자체를 본다: 같은 def 에 대해 weapons 쪽(`WeaponDefaults.shotSoundId(kindOf(def))`)과
-   * player 쪽(`shared/shotSounds.shotSoundOfDef`)이 같은 id 를 내야 한다. 표가 다시 둘로 갈라지는 순간 이 줄이 빨개진다.
+   * That there is one table is checked directly: for the same def the weapons side
+   * (`WeaponDefaults.shotSoundId(kindOf(def))`) and the player side (`shared/shotSounds.shotSoundOfDef`) must return
+   * the same id. The moment the table splits in two again, this line goes red.
    */
   console.log('one shot-sound table: weapons ↔ player agree on every weapon def');
   const cross = await P(async () => {
@@ -372,7 +382,7 @@ try {
     const p = ctx.player;
     p.restoreState({ position: p.position.clone(), yaw: 0, hp: 100, downHp: 0, state: 0 });
   });
-  await waitSim(1);   // 무적 창(`INVULN_TIME`)이 지나야 피해가 들어간다
+  await waitSim(1);   // damage only lands once the invulnerability window (`INVULN_TIME`) has passed
   const d1 = await P(() => {
     const p = window.__game.ctx.player;
     const died0 = window.__ev['player:died'].length;

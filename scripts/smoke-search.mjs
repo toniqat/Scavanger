@@ -43,9 +43,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 1680, height: 900 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts on its own in a new profile
+    // and locks room purposes · crafting · the terminal · boarding in that order, so it is marked here as
+    // "already finished" (the tutorial itself is covered by scripts/smoke-tutorial.mjs).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor traps the OS cursor in the hidden window).
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
@@ -98,7 +98,7 @@ try {
   const openCrate = (id, tier) => page.evaluate(([cid, t]) => {
     const ctx = window.__game.ctx;
     const pos = ctx.player.position.clone();
-    window.__openT = ctx.time;   // 2026-09-08: 감정 시작 지연을 재려고 여는 순간의 sim time 을 남긴다
+    window.__openT = ctx.time;   // 2026-09-08: the sim time at open, to measure the search start delay
     ctx.bus.emit('crate:open', { crateId: cid, tier: t, position: pos });
     const c = window.__game.getSystem('inventory').getActiveContainer();
     return c.grid.items().sort((a, b) => a.y - b.y || a.x - b.x).map((p) => ({ uid: p.item.uid, defId: p.item.defId, qty: p.item.qty, searched: p.item.searched, x: p.x, y: p.y }));
@@ -192,7 +192,8 @@ try {
   const stashCall = calls.find((c) => c[0] === 'stash'), loadoutCall = calls.find((c) => c[0] === 'loadout');
   ok(stashCall && stashCall[1].v === 2 && stashCall[1].items.some((i) => i.defId === 'mat_scrap' && i.qty === 4), 'stash save → profile.set("stash", file v2)', JSON.stringify(stashCall && stashCall[1]));
   // 2026-09-09: LOADOUT_SAVE_VERSION 2 — `quick[i]` is the serialized stack itself, never an index into `bag`
-  // 2026-09-11 (A-15): v3 — `pouch` carries the 주머니 격자의 자리 (v2 → v3 은 없던 필드가 생기는 것뿐)
+  // 2026-09-11 (A-15): v3 — `pouch` carries the spots in the pouch grid (v2 → v3 only adds a field that was
+  //   not there before)
   ok(loadoutCall && loadoutCall[1].v === 3 && loadoutCall[1].bag.some((i) => i.defId === 'mat_alloy')
     && Array.isArray(loadoutCall[1].quick) && loadoutCall[1].quick.length === 8
     && loadoutCall[1].quick.every((q) => q === null || (!!q && typeof q === 'object' && typeof q.defId === 'string')),
@@ -297,7 +298,8 @@ try {
     && merge.freshLoses === 'server' && merge.freshSent === 0 && merge.freshKept === 'starter' && merge.freshFlag && merge.pending === 0,
     'ProfileSync newest-wins (a relay without docsRev — old server compatible): a queued edit stamped after the server copy is kept + uploaded with its `at`, an older one loses, a `fresh` default only fills a key the server has no document for', JSON.stringify(merge));
 
-  /* ── 2b. 2026-09-11 (E-6): 문서 리비전 — persisted queue, baseRev merge, transactions, conflicts (stubbed relay) ── */
+  /* ── 2b. 2026-09-11 (E-6): document revisions — persisted queue, baseRev merge, transactions, conflicts
+     (stubbed relay) ── */
   console.log('profile revisions (E-6)');
   const rev = await page.evaluate(async () => {
     const m = await import('/src/net/ProfileSync.ts');
@@ -483,8 +485,9 @@ try {
     'unsearched tiles show only the footprint (`.is-hidden-item`, `?` / `???`, no rarity class / pips / bar)', JSON.stringify(tiles0));
   ok(!tiles0.statusHidden && /감정 중/.test(tiles0.status ?? ''), 'container header shows 감정 중 · n개 남음', JSON.stringify(tiles0.status));
 
-  // 2026-09-08 UI/UX: 감정은 창이 열린 **뒤** SEARCH_START_DELAY(0.1 s) 지나서 시작한다 — 열리는 애니메이션이
-  // 끝나기도 전에 첫 아이템 게이지가 차 있던 걸 고친 것. 첫 진행 이벤트까지의 sim time 으로 잰다.
+  // 2026-09-08 UI/UX: the search starts SEARCH_START_DELAY (0.1 s) **after** the window opens — the fix for the
+  // first item's gauge already filling before the opening animation had finished. It is measured as the sim
+  // time up to the first progress event.
   await waitFor(page, () => window.__ev['container:searchProgress'].length >= 1, 'first searchProgress');
   const startDelay = await page.evaluate(() => {
     const ev = window.__ev['container:searchProgress'];
@@ -660,7 +663,7 @@ try {
   ok(corpse.id === 'corpse:smoke-1' && corpse.unsearched === 2 && corpse.hidden === 2, 'openContainerItems (corpse) contents start unsearched too', JSON.stringify(corpse));
   await closeWindow();
 
-  /* ── 5. 감정 speed multiplier ────────────────────────────────────────── */
+  /* ── 5. the search speed multiplier ────────────────────────────────── */
   console.log('searchSpeedMul');
   const mul = await page.evaluate(() => { const p = window.__game.ctx.progression; p.addSkillXpRaw('appraisal', 1e9); return p.derived.searchSpeedMul; });
   ok(mul > 1.9, `maxed 감정 → derived.searchSpeedMul ${mul}`);

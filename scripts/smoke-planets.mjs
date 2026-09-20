@@ -56,9 +56,9 @@ try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 1600, height: 900 });
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts by itself on a fresh profile and
+    // locks room purposes · crafting · the terminal · boarding one after another, so here it is marked 「already
+    // finished」 (the tutorial itself is smoke-tutorial.mjs's business).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -157,17 +157,19 @@ try {
     const f = root.querySelector('.frame');
     const r = f.getBoundingClientRect();
     const rect = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; };
-    // 머리줄 제목 · 상태 알약은 **글자** 폭으로 잰다 (블록은 flex 로 늘어나 있다)
+    // The header title · the status pill are measured by their **text** width (the blocks are stretched by flex)
     const textRect = (e) => { if (!e) return null; const rg = document.createRange(); rg.selectNodeContents(e); const b = rg.getBoundingClientRect(); return { l: b.left, r: b.right }; };
     const planet = rect(root.querySelector('.hub-planet'));
-    // 2026-09-15 2차 (사용자 결정): 훈련장 버튼은 푸터 **위** 제 줄(`.hub-train-row`)의 오른쪽 끝 — 푸터에는 `닫기 (E)` 만 남는다
+    // 2026-09-15 second pass (user's decision): the training button sits at the right end of its own row
+    // (`.hub-train-row`) **above** the footer — the footer keeps nothing but `닫기 (E)`
     const train = root.querySelector('.hub-train-row .ui-btn.hub-train');
     return {
       footR: rect(root.querySelector('.hub-foot')),
       full: root.classList.contains('fullscreen'),
       w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight,
       sw: f.scrollWidth, cw: f.clientWidth, sh: f.scrollHeight, ch: f.clientHeight,
-      // 2026-09-15 (분대 · 도킹 매칭): 상단 탭 행성 / 매칭 — 인벤토리 Tab 화면과 같은 `.scr-tabs > .scr-tab`
+      // 2026-09-15 (squad · docking matchmaking): the top tabs 행성 / 매칭 — the same `.scr-tabs > .scr-tab`
+      // as the inventory Tab screen
       tabs: [...root.querySelectorAll('nav.scr-tabs.hub-tabs > button.scr-tab')].map((b) => `${b.textContent}${b.classList.contains('is-on') ? '*' : ''}${b.hidden ? '(hidden)' : ''}`),
       activeTab: window.__game.getSystem('hub').menu.activeTab,
       tabsR: rect(root.querySelector('.hub-tabs')),
@@ -194,7 +196,8 @@ try {
   ok(term.full, 'root carries .fullscreen');
   ok(term.w >= term.vw - 2 && term.h >= term.vh - 2, `the frame fills the viewport (${term.w}×${term.h} of ${term.vw}×${term.vh})`);
   ok(term.sw <= term.cw && term.sh <= term.ch, `the frame still has no scroll overflow (${term.sw}/${term.cw} × ${term.sh}/${term.ch})`);
-  // 2026-09-15 (분대 · 도킹 매칭, 사용자 결정): 상단 탭 · 가운데 행성 · 우하단 훈련장 버튼, 머리 `📡 매칭` 버튼과 매칭 팝업은 없다
+  // 2026-09-15 (squad · docking matchmaking, user's decision): the top tabs · the planet in the centre · the
+  // training button bottom-right, and no header `📡 매칭` button or matchmaking popup
   ok(term.tabs.join(',') === '행성*,매칭', `top tabs 행성 / 매칭 with 행성 on (${term.tabs.join(',')})`);
   ok(term.activeTab === 'planet' && term.matchPaneHidden === true, `the terminal opens on the 행성 tab (${term.activeTab})`);
   ok(!!term.tabsR && !!term.titleT && !!term.pillT && term.tabsR.l > term.titleT.r && term.tabsR.r < term.pillT.l && Math.abs((term.tabsR.l + term.tabsR.r) / 2 - term.frameCx) <= 4,
@@ -209,10 +212,12 @@ try {
     `the training button sits right-aligned just above the footer line (${JSON.stringify(term.train?.r)} vs footer top ${term.footR?.t})`);
   ok(!term.trainSection && !term.trainHint, 'no 시뮬레이션 훈련장 section and no hint line');
   ok(term.crewName === 0 && term.nameInput === 0, `the 승무원 이름 section is gone (${term.crewName} label / ${term.nameInput} input)`);
-  // 2026-09-08: `.seed-hint` 는 지웠다 — 시드는 여전히 개발자 콘솔 `/seed` 만 건드리지만, 화면에 적어 둘 이유가 없다.
+  // 2026-09-08: `.seed-hint` is gone — the seed is still only touched from the dev console's `/seed`, but there
+  // is no reason to print it on screen.
   ok(term.seedHint === null, `.seed-hint removed (${JSON.stringify(term.seedHint)})`);
-  // 2026-09-09: 타이틀로 는 단말기에서 뺐다 — 일시정지 메뉴에 이미 있고, 구석의 파괴적 버튼은 함정이다.
-  // 2026-09-15 2차: 훈련장은 푸터 밖(위 줄)이라 푸터 버튼은 `닫기 (E)` 하나뿐이다
+  // 2026-09-09: 타이틀로 was taken out of the terminal — the pause menu already has it, and a destructive button
+  // in a corner is a trap. 2026-09-15 second pass: the training button is outside the footer (the row above), so the
+  // footer holds the single button `닫기 (E)`
   ok(term.closeBtn.join(',') === '닫기 (E)', `footer: ${term.closeBtn.join(' / ')}`);
   ok(term.blocker && term.cursor === true, `the 'hub' blocker + software cursor (Phase 10 etiquette, cursor ${term.cursor})`);
   ok(term.locked === true, 'the pointer lock is kept (no exitPointerLock)');
@@ -220,12 +225,12 @@ try {
   ok(tog && tog.open === true, `hub:terminalToggled {open:true} (${JSON.stringify(tog)})`);
   ok((await ev('ui:hubMenuToggled')).slice(-1)[0]?.open === true, 'the legacy ui:hubMenuToggled still fires');
 
-  /* ── 2b. 매칭 탭 · 초대 창 (2026-09-15, 분대 · 도킹 매칭) ─────────────── */
+  /* ── 2b. The 매칭 tab · the 초대 modal (2026-09-15, docking) ──── */
   console.log('매칭 탭');
   await clickSel('.hub-tabs .scr-tab[data-tab="match"]');
   await waitSim(0.2);
-  // 접속 상태를 **오프라인으로 고정**한다 (릴레이가 떠 있는 runner 에서는 이 순간 `connecting` 이라 잠긴 버튼 + 「연결하는 중」이
-  // 보인다) — 아래 inv1 의 finally 가 `delete net.status` 로 되돌린다
+  // **Pin the link state to offline** (on a runner with a relay up it is `connecting` at this moment, which shows
+  // a disabled button + 「연결하는 중」) — inv1's finally below restores it with `delete net.status`
   await P(() => { Object.defineProperty(window.__game.getSystem('net'), 'status', { get: () => 'offline', configurable: true }); window.__game.getSystem('hub').menu.refresh(); });
   const mt = await P(() => {
     const st = (sel) => { const b = document.querySelector(sel); return b ? { hidden: b.hidden, disabled: b.disabled } : null; };
@@ -255,12 +260,13 @@ try {
   ok(/\bis-me\b/.test(mt.tiles[0]?.cls ?? '') && mt.tiles[0].name.length > 0 && mt.tiles[0].img, `me first, with a face image (${JSON.stringify(mt.tiles[0])})`);
   ok(mt.tiles.slice(1).every((t) => /\bis-empty\b/.test(t.cls) && t.invite === 'on'), `solo: the other three are empty cells with an enabled 초대 (${mt.tiles.slice(1).map((t) => t.invite).join(',')})`);
   ok(mt.face === 'data:image/png;base64,' && mt.faceCached, `ctx.player.snapshotFace returns a PNG and caches it (${mt.face})`);
-  // 2026-09-15 2차 (사용자 결정): 접속이 없으면 비공개 / 공개 매칭이 **사라지고 그 자리**(`.hmt-actions`)에 `다시 연결` 이 선다; 사유 줄은 남는다
+  // 2026-09-15 second pass (user's decision): with no link 비공개 / 공개 매칭 **disappear and `다시 연결` stands in
+  // their place** (`.hmt-actions`); the reason line stays
   ok(!!mt.priv && !!mt.pub && mt.priv.hidden && mt.pub.hidden && mt.undock?.hidden === true && mt.leave?.hidden === true, 'offline → 비공개 / 공개 매칭 hidden, no 도킹 해제 / 분대 떠나기 without a lobby', JSON.stringify(mt));
   ok(mt.reconnect?.hidden === false && mt.reconnect.disabled === false && mt.reconnectIn === true && mt.hint === '서버에 연결되어 있지 않습니다', `offline → 다시 연결 in the action row with "${mt.hint}"`, JSON.stringify(mt));
   ok(mt.inviteOffline.length === 3 && mt.inviteOffline.every(Boolean), `offline: the empty cells' 초대 are dimmed (.is-offline) but enabled (${mt.inviteOffline.join(',')})`);
 
-  // 접속이 없을 때의 초대 클릭: 창은 열리지 않고 사유 줄이 깜박인다 (`.is-flash`)
+  // Clicking 초대 with no link: no modal opens and the reason line flashes (`.is-flash`)
   const invOff = await P(() => {
     document.querySelector('.hmt-tile.is-empty .hmt-invite')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     const hint = document.querySelector('.hmt-hint');
@@ -270,7 +276,7 @@ try {
   await waitSim(0.8);
   ok(await P(() => !document.querySelector('.hmt-hint').classList.contains('is-flash')), 'the flash class is gone after HINT_FLASH_MS');
 
-  // 창 자체의 오프라인 문구는 창을 직접 열어 확인한다 (접속이 없으면 `초대` 버튼은 창을 열지 않는다)
+  // The modal's own offline line is read by opening the modal directly (with no link the `초대` button opens nothing)
   await P(() => window.__game.getSystem('hub').menu.invite.open());
   await waitSim(0.1);
   const inv0 = await P(() => ({
@@ -282,7 +288,8 @@ try {
   ok(inv0.open && inv0.top === 'hub:invite' && inv0.blocker, `the invite modal opens on its own token (${inv0.top})`);
   ok(inv0.guide === 'hub.invite', `the invite modal owns the key guide (${inv0.guide})`);
   ok(/서버에 연결/.test(inv0.note ?? ''), `offline → the modal says so ("${inv0.note}")`);
-  // 접속 · 소셜 스냅숏을 인스턴스 속성으로 잠깐 덮어 줄을 그리게 한다 (게터는 프로토타입에 있어 delete 로 되돌아간다)
+  // The link · social snapshot is overridden for a moment as an instance property so the rows are drawn (the
+  // getters live on the prototype, so a delete restores them)
   const inv1 = await P(() => {
     const net = window.__game.getSystem('net');
     const now = net.serverNow();
@@ -339,7 +346,7 @@ try {
   const back = await P(() => ({ tab: window.__game.getSystem('hub').menu.activeTab, planet: !document.querySelector('.hub-pane-planet').hidden, holoVis: document.querySelector('.hp-holo canvas')?.style.visibility ?? null }));
   ok(back.tab === 'planet' && back.planet && back.holoVis === '', `back on the 행성 tab, the hologram draws again (${JSON.stringify(back)})`);
 
-  /* ── 2c. 세 창 크기에서 프레임이 넘치지 않는다 (2026-09-15) ─────────────── */
+  /* ── 2c. No frame overflow at three sizes (2026-09-15) ──── */
   for (const [vw, vh] of [[1280, 760], [1440, 900], [1920, 1080]]) {
     await page.setViewport({ width: vw, height: vh });
     await waitSim(0.2);
@@ -487,17 +494,18 @@ try {
   ok((await screenText()).includes(`목표 ${PLANETS[2].name}`), `terminal screen reads 목표 ${PLANETS[2].name}`);
   ok(t2.podPrompt === '발사 슬롯 탑승' && t2.podCan === true, `the launch slot opened up ("${t2.podPrompt}")`);
 
-  /* ── 4b. 출격 준비 경고 (2026-09-08 · 2026-09-14 에 자리를 옮겼다) ────────────
-   * 기본 지급품에는 주무기가 없으므로 경고가 걸린다. **2026-09-14 (사용자 결정)**: 그 경고가 뜨는 자리는
-   * 탑승이 아니라 **준비 홀드가 끝난 순간**이다 — 포드에 앉는 것은 아무것도 확정하지 않으므로 묻지 않고,
-   * 스페이스를 `UI_HOLD_CONFIRM_S`(1초) 꾹 눌러야 팝업이 서고 `그래도 준비` 를 눌러야 준비가 켜진다.
-   * 막지는 않고, 같은 조합에 대해서는 두 번 묻지 않는다.
-   * 준비가 켜지면 솔로에서도 `HUB_LAUNCH_COUNTDOWN`(3 s) 이 곧바로 돌기 시작하므로 확인이 끝나는
-   * **같은 evaluate 안에서** 내린다 (프레임이 사이에 돌지 않는다). */
+  /* ── 4b. Launch-readiness warning (2026-09-08 · moved 2026-09-14) 
+   * The default issue holds no primary weapon, so the warning is raised. **2026-09-14 (user's decision)**: the place
+   * that warning appears is not boarding but **the moment the ready hold finishes** — sitting in a pod commits to
+   * nothing, so it asks nothing; the popup only stands after Space is held for `UI_HOLD_CONFIRM_S` (1 s), and
+   * readiness only turns on when `그래도 준비` is pressed. It never blocks, and it does not ask twice for the same
+   * combination.
+   * Once readiness is on, `HUB_LAUNCH_COUNTDOWN` (3 s) starts running at once even solo, so the pod is left **inside
+   * the same evaluate** that finishes the confirmation (no frame runs in between). */
   console.log('출격 준비 경고');
   const warnIds = await P(() => window.__game.ctx.inventory.getLaunchWarnings().map((w) => w.id));
   ok(warnIds.includes('noPrimary'), `기본 지급품에는 주무기가 없어 경고가 잡힌다 (${warnIds.join(',')})`);
-  /** 포드 상태 한 줄 (경고 팝업 · 탑승 · 준비 · 블로커). */
+  /** The pod state in one row (the warning popup · boarded · ready · the blocker). */
   const podState = () => P(() => {
     const ctx = window.__game.ctx, hub = window.__game.getSystem('hub');
     const root = document.querySelector('.menu.hub-menu.launch-warn');
@@ -507,10 +515,10 @@ try {
       hold: hub.ready.holdProgress,
     };
   });
-  /** 스페이스 1초 홀드 = 준비 (`hub/ui/ReadyPanel.tickHold` 가 dt 를 쌓는다 — 벽시계가 아니라 시뮬레이션 시간이다). */
+  /** Space held for 1 s = ready (`hub/ui/ReadyPanel.tickHold` sums dt — simulation time, not the wall clock). */
   const holdReady = async () => {
     await P(() => document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true })));
-    await waitSim(1.4);   // UI_HOLD_CONFIRM_S 1 s + 프레임 여유
+    await waitSim(1.4);   // UI_HOLD_CONFIRM_S 1 s + a frame of slack
     await P(() => document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', key: ' ', bubbles: true })));
     await waitSim(0.1);
   };
@@ -551,7 +559,7 @@ try {
     const reopened = document.querySelector('.launch-warn').hidden === false;
     [...document.querySelectorAll('.launch-warn .hub-foot .ui-btn')].find((b) => b.textContent === '그래도 준비').click();
     const out = { reopened, hidden: document.querySelector('.launch-warn').hidden, ready: hub.readyLocal, ack: hub.launchWarnAck, blocker: ctx.uiBlockers.has('hub') };
-    hub.leavePod(true);   // 준비 = 발사 카운트다운 시작 — 프레임이 돌기 전에 내린다
+    hub.leavePod(true);   // ready = the launch countdown starts — leave the pod before a frame runs
     out.after = hub.boardedSlot;
     return out;
   });
@@ -559,8 +567,9 @@ try {
   ok(confirmed.hidden && confirmed.ready === true && !confirmed.blocker && confirmed.after < 0,
     '그래도 준비 → 카드가 닫히고 준비가 켜진다', JSON.stringify(confirmed));
   ok(confirmed.ack === warnIds.join(','), `같은 조합을 기억한다 (${confirmed.ack})`);
-  // 방금 내렸으므로 REBOARD_GRACE(0.5 s 시뮬레이션 시간) 가 지나야 다시 탈 수 있다 — 내린 프레임에 바로
-  // 다시 타려 하면 `podCanInteract` 가 조용히 거절한다 (E 를 누른 채로 내리는 상황과 구분되지 않기 때문).
+  // It has just been left, so REBOARD_GRACE (0.5 s of simulation time) has to pass before boarding again — trying
+  // to board again on the very frame it was left is refused silently by `podCanInteract` (it cannot be told apart
+  // from leaving with E still held).
   await waitSim(0.6);
   await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_pod_0').interact());
   await waitSim(0.2);
@@ -574,8 +583,9 @@ try {
   });
   ok(second.hidden && second.boarded === 0 && second.ready === true && second.after < 0,
     '한 번 넘긴 조합은 다시 묻지 않고 홀드만으로 준비된다', JSON.stringify(second));
-  /* 경고가 **하나도 없는** 경우: 홀드만으로 곧바로 준비되고 승인 기록은 지워진다 (다음 결손을 새로 묻는다).
-   * 장비를 실제로 채우는 대신 `getLaunchWarnings` 를 이 검사 동안만 비운다 — 보는 것은 hub 의 분기다. */
+  /* With **no warning at all**: the hold alone readies at once and the acknowledgement record is wiped (the next
+   * gap is asked about afresh). Rather than actually filling the loadout, `getLaunchWarnings` is emptied for the
+   * duration of this check — what is being looked at is hub's branch. */
   await waitSim(0.6);
   await P(() => {
     const inv = window.__game.ctx.inventory;
@@ -640,8 +650,9 @@ try {
 
   /* ── 7. launch: game:newMission carries the planet ───────────────────── */
   console.log('발사');
-  // 2026-09-08: 리로드로 세션이 새로 시작됐으므로 출격 준비 경고가 다시 뜬다 — 2026-09-14 부터는 탑승이
-  // 아니라 **준비 홀드** 뒤에 뜨므로, 앉고 → 꾹 누르고 → 확인해야 카운트다운이 돈다.
+  // 2026-09-08: the reload started a new session, so the launch-readiness warning appears again — since
+  // 2026-09-14 it comes after the **ready hold** rather than after boarding, so it takes sit down → hold → confirm
+  // before the countdown runs.
   await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_pod_0').interact());
   await waitSim(0.2);
   ok(await P(() => window.__game.ctx.player.isInPod), 'boarded the launch slot');

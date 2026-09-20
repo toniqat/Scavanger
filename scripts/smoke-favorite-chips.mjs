@@ -1,12 +1,16 @@
-// 2026-09-12 (E2): 즐겨찾기 칩 · 기업 화면 · 특정 아이템 회수 계약.
-//   ① 칩 우클릭 메뉴 (`ui/hud/ItemFavoriteMenu` — `.item-chip[data-def-id]` 위임): 켜기 → 같은 def 의 칩 전부 `.is-favorite`,
-//      끄기 라벨, Escape · 바깥 클릭으로 닫힘, 새로 만든 칩은 공급자에게 물어 띠를 달고 나온다, 띠 ::after 가 그려진다.
-//   ② 기업 상점 타일(`[data-fav-menu]` 옵트인)에 같은 메뉴 → 가지고 있지 않은 상점 물품을 켠다.
-//   ③ 판매칸의 즐겨찾기: 거래 성사 1초 홀드 뒤 한 번 더 확인(`.cv-ask`) — Escape 취소(아이템 · 크레딧 그대로), 짧게 누르면 안 됨,
-//      1초 홀드면 판매. 즐겨찾기가 아닌 판매는 묻지 않는다. `귀중품 전부 담기` 는 즐겨찾기를 건너뛴다.
-//   ④ 계약: 기업마다 아이템 회수 2줄, 계약 행에 아이템 칩(보유/필요) + 우클릭 메뉴, 정산 — 없음 = incomplete, 탈출 실패 = failed,
-//      몸에 2개 = success(신뢰도 · 크레딧), hit 는 무시.
-// E1(inventory 즐겨찾기 코어)이 아직 없으면 `ctx.inventory` 인스턴스에 같은 모양의 스텁을 심는다 (`stub` 로그).
+// 2026-09-12 (E2): favorite chips · the 기업 screen · the recovery contract for a named item.
+//   ① the chip right-click menu (`ui/hud/ItemFavoriteMenu` — delegated on `.item-chip[data-def-id]`): on →
+//      every chip of that def gets `.is-favorite`, the off label, Escape · an outside click closes it, a chip
+//      built afterwards asks the source and comes out wearing the ribbon, the ribbon ::after is drawn.
+//   ② the same menu on corp shop tiles (`[data-fav-menu]` opt-in) → turns one on for a shop item not owned.
+//   ③ favorites in the sell pane: after the 1 s 거래 성사 hold it asks once more (`.cv-ask`) — Escape cancels
+//      (items · credits untouched), a short press does nothing, a 1 s hold sells. A sale that is not a favorite
+//      is never asked about. `귀중품 전부 담기` skips favorites.
+//   ④ contracts: two item-recovery rows per corp, an item chip (held / needed) + a right-click menu on the
+//      contract row, settling — none = incomplete, a failed extraction = failed, 2 on the body = success
+//      (신뢰도 · credits), hit is ignored.
+// When E1 (the inventory favorite core) is not there yet, a stub of the same shape is planted into the
+// `ctx.inventory` instance (the `stub` log).
 // Usage: node scripts/smoke-favorite-chips.mjs [http://localhost:5273/]   (vite dev server; the relay socket is parked)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -159,7 +163,7 @@ try {
   ok(!(await menu()).open && await P(() => window.__game.ctx.meta.isMenuOpen), 'Escape closes the menu, the 기업 window stays open');
 
   // a chip built after the flip asks the source: the item-recovery contract row's chip of a favorite def
-  // (2026-09-14: 기업 퀘스트 탭이 없어졌다 — 같은 검사를 계약 탭의 아이템 회수 칩으로 옮겼다)
+  // (2026-09-14: the 기업 quest tab is gone — the same check moved to the item-recovery chip on the contract tab)
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());
   await waitSim(0.1);
   const questChip = await P(() => {
@@ -205,9 +209,9 @@ try {
     const where = c.inventory.tryAddItemAnywhere(it);
     return where ? it.uid : null;
   }, id);
-  /* 2026-09-16 (수집품 대분류, 사용자 결정): 석영 결정(`gem_quartz`)은 귀중품에서 **일반 등급 광물**(category material)로
-     옮겨 갔다 — 더 이상 `귀중품 전부 담기` 가 집지 않으므로 「즐겨찾기라서 빠졌다」를 증명하지 못한다. 아직 귀중품인
-     청옥(`gem_sapphire`)으로 바꾼다. */
+  /* 2026-09-16 (the collectible super category, user's decision): 석영 결정 (`gem_quartz`) moved out of 귀중품
+     and is now a **plain mineral** (category material) — `귀중품 전부 담기` no longer picks it up, so it cannot
+     prove 「즐겨찾기라서 빠졌다」 any more. Switched to 청옥 (`gem_sapphire`), which is still 귀중품. */
   const gemFav = await put('gem_sapphire');
   const amber = await put('gem_amber');
   ok(!!gemFav && !!amber, 'gem_sapphire + gem_amber placed', `${gemFav} ${amber}`);

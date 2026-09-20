@@ -1,10 +1,10 @@
-// 2026-09-12 (agent D) — 지상 드론 스캔 (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」).
-//   ① 맵 상자 옆에 지상 드론을 세우고 조종 · 조준 → `ctx.drones.scanAim` + `.dsc-hint` 안내
-//   ② 좌클릭 홀드: 게이지가 차고, 조준을 빼면 0 으로, 다시 조준해 3 초 → 결과 · 월드 라벨(등급) · 채팅 한 줄
-//   ③ 채운 뒤 계속 눌러도 다시 세지 않는다 · 좌클릭이 총으로 새지 않는다(`weapon:fired` 0) · 상자는 열리지도 굴려지지도 않았다
-//   ④ 등급 = 미리보기 = 실제로 열었을 때의 내용물 (defId × qty 전부) · 연 뒤의 미리보기 = 지금 내용물
-//   ⑤ 적 시체 · 보급 상자(확정된 남의 가져가기 포함) · 구조물 컨테이너(`WorldRef.previewContainerItems` 가 있으면)의 미리보기 ≡ 열기
-//   ⑥ `game:abort` → 결과 · 라벨이 사라진다
+// 2026-09-12 (agent D) — the ground-drone scan (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」).
+//   ① a ground drone is placed beside a map crate, then controlled · aimed → `ctx.drones.scanAim` + the `.dsc-hint` prompt
+//   ② LMB held: the gauge fills, taking the aim off it drops to 0, aiming again for 3 s → the result · the world label (the rarity) · one chat line
+//   ③ holding on past the fill does not count a second time · LMB does not leak into the gun (`weapon:fired` 0) · the crate was neither opened nor rolled
+//   ④ the rarity = the preview = what is really inside once it is opened (every defId × qty) · the preview after opening = the current contents
+//   ⑤ the preview ≡ opening for an enemy corpse · a supply crate (someone else's confirmed take included) · a structure container (where `WorldRef.previewContainerItems` exists)
+//   ⑥ `game:abort` → the results · the labels disappear
 // Usage: node scripts/smoke-drone-scan.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -100,7 +100,7 @@ try {
         if (!world.isInsideBounds(sx, sz)) continue;
         const sy = world.getSurfaceY(sx, sz, c.position.y + 1.0);
         if (Math.abs(sy - c.position.y) > 0.6) continue;
-        // 드론 몸(반지름 0.35)이 밀려나지 않는 자리여야 한다 — 밀리면 조준선이 옆 바위에 가린다
+        // The spot has to be one where the drone's body (radius 0.35) is not pushed out — pushed out, the aim line is hidden by the rock beside it
         const probe = new V(sx, sy, sz);
         world.resolveCollision(probe, 0.35);
         if (Math.hypot(probe.x - sx, probe.z - sz) > 0.05) continue;
@@ -112,7 +112,7 @@ try {
           const o = hit.obstacle;
           if (!o || Math.hypot(o.position.x - c.position.x, o.position.z - c.position.z) >= 0.3) continue;
         }
-        // PC 는 드론 뒤 2 m (조준선 밖, 신호 범위 안)
+        // The PC stands 2 m behind the drone (off the aim line, inside signal range)
         const px = c.position.x + Math.cos(a) * 5.4, pz = c.position.z + Math.sin(a) * 5.4;
         ctx.player.teleport(new V(px, world.getSurfaceY(px, pz, c.position.y + 1.0), pz), undefined, true);
         return { id: c.id, tier: c.tier, spot: [sx, sy, sz], center: [center.x, center.y, center.z] };
@@ -140,7 +140,7 @@ try {
   }, setup);
   ok(ctl.deployed && ctl.controlled && ctl.pc === true, 'ground drone deployed and under control (PC in drone view)', JSON.stringify(ctl));
   await waitSim(0.3);
-  // 몸이 자리를 잡은 뒤 실제 렌즈 자리에서 다시 조준한다 (렌즈 = 몸 + 코 방향 0.2 m, 높이 0.345)
+  // Once the body has settled it aims again from the real lens position (the lens = the body + 0.2 m along the nose, at height 0.345)
   const reaim = () => page.evaluate((s) => {
     const d = window.__game.getSystem('drones').controlled;
     if (!d) return null;
@@ -236,7 +236,7 @@ try {
   ok(after.fired === fired0, 'LMB held through the whole scan fired no shot (weapon:fired unchanged)', JSON.stringify({ fired0, ...after }));
   ok(!after.rolled && after.opened === false, 'the crate was neither rolled nor opened by the scan', JSON.stringify(after));
   ok(after.scanned === 1, 'drone:scanned emitted once', JSON.stringify(after));
-  // 조종 해제 중 홀드는 취소된다
+  // A hold is cancelled when control is released
   await mDown();
   await waitSim(0.6);
   const midHold = (await state()).hold;
@@ -282,7 +282,7 @@ try {
     const ctx = window.__game.ctx, inv = window.__game.getSystem('inventory'), sys = window.__game.getSystem('drones');
     const p = ctx.player.position;
     const id = 'supply:smoke-scan';
-    // 이 클라이언트가 열기 전에 확정된 남의 가져가기 — 미리보기도 열기도 똑같이 빼야 한다
+    // Someone else's take, confirmed before this client opened it — the preview and the open must both subtract it
     inv.containers.recordPending(id, 0, 1);
     const raw = inv.peekContainerItems(id, 5).map((i) => `${i.defId}x${i.qty}`);
     const preview = sys.scanPreview(id);

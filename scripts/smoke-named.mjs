@@ -88,7 +88,7 @@ try {
   await waitFor(page, () => !window.__game.ctx.player.isDropping, 'hellpod exit', 10000);
   await waitSim(0.3);
   ok(await P(() => window.__sys.isAuthority && !window.__sys.replica), 'single-player: enemies run as the authority');
-  // 2026-09-13: 네임드 확률은 행성 threat 표 (NAMED_ROGUE_CHANCE_BY_THREAT 0 / 0.25 / 0.5) — 행성 없음 = threat 1 = 0
+  // 2026-09-13: the named chance comes from the planet threat table (NAMED_ROGUE_CHANCE_BY_THREAT 0 / 0.25 / 0.5) — no planet = threat 1 = 0
   const roll = await P(() => window.__sys.debugNamedRoll());
   ok(roll.rolled && roll.threat === 1 && roll.chance === 0 && !roll.placed, `no planet = threat 1 → named chance 0, nobody placed (${JSON.stringify({ threat: roll.threat, chance: roll.chance, placed: roll.placed })})`);
 
@@ -467,7 +467,7 @@ try {
   await waitSim(0.2);
   ok(await P(() => window.__sys.isAuthority), 'authority restored');
 
-  /* ── 2026-09-13: 네임드 팩션 = 레이더 · 헤비 호위 = 레이더 분대 ───────── */
+  /* ── 2026-09-13: named · Heavy escort = raider ───────── */
   console.log('2026-09-13 named faction raider · heavy escorts are raiders');
   const fac = await P(() => {
     const sys = window.__sys;

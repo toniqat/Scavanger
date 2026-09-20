@@ -1,10 +1,13 @@
-// 폭발 · 근접 차폐 smoke (2026-09-18, 사용자 결정 「폭발 · 근접 공격이 벽 · 지붕 · 바닥을 뚫지 않는다」).
-// 검사하는 것:
-//   ① 판정 함수 (`shared/explosion.blastReachesBody` · `meleeReachesBody`) — 하늘에 띄운 상자로 지형과 무관하게:
-//      트인 곳 = 맞음 · 벽 너머 = 막힘 · 낮은 벽 너머 머리 = 맞음 · 지붕 위 폭발 → 지붕 아래 = 막힘 · 지붕 위 사람 = 맞음 ·
-//      아래층 폭발 → 위층 바닥 위 = 막힘 · 벽면에 붙어 터진 폭발 → 벽 앞 = 맞음 / 벽 뒤 = 막힘 · 근접: 벽 너머 막힘 · 아래층 막힘.
-//   ② 실제 경로 — 적 `explode` (플레이어 무기 · 가젯 · 함선 호출이 모이는 곳), 포병 포탄 착탄 → 플레이어,
-//      적 근접 `hitTarget` → 플레이어, 플레이어 근접 → 적: 벽이 있으면 피해 0, 치우면 피해.
+// Blast · melee occlusion smoke (2026-09-18, user's decision 「explosions and melee do not pass walls, roofs or floors」).
+// What it checks:
+//   ① the judging functions (`shared/explosion.blastReachesBody` · `meleeReachesBody`) — on boxes floated in the sky, so
+//      the terrain plays no part: in the open = hit · through a wall = blocked · the head over a low wall = hit · a blast
+//      on a roof → below the roof = blocked · a person on the roof = hit · a blast downstairs → on the floor above =
+//      blocked · a blast against a wall face → in front of the wall = hit / behind it = blocked · melee: through a wall
+//      blocked · downstairs blocked.
+//   ② the real paths — an enemy `explode` (where the player's weapons · gadgets · ship calls all meet), an artillery shell
+//      landing → the player, an enemy melee `hitTarget` → the player, the player's melee → an enemy: with a wall the
+//      damage is 0, with the wall taken away there is damage.
 // Usage: node scripts/smoke-blast-occlusion.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -70,7 +73,7 @@ try {
   await waitFor(page, () => { const c = window.__game.ctx; return c.world?.ready && c.isGameplayPhase() && c.player?.isDropping === false; }, 'mission + drop-in');
   await waitSim(0.5);
 
-  /* ── ① 판정 함수 — 하늘의 상자 ─────────────────────────────────────── */
+  /* ── ① the judging functions — boxes in the sky ───────────── */
   console.log('① blastReachesBody / meleeReachesBody on floating boxes');
   const pure = await page.evaluate(async () => {
     const ctx = window.__game.ctx;
@@ -78,7 +81,7 @@ try {
     const V = ctx.player.position.constructor;
     const w = ctx.world;
     const bx = ctx.player.position.x, bz = ctx.player.position.z;
-    const H = w.getHeightAt(bx, bz) + 120;   // 지형 · 소품과 무관한 높이
+    const H = w.getHeightAt(bx, bz) + 120;   // a height that has nothing to do with the terrain · props
     const removes = [];
     const box = (cx, y, cz, hx, hz, h) => {
       const rm = w.addObstacle({ position: new V(cx, y, cz), radius: Math.hypot(hx, hz), height: h, box: { halfX: hx, halfZ: hz, yaw: 0 } });
@@ -87,31 +90,31 @@ try {
     };
     const PH = 1.8;
     const r = {};
-    // 바닥판 (윗면 = H) — 폭심과 사람이 그 위에 선다
+    // The floor plate (top face = H) — the blast centre and the person stand on it
     box(bx, H - 0.3, bz, 12, 12, 0.3);
-    const C = new V(bx + 6, H, bz);   // 폭심: 바닥 위
+    const C = new V(bx + 6, H, bz);   // the blast centre: on the floor
     r.open = X.blastReachesBody(w, C, bx, H, bz, PH);
-    // 벽 (높이 3) 사이에
+    // A wall (3 high) between them
     const wall = box(bx + 3, H, bz, 0.15, 4, 3);
     r.wall = X.blastReachesBody(w, C, bx, H, bz, PH);
     r.meleeWall = X.meleeReachesBody(w, new V(bx + 3.6, H + 1.2, bz), bx + 2.4, H, bz, PH);
     wall();
-    // 낮은 벽 (0.8 m) — 머리는 보인다
+    // A low wall (0.8 m) — the head is still visible
     const low = box(bx + 3, H, bz, 0.15, 4, 0.8);
     r.lowWall = X.blastReachesBody(w, C, bx, H, bz, PH);
     low();
-    // 벽면에 붙어 터진 폭발 (포탄이 벽에 맞은 자리) — 벽 앞은 맞고 벽 뒤는 막힌다
+    // A blast against the wall face (where a shell hit the wall) — in front of the wall it hits, behind it it is blocked
     const face = box(bx + 3, H, bz, 0.15, 4, 3);
     const onFace = new V(bx + 3.15, H + 1.0, bz);
     r.faceFront = X.blastReachesBody(w, onFace, bx + 5, H, bz, PH);
     r.faceBehind = X.blastReachesBody(w, onFace, bx + 1, H, bz, PH);
     face();
-    // 지붕 (윗면 H + 3.2) — 지붕 위 폭발
+    // The roof (top face H + 3.2) — a blast on the roof
     box(bx + 3, H + 3, bz, 4, 4, 0.2);
     const onRoof = new V(bx + 3, H + 3.2, bz);
     r.roofBelow = X.blastReachesBody(w, onRoof, bx + 3.5, H, bz, PH);
     r.roofTop = X.blastReachesBody(w, onRoof, bx + 5, H + 3.2, bz, PH);
-    // 위층 바닥판 너머 — 아래층 폭발 / 아래층 벌레의 물기
+    // Through the floor plate above — a blast downstairs / a bite from a bug downstairs
     r.floorAbove = X.blastReachesBody(w, new V(bx + 3.5, H, bz + 1), bx + 3, H + 3.2, bz, PH);
     r.meleeFloor = X.meleeReachesBody(w, new V(bx + 3, H + 1.0, bz), bx + 3, H + 3.2, bz, PH);
     r.meleeOpen = X.meleeReachesBody(w, new V(bx + 7.5, H + 0.8, bz), bx + 8.5, H, bz, PH);
@@ -126,13 +129,13 @@ try {
   ok(pure.floorAbove === false, 'blast downstairs: upstairs floor blocks');
   ok(pure.meleeWall === false && pure.meleeFloor === false && pure.meleeOpen === true, `melee: wall ${pure.meleeWall} · floor ${pure.meleeFloor} · open ${pure.meleeOpen}`);
 
-  /* ── ② 실제 피해 경로 ───────────────────────────────────────────────── */
+  /* ── ② the real damage paths ──────────────────────────────────── */
   console.log('② real damage paths with and without a wall');
   const setup = await page.evaluate(() => {
     const ctx = window.__game.ctx;
     const V = ctx.player.position.constructor;
     const w = ctx.world;
-    // 평평한 곳을 찾는다 — 스폰 둘레에서 ±8 m 높이 차가 가장 작은 자리
+    // Finds flat ground — the spot around the spawn with the smallest ±8 m height spread
     const p0 = ctx.player.position;
     let best = null;
     for (let i = 0; i < 60; i++) {
@@ -149,7 +152,7 @@ try {
   });
   ok(!!setup, `flat clear site found (spread ${setup?.spread?.toFixed(2)} m)`);
 
-  // 플레이어를 먼저 옮기고 한 프레임 넘긴다 — 적의 표적 목록(`targets`)은 프레임마다 위치를 다시 읽는다
+  // Moves the player first and lets a frame pass — the enemy target list (`targets`) re-reads the position every frame
   await page.evaluate(() => {
     const ctx = window.__game.ctx;
     const V = ctx.player.position.constructor;
@@ -168,12 +171,12 @@ try {
     const out = {};
     const hpOf = () => ctx.player.hp + (ctx.player.shield ?? 0);
     const blast = new V(x + 2.5, w.getHeightAt(x + 2.5, z), z);
-    // 포탄 착탄 → 플레이어 (x − 2)
+    // A shell landing → the player (x − 2)
     const rm2 = wall();
     player.invuln = 0; ctx.player.heal(1000); let php = hpOf(); enemies.onShellLanded(-1, blast.clone()); out.shellWall = php - hpOf();
     rm2();
     player.invuln = 0; ctx.player.heal(1000); php = hpOf(); enemies.onShellLanded(-1, blast.clone()); out.shellOpen = php - hpOf();
-    // 적 근접 hitTarget → 플레이어 (거리 판정은 호출부 몫 — 여기서는 벽만 본다)
+    // An enemy melee hitTarget → the player (the range test belongs to the caller — only the wall is looked at here)
     const bug = enemies.debugSpawn('scavenger', { x: x + 1.2, z }, false);
     const local = enemies.targets.local();
     out.localAt = local ? +Math.hypot(local.position.x - (x - 2), local.position.z - z).toFixed(2) : -1;
@@ -182,7 +185,7 @@ try {
     rm3();
     player.invuln = 0; ctx.player.heal(1000); php = hpOf(); enemies.hitTarget(bug, 15, 0, local); out.biteOpen = php - hpOf();
     bug.position.set(x + 40, w.getHeightAt(x + 40, z), z);
-    // 적 explode: 폭심 x + 2.5, 적 x − 2 (플레이어는 비켜 둔다 — 폭발 피해는 적 몫만 본다)
+    // An enemy explode: the blast centre at x + 2.5, the enemy at x − 2 (the player stands aside — only the enemy's share of the blast damage is looked at)
     const e = enemies.debugSpawn('scavenger', { x: x - 2, z: z + 0.5 }, false);
     const rm1 = wall();
     let hp0 = e.hp; enemies.explode(blast, 6, 5, 'local', null, null); out.enemyWall = hp0 - e.hp;
@@ -196,7 +199,7 @@ try {
   ok(realPaths.shellWall === 0 && realPaths.shellOpen > 0, `artillery shell → player: wall ${realPaths.shellWall} · open ${realPaths.shellOpen}`);
   ok(realPaths.biteWall === 0 && realPaths.biteOpen > 0, `enemy melee hitTarget → player: wall ${realPaths.biteWall} · open ${realPaths.biteOpen}`);
 
-  // 플레이어 근접 → 적: 적을 정면 1.4 m 에 세우고 MeleeController 를 직접 푼다
+  // The player's melee → an enemy: the enemy is placed 1.4 m straight ahead and the MeleeController is resolved directly
   const swing = async (withWall) => page.evaluate((wantWall) => {
     const ctx = window.__game.ctx;
     const V = ctx.player.position.constructor;
@@ -204,7 +207,7 @@ try {
     const weapons = window.__game.getSystem('weapons');
     const { x, z } = window.__site;
     const e = window.__meleeBug;
-    ctx.player.respawnAt(new V(x - 0.9, w.getHeightAt(x - 0.9, z), z), -Math.PI / 2);   // yaw −π/2 → +X 를 본다
+    ctx.player.respawnAt(new V(x - 0.9, w.getHeightAt(x - 0.9, z), z), -Math.PI / 2);   // yaw −π/2 → faces +X
     e.position.set(x + 0.7, w.getHeightAt(x + 0.7, z), z);
     e.velocity.set(0, 0, 0);
     window.__rmWall = wantWall ? w.addObstacle({ position: new V(x, w.getHeightAt(x, z) - 5, z), radius: 3.01, height: 60, box: { halfX: 0.05, halfZ: 3, yaw: 0 } }) : null;
@@ -219,7 +222,7 @@ try {
     e.position.x = window.__site.x + 0.7; e.position.z = window.__site.z;
     const dir = new V(); const o = new V();
     ctx.player.getAimRay(o, dir);
-    weapons.melee.damage = 20;   // `begin()` 이 정하는 한 번의 피해 — 휘두르기 연출 없이 판정만 푼다
+    weapons.melee.damage = 20;   // the one damage figure `begin()` decides — no swing animation, only the resolve
     weapons.melee.resolve(ctx.player);
     const dealt = window.__hp0 - e.hp;
     if (window.__rmWall) { window.__rmWall(); window.__rmWall = null; }

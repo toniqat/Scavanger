@@ -60,9 +60,9 @@ async function open(tag) {
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
   await page.evaluateOnNewDocument(() => {
-    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
-    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
-    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    // 2026-09-08: this script does not check the tutorial. The tutorial starts on its own for a new profile and
+    // locks room purposes · crafting · the terminal · boarding in order, so it is marked here as "already done"
+    // (the tutorial itself is what scripts/smoke-tutorial.mjs looks at).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -79,7 +79,7 @@ async function open(tag) {
     window.__hostChanged = []; bus.on('net:hostChanged', (e) => window.__hostChanged.push(e));
     window.__membership = []; bus.on('net:missionMembership', (e) => window.__membership.push(e));
     window.__resumedEv = []; bus.on('net:resumed', (e) => window.__resumedEv.push(e));
-    /* Phase 11: 행성 + 소셜 */
+    /* Phase 11: planets + social */
     window.__gameStarting = []; bus.on('net:gameStarting', (e) => window.__gameStarting.push({ seed: e.seed, mode: e.mode, planet: e.planet ?? null }));
     window.__newMission = []; bus.on('game:newMission', (e) => window.__newMission.push({ seed: e.seed, mode: e.mode ?? 'raid', planet: e.planet ?? null }));
     window.__socialUpdated = []; bus.on('social:updated', (e) => window.__socialUpdated.push({ first: e.first, friends: e.snapshot.friends.length, incoming: e.snapshot.incoming.length }));
@@ -107,8 +107,8 @@ const waitSim = async (page, sec) => {
   await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${sec}s`, 120000, t0 + sec);
 };
 /**
- * 2026-09-14: 탑승(E)은 **앉기만** 한다 — 출격 준비 경고도 여기서 뜨지 않는다 (`hub/parts/Pods.boardPod`).
- * 준비는 `readyUp` 이 하는 스페이스 1초 홀드다.
+ * 2026-09-14: boarding (E) **only sits down** — the launch readiness warning does not come up here either
+ * (`hub/parts/Pods.boardPod`). Readying up is the 1 s Space hold `readyUp` performs.
  */
 const boardPod = (page) => page.evaluate(() => {
   const ctx = window.__game.ctx;
@@ -119,37 +119,38 @@ const boardPod = (page) => page.evaluate(() => {
   return 'ok';
 });
 /**
- * 준비 (2026-09-14 사용자 결정: 탑승 ≠ 준비). 앉은 채 스페이스를 `UI_HOLD_CONFIRM_S`(1 s) 꾹 눌러야
- * `net.setReady(true)` 가 나간다. 게이지는 `hub/ui/ReadyPanel.tickHold` 가 **시뮬레이션 dt** 로 쌓으므로
- * 벽시계 `sleep` 으로는 절대 차지 않는다 — `waitSim` 으로 재고 키는 그동안 눌린 채로 둔다.
- * 홀드가 끝나는 순간 출격 준비 경고(주무기 · 탄약 · 가방 · 방탄복 · 임플란트 · 회복 아이템)가 서면
- * `그래도 준비` 로 넘긴다 (막지 않는 경고다). 한 번 넘긴 조합은 두 번째 홀드에서 다시 묻지 않는다.
- * ⚠ `tickHold` 는 `HUB_READY_BLOCKER` 말고 다른 blocker 가 하나라도 있으면 세지 않으므로, 실패하면
- * 그때의 blocker 목록을 돌려준다 (그렇지 않으면 저 위 `waitFor` 의 timeout 으로만 보인다).
+ * Readying up (2026-09-14 user's decision: boarding ≠ ready). Space must be held for `UI_HOLD_CONFIRM_S` (1 s) while
+ * seated before `net.setReady(true)` goes out. The gauge is accumulated by `hub/ui/ReadyPanel.tickHold` from
+ * **simulation dt**, so a wall-clock `sleep` never fills it — it is measured with `waitSim` and the key is left down
+ * meanwhile. If the launch readiness warning (primary · ammo · bag · armor · implant · healing item) stands the moment
+ * the hold ends, `그래도 준비` passes it (it is not a blocking warning). A combination once passed is not asked again
+ * on the second hold.
+ * ⚠ `tickHold` does not count while any blocker other than `HUB_READY_BLOCKER` is held, so on a failure it returns the
+ * blocker list of that moment (otherwise it would only show as the `waitFor` timeout above).
  */
 const readyUp = async (page) => {
   const key = (type) => page.evaluate((t) => document.body.dispatchEvent(new KeyboardEvent(t, { code: 'Space', key: ' ', bubbles: true })), type);
   await key('keydown');
-  await waitSim(page, 1.4);          // 1 s + 프레임 여유
+  await waitSim(page, 1.4);          // 1 s + slack for frames
   await key('keyup');
   const out = await page.evaluate(() => {
     const ctx = window.__game.ctx, hub = window.__game.getSystem('hub');
     const warn = document.querySelector('.launch-warn');
     const warned = !!warn && !warn.hidden;
-    // 확인은 **읽기 전에** 누른다 — `그래도 준비` 의 콜백이 그 자리에서 `setReadyLocal(true)` 를 부른다
+    // The confirm is clicked **before** reading — `그래도 준비`'s callback calls `setReadyLocal(true)` on the spot
     if (warned) [...warn.querySelectorAll('.hub-foot .ui-btn')].find((b) => b.textContent === '그래도 준비')?.click();
     return { warned, ready: hub.readyLocal, boarded: hub.boardedSlot, blockers: [...ctx.uiBlockers] };
   });
   return { ...out, ok: out.ready === true };
 };
 
-/* ── 2026-09-12 캐릭터 버프 · 가구 자세 helpers ─────────────────────────────────────────────────────────────── */
+/* ── 2026-09-12 character buff · furniture pose helpers ─────────────────────────────────────────────────────── */
 const readBuffs = (page) => page.evaluate(() => {
   const p = window.__game.ctx.player;
   return { rev: typeof p.buffsRevision === 'number' ? p.buffsRevision : 0, keys: Array.isArray(p.buffs) ? p.buffs.map((b) => b.key) : [] };
 });
 /**
- * Give A a 운동 디버프 through the real APIs (`progression.applyGymSession` → player's list) when player/ implements
+ * Give A an exercise debuff through the real APIs (`progression.applyGymSession` → player's list) when player/ implements
  * `ctx.player.buffs`; otherwise (or when the real list never shows it) stub the two getters and emit `player:buffsChanged`
  * so the **wire** is still covered. Returns 'real' or `stubbed (why)`.
  */
@@ -277,10 +278,11 @@ try {
   await waitFor(B, () => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub.ship === 'shared', 'B shared ship', 20000);
   await waitFor(A, () => window.__game.ctx.net.lobby?.players.length === 2, 'A sees 2 players');
   ok(true, 'both in the shared ship, 2 players');
-  /* 2026-09-15: 이름의 원본은 캐릭터 프로필이다 (2026-09-09) — `progress:loaded`(서버 프로필 수신)가
-     `ctx.net.setPlayerName(profile.name)` 으로 위의 접속 전 이름을 기본 콜사인으로 되돌린다. 로비에 들어간 **뒤** 다시
-     지으면 `lobby:name` 이 로비 · 소셜 기록 · 프레즌스까지 퍼진다 (smoke-hangar 와 같은 처리). 아래 채팅 · 친구 ·
-     개인 대화 · 원격 필드 · `net:peerSuspended` 의 이름 단언이 전부 이것에 기댄다. */
+  /* 2026-09-15: the source of the name is the character profile (2026-09-09) — `progress:loaded` (the server profile
+     arriving) puts the pre-connection name above back to the default callsign with
+     `ctx.net.setPlayerName(profile.name)`. Renaming **after** entering the lobby spreads through `lobby:name` to the
+     lobby · the social history · presence (the same handling as smoke-hangar). Every name assertion below — chat ·
+     friends · private chat · remote fields · `net:peerSuspended` — leans on this. */
   await A.evaluate(() => window.__game.ctx.net.setPlayerName('호스트'));
   await B.evaluate(() => window.__game.ctx.net.setPlayerName('분대원'));
   await waitFor(A, () => window.__game.ctx.net.lobby?.players.some((p) => p.name === '분대원'), 'A sees the renamed squadmate', 15000);
@@ -294,11 +296,12 @@ try {
   await waitFor(A, () => window.__game.ctx.net.getRemotePlayers().length === 1 && !!window.__game.ctx.net.getRemotePlayers()[0].avatar, 'A hub remote avatar', 10000);
   ok(await A.evaluate(() => (window.__game.ctx.net.getRemotePlayers()[0].flags & (1 << 12)) !== 0), 'remote ref carries IN_HUB flag');
   ok(await A.evaluate(() => window.__game.ctx.net.inHubSession), 'A inHubSession');
-  // 2026-09-15: `.squad` 그대로 — `[class*="squad"]` 는 먼저 붙는 분대 도킹 카운트다운(`.hub-squad-dock`)을 집는다
-  // 2026-09-20 (B-26): 이 패널은 프레임 루프에서 제 박자로 다시 그린다 (`HudSystem.update` → `Squad.update`). 이름이
-  // `ctx.net.lobby` 에 들어온 직후 DOM 을 한 번만 읽으면 부하가 걸린 회차에 옛 이름이 그대로 잡힌다 (2026-09-19 full
-  // verify 에서 178/179). 위의 이름 단언들과 같은 15 s `waitFor` 로 다시 그릴 때까지 기다리고, 시간이 다 되면 그때
-  // 패널에 **실제로** 무엇이 적혀 있었는지 같이 찍는다 — `false` 만 남으면 나중의 red 를 읽을 수 없다.
+  // 2026-09-15: `.squad` exactly — `[class*="squad"]` picks up the squad dock countdown (`.hub-squad-dock`) that lands first
+  // 2026-09-20 (B-26): this panel redraws on its own beat in the frame loop (`HudSystem.update` → `Squad.update`).
+  // Reading the DOM once, right after the name landed in `ctx.net.lobby`, catches the old name on a loaded run
+  // (178/179 in the 2026-09-19 full verify). It waits for the redraw with the same 15 s `waitFor` the name assertions
+  // above use, and when the time runs out it prints what the panel **actually** said — a bare `false` makes a later
+  // red unreadable.
   const squadPanel = await waitFor(A, () => {
     const el = document.querySelector('#ui-root .squad');
     return el && el.textContent.includes('분대원') ? 1 : 0;
@@ -430,7 +433,7 @@ try {
       'B has A as a friend too, the request is gone, hasNews cleared');
     ok(await A.evaluate((c) => !window.__game.ctx.net.social.recent.some((r) => r.code === c), bCode), 'a friend left 최근 만난 플레이어');
     ok(await A.evaluate((c) => window.__game.ctx.net.social.find(c)?.code === c, bCode), 'find(아이디) resolves the row');
-    // 개인 대화: A → B, with a local echo on the sender.
+    // private chat: A → B, with a local echo on the sender.
     const sent = await A.evaluate((c) => window.__game.ctx.net.social.whisper(c, '개인 대화 테스트'), bCode);
     ok(sent === true, 'A whisper() accepted');
     ok(await A.evaluate(() => { const w = window.__whispers[window.__whispers.length - 1]; return !!w && w.out === true && w.text === '개인 대화 테스트' && w.name === '분대원'; }), 'A rendered its own whisper line (out:true, target name)');
@@ -482,7 +485,7 @@ try {
   const bA = await boardPod(A);
   ok(bA === 'ok', `A boards pod (${bA})`);
   await waitFor(A, () => window.__game.ctx.player.isInPod, 'A in pod');
-  // 2026-09-14: 앉는 것만으로는 서버에 준비가 나가지 않는다 (전에는 탑승 = `lobby:ready` 였다)
+  // 2026-09-14: sitting down alone sends no ready to the server (boarding used to be `lobby:ready`)
   const satA = await A.evaluate(() => ({ ready: window.__game.getSystem('hub').readyLocal, wire: window.__game.ctx.net.lobby.players.find((p) => p.isHost).ready }));
   ok(satA.ready === false && satA.wire === false, '탑승만으로는 준비되지 않는다 (준비 대기)', JSON.stringify(satA));
   const rA = await readyUp(A);
@@ -576,16 +579,18 @@ try {
   ok(await B.evaluate((a) => (window.__game.ctx.net.getRemotePlayer(a).flags & (1 << 8)) !== 0, aIdCarry), 'A is armed again on the wire once the carry ends');
 
   console.log('enemies replication');
-  /* 2026-09-18 (벌레 알): 두 쪽이 **같은 질문**을 세야 한다. 호스트의 `getAliveCount()` 는 `isCombatant` 만 세므로
-     움직이지 못하는 `bug_egg` 가 빠지고, 클라이언트의 `getEnemies()` 에는 알까지 들어 있다 (둥지 4~8개면 알만 32~240개).
-     알은 아래에서 따로 맞춰 본다 — 뚫렸던 「리플리카의 알」을 이 줄이 덮는다. */
+  /* 2026-09-18 (bug eggs): both sides must count **the same question**. The host's `getAliveCount()` counts
+     `isCombatant` only, so the immobile `bug_egg` drops out, while the client's `getEnemies()` holds the eggs too
+     (4–8 nests means 32–240 eggs on their own). The eggs are compared separately below — this row covers the
+     「리플리카의 알」 hole that was open. */
   const aAlive = await waitFor(A, () => window.__game.ctx.enemies.getAliveCount() > 0 ? window.__game.ctx.enemies.getAliveCount() : 0, 'A enemies alive');
   const bAlive = await waitFor(B, () => {
     const n = window.__game.ctx.enemies.getEnemies().filter((e) => !e.isEgg).length;
     return n > 0 ? n : 0;
   }, 'B replica enemies');
   ok(Math.abs(aAlive - bAlive) <= 3, `enemy counts host=${aAlive} client=${bAlive}`);
-  // 알은 월드가 자리를 정하고 권위가 세운다 — 리플리카가 같은 수를 받았는가 (크기는 와이어 없이 같은 자리에서 나온다)
+  // The world decides the egg spots and the authority raises them — did the replica get the same count (the size
+  // comes out of the same spot with no wire)
   const aEggs = await A.evaluate(() => window.__game.ctx.enemies.getEnemies().filter((e) => e.isEgg).length);
   const bEggs = await waitFor(B, (n) => (window.__game.ctx.enemies.getEnemies().filter((e) => e.isEgg).length === n ? 1 : 0),
     'B replicates every nest egg', 8000, aEggs).catch(() => 0);
@@ -602,8 +607,8 @@ try {
   if (target) {
     const hostHpBefore = await A.evaluate((id) => window.__game.ctx.enemies.getEnemies().find((x) => x.id === id)?.hp, target.id);
     await B.evaluate((id) => { const e = window.__game.ctx.enemies.getEnemies().find((x) => x.id === id); const V = e.position.constructor; e.takeDamage(10, e.position.clone().add(new V(0, 0.5, 0)), new V(0, 0, 1)); }, target.id);
-    // 2026-09-09: 기준값을 `hp < 60` 으로 박아 두었더니 적 체력이 2배가 된 순간 영영 성립하지 않았다.
-    // **맞기 전 체력보다 낮아졌는가**로 재야 밸런스 수치와 무관해진다.
+    // 2026-09-09: pasting the threshold in as `hp < 60` stopped holding forever the moment enemy hp doubled.
+    // Measuring **whether it dropped below the hp before the hit** makes it independent of the balance numbers.
     const hostHpAfter = await waitFor(A, (a) => { const hp = window.__game.ctx.enemies.getEnemies().find((x) => x.id === a.id)?.hp; return hp !== undefined && hp < a.before ? hp : 0; }, 'host applies hit', 5000, { id: target.id, before: hostHpBefore });
     ok(hostHpAfter !== undefined && hostHpAfter < hostHpBefore, `host applied client hit (${hostHpBefore} → ${hostHpAfter})`);
   }

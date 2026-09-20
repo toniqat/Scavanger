@@ -1,16 +1,16 @@
-// 안드로이드 분대원 HUD + 레이드 진입 로딩 게이지 스모크 (src/ui, 2026-09-15 —
-// docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」). 릴레이는 세워 두고(parkRelay) 쓰지 않는다.
+// Android squadmate HUD + raid-entry loading gauge smoke (src/ui, 2026-09-15 —
+// docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」). The relay socket is parked (parkRelay), never used.
 //
-// allies / hub / game 폴더가 아직 만들어지는 중이라, 이 스모크는 **버스 이벤트와 가짜 `ctx.allies`** 만으로 돈다:
-//   `hud.debugAllies(ref)` (ui/hud/allySource) 로 명단 · 몸을 꽂고, 나머지는 전부 `ctx.bus.emit` 이다.
+// The allies / hub / game folders are still being built, so this smoke runs on **bus events and a fake `ctx.allies`**
+// alone: `hud.debugAllies(ref)` (ui/hud/allySource) plants the roster · the bodies, everything else is a `ctx.bus.emit`.
 //
-//   ship    함선에서도 안드로이드 행이 뜬다 (로비가 없어도) — `안드로이드` 배지 · 슬롯 색 · 실드 바.
-//   raid    레이드에서 이름표 · 나침반 눈금 · 지도 마커 + 범례 줄, 쓰러짐 / 사망 표기.
-//   ping    `ally:ping` → `.pmarker.remote.android` · 안드로이드 이름의 채팅 콜아웃 · `ping:placedV3 {owner = 안드로이드 id}`.
-//   chat    `ally:chat` → `.chat-line.ally` 한 줄, **relay 하지 않는다** (`ctx.net.send` 호출 0).
-//   toast   합류 · 슬롯 복귀 · 밀려남 · 가득 참 · 쓰러짐 · 사망 · 창고 입고.
-//   load    로딩 게이지: 암전(`.screen-fade`)보다 위 · `squad` 진행도 · `n명 대기 중` · **dt 0 에서도 돈다** ·
-//           `raid:loadReleased` 뒤 사라진다.
+//   ship    an android row stands in the ship too (even with no lobby) — the `안드로이드` badge · slot colour · shield bar.
+//   raid    in a raid: nameplates · compass ticks · map markers + a legend row, downed / dead marks.
+//   ping    `ally:ping` → `.pmarker.remote.android` · a chat callout under the android's name · `ping:placedV3 {owner = the android's id}`.
+//   chat    `ally:chat` → one `.chat-line.ally` row, **never relayed** (0 `ctx.net.send` calls).
+//   toast   joining · returning to the bay · being evicted · full · downed · destroyed · deposited into the stash.
+//   load    the loading gauge: above the black plate (`.screen-fade`) · `squad` progress · `n명 대기 중` · **it spins at dt 0** ·
+//           it disappears after `raid:loadReleased`.
 // Usage: node scripts/smoke-ally-ui.mjs [http://localhost:5273]   (needs vite; the runner starts it)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -69,7 +69,7 @@ try {
   });
   const P = (fn, arg) => page.evaluate(fn, arg);
 
-  /* 가짜 `ctx.allies` 한 벌. 좌표 벡터는 게임이 쓰는 THREE.Vector3 를 복제해서 만든다. */
+  /* One fake `ctx.allies`. The position vectors are cloned from the THREE.Vector3 the game itself uses. */
   await P(() => {
     const V = () => window.__game.ctx.scene.position.clone();
     window.__mkBody = (o) => ({
@@ -99,7 +99,7 @@ try {
     window.__entry = (id, bay, slot, name) => ({ id, bay, slot, name, recruitedAt: 1000 + bay, local: true });
   });
 
-  /* ── ship: 로비가 없어도 안드로이드 행이 선다 ─────────────────────────────── */
+  /* ── ship: an android row stands even with no lobby ───────────────────────── */
   console.log('ship: 분대 목록의 안드로이드 행');
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub');
@@ -121,12 +121,13 @@ try {
   const noGhostRow = shipRows.rows.filter((r) => !r.android && r.state === '연결 중').length;
   ok(noGhostRow === 0, '봇이 사람 행(연결 중)으로 그려지지 않는다', String(noGhostRow));
 
-  /* ── raid: 이름표 · 나침반 · 지도 ─────────────────────────────────────────── */
+  /* ── raid: nameplates · compass · map ─────────────────────────────────────── */
   console.log('raid: 이름표 · 나침반 눈금 · 지도 마커');
   await P(() => window.__game.ctx.bus.emit('game:newMission', { seed: 77 }));
   await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing', 40000);
   await waitFor(page, () => !window.__game.ctx.player.isDropping, 'hellpod exit', 20000);
-  // 명단은 새 레이드에서도 그대로 (debugAllies 는 페이즈와 무관하다) — 몸만 플레이어 앞에 놓는다.
+  // The roster survives the new raid (debugAllies is independent of the phase) — only the bodies are put in
+  // front of the player.
   await P(() => {
     const ctx = window.__game.ctx;
     const p = ctx.player.position;
@@ -144,7 +145,7 @@ try {
     window.__setAllies([window.__entry(window.__A0, 0, 3, '안드로이드 알파'), window.__entry(window.__A1, 1, 2, '안드로이드 베타')], window.__bodies);
   });
   await waitFor(page, () => window.__game.getSystem('hud').allyNameplates.filter((p) => p.shown).length >= 1, '안드로이드 이름표', 15000);
-  // 분대 목록은 10 Hz 로만 다시 그린다 — 두 기가 다 설 때까지 기다린다
+  // The squad list only redraws at 10 Hz — this waits until both units stand
   await waitFor(page, () => window.__game.getSystem('hud').squadRows.filter((r) => r.android).length === 2, '안드로이드 행 2줄', 10000);
   const plates = await P(() => ({
     plates: window.__game.getSystem('hud').allyNameplates,
@@ -246,11 +247,11 @@ try {
   ok(tDown.some((t) => t.includes('안드로이드 베타') && t.includes('전투불능')) && tDown.some((t) => t.includes('파괴됨')), '쓰러짐 · 사망 토스트', JSON.stringify(tDown));
   const tDep = await toastsAfter(() => window.__game.ctx.bus.emit('ally:deposited', { id: window.__A0, name: '안드로이드 알파', count: 5, lost: 2 }));
   ok(tDep.some((t) => t.includes('안드로이드 알파가 전리품 5개를 창고에 넣었다') && t.includes('2개 유실')), '창고 입고 토스트 (+유실)', JSON.stringify(tDep));
-  // 이름을 안 보내도 명단 · id 로 찾는다
+  // With no name sent, it is found from the roster · the id
   const tNoName = await toastsAfter(() => window.__game.ctx.bus.emit('ally:downed', { id: 'android:local:2', name: '' }));
   ok(tNoName.some((t) => t.includes('안드로이드 감마')), 'id 꼬리의 bay 로 이름을 되찾는다', JSON.stringify(tNoName));
 
-  /* ── 로딩 게이지 ──────────────────────────────────────────────────────── */
+  /* ── the loading gauge ────────────────────────────────────────────────── */
   console.log('레이드 진입 로딩 게이지');
   await P(() => {
     const b = window.__game.ctx.bus;
@@ -281,9 +282,9 @@ try {
   ok(gauge.wait === '2명 대기 중' && gauge.label === '로딩 중', '로딩 중 · n명 대기 중', JSON.stringify({ w: gauge.wait, l: gauge.label }));
   ok(gauge.right > 1280 * 0.6 && gauge.bottom > 720 * 0.6, '우측 하단', JSON.stringify({ r: gauge.right, b: gauge.bottom }));
 
-  /* dt 0: 로딩 게이트는 `ctx.shaders.holdFor` 로 엔진을 잡아 **모든 시스템에 dt 0 을 준다**. 여기서는 같은 결과를
-   * `ctx.timeScale = 0` 으로 만든다 (`Engine.frame`: sdt = dt × timeScale → 0, `missionTime` 도 멈춘다).
-   * 게이지는 `performance.now()` 로 도므로 그래도 움직여야 한다. */
+  /* dt 0: the loading gate holds the engine with `ctx.shaders.holdFor` and **hands every system a dt of 0**. The same
+   * result is made here with `ctx.timeScale = 0` (`Engine.frame`: sdt = dt × timeScale → 0, and `missionTime` stops
+   * too). The gauge spins off `performance.now()`, so it must keep moving all the same. */
   const frozen0 = await P(() => {
     window.__game.ctx.timeScale = 0;
     const hud = window.__game.getSystem('hud');
@@ -303,12 +304,12 @@ try {
     window.__game.ctx.bus.emit('raid:loadProgress', { local: 1, squad: 1, waiting: 0, remainingS: 0 });
     window.__game.ctx.bus.emit('raid:loadReleased', { timedOut: false });
   });
-  await sleep(1500);   // RAID_LOAD_MIN_BLACK_S + 사라짐
+  await sleep(1500);   // RAID_LOAD_MIN_BLACK_S + the disappearance
   const gone = await P(() => ({ st: window.__game.getSystem('hud').loadingGaugeState, hidden: document.querySelector('.ldg').hidden }));
   ok(!gone.st.on && gone.hidden, 'raid:loadReleased 뒤 사라진다', JSON.stringify(gone));
   await P(() => window.__game.ctx.bus.emit('ui:screenFade', { opacity: 0, durationS: 0 }));
 
-  // 함선으로 돌아가면 게이지는 조건 없이 걷힌다
+  // Back in the ship the gauge is taken down unconditionally
   await P(() => {
     window.__game.ctx.bus.emit('raid:loadBegin', {});
     window.__game.ctx.bus.emit('hub:entered', { ship: 'personal' });
@@ -318,7 +319,7 @@ try {
   ok(!afterHub, 'hub:entered 는 게이지를 조건 없이 걷는다');
 
   await P(() => window.__game.getSystem('hud').debugAllies(null));
-  await sleep(400);   // 분대 목록은 10 Hz 로 다시 그린다
+  await sleep(400);   // the squad list redraws at 10 Hz
   const back = await P(() => ({ rows: window.__game.getSystem('hud').squadRows.filter((r) => r.android), real: (window.__game.ctx.allies?.roster ?? []).length }));
   ok(back.rows.length === back.real, `debugAllies(null) 이면 진짜 ctx.allies 로 돌아간다 (${back.rows.length} / ${back.real})`, JSON.stringify(back));
 

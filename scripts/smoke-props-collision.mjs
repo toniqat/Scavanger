@@ -1,24 +1,30 @@
-// 소품 콜라이더가 **그려진 실루엣보다 크지 않은지** 재는 스모크 (2026-09-09).
+// The smoke that measures whether a prop collider is **no bigger than the silhouette it draws** (2026-09-09).
 //
-// 왜 있나: `Props.hullOf` 는 지오메트리 바운딩 박스로 콜라이더를 만든다. 그래서 정점 하나만 엉뚱한 데로
-// 튀어도 소품 전체가 그것을 감싸는 거대한 **보이지 않는 원기둥**이 된다 — 걸어서 못 지나가고 총알이 허공에서
-// 멈춘다. 실제로 `world/noise.ts` 의 `noise3` 가 `lerp` 인자 순서를 뒤집어 `[-1,1]` 대신 `[-31,+52]` 를
-// 돌려주고 있었고, `build.displace` 가 그만큼 정점을 밀어 첨탑 콜라이더가 반지름 18 m 로 부풀었다.
-// 눈으로는 가는 가시 하나라 안 보이고, 스모크는 전부 통과했다. 그래서 **숫자로** 잡는다.
+// Why it exists: `Props.hullOf` builds a collider out of the geometry's bounding box. So a single vertex flung
+// somewhere odd turns the whole prop into a huge **invisible cylinder** wrapped around it — impossible to walk past,
+// and bullets stop in mid-air. It really happened: `world/noise.ts`'s `noise3` had the `lerp` arguments the wrong
+// way round and returned `[-31,+52]` instead of `[-1,1]`, and `build.displace` pushed the vertices that far, so a
+// spire collider swelled to a radius of 18 m. To the eye it was one thin spike and invisible, and every smoke
+// passed. So it is caught **by the numbers**.
 //
-// 검사:
-//   1. `noise3` 의 실제 출력 범위 (문서가 약속하는 [-1, 1] 안인가)
-//   2. 장애물 하나하나를 그 자리에 그려진 인스턴스와 1:1 로 맞춰(인스턴스 행렬의 이동 성분),
-//      정점을 전부 훑어 **실측 최대 반지름 · 실측 윗면**과 콜라이더를 비교
-//   3. 손으로 적어 둔 콜라이더(탈출 패드 조명 기둥 · 아웃포스트 안테나)가 그려진 굵기 안인가
-//   4. (2026-09-10) 바위 · 첨탑 콜라이더가 **땅 위로 보이는** 바위보다 앞에서 막지 않는가 — 2번은 땅에 묻힌
-//      정점까지 "그려진 것" 으로 세서 폭풍 안개 속 보이지 않는 벽을 못 잡았다. 내려 쏘는 레이로 잰다.
-//      ⚠ 바위 · 첨탑 콜라이더의 중심은 이제 인스턴스 원점이 아니라 **보이는 윤곽의 중심**이다 (`Props.footprintOf`).
-//      경사지에서 몇 m 옮겨진 바위는 2번의 XZ 이동 성분 매칭에서 빠지고, 그 바위들은 4번이 본다.
-//   5. (2026-09-11) 바위 · 첨탑 · 크리스탈 · 잔해는 **볼록 윤곽**(`Obstacle.hull`)이다 — 4번은 방위마다 윤곽까지의
-//      거리로 재고, 윤곽이 보이는 가장자리보다 안쪽으로 **파고들지도** 않는지(p10) 함께 본다.
-//   6. (2026-09-11, C-22) 발밑 재질 — 바위 · 크리스탈 윗면은 그 재질, 행성 5곳의 지형 재질 분포(설원 = snow 등),
-//      탈출 착륙장 = concrete, 둥지 점액 = organic.
+// Checks:
+//   1. `noise3`'s real output range (is it inside the [-1, 1] the doc promises)
+//   2. Every obstacle is matched 1:1 to the instance drawn at that spot (the instance matrix's translation), then
+//      every vertex is swept and the collider compared against the **measured maximum radius · measured top face**
+//   3. Whether the hand-written colliders (the extraction pad's light poles · the outpost antenna) stay inside the
+//      thickness they draw
+//   4. (2026-09-10) Whether a rock · spire collider blocks in front of the rock **visible above ground** — check 2
+//      counted buried vertices as 「what is drawn」 too and so missed the invisible walls inside the storm fog. It is
+//      measured with rays cast downward.
+//      ⚠ A rock · spire collider's centre is no longer the instance origin but the **centre of the visible outline**
+//      (`Props.footprintOf`). A rock moved a few m on a slope drops out of check 2's XZ translation matching, and
+//      check 4 is what looks at those.
+//   5. (2026-09-11) Rocks · spires · crystals · debris are **convex hulls** (`Obstacle.hull`) — check 4 measures the
+//      distance to the hull per bearing, and looks at whether the hull **bites inward** of the visible edge
+//      (p10) too.
+//   6. (2026-09-11, C-22) The material underfoot — the top face of a rock · crystal reports that material, the
+//      terrain material spread over the five planets (a snowfield = snow and so on), the extraction landing pad =
+//      concrete, nest slime = organic.
 //
 // Usage: node scripts/smoke-props-collision.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -48,11 +54,11 @@ async function waitFor(page, fn, label, timeout = 90000, arg) {
   throw new Error(`timeout waiting for ${label}`);
 }
 
-/* 콜라이더가 그려진 것보다 이만큼까지 커지는 것은 봐준다 (m).
- * 원기둥으로 울퉁불퉁한 것을 감싸는 근사라 정확히 0 일 수는 없다. 실측(시드 21/7/1234)에서
- * 제일 나쁜 값이 +0.10 m(상자 — 일부러 모서리 스윕을 쓴다)이므로 0.35 면 회귀만 잡는다. */
+/* A collider is allowed to grow this much (m) past what it draws.
+ * It is a cylinder approximating something knobbly, so it can never be exactly 0. The worst measured figure (seeds
+ * 21/7/1234) is +0.10 m (a box — it deliberately sweeps the corners), so 0.35 catches regressions only. */
 const SLACK_R = 0.35;
-/** 윗면도 같은 취지. 나무는 줄기 반경만 쓰는 대신 높이를 실측하므로 여유가 더 필요 없다. */
+/** The top face, in the same spirit. A tree uses only the trunk radius but measures its height, so needs no more. */
 const SLACK_H = 0.6;
 
 const browser = await puppeteer.launch({
@@ -81,7 +87,7 @@ try {
     setInterval(() => { const now = performance.now(); if (now - lastRaf > 100) window.__game.frame(now); }, 33);
   });
 
-  /* ── 1. noise3 의 출력 범위 ────────────────────────────────────────────── */
+  /* ── 1. noise3's output range ─────────────────────────────────────── */
   console.log('noise3 range (used by build.displace — a spike here inflates every collider)');
   const range = await page.evaluate(async () => {
     const { Noise } = await import('/src/world/noise.ts');
@@ -95,7 +101,7 @@ try {
   });
   ok(range[0] > -1.2 && range[1] < 1.2, 'noise3 stays inside [-1.2, 1.2]', `got [${range[0].toFixed(3)}, ${range[1].toFixed(3)}]`);
 
-  /* ── 2. 시드별 콜라이더 vs 실측 실루엣 ─────────────────────────────────── */
+  /* ── 2. Colliders vs the measured silhouette, per seed ─────── */
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub');
 
@@ -112,11 +118,13 @@ try {
       const M4 = ctx.camera.matrixWorld.constructor;
       const obs = ctx.world.getObstacles();
 
-      // 장애물을 XZ 0.05 m 격자로 색인해 인스턴스 행렬의 이동 성분과 맞춘다 (place() 가 쓴 바로 그 x,z).
+      // Index the obstacles on an XZ 0.05 m grid and match them to the instance matrix's translation (exactly
+      // the x,z that place() used).
       const idx = new Map();
       for (const o of obs) {
-        // 사각 콜라이더(구조물 벽 · 문 · 유리 · 선로)는 smoke-structures 가 본다 — 인스턴스 원점과 XZ 가 우연히
-        // 겹치는 문짝 · 유리 메시를 벽 조각과 짝지으면 엉뚱한 비교가 된다 (2026-09-11)
+        // Box colliders (structure walls · doors · glass · rails) are smoke-structures' business — pairing a
+        // door or glass mesh whose XZ happens to coincide with the instance origin against a wall piece compares
+        // the wrong two things (2026-09-11)
         if (o.box) continue;
         const k = `${Math.round(o.position.x * 20)}_${Math.round(o.position.z * 20)}`;
         let a = idx.get(k); if (!a) { a = []; idx.set(k, a); }
@@ -146,9 +154,10 @@ try {
           if (v.y > st.topY) st.topY = v.y;
         }
       };
-      /* 2026-09-10: 바위 · 첨탑 콜라이더는 **보이는 윤곽의 중심**에 선다 (`Props.footprintOf`) — 인스턴스 원점과
-         XZ 가 몇 cm ~ 몇 m 어긋나므로 위의 0.08 m 매칭에 걸리지 않는다. 그 인스턴스는 4 m 안의 **아직 짝이 없는**
-         가장 가까운 `rock` 장애물과 맺는다 (산포가 `isSpotFree` 로 바위끼리 떨어뜨려 두므로 이웃과 헷갈릴 일이 적다). */
+      /* 2026-09-10: a rock · spire collider stands at the **centre of the visible outline** (`Props.footprintOf`)
+         — its XZ is a few cm to a few m off the instance origin, so the 0.08 m matching above does not catch it.
+         Such an instance is paired with the nearest **not yet claimed** `rock` obstacle within 4 m (scattering keeps
+         rocks apart through `isSpotFree`, so mistaking a neighbour for it is unlikely). */
       const claimed = new Set();
       const inHull = (o, x, z) => {
         const p = o.hull.points, m = p.length / 2;
@@ -210,10 +219,10 @@ try {
         if (dR > worstR) { worstR = dR; worstRow = row; }
         if (dH > worstH) { worstH = dH; worstHRow = row; }
       }
-      // 손으로 적어 둔 콜라이더: 그려진 기둥보다 굵으면 안 된다
+      // The hand-written colliders: they must not be thicker than the pole that is drawn
       const maxPole = Math.max(0, ...obs.filter((o) => o.kind === 'pole').map((o) => o.radius));
       const maxWall = Math.max(0, ...obs.filter((o) => o.kind === 'wall').map((o) => o.radius));
-      // 안테나 마스트만 6 m 를 넘는다 (벽 2.2~3.6 · 기둥 2.5~4.5 는 밑에서 따로 본다)
+      // Only the antenna mast goes above 6 m (walls 2.2–3.6 · poles 2.5–4.5 are looked at separately below)
       const tallWall = Math.max(0, ...obs.filter((o) => o.kind === 'wall' && o.height > 6).map((o) => o.radius));
       return { total: obs.length, matched, worstR, worstRow, worstH, worstHRow, maxPole, maxWall, tallWall };
     });
@@ -221,16 +230,17 @@ try {
     ok(r.matched > 300, `${r.matched}/${r.total} obstacles matched to a drawn instance`, JSON.stringify({ matched: r.matched }));
     ok(r.worstR <= SLACK_R, `no collider is wider than what it draws (worst +${r.worstR.toFixed(2)} m ≤ ${SLACK_R})`, JSON.stringify(r.worstRow));
     ok(r.worstH <= SLACK_H, `no shot cylinder reaches above what it draws (worst +${r.worstH.toFixed(2)} m ≤ ${SLACK_H})`, JSON.stringify(r.worstHRow));
-    // 조명 기둥 · 아웃포스트 마스트: 받침(0.7)이 제일 굵고, 그 위 기둥은 가늘어야 한다
+    // Light poles · the outpost mast: the plinth (0.7) is the thickest part and the pole above it has to be thin
     ok(r.maxPole <= 0.75, `extraction pad poles stay at their drawn footprint (max r ${r.maxPole.toFixed(2)})`);
     ok(r.tallWall <= 0.3, `the antenna mast is as thin as it draws above its base (max r ${r.tallWall.toFixed(2)} for height > 6 m)`);
     ok(r.maxWall <= 0.75, `outpost walls / pillars stay near their drawn thickness (max r ${r.maxWall.toFixed(2)})`);
 
-    /* 2026-09-10 — **땅 위로 보이는 바위보다 앞에서 막지 않는가.** 위 검사는 정점 전부(땅에 묻힌 적도 포함)와
-       비교하므로 "메시 전체의 바운딩 박스" 콜라이더를 통과시켰다 — 그런데 행성마다 바위의 절반이 보이는 바위보다
-       0.5 m 이상 앞에서 막았다(폭풍 안개 속 보이지 않는 벽). 그래서 **보이는 것**으로 잰다: 바위 콜라이더마다
-       16 방위로 테두리에서 안쪽으로 내려 쏘는 레이를 걸어, 지형 위로 올라온 바위 표면을 처음 맞힌 반지름과
-       콜라이더 반지름의 차이(방위 평균)를 본다. */
+    /* 2026-09-10 — **does it block in front of the rock visible above ground.** The check above compares against
+       every vertex (buried ones included) and so let a 「bounding box of the whole mesh」 collider through — and on
+       every planet half the rocks blocked more than 0.5 m in front of the visible rock (the invisible walls inside
+       the storm fog). So it is measured against **what is visible**: per rock collider, rays are cast downward from
+       the rim inward on 16 bearings, and the difference (averaged over the bearings) between the radius that first
+       hits the rock surface standing above the terrain and the collider radius is read. */
     const fp = await page.evaluate(async () => {
       const THREE = await import('/node_modules/.vite/deps/three.js');
       const world = window.__game.getSystem('world');
@@ -239,7 +249,8 @@ try {
       const rocks = world.hash.getAll().filter((o) => o.kind === 'rock' && Math.abs(o.position.x) < 300 && Math.abs(o.position.z) < 300);
       const ray = new THREE.Raycaster(); ray.far = 400;
       const from = new THREE.Vector3(), down = new THREE.Vector3(0, -1, 0);
-      /* 2026-09-11: 콜라이더가 볼록 윤곽이면 방위마다 **윤곽까지의 거리**가 콜라이더 반지름이다 (윤곽의 무게중심에서). */
+      /* 2026-09-11: with a convex-hull collider the **distance to the hull** per bearing is the collider radius
+       * (measured from the hull's centroid). */
       const extent = (o, cx, cz, ux, uz) => {
         if (!o.hull) return o.radius;
         const p = o.hull.points, mm = p.length / 2;
@@ -291,8 +302,9 @@ try {
     ok(fp.p90 <= 0.35, `rock colliders reach no further than the rock you can see (p90 of the mean overshoot ${fp.p90.toFixed(2)} m ≤ 0.35)`, JSON.stringify(fp.worst));
     ok(fp.over1 === 0, `no rock blocks more than 1 m in front of its visible edge on average (${fp.over1})`, JSON.stringify(fp.worst));
 
-    /* 2026-09-11 (C-22) — **발밑 재질**: 바위 · 크리스탈 윗면에 선 발은 그 소품의 재질을 읽는다.
-       윤곽의 무게중심에서 `getStandingObstacle` 이 바로 그 소품을 고르는 경우만 센다 (위에 다른 것이 겹친 자리 제외). */
+    /* 2026-09-11 (C-22) — **the material underfoot**: feet standing on the top face of a rock · crystal read that
+       prop's material. Only the spots where `getStandingObstacle` at the hull's centroid picks that very prop are
+       counted (spots with something else overlapping above them are left out). */
     const mat = await page.evaluate(() => {
       const w = window.__game.ctx.world;
       const all = window.__game.getSystem('world').hash.getAll();
@@ -317,9 +329,10 @@ try {
     ok(mat.crystal.good === mat.crystal.n, `C-22: 크리스탈 윗면에 선 발 → crystal (${mat.crystal.good}/${mat.crystal.n})`, JSON.stringify(mat.crystal.bad));
   }
 
-  /* ── 2026-09-11 (C-22): 행성마다 지형 재질 ─────────────────────────────────
-     발소리는 지형 색 규칙(`Terrain.computeColors`)과 같은 자리에서 바뀐다. 맵을 격자로 훑어 행성 바이옴의
-     재질이 가장 흔하고 다른 바이옴의 재질은 **하나도** 안 나오는지 본다 (바위 · 둥지 점액 · 콘크리트 · 금속 등 공용 제외). */
+  /* ── 2026-09-11 (C-22): the terrain material per planet ────────────
+     Footsteps change at the same places as the terrain colour rule (`Terrain.computeColors`). The map is swept as a
+     grid to see that the planet biome's material is the commonest and that **not one** sample of another biome's
+     material turns up (the shared ones — rock · nest slime · concrete · metal — are left out). */
   const BIOME_MATS = {
     amber: { want: ['sand'], forbid: ['snow', 'moss', 'mud'] },
     tundra: { want: ['snow'], forbid: ['sand', 'moss', 'mud'] },
@@ -338,7 +351,7 @@ try {
         const m = w.getSurfaceMaterial(x, z);
         out[m] = (out[m] ?? 0) + 1;
       }
-      // 탈출 착륙장 한가운데 · 둥지 한가운데
+      // The middle of the extraction landing pad · the middle of a nest
       const ex = w.getExtractionPoints()[0];
       const nest = w.getNestPositions()[0];
       return { out, pad: ex ? w.getSurfaceMaterial(ex.position.x, ex.position.z, ex.position.y) : null, nest: nest ? w.getSurfaceMaterial(nest.x + 2, nest.z) : null };

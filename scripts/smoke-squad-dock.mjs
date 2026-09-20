@@ -25,7 +25,10 @@ import os from 'node:os';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
-// ⚠ 2026-09-20: 원래 8894 였는데 이 개발 PC 의 WinNAT 이 **8800–8899** 를 통째로 예약해 bind 가 EACCES 로 죽고, 스모크가 「포트가 비어 있어야 한다」로 오진단해 항상 실패했다 (`netsh interface ipv4 show excludedportrange protocol=tcp`). 9894 는 그 범위 밖이다 — `smoke-netlink` 이 같은 날 9885 · 9886 으로 옮긴 것과 같은 이유다.
+// ⚠ 2026-09-20: this was 8894, but this dev PC's WinNAT reserves the whole of **8800–8899**, so the bind died with
+// EACCES and the smoke misdiagnosed it as 「the port must be free」 and failed every time
+// (`netsh interface ipv4 show excludedportrange protocol=tcp`). 9894 is outside that range — the same reason
+// `smoke-netlink` moved to 9885 · 9886 the same day.
 const RELAY_PORT = Number(process.env.SQUAD_DOCK_RELAY_PORT ?? 9894);
 const RELAY_URL = `ws://127.0.0.1:${RELAY_PORT}/ws`;
 const CHROME = [
@@ -210,7 +213,8 @@ try {
   });
   const hudA = await squadHud(A);
   const hudB = await squadHud(B);
-  // 2026-09-16 (사용자 결정): 내 행은 그리지 않는다 — 미도킹 분대 2인이면 상대 한 줄만 남는다.
+  // 2026-09-16 (user's decision): my own row is never drawn — on an undocked squad of two only the other
+  // member's row is left.
   ok(hudA.shown && hudA.rows === 1 && hudA.states.every((s) => s === '개인 함선'), `A squad HUD: 1 row 개인 함선 (${JSON.stringify(hudA)})`);
   ok(hudB.shown && hudB.rows === 1 && hudB.states.every((s) => s === '개인 함선'), `B squad HUD: 1 row 개인 함선 (${JSON.stringify(hudB)})`);
 
@@ -306,8 +310,9 @@ try {
   await S(C, (c) => window.__game.ctx.net.social.acceptInvite(c), codes.A);
   await waitFor(C, () => window.__game.getSystem('hub').squadDockSeconds > 0, 'C counts down', 15000);
   ok((await state(C)).ship === 'personal', 'C is still home while counting down');
-  /* 2026-09-15 (리드 후속): 「도킹 컷씬 직전에 모든 UI 메뉴가 닫힌다」 — a housing station screen (식탁), then the pause menu with its
-     설정 sub-screen on top (설정 has neither a blocker nor an escape entry — it used to survive the dock). */
+  /* 2026-09-15 (lead follow-up): 「every UI menu is closed just before the docking cutscene」 — a housing station
+     screen (식탁), then the pause menu with its 설정 sub-screen on top (설정 has neither a blocker nor an escape
+     entry — it used to survive the dock). */
   const opened = await S(C, () => {
     const ctx = window.__game.ctx, hudSys = window.__game.getSystem('hud');
     ctx.housing.openDiningTable('smoke-dock-table');

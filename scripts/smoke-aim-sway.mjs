@@ -1,8 +1,8 @@
-// 2026-09-12 조준 흔들림 (A2, docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) — 정조준 중 카메라가 8자로 떠돈다.
-//  · 함선(허브)에서는 흔들림이 없다 · 무기 계열의 흔들림(data/aim_sway.csv)이 rig 에 들어간다 · 허리 사격은 0
-//  · 정조준: 좌우 · 위아래가 시간에 따라 부호를 바꾸며 흔들리고 크기는 표의 값이다 · 렌더된 카메라 방향 === getLookDir (크로스헤어 선)
-//  · 흔들림 한가운데서 쏜 탄(퍼짐 0)이 **화면 중심 선** 위에 떨어진다 (흔들림을 뺀 선에서는 벗어난다) · 반동은 그대로
-//  · `aimSwayMul` 0.5 → 절반 · 앉기 < 서기 · 엎드리기 ≪ 서기 · 걸으면 커진다 · 어깨 전환 X 는 그대로 · 연출 카메라 · 조준 해제 → 0
+// 2026-09-12 aim sway (A2, docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) — the camera drifts in a figure of eight while aiming.
+//  · there is no sway in the ship (the hub) · the weapon class's sway (data/aim_sway.csv) reaches the rig · hip fire is 0
+//  · aiming: left / right · up / down swing and change sign over time, and the amplitude is the table's value · the rendered camera direction === getLookDir (the crosshair line)
+//  · a round fired in the middle of the sway (spread 0) lands on the **screen centre line** (and off the line with the sway taken out) · the recoil is unchanged
+//  · `aimSwayMul` 0.5 → half · crouched < standing · prone ≪ standing · walking makes it larger · the shoulder swap X leaves it alone · the cutscene camera · releasing the aim → 0
 // Usage: node scripts/smoke-aim-sway.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
@@ -113,7 +113,7 @@ try {
   await tap('Digit1');
   await waitSim(1.2);
   const prof = await swayNow();
-  // 2026-09-14 총기 밸런스: the gun feeds the class amplitude × its handling (`stats.swayMul` — grade I ×1.6 … V ×1.0, stock / grip)
+  // 2026-09-14 (gun balance): the gun feeds the class amplitude × its handling (`stats.swayMul` — grade I ×1.6 … V ×1.0, stock / grip)
   const swayMulSR = await page.evaluate(() => { const ws = window.__game.getSystem('weapons'); const m = ws.slots[ws.active]?.stats.swayMul; return Number.isFinite(m) ? m : 1; });
   const SR_AMP = SWAY.SR.amp * swayMulSR;
   ok(Math.abs(prof.profile - SR_AMP * DEG) < 1e-9 && Math.abs(prof.hz - SWAY.SR.hz) < 1e-9,
