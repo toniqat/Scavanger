@@ -5,7 +5,8 @@ import { err, parseNumber } from './types';
  * `worm [뱉기초] [weak]` (2026-09-13 · 2026-09-15) — starts the sandworm event **now** under my own feet (in a
  * raid · authority only). It ignores the cumulative probability · the once-per-raid limit · the ground test.
  * `뱉기초` = how long this eruption's bug-spit phase lasts (seconds, 0 = straight to the poison).
- * `weak` = forces the young one (`sandworm_weak`, hp 750 · 70 %) — omitted, the planet threat decides (1 → young,
+ * `weak` = forces the young one (`sandworm_weak` — its own hp · size row in `data/enemies.csv`,
+ * `SANDWORM_WEAK_HP` · `SANDWORM_WEAK_SCALE`) — omitted, the planet threat decides (1 → young,
  * 2–3 → adult).
  * The console does not import enemies/ — it only emits the `cheat:sandworm` bus command (`EnemySystem` receives it).
  */

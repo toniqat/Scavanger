@@ -402,24 +402,14 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   /** Q again / weapon key / death / phase change → shield down. */
   lowerShield(): void { return Barrier.lowerShield(this); }
 
-  /**
-   * Per frame while raised: keep the panel on the carrier, keep the movement penalty alive, and (Phase 12) read the
-   * 실드 배쉬 input — LMB (`Keys.FIRE`) or the melee key. The melee press is consumed afterwards so weapons/ (which
-   * runs later in the frame and already holsters while `blocksWeapons`) can never swing its own melee on the same F.
-   */
+  /** Per frame while raised: panel, movement penalty, 실드 배쉬 input. Rules: `parts/Barrier.updateShield`. */
   private updateShield(active: boolean): void { return Barrier.updateShield(this, active); }
 
   /* ═══════════════════════════ Phase 12: 실드 배쉬 · collision · frontal absorb ═══════════════════════════ */
   /** 실드 배쉬 swing in progress (pose + FX). Enemies in the box were already hit when this went true. */
   get bashing(): boolean { return this.bashTimer > 0; }
 
-  /**
-   * 실드 배쉬: costs `IMPLANT_SHIELD_BASH_STAMINA`, then strikes every alive enemy inside the box in front of the
-   * carrier — the shield's own width (± enemy radius) by `IMPLANT_SHIELD_BASH_RANGE` (+ radius) past the panel
-   * plane — for `IMPLANT_SHIELD_BASH_DAMAGE × derived.meleeDamageMul` (no weapon / 개머리판 bonus). The pose is the
-   * player's existing heavy swing (`startMelee('heavy')` → MELEE_HEAVY on the wire, so replicas pose for free);
-   * the shield itself stays raised. Replica enemies forward the `hit` to the host themselves (`takeDamage`).
-   */
+  /** 실드 배쉬 swing: cost, box, damage and pose all live in `parts/Barrier.tryBash`. */
   tryBash(): void { return Barrier.tryBash(this); }
 
   /**

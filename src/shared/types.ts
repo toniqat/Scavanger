@@ -1999,7 +1999,7 @@ export interface HubRef {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
- * 2026-09-09 — death/corpses · the rescue ship · the squad leader · fog of war · walking on terrain features
+ * 2026-09-09 — death/corpses · the rescue drop · the squad leader · fog of war · walking on terrain features
  *
  * The contract of this batch. Interfaces only ever grow, by **declaration merging** (no renames · no deletions).
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
@@ -2034,7 +2034,7 @@ export interface FogRef {
   isRevealed(x: number, z: number): boolean;
   /** Is `position` in a revealed cell — the standard query of the object-discovery gate. */
   isDiscovered(position: THREE.Vector3): boolean;
-  /** Reveal `radius` m around a world coordinate (world calls it itself, and events such as a rescue ship landing use it too). */
+  /** Reveal `radius` m around a world coordinate (world calls it itself, and events such as a rescue drop landing use it too). */
   reveal(x: number, z: number, radius: number): void;
   /** Serialize (base64) / apply, for a client that joined late. Only the host builds it. */
   serialize(): string;

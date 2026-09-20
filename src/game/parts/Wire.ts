@@ -1,20 +1,8 @@
 /**
  * src/game/parts/Wire.ts — the **`flow` messages**, plus host transfer and the party going away.
  */
-import * as THREE from 'three';
-import type {
-  GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, RemotePlayerRef,
-} from '@/shared';
-import type { PlanetId } from '@/shared';
-import {
-  GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
-  NET_GHOST_RESTORE_TIMEOUT_S,
-} from '@/shared';
-import { FREE_CURSOR_BLOCKER } from '@/shared';
-import { RESUME_GATE_BLOCKER } from '@/shared';
-import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
-import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
-import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS } from '../model';
+import type { FlowMessage, PeerId } from '@/shared';
+import { ALL_DEAD_CHECK_INTERVAL, DISCONNECT_ABORT_DELAY } from '../model';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
 /* ── Multiplayer helpers ─────────────────────────────────────────────── */

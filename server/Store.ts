@@ -20,10 +20,10 @@
  *  - The file format (`{v:1, profiles}`) did not change.
  *
  * **2026-09-11 (B-2) — GC.** Cleans up what used to leave one profile (≈ 5.7 KB) behind forever for everyone who
- * ever connected with a token. A profile unseen for `PROFILE_GC_INACTIVE_MS` (90 days) by `seenAt` (the connect ·
+ * ever connected with a token. A profile unseen for `PROFILE_GC_INACTIVE_MS` by `seenAt` (the connect ·
  * disconnect time) is deleted whole, and its code is dropped from the friends · requests · recent lists of the
  * profiles that stay. Recent players (`SOCIAL_RECENT_TTL_MS`) and unanswered friend requests
- * (`SOCIAL_REQUEST_TTL_MS`, `SocialRecord.requestsAt`) expire separately at 30 days. What must not be deleted
+ * (`SOCIAL_REQUEST_TTL_MS`, `SocialRecord.requestsAt`) expire separately on their own clocks. What must not be deleted
  * (connected · a lobby member) is told by the relay through `collectGarbage(keep)`.
  *
  * **2026-09-11 (E-6) — document revisions.** Every document has a `docsRev[key]`, +1 on every accepted write (the

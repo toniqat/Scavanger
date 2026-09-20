@@ -26,7 +26,12 @@ export const DEFAULT_PISTOL: WeaponDef = {
   falloffStart: 20, falloffEnd: 70, falloffMin: 0.5,
 };
 
-/** Fallback def per weapon slot: both primaries get the rifle, the secondary the pistol. */
+/**
+ * Fallback def per weapon slot: `'secondary'` answers the pistol, everything else the rifle. **No slot is ever
+ * filled from the pistol branch** — `WEAPON_SLOTS` is the two primaries and `inventory/model.slotAccepts` refuses a
+ * secondary, so `Loadout.secondary` stays null. It is still live code: `parts/Slots.resolveDef` asks for the
+ * *other* slot's default as the value to compare an unresolved id against, and that call is this branch.
+ */
 export function defaultFor(slot: WeaponSlot): WeaponDef {
   return slot === 'secondary' ? DEFAULT_PISTOL : DEFAULT_RIFLE;
 }

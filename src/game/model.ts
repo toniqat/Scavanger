@@ -4,25 +4,10 @@
  * Holds only the constants · types (and the stateless helper classes) split out of `GameFlowSystem`. It
  * references no class, so a `parts/*` module can use it without importing `GameFlowSystem.ts` back (no import
  * cycle). `GameFlowSystem.ts` re-exports it with `export *`, so every existing import path still works.
+ * It imports **no sibling module as a value** either (CLAUDE.md §4.1): the vocabulary is this folder's leaf, so
+ * `ResumeGate.ts` · `SoloRaid.ts` are reached from the class and from `parts/`, never from here.
  */
-import * as THREE from 'three';
-import type {
-  GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, RemotePlayerRef,
-} from '@/shared';
-import type { PlanetId } from '@/shared';
-import {
-  GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
-  NET_GHOST_RESTORE_TIMEOUT_S,
-} from '@/shared';
-import { FREE_CURSOR_BLOCKER } from '@/shared';
-import { RESUME_GATE_BLOCKER } from '@/shared';
 import { EXTRACTION_LIFTOFF_TO_COMPLETE_S } from '@/shared';
-import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from './ResumeGate';
-import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from './SoloRaid';
-/* appended (Phase 11): the target planet */
-/* appended (2026-09-07, cursor rework): the Alt cursor's blocker token */
-/* appended (Phase 12): the browser resume gate + the desktop-shell cursor */
-/* appended (2026-09-07): the solo raid's local session save — the single-player counterpart of the raid store */
 
 /**
  * Seconds after `extraction:liftoff` (for someone who left aboard, or everyone when the squad is done) until the result

@@ -4,7 +4,7 @@ import type { CommandFactory } from './types';
 import { err, parseNumber } from './types';
 
 /**
- * `cook [plate <요리 id|한국어 이름> [품질 0-5] | clear]` — the dev command for the cooking minigame · the
+ * `cook [plate <요리 id|이름> [품질 0-5] | clear]` (the live `usage`) — the dev command for the cooking minigame · the
  * dining-table plate (2026-09-13 → the 2026-09-16 plate model).
  * Uses **public refs only**: `ctx.housing.cookSession` · `getPlate` · `devSetPlate` · `clearPlate`, and the meal
  * table `MEAL_DEFS` (`shared/meals`).

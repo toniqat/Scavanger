@@ -21,7 +21,7 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 | `parts/Leader.ts` | Squad-leader device (`leader_device` interactable, `lead` / `leadq` wire), its scene-resident point light, the single host-changed toast. |
 | `parts/RaidReport.ts` | Result-screen data (`GameFlowSystem.report`): peak carried value, damage tallies per source, killing blow → `stats.peakLootValue` / `stats.death`. |
 | `parts/LoadGate.ts` | Raid-entry loading gate (`GameFlowSystem.loadGate`): render hold from `game:newMission` to squad-wide readiness, `load` wire, `raid:loadProgress` / `raid:loadReleased`, fade-in. Debug hooks `debugAddMember` / `debugClearMembers` / `debugSetTimeout`. |
-| `Corpses.ts` | `PlayerCorpseManager` (= `ctx.corpses`, implements `CorpsesRef`) and `PlayerCorpseObject` (interactable container + frozen `SoldierModel` mesh, tram riding, empty-corpse sink `stepSink` / `sinkDepth`); removed-id set and `ownerHadCorpse`. |
+| `Corpses.ts` | `PlayerCorpseManager` (= `ctx.corpses`, implements `CorpsesRef`) and `PlayerCorpseObject` (interactable container + frozen `SoldierModel` mesh, tram riding, empty-corpse sink `stepSink` / `sinkDepth`); removed-id set and `ownerHadCorpse`. Holds a `pcorpse` subscription of its own for the ride note — `clear()` (mission reset) keeps it, `dispose()` (system teardown) drops it. |
 | `SoloRaid.ts` | Pure localStorage store for solo sessions: `SoloRaidSave` / `SoloRaidPose`, `load/save/clearSoloRaid`, `soloRaidStatus`, `soloRaidBootStatus`, clock record `readClockHigh` / `bumpClockHigh`. No context, no listeners. |
 | `ResumeGate.ts` | Browser-only `좌측 클릭으로 게임 재개` overlay (`ResumeGate`), desktop-shell cursor hiding (`syncDesktopCursor`), shell Escape re-lock hook (`installDesktopRelockHook` → `window.__scavShellRelock`). |
 | `resume-gate.css` | Gate styles + `body.desktop-nocursor`. Imported by `ResumeGate.ts`. |
@@ -121,7 +121,8 @@ therefore uses `ctx.time`, never `dt`.
   the same thing with no extra wire field.
 - **Training**: death → immediate `player:respawn` at the arena spawn; no XP, settlement, threat or result screens.
   `training:exitRequested` → abort, restore inventory snapshot, `leaveMission`, back to the ship.
-- **Tutorial** (`missionMode === 'tutorial'`): corpse still spawns, implants untouched, no forced save, save kept,
+- **Tutorial** (`missionMode === 'tutorial'`): corpse still spawns, implants untouched, the save is neither forced
+  nor cleared (the Rules bullet below holds the reason),
   respawn after `TUTORIAL_RESPAWN_DELAY_S` at `ctx.world.tutorial.respawnPose()` with a respawn wake animation
   (`TUTORIAL_RESPAWN_WAKE_S`). No raid failure.
 - **Voluntary return** (`함선으로 귀환`): `returnPending` → `PlayerRef.die()` → normal death cleanup → after
@@ -217,8 +218,11 @@ A remaining raid never drops the boot straight into it: the title shows `이어�
 - Corpse height uses `getSurfaceY` (tram decks, upper floors). Corpses have no lifetime or culling, but a corpse with **no
   items** (spawned empty, or looted empty) sinks after `CORPSE_EMPTY_REMOVE_DELAY_S` over `CORPSE_EMPTY_SINK_S` on the
   mission clock and is removed; removed ids are refused by `add` until the mission resets (late `spawn` echo / `sync`), and
-  `syncWire` leaves emptied corpses out. Only the lobby host sends `pcorpse emptied`; receivers drop it from anyone else. —
-  `Corpses.ts` (`add`, `markEmptied`, `update`), `parts/CorpseNet.ts` (`onContainerLooted`, `onCorpseMessage`)
+  `syncWire` leaves emptied corpses out. Only the lobby host sends `pcorpse emptied`; with a lobby, receivers accept
+  it from `hostId` and from nobody else — **a message with no sender at all included**. `add`'s empty-handed branch
+  starts the clock with `releaseEmptied` (no broadcast), `markEmptied` is the `crate:looted` path, and both reach the
+  broadcast only through `releaseByAuthority` (`ctx.isAuthority`). —
+  `Corpses.ts` (`add`, `markEmptied`, `releaseEmptied`, `update`), `parts/CorpseNet.ts` (`onContainerLooted`, `onCorpseMessage`)
 - The loading gate must never read `dt`: the hold it takes makes sim dt 0, so its own timers would stop. Use `ctx.time`.
   For the same reason `LoadGate.bind()` subscribes before `onNewMission` — the hold has to exist before the phase moves.
   — `parts/LoadGate.ts`
@@ -248,8 +252,8 @@ A remaining raid never drops the boot straight into it: the title shows `이어�
 ## Recent changes
 
 Last 5 only — older: `git log -- src/game`.
+- 2026-09-21 — `docs/TODO.md` B-68 · B-69 · B-70 · B-71 · B-72: 89 dead imports left by the `GameFlowSystem` split removed (`model.ts` now imports no sibling module as a value); `PlayerCorpseManager` keys its `pcorpse` subscription on the `NetRef` it belongs to and gains `dispose()`; the `pcorpse emptied` host guard no longer lets a message with no sender through; 14 comments realigned with the code and 5 csv numbers taken out of prose.
 - 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, `docs/DECISIONS.md` headings and verbatim user decisions kept in backticks / 「」, no string literal touched.
 - 2026-09-16 — Empty player/android corpses start their removal delay only after the last viewer closes the loot window (`PlayerCorpseManager.viewers`, `releaseEmptied`, host sends `pcorpse emptied` at release); 레이드 실패 auto return emits `ui:shipReturn`.
 - 2026-09-16 — Wipe check counts androids: `checkAllDead` fails the raid only when every human and every android is down or dead (`ctx.allies.getBodies()`); `isRemoteAlive` keeps its bot filter.
-- 2026-09-16 — Empty corpses: a player / android corpse with no items (spawned empty or looted empty) sinks after `CORPSE_EMPTY_REMOVE_DELAY_S` and is removed; host-only `pcorpse emptied`; `CorpsesRef.ownerHadCorpse`.

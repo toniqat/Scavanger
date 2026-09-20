@@ -176,9 +176,3 @@ export function makeHit(): HitInfo { return { point: new THREE.Vector3(), normal
 export function toTuple(v: THREE.Vector3): Vec3Tuple {
   return [Math.round(v.x * 1000) / 1000, Math.round(v.y * 1000) / 1000, Math.round(v.z * 1000) / 1000];
 }
-
-/**
- * Three weapon slots (`주무기 I` / `주무기 II` / `보조무기`): hitscan & projectile firing from the reticle ray with
- * graded + socketed effective stats, spread/bloom, recoil, durability, ammo v2 (reserve = calibre rounds in the
- * bag, magazine on the item), reloads, swap animation, grenades and all weapon FX/events.
- */

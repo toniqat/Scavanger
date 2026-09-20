@@ -9,9 +9,10 @@
  *
  * **The movement.** Every tick each coin's log price x mean-reverts toward ln(basePrice) (the exact discretisation of
  * an Ornstein–Uhlenbeck process):
- *   x' = μ + (x − μ)·e^(−θ·dt) + volatility·√dt·Z     (dt = tick length ÷ a day, θ = ln2 ÷ a half-life of 3 days)
+ *   x' = μ + (x − μ)·e^(−θ·dt) + volatility·√dt·Z     (dt = tick length ÷ a day, θ = ln2 ÷ `CRYPTO_REVERSION_HALF_LIFE_DAYS`)
  * Rare jumps slip in (`CRYPTO_JUMPS_PER_DAY` expected, size σ = volatility × `CRYPTO_JUMP_SIGMA_MUL`), and x is cut
- * to [μ − ln5, μ + ln5] (= 1/5 … 5× the base price). The steady state's log standard deviation is
+ * to [μ − ln `CRYPTO_PRICE_BAND`, μ + ln `CRYPTO_PRICE_BAND`] (= that factor below … above the base price). The
+ * steady state's log standard deviation is
  * volatility ÷ √(2θ) ≈ 1.47 × volatility, so the band is almost never touched.
  *
  * **The random numbers hold no state.** One step's randomness is a hash of (seed, the coin id's hash, the tick
@@ -19,16 +20,17 @@
  * same path** it would have had while running, and the same seed at the same time makes the selftest repeat exactly.
  * The seed lives in `crypto.json` (random on the first start, or from an option).
  *
- * **Candles.** 1-minute candles are kept for 25 hours, 1-hour ones for 32 days. The per-range answer (`history`) is
- * exactly `CRYPTO_CANDLE_MS` · `CRYPTO_CANDLE_COUNT` — '1h' = 60 one-minute candles, '1d' = 96 one-minute candles
- * grouped by 15 minutes, '1w' = 168 one-hour candles, '1M' = 180 one-hour candles grouped by 4 hours.
+ * **Candles.** 1-minute candles are kept for `CRYPTO_MINUTE_KEEP_MS`, 1-hour ones for `CRYPTO_HOUR_KEEP_MS` —
+ * both sized from the longest range that reads them, so they move with it. The per-range answer (`history`) is
+ * exactly `CRYPTO_CANDLE_MS` · `CRYPTO_CANDLE_COUNT` (`src/shared/cryptoMarket.ts` — the one table; the minute
+ * candles are grouped up where a range's length is not a minute).
  * The last candle may still be running. A candle's open is the price before it (so the chart never breaks).
  *
- * **The first start · the time it was down.** With no history it starts from the base price 31 days ago and fills
- * deterministically up to now — the chart is never empty. A gap while it was down is filled by the same function: the
- * most recent `CRYPTO_FINE_FILL_MS` (24 hours) tick by tick (so the 1-hour · 1-day charts are dense), anything older
- * in `CRYPTO_COARSE_STEP_MS` (10-minute) steps (which yields the 1-hour candles' OHLC), a gap over 31 days is cut to
- * 31 days — 8 coins × the worst gap is tens of ms.
+ * **The first start · the time it was down.** With no history it starts from the base price `CRYPTO_BACKFILL_MS`
+ * ago and fills deterministically up to now — the chart is never empty. A gap while it was down is filled by the
+ * same function: the most recent `CRYPTO_FINE_FILL_MS` tick by tick (so the 1-hour · 1-day charts are dense),
+ * anything older in `CRYPTO_COARSE_STEP_MS` steps (which yields the 1-hour candles' OHLC), and a gap longer than
+ * `CRYPTO_BACKFILL_MS` is cut to it — the coin table (`data/crypto.csv`) × the worst gap is tens of ms.
  *
  * **The trade validation window.** It keeps the tick prices of the last `quoteWindowMs + 2 × tickMs`, and
  * `quoteRange(coin, now)` returns the lowest · highest quote inside [now − quoteWindowMs − tickMs, now] (the quote

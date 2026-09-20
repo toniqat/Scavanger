@@ -7,8 +7,9 @@ import { err, parseNumber } from './types';
  * `analyze [ff <시간> | done [uid|all]]` — **the analyzer (cell analysis) time cheat** (2026-09-15, user's decision).
  *
  * The same grain as `gym` · `cook` · `crypto` · `library`: it uses **only `HousingRef`'s public API** and never
- * touches `ShipState` directly. Only fast-forwarding the clock is a dev-only optional (`devAdvanceAnalysis`), and
- * with none it says in a red line what is missing (the same contract as `devAdvanceMining`).
+ * touches `ShipState` directly. Only fast-forwarding the clock is a dev-only **optional** on the contract
+ * (`HousingRef.devAdvanceAnalysis` — `src/shared/housing.ts`), and with none it says in a red line what is
+ * missing (the same contract as `devAdvanceMining`).
  *
  *   - `analyze`              level · slots · time left per placed analyzer, plus each family's analysis level and
  *                            time multiplier.
@@ -21,17 +22,6 @@ import { err, parseNumber } from './types';
  * change as more furniture is added.
  */
 const USAGE = '사용법: /analyze [ff <시간> | done [uid|all]]';
-
-/**
- * A dev optional asked of the lead · housing (agent D). **It is not in the contract (`HousingRef`) yet**, so it is
- * narrowed structurally here — once D adds the same signature as an optional at the end of `HousingRef` this type
- * meshes with it unchanged (the same contract as `devAdvanceMining`: with none, a red line).
- *
- *   `devAdvanceAnalysis?(hours: number, uid?: string): number`
- *   — advances the analysis clock of the placed analyzers (`uid` omitted = all) by `hours` and returns **how many
- *     slots finished this time**. It does not collect (that is the screen's job).
- */
-type AnalyzeDev = { devAdvanceAnalysis?(hours: number, uid?: string): number };
 
 function hms(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
@@ -98,27 +88,25 @@ export const analyze: CommandFactory = () => ({
     if (args.length === 0) return status(ctx, h);
     const sub = args[0].toLowerCase();
 
-    const dev = h as HousingRef & AnalyzeDev;
-
     if (sub === 'ff') {
       if (args.length !== 2) return err(USAGE);
       const hours = parseNumber(args[1]);
       if (!Number.isFinite(hours) || hours <= 0) return err(`시간이 올바르지 않습니다: ${args[1]}`);
-      if (typeof dev.devAdvanceAnalysis !== 'function') return err('함선 시스템에 devAdvanceAnalysis 가 아직 없습니다');
-      const done = dev.devAdvanceAnalysis(hours);
+      if (typeof h.devAdvanceAnalysis !== 'function') return err('함선 시스템에 devAdvanceAnalysis 가 아직 없습니다');
+      const done = h.devAdvanceAnalysis(hours);
       return `해석 시계 +${hours}시간 → ${done}칸 완료\n${status(ctx, h)}`;
     }
 
     if (sub === 'done') {
       if (args.length > 2) return err(USAGE);
-      if (typeof dev.devAdvanceAnalysis !== 'function') return err('함선 시스템에 devAdvanceAnalysis 가 아직 없습니다');
+      if (typeof h.devAdvanceAnalysis !== 'function') return err('함선 시스템에 devAdvanceAnalysis 가 아직 없습니다');
       const all = analyzers(h);
       if (!all.length) return err('배치된 분석기가 없습니다');
       const target = args.length === 2 && args[1].toLowerCase() !== 'all' ? args[1] : undefined;
       if (target && !all.some((p) => p.uid === target)) return err(`분석기가 아닙니다: ${target}`);
       const hours = longestRemainingHours(h, target ? [target] : all.map((p) => p.uid));
       if (hours <= 0) return `돌아가는 해석이 없습니다\n${status(ctx, h)}`;
-      const done = dev.devAdvanceAnalysis(hours, target);
+      const done = h.devAdvanceAnalysis(hours, target);
       return `해석 즉시 완료 (+${hms(hours * 3600)}) → ${done}칸\n${status(ctx, h)}`;
     }
 

@@ -53,9 +53,12 @@ export function unhookCorpseNet(sys: GameFlowSystem): void {
 
 /**
  * `from` (2026-09-16): `emptied` is now the fact that **clears a corpse away**, so only one sent by the lobby host
- * is accepted (the same rule as `ee`). The host builds the container ahead of time from every `pcorpse` wire
- * (`inventory/parts/CorpseLoot.primeCorpseContainer` — `'all'` echoes back to the sender too), so whoever takes the
- * last item, the host's `crate:looted` knows it first. With no lobby (a smoke) nothing is compared.
+ * is accepted (the same rule as `ee`). **A message with no sender is refused too** — with a lobby the test is
+ * `from === hostId` and nothing else, so an `emptied` that arrives without a `from` cannot clear a corpse away
+ * (`parts/Wire.onFlowMessage` guards `flow` in exactly this shape). Every client builds the container ahead of
+ * time from every `pcorpse` wire (`inventory/parts/CorpseLoot.hookCorpseWire` → `primeCorpseContainer` — `'all'`
+ * echoes back to the sender too), so whoever takes the last item, the host's `crate:looted` sees it too. With no
+ * lobby (a smoke) nothing is compared.
  * 2026-09-16 (2nd pass): the host sends it **once nobody looks into that corpse any more** (`Corpses.update`) — the
  * receiver counts the sink clock from the moment it arrives (`releaseEmptied`).
  */
@@ -64,7 +67,7 @@ export function onCorpseMessage(sys: GameFlowSystem, msg: CorpseMessage, from?: 
   else if (msg.ev === 'sync') for (const w of msg.corpses ?? []) applyCorpseWire(sys, w);
   else if (msg.ev === 'emptied') {
     const hostId = sys.ctx.net?.lobby?.hostId;
-    if (hostId && from !== undefined && from !== hostId) return;
+    if (hostId && from !== hostId) return;
     if (typeof msg.id === 'string') sys.corpses?.releaseEmptied(msg.id);
   }
 }
@@ -144,8 +147,9 @@ export function sendCorpseSync(sys: GameFlowSystem, to: PeerId): void {
  * `cont taken` / `cont sync` the host confirmed (a client never takes out of a container optimistically), so marking
  * its own copy is right, and at the same moment the host's copy is empty too and the host broadcasts. A corpse that
  * stood empty-handed is marked by `add` on every client separately.
- * 2026-09-16 (2nd pass): the broadcast is the manager's (`Corpses.markEmptied` / `update`) — once every viewer has
- * closed their window.
+ * 2026-09-16 (2nd pass): the broadcast is the manager's, and **only on the authority** — `Corpses.markEmptied`
+ * and `Corpses.update` both reach it through `releaseByAuthority`, which is gated on `ctx.isAuthority` and fires
+ * once every viewer has closed their window. This caller itself sends nothing.
  */
 export function onContainerLooted(sys: GameFlowSystem, containerId: string): void {
   if (!containerId.startsWith('pcorpse:')) return;

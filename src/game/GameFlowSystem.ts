@@ -1,19 +1,14 @@
-import * as THREE from 'three';
 import type {
   GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, RemotePlayerRef,
 } from '@/shared';
 import type { PlanetId } from '@/shared';
 import type { TutorialCheckpointId } from '@/shared';
-import {
-  GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
-  NET_GHOST_RESTORE_TIMEOUT_S,
-} from '@/shared';
-import { RESUME_GATE_BLOCKER } from '@/shared';
+import { Keys } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from './ResumeGate';
-import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from './SoloRaid';
+import type { SoloRaidSave } from './SoloRaid';
 import { bumpClockHigh } from './SoloRaid';
 
-import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS } from './model';
+import { ALL_DEAD_CHECK_INTERVAL, LIFTOFF_TO_COMPLETE, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS } from './model';
 /** Folder vocabulary (constants · types · scratch objects) lives in `model.ts`; re-exported for old import paths. */
 export * from './model';
 import * as Death from './parts/Death';
@@ -325,8 +320,6 @@ export class GameFlowSystem implements GameSystem {
    */
   noScreenOpen(): boolean { return Phases.noScreenOpen(this); }
 
-  /** Phase 12: a screen other than the pause menu itself (and the gate) holds a blocker — the pause must yield. */
-
   /* ── Multiplayer helpers ─────────────────────────────────────────────── */
   /** Subscribe to host `flow` messages once `ctx.net` exists (NetSystem publishes it before this system inits, but stay lazy). */
   ensureNetHooks(): void {
@@ -546,6 +539,12 @@ export class GameFlowSystem implements GameSystem {
     this.netUnsub?.(); this.netUnsub = null;
     Corpse.unhookCorpseNet(this);
     Leader.unhookLeaderNet(this);
+    /*
+     * 2026-09-21: the manager holds a `pcorpse` subscription of its own (the `ride` note — `Corpses.hookNet`), which
+     * is **not** `sys.corpseUnsubs` above and **not** dropped by `clearCorpses()` (a mission reset keeps listening).
+     * The system's teardown is the one place that releases it.
+     */
+    this.corpses?.dispose();
     this.clearCorpses();
     if (this.ctx?.corpses === this.corpses) this.ctx.corpses = null;
     this.corpses = null;

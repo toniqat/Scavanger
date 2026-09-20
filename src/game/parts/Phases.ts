@@ -1,28 +1,20 @@
 /**
  * src/game/parts/Phases.ts — **phase transitions and pause**.
  *
- * menu → hub → deploying → playing → extracting → complete / dead → hub. The pause **never freezes the
+ * menu → hub → deploying → playing → extracting → shipLanded → liftoff → complete / dead → hub — the same
+ * list as `model.ts`'s header and the folder README's. The pause **never freezes the
  * world** (2026-09-07) and comes up only when the window loses focus. The pause menu is always the one and only
  * screen, so it yields at once while another screen is open (Phase 12 — the fix for the two overlapping and
  * neither being closable).
  */
-import * as THREE from 'three';
-import type {
-  GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, RemotePlayerRef,
-} from '@/shared';
-import type { PlanetId } from '@/shared';
-import {
-  GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
-  NET_GHOST_RESTORE_TIMEOUT_S,
-} from '@/shared';
+import type { GamePhase, MissionMode, PlanetId } from '@/shared';
+import { GameContext as Ctx, RAID_SAVE_INTERVAL_S, NET_GHOST_RESTORE_TIMEOUT_S } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
 /* 2026-09-15: squads · docking matchmaking — only a docked squad has a shared ship */
 import { isDockedLobby } from '@/shared';
-import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
-import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
+import { clearSoloRaid } from '../SoloRaid';
 import { bumpClockHigh } from '../SoloRaid';
 import { saveSoloAt } from './Session';
-import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS } from '../model';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
 /** Mission running or its result screen showing (anything the hub / a disconnect has to abort first). */

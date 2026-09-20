@@ -24,7 +24,7 @@ import '../styles/shipCall.css';
  * `STRATAGEM_ORDER[0]`, the same as the system's, and it updates on every non-null id of `stratagem:armed` — rather
  * than cutting a new `lastArmed` into `StratagemsRef`, the same value is built from events that already flow.
  *
- * Only with the rescue ship in hand does the **squad-wide count left** (`rescue:countChanged`) appear bottom right.
+ * Only with the rescue drop in hand does the **squad-wide count left** (`rescue:countChanged`) appear bottom right.
  * With no `ctx.stratagems` and no event yet it hides whole (`.off`).
  *
  * **Ready presentation (2026-09-12, user's decision)** — the same rule as the implant thumbnail. At the **moment** the
@@ -156,7 +156,7 @@ export class StratagemPanel {
     const ready = this.remaining <= 0.001;
     const fill = ready ? 0 : this.total > 0 ? 1 - Math.min(1, this.remaining / this.total) : 1;
     const cd = ready ? '' : this.secs(this.remaining);
-    // The count left only with the rescue ship in hand — holding another call must not show somebody else's number.
+    // The count left only with the rescue drop in hand — holding another call must not show somebody else's number.
     const ch = this.armed === 'rescue_drop' ? `${this.rescueLeft}/${RESCUE_DROPS_PER_RAID}` : '';
     const key = `${this.seen ? 1 : 0}|${id}|${this.armed ? 1 : 0}|${this.targeting ? 1 : 0}|${fill.toFixed(3)}|${cd}|${ch}`;
     if (key === this.lastKey) return;

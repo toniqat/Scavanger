@@ -830,10 +830,7 @@ export class WeaponSystem implements GameSystem {
   /** Movement penalty while a consumable is being used (`CONSUMABLE_SLOW_MUL`); `1` releases it. */
   setConsumableSlow(on: boolean): void { return Heal.setConsumableSlow(this, on); }
 
-  /**
-   * 2026-09-10 — is there any shield left for a shield charger to fill (no armor · full · broken = false).
-   * Asked before the hold starts — the item must never be spent for nothing.
-   */
+  /** Is there shield left for a shield charger to fill? Rule and reason: `parts/Healing.canChargeShield`. */
   canChargeShield(): boolean { return Heal.canChargeShield(this); }
 
   /**

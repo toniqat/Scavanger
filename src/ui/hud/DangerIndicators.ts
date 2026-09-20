@@ -94,7 +94,7 @@ const DROP_COLOR = '#ff4d4d';
  *   - **Grenades** — both `ctx.weapons.getGrenades()` (allies — one's own + remote squadmates' replicas) and
  *     `ctx.enemies.getEnemyGrenades()` (enemies — thrown by rogues). The label is the fuse left, and **colour says whose
  *     it is** (ally amber · enemy red; `hot` marks imminence alone).
- *   - **Ship-call drops** — `stratagem:called` → `landed` / `ended`. Orbital barrage · supplies · tripod · rescue ship.
+ *   - **Ship-call drops** — `stratagem:called` → `landed` / `ended`. Orbital barrage · supplies · tripod · the rescue drop.
  *   - **Raider drop pods** (added 2026-09-10, 2026-09-13 rogue → raider) — `ctx.enemies.getRogueDrops()`. An enemy coming
  *     down out of the sky is "a thing falling right now" too, so it is drawn in the language of a ship-call drop. The
  *     colour is **the enemy's**, so red; the label is seconds to touchdown → `레이더 n` right after it lands (since

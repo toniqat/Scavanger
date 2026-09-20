@@ -2,7 +2,8 @@
  * src/stratagems/parts/Targeting.ts — **the G wheel and targeting**.
  *
  * A G tap arms straight away, a hold picks from the 4-way wheel. Once picked, aiming is either the ground ring
- * or, after a 3 s left-click charge, the **top view** with a cursor on the ground. Right click / Esc cancels.
+ * or, after a `STRATAGEM_CHARGE_TIME` left-click charge, the **top view** with a cursor on the ground.
+ * Right click / Esc cancels.
  */
 import * as THREE from 'three';
 import {

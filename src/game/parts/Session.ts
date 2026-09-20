@@ -6,21 +6,12 @@
  * stands up where the body the host parked stood (with none, it drops in by hellpod).
  */
 import * as THREE from 'three';
-import type {
-  GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, RemotePlayerRef,
-} from '@/shared';
-import type { PlanetId } from '@/shared';
-import {
-  GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
-  NET_GHOST_RESTORE_TIMEOUT_S,
-} from '@/shared';
-import { FREE_CURSOR_BLOCKER } from '@/shared';
+import type { RaidSessionBlob, PlayerRestoreState } from '@/shared';
+import { RAID_SAVE_INTERVAL_S } from '@/shared';
 /* 2026-09-14: the intel broker — a solo resume restores fixed gimmicks (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import { resolveIntelEffects } from '@/shared';
-import { RESUME_GATE_BLOCKER } from '@/shared';
-import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
-import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
-import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS } from '../model';
+import { saveSoloRaid, type SoloRaidSave } from '../SoloRaid';
+import { ALL_DEAD_CHECK_INTERVAL } from '../model';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
 /** `ghost restore` from the host: stand where the ghost was; a dead ghost enters the respawn flow. */

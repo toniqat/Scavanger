@@ -126,15 +126,16 @@ export function callRefusal(sys: StratagemSystem, from: PeerId, p: unknown): Str
  * `stratq call` on the host. Kind must be on the wheel (`STRATAGEM_ORDER`, not the rescue drop), not host-only,
  * the callId must be the caller's own (`<from>-…`) and unused. The host rewrites `eta` from the csv `delay`,
  * starts the caller's cooldown, creates the call as remote (`local = false` — enemy damage stays on the caller's
- * client) and broadcasts `strat call {…, by}` to everyone else, the caller included. A refusal is silent.
+ * client) and broadcasts `strat call {…, by}` to everyone else, the caller included. A refusal answers the caller
+ * (`sendCallDeny` → full refund); only the `callId` shape · ownership checks stay silent (see the body).
  */
 export function onCallRequest(sys: StratagemSystem, msg: Extract<StratagemRequest, { ev: 'call' }>, from: PeerId): void {
   const net = sys.ctx.net;
   if (!net || !net.isHost) return;
   /*
    * 2026-09-11 (E-8 c): a refusal is no longer silent — the caller already started the shared cooldown **before**
-   * sending the request (`Targeting.confirm`), so it has to be told to give it back. `sendDeny` sends `strat deny`
-   * to that one person.
+   * sending the request (`Targeting.confirm`), so it has to be told to give it back. `sendCallDeny` sends
+   * `strat deny` to that one person.
    */
   const refuse = (why: StratagemDenyReason, callId?: string): void => {
     sys.lastCallRefusal = why;
@@ -228,8 +229,8 @@ export function syncWire(sys: StratagemSystem): StratagemCallWire[] {
   const now = sys.ctx.time;
   const out: StratagemCallWire[] = [];
   for (const c of sys.calls) {
-    // 2026-09-09: the rescue drop is a 4 s one-shot call, and a late receiver must not raise `rescue:landed`
-    //   again, so it is not carried.
+    // 2026-09-09: the rescue drop is a short one-shot call (`data/stratagems.csv` `delay`), and a late receiver
+    //   must not raise `rescue:landed` again, so it is not carried.
     if (c.kind === 'rescue_drop') continue;
     if (c.kind === 'orbital_laser' || c.kind === 'airstrike') { if (c.stage === 'done') continue; }
     else if (c.kind === 'structure_drop' && c.structures.length > 0 && c.structures.every((s) => s.destroyed)) continue;

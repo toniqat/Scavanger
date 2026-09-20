@@ -1,8 +1,8 @@
 /**
  * src/stratagems/parts/Calls.ts — **what a called ship call actually does**.
  *
- * Orbital laser (10 s of sustained damage) · airstrike · supply crate (tier 5) · destructible cover structures
- * (tripods). The rescue drop is `parts/Rescue`.
+ * Orbital laser (`LASER_DURATION` of sustained damage) · airstrike · supply crate (`SUPPLY_CRATE_TIER`) ·
+ * destructible cover structures (tripods). The rescue drop is `parts/Rescue`.
  * Every visual effect is procedural and no lights are used.
  */
 import * as THREE from 'three';

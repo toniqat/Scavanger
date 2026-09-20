@@ -8,7 +8,7 @@ import { buildPersonalExterior, type ExteriorModel } from './ExteriorShips';
 import { TextPlane } from '../Labels';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 공용 함선 격납고 (2026-09-08). The deck **behind** the shared ship's aft doorway: a 44 × 30 m bay with four square
+ * The shared ship's hangar (2026-09-08). The deck **behind** the shared ship's aft doorway: a 44 × 30 m bay with four square
  * floor markings, one per lobby slot, and a member's 개인 함선 parked on each. Walking to a parked ship's rear ramp
  * and pressing E boards it (`hub/parts/Hangar.ts` owns that interactable — this file is geometry only).
  *

@@ -152,7 +152,7 @@ export class Notifications {
       b.on('player:stimUsed', () => { if (!this.channel) this.push('회복제 사용', 'success', '생명력', 2); }),
       // down / revive / respawn (Phase 2)
       b.on('player:revived', ({ hp }) => this.push(`부활 — 체력 <b>${Math.ceil(hp)}</b>`, 'success', '생명력', 3)),
-      // 2026-09-09: auto-revive is gone, so nobody emits `game:respawnAvailable` — the rescue ship notification takes its place
+      // 2026-09-09: auto-revive is gone, so nobody emits `game:respawnAvailable` — the rescue drop's notification takes its place
       b.on('rescue:called', ({ targetName }) => this.push(`${escapeHtml(targetName)} 구조선 호출됨`, 'success', '구조', 3)),
       b.on('leader:deviceDropped', () => this.push('분대장 기기가 떨어졌습니다', 'warning', '분대장', 4)),
       b.on('net:remoteDowned', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 전투불능 — 구조 필요`, 'danger', '분대', 4)),

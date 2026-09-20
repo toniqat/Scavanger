@@ -265,7 +265,8 @@ export class GrenadeManager {
       _tmp.copy(ctx.player.position); _tmp.y += 0.9;
       const d = _tmp.distanceTo(pos);
       // 2026-09-15 (user's decision): self damage · friendly fire take the shared two-step stair too
-      //   (`shared/explosion`) — the inner half 100 % · the outer band 60 %
+      //   (`shared/explosion`) — `EXPLOSION_FULL_FRACTION` of the radius at 100 %, the outer band at
+      //   `EXPLOSION_OUTER_MUL`
       // 2026-09-18 (user's decision): a grenade that went off beyond a wall · roof · floor does not hit (3 body
       //   points)
       if (d < radius && blastReachesBody(ctx.world, pos, ctx.player.position.x, ctx.player.position.y, ctx.player.position.z, PLAYER_HEIGHT)) {

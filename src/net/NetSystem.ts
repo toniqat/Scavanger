@@ -97,10 +97,8 @@ export class NetSystem implements GameSystem, NetRef {
   probeAttempt = 0;
   /** `performance.now()` at which the pending probe fires (valid while `probeTimer` is set). */
   probeDueAt = 0;
-  /** Bumped by every stop / restart: an in-flight probe or shell-route lookup of an older generation is ignored. */
+  /** Bumped by every stop / restart: an in-flight probe of an older generation is ignored. */
   probeGen = 0;
-  /** Desktop shell: is this same-origin url the embedded relay? One `NET_SHELL_RELAY_ROUTE` lookup per url. */
-  embeddedCache: { url: string; embedded: boolean } | null = null;
 
   /* ── Phase 7 ── */
   readonly profileSync = new ProfileSync();
@@ -137,8 +135,7 @@ export class NetSystem implements GameSystem, NetRef {
   /** 2026-09-14: `ctx.net.rooms` — the group-room mirror (`RoomSync`). */
   readonly roomSync = new RoomSync();
 
-  /* ── A-3c (2026-09-11) ── */
-  /** The dining table's `meal serve` wire (`parts/Meal`): rules in progression, toasts in ui — only the flow here. */
+  /* ── A-3c (2026-09-11) → the dining plate (2026-09-16) ── */
   /** 2026-09-16: the dining plate — `plate state` / `plateq sync` (`parts/Plates`). */
   readonly plateRelay = new PlateRelay();
 

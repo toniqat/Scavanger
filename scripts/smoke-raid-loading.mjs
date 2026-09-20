@@ -133,7 +133,7 @@ try {
   await toHub();
   await P(() => {
     const gate = window.__game.getSystem('gameflow').loadGate;
-    gate.debugSetTimeout(4);          // does not really wait the 60 s out
+    gate.debugSetTimeout(4);          // does not really wait `RAID_LOAD_TIMEOUT_S` out
     gate.debugAddMember('peer-x', 0.5);   // a fake squadmate that never reaches 1
   });
   await resetEv();

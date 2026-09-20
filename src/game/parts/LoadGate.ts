@@ -33,7 +33,7 @@ import {
 } from '@/shared';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
-/** One person's share of the progress. */
+/** A progress number clamped into 0..1 (a non-finite one reads 0). */
 function clamp01(v: number): number {
   return Number.isFinite(v) ? (v < 0 ? 0 : v > 1 ? 1 : v) : 0;
 }
@@ -344,6 +344,6 @@ export class LoadGate {
   debugAddMember(id: PeerId, v: number): void { this.debugMembers.set(id, clamp01(v)); }
   /** Smoke: clears every injected squadmate (an injection does not vanish on its own when the raid ends). */
   debugClearMembers(): void { this.debugMembers.clear(); }
-  /** Smoke: shortens the wait cap (null = back to the csv value) — so 60 seconds are not actually waited out. */
+  /** Smoke: shortens the wait cap (null = back to the csv value) — so `RAID_LOAD_TIMEOUT_S` is not waited out. */
   debugSetTimeout(seconds: number | null): void { this.debugTimeoutS = seconds; }
 }

@@ -3,8 +3,8 @@
  *
  * From the moment the trigger is pulled to the moment damage lands: a round is drawn with the effective stats,
  * durability is chewed, a hitscan / projectile is fired (`raycastAll` — barriers · domes · destructible cover
- * stop the round here) and the hit is handed to enemies · remote players. The precision-fire alignment (the
- * predicted camera origin) hangs here too.
+ * stop the round here) and the hit is handed to enemies · remote players. The shot itself is resolved on the
+ * crosshair line through `parts/AimLine` (2026-09-12), not from a camera origin predicted here.
  */
 import * as THREE from 'three';
 import {

@@ -5,8 +5,10 @@
  *
  * In multiplayer a **full death** of the host drops a procedurally generated object (not an item) beside the corpse.
  * The dead host itself leaves a mark on the server with `ctx.net.reportHostDown(true)` — the server accepts someone
- * else's `transferHost({claim:true})` only while that mark is there — and once anyone holds for
- * `LEADER_DEVICE_HOLD_S` to collect it, `transferHost(me, true)` passes the squad leader over. The object itself is
+ * else's `transferHost({claim:true})` only while that mark is there — and once a squadmate holds for
+ * `LEADER_DEVICE_HOLD_S` to collect it, `transferHost(me, true)` passes the squad leader over. **Not anyone**:
+ * `canInteract` wants a live gameplay phase in a session and refuses the current host and a dead or downed body,
+ * so the seat only ever moves to someone standing who does not hold it already. The object itself is
  * cleared by `lead taken`.
  *
  * The toast (`분대장이 되었습니다`) is owned here — a community right-click transfer or an interaction inside the
@@ -212,7 +214,7 @@ export function clearDevice(sys: GameFlowSystem): void {
   d.dispose();
 }
 
-/** The 3-second hold completed: claims the squad leader from the server and clears the object (`lead taken`). */
+/** The `LEADER_DEVICE_HOLD_S` hold completed: claims the squad leader from the server and clears the object (`lead taken`). */
 export function takeDevice(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
   const net = ctx.net;

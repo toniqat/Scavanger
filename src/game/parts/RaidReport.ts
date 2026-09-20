@@ -219,7 +219,7 @@ export class RaidReport {
   }
 
   /* ── debug ── */
-  /** The tallies per source (debug · smokes). */
+  /** The tallies per source — a debug hook only (`window.__game`); nothing in `src/` or `scripts/` calls it. */
   debugTallies(): Array<{ key: string } & Tally> {
     return [...this.tallies.entries()].map(([key, t]) => ({ key, ...t }));
   }

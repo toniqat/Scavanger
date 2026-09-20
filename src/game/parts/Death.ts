@@ -9,13 +9,9 @@
  * android comes to get them up, so it is not a failure yet (`checkAllDead`).
  */
 import * as THREE from 'three';
-import type {
-  GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, RemotePlayerRef,
-} from '@/shared';
-import type { PlanetId } from '@/shared';
+import type { GameContext, RemotePlayerRef } from '@/shared';
 import {
-  GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
-  NET_GHOST_RESTORE_TIMEOUT_S,
+  PlayerFlags, RAID_FAILED_AUTO_RETURN_S,
   /* appended (2026-09-14, the tutorial rework): checkpoint respawn */
   TUTORIAL_RESPAWN_DELAY_S,
   /* appended (2026-09-15, A-17): the fixed reward for completing the tutorial */
@@ -23,15 +19,12 @@ import {
   /* appended (2026-09-16): raid XP = kill XP only — the multiplier for a raid that did not extract */
   XP_DEATH_MUL,
 } from '@/shared';
-import { FREE_CURSOR_BLOCKER } from '@/shared';
 /* appended (2026-09-15): the tutorial respawn wake */
 import { TUTORIAL_RESPAWN_WAKE_S } from '@/shared';
-import { RESUME_GATE_BLOCKER } from '@/shared';
 /* appended (2026-09-15): android squadmates — a bot member is left out of the all-dead check */
 import { isAndroidId } from '@/shared';
-import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
-import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
-import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS } from '../model';
+import { clearSoloRaid } from '../SoloRaid';
+import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, MISSION_FAILS_WHEN_ALL_DEAD } from '../model';
 /* appended (2026-09-09): corpses · the squad-leader device */
 import * as Corpse from './CorpseNet';
 import * as Leader from './Leader';
@@ -77,15 +70,16 @@ export function onLocalDied(sys: GameFlowSystem): void {
     sys.respawnTimer = -1; sys.respawnLastSec = -1;
     /*
      * 2026-09-11 (C-70): **the raid is over the moment the player dies.** The periodic save used to keep running
-     * and the save was cleared only by `gameOver()` after `DEATH_TO_SCREEN` (2.5 s) — a reload in between brought
+     * and the save was cleared only by `gameOver()` after `DEATH_TO_SCREEN` — a reload in between brought
      * the player **fully back** from the pre-death snapshot (solo has no corpse, so the loss is 0). So the periodic
      * save is turned off first and the save is cleared **immediately**. `gameOver()`'s `clearSoloRaid()` is
      * idempotent, so it is left alone.
      */
     sys.raidSaveTimer = -1;
     clearSoloRaid();
-    // 2026-09-13: on a voluntary return the death cutscene leads straight to the ship instead of the
-    // `레이드 실패` screen (`finishReturnToShip` settles it)
+    // 2026-09-13: on a voluntary return the death cutscene leads to the ship. Solo still settles through
+    // `finishReturnToShip` → `gameOver()`, so the `레이드 실패` screen **is** raised — the `hub:enter` of the same
+    // frame takes it down again, so nobody sees it.
     if (sys.returnPending) sys.returnTimer = DEATH_TO_SCREEN;
     else sys.deathTimer = DEATH_TO_SCREEN;
     sys.setPaused(false);
@@ -170,10 +164,12 @@ function onTutorialDied(sys: GameFlowSystem): void {
   }
 
 /**
- * `TUTORIAL_RESPAWN_DELAY_S` has passed (`GameFlowSystem.update`). The player stands up again at the checkpoint
- * spot — the only place that knows where it is, is `world/tutorial`, which built the map, so it is asked there;
- * with no answer the player falls back to the world spawn. The `player:respawn` contract carries no yaw, so the
- * facing is turned once with `teleport` **right after** the respawn.
+ * `TUTORIAL_RESPAWN_DELAY_S` has passed (`GameFlowSystem.update`). The player stands up again at
+ * `world/tutorial`'s `respawnPose()` — since 2026-09-14 usually **the last spot the body stood on the ground**,
+ * with the checkpoint only the fallback for when that record is missing (the same reason the toast 12 lines above
+ * never says 「체크포인트」). Only `world/tutorial` built the map, so it is the one asked; with no answer the player
+ * falls back to the world spawn. The `player:respawn` contract carries no yaw, so the facing is turned once with
+ * `teleport` **right after** the respawn.
  */
 export function tutorialRespawn(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
@@ -235,8 +231,9 @@ export function completeTutorialSkip(sys: GameFlowSystem): void {
  * Leaving a raid behind is **the same as dying on the spot**: `PlayerRef.die()` raises a real `player:died`, so
  * `onLocalDied` cleans up as usual — in a squad a corpse stands and the equipment · bag · the broken pairs of the
  * equipped implants stay in it (a squadmate recovers them), solo loses everything. Only two things differ: waiting
- * for a rescue drop (squad) and the `레이드 실패` screen (solo) are skipped, and after the `DEATH_TO_SCREEN` death
- * cutscene `finishReturnToShip` sends the player straight to the ship.
+ * for a rescue drop (squad) is skipped, and after the `DEATH_TO_SCREEN` death cutscene `finishReturnToShip`
+ * sends the player straight to the ship. Solo goes through `gameOver()` there like a real death, so the
+ * `레이드 실패` screen is raised and the `hub:enter` of the same frame takes it down — it is never seen.
  *
  * Where there is no body to kill or nothing to lose — the training range · during the drop · the results screen —
  * it is a direct `hub:enter` as before. Already dead (spectating in a squad): the corpse already stands, so
@@ -491,13 +488,15 @@ export function awardMissionXp(sys: GameFlowSystem): void {
     const extracted = s.extracted;
     /*
      * 2026-09-15 (A-17, user's decision 「고정 지급 · 정확히 Lv.2」): a **completed tutorial raid** does not go through
-     * the settlement formula and takes `TUTORIAL_RAID_XP` as it is (csv — the same value as `XP_BASE`, so exactly
-     * level 2). With kill XP and the library `raidXp` multiplier folded in, some players reach level 3, which makes
+     * the settlement formula and takes `TUTORIAL_RAID_XP` as it is (csv). 「정확히 Lv.2」 is what the decision
+     * asks for, so that row is kept at `XP_BASE` — tuning either one alone breaks it, and nothing here checks.
+     * With kill XP and the library `raidXp` multiplier folded in, some players reach level 3, which makes
      * the number of points the ship track (`levelUp` → `stats`) has to teach waver. The tutorial has no corporation
      * contract, so `settleMission` is not called either (an old contract may still be open, and the tutorial must
      * not settle it).
      * A **tutorial that ended without extracting** (ESC's `튜토리얼 건너뛰기` could not get the player aboard the
-     * ship, so it went `game:returnToShip` → `gameOver()`) is not a 「completion」, so the old formula applies.
+     * ship, so it went `game:returnToShip` → `gameOver()`) is not a 「completion」 either, so it pays **0** — the
+     * branch right below — and not the main game's formula.
      */
     const tutorialClear = sys.isTutorial() && extracted;
     let xp = 0;

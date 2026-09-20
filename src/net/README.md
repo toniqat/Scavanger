@@ -206,8 +206,8 @@ connected and prices received on this connection. `requestHistory(coin, range)` 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/net`.
+- 2026-09-21 — `docs/TODO.md` B-83: the never-read `NetSystem.embeddedCache` field removed (a 2026-09-15 「builds ship no server」 leftover — `NET_SHELL_RELAY_ROUTE` is asked for by `ui/menus/SettingsMenu` alone), and the JSDoc of the `meal serve` wire deleted on 2026-09-16 taken off `plateRelay`.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-17 — `sanitizeShipVisit` keeps `cultures` (placed uid · slot < `CULTURE_MAX_SLOTS` · medium id · `s: 1` strain flag, one per slot) for the visited culture tank model.
 - 2026-09-16 — `parts/Meal.ts` (host-relayed `meal req` / `serve`) replaced by `parts/Plates.ts`: each member's own `plate state` + `plateq sync` on hub-session entry → `net:squadPlate`.
 - 2026-09-15 — Title resume / abandon: the reload's `lobby:mission false` carries `keep`; `abandonRaid()` → `lobby:abandon` (optimistic `drifted`); `rejoinMission` refuses a drifted raid.
-- 2026-09-15 — `PlayerSnapshot.ws` (carry-weight state, raid only, from `InventoryRef.getWeight()`) sent by `Snapshotter`; `RemotePlayer.weightState` decoded through `WEIGHT_STATE_WIRE` for the host's sandworm director.

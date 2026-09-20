@@ -3,8 +3,10 @@
  *
  * The question this file answers: *what is left in the world when a player dies fully, and how it is searched.*
  *
- * - Automatic revival is gone, so a **corpse** stands where the player died. **It does not disappear before the
- *   raid ends** — no lifetime, no distance culling (user's decision: kept out of the optimisation targets).
+ * - Automatic revival is gone, so a **corpse** stands where the player died. It has **no lifetime and no
+ *   distance culling** (user's decision: kept out of the optimisation targets). The one thing that takes it away
+ *   is being empty — 2026-09-16: a corpse with nothing left in it sinks `CORPSE_EMPTY_REMOVE_DELAY_S` after the
+ *   last loot window closed and is removed (`markEmptied` · `releaseEmptied` · `update`).
  * - A corpse is one container: `Interactable` `pcorpse:<ownerId>:<n>` → `openContainerItemsSized(...)`.
  *   **Taking** rides the existing `cont` / `contq` host-authority path exactly as a crate does (no new path).
  * - The mesh is procedural — `SoldierModel` is frozen once into the dead pose and never updated again.
@@ -21,8 +23,8 @@ import {
   CORPSE_EMPTY_REMOVE_DELAY_S, CORPSE_EMPTY_SINK_DEPTH_M, CORPSE_EMPTY_SINK_S,
   /* appended (2026-09-16): an empty corpse sinks only after every loot window has closed */
   CorpseViewTracker,
-  type CorpseItemWire, type CorpsesRef, type GameContext, type Interactable, type ItemInstance, type Obstacle,
-  type PlayerCorpse, type PlayerCorpseWire, type TramDef, type WorldRef,
+  type CorpseItemWire, type CorpsesRef, type GameContext, type Interactable, type ItemInstance, type NetRef,
+  type Obstacle, type PlayerCorpse, type PlayerCorpseWire, type TramDef, type WorldRef,
 } from '@/shared';
 
 /** `PlayerCorpseWire.ride` (C-63) — the vehicle-local coordinates of a corpse riding a tram. */
@@ -62,8 +64,11 @@ const SETTLE_STEPS = 6;
 const SETTLE_DT = 0.5;
 
 /**
- * One corpse. It is both an `Interactable` and a `PlayerCorpse`. The item list passes to the container on the first
- * interaction, and from then on the container cache is the truth (`crate:looted` tells it that it went empty).
+ * One corpse. It is both an `Interactable` and a `PlayerCorpse`. In a session the container is already built before
+ * anybody touches the body — **every** client primes it the moment the `pcorpse` wire arrives
+ * (`inventory/parts/CorpseLoot.hookCorpseWire` → `primeCorpseContainer`); with no wire (single player) the item
+ * list passes to the container on the first interaction. From then on the container cache is the truth
+ * (`crate:looted` tells it that it went empty).
  */
 export class PlayerCorpseObject implements Interactable, PlayerCorpse {
   readonly radius = PLAYER_CORPSE_LOOT_RANGE;
@@ -360,6 +365,8 @@ export class PlayerCorpseManager implements CorpsesRef {
    */
   private readonly pendingRide = new Map<string, CorpseRideWire>();
   private netUnsub: (() => void) | null = null;
+  /** Which `NetRef` `netUnsub` belongs to — a different one means subscribing again (`hookNet`). */
+  private hookedNet: NetRef | null = null;
   /**
    * 2026-09-16 (empty-corpse removal): the corpse ids cleared away in this raid. `add` filters them so that a late
    * `pcorpse spawn` (the `'all'` echo) · a host `sync` sent before the removal cannot spawn **a corpse already
@@ -385,10 +392,17 @@ export class PlayerCorpseManager implements CorpsesRef {
     this.hookNet();
   }
 
-  /** Listens separately for the `ride` of `pcorpse` alone (once). `update` calls it again for a late `ctx.net`. */
+  /**
+   * Listens separately for the `ride` of `pcorpse` alone. `update` calls it every frame, so a `ctx.net` that
+   * appeared late **or was replaced** gets hooked — the shape of the sibling `shared/corpseViewers.ts`
+   * `CorpseViewTracker.hookNet`. Keying on `hookedNet` instead of on `netUnsub` being null is what makes the
+   * replacement case work; the old subscription is dropped first, so the new `NetRef` is the only one heard.
+   */
   private hookNet(): void {
     const net = this.ctx.net;
-    if (this.netUnsub || !net || typeof net.onMessage !== 'function') return;
+    if (!net || net === this.hookedNet || typeof net.onMessage !== 'function') return;
+    this.netUnsub?.();
+    this.hookedNet = net;
     this.netUnsub = net.onMessage('pcorpse', (msg) => {
       if (msg.ev === 'spawn') this.noteWireRide(msg.corpse);
       else if (msg.ev === 'sync') for (const w of msg.corpses ?? []) this.noteWireRide(w);
@@ -427,8 +441,9 @@ export class PlayerCorpseManager implements CorpsesRef {
   /**
    * An id already known is ignored and the existing one returned (so a message sent to `'all'` does not echo back).
    * 2026-09-16: an id already emptied and cleared away this raid returns null (it is not spawned again). **With no
-   * items at all** it is marked an empty corpse the moment it stands (`markEmptied`) — the dead player · the host ·
-   * the receivers all see the same `items`, so they reach the same conclusion with no wire.
+   * items at all** its sink clock starts the moment it stands — `releaseEmptied`, **not** `markEmptied`, so
+   * nothing is broadcast: the dead player · the host · the receivers all see the same `items` and reach the same
+   * conclusion on their own.
    */
   add(id: string, ownerId: string, ownerName: string, position: THREE.Vector3, yaw: number,
     diedAt: number, items: ItemInstance[], slot: number): PlayerCorpseObject | null {
@@ -537,9 +552,9 @@ export class PlayerCorpseManager implements CorpsesRef {
   }
 
   /**
-   * 2026-09-13 (`CorpsesRef.removeCorpse`, caller: extraction): clears a corpse that left with the ship out of the
-   * raid. The items inside go too — the same id left in inventory's container cache has no way left to be opened
-   * (the interactable is gone).
+   * 2026-09-13 (`CorpsesRef.removeCorpse`, callers: extraction — a corpse that left the raid with the ship — and
+   * `update`, which clears a fully sunk empty corpse away). The items inside go too — the same id left in
+   * inventory's container cache has no way left to be opened (the interactable is gone).
    */
   removeCorpse(id: string): boolean {
     const c = this.corpses.get(id);
@@ -560,10 +575,11 @@ export class PlayerCorpseManager implements CorpsesRef {
    * 2026-09-16: sinks empty corpses and clears away the ones fully sunk (the clock = `ctx.missionTime`).
    * 2026-09-16 (2nd pass): an empty corpse somebody holds a window open on is not counted — the authority releases
    * and broadcasts it the moment the last person closes, and even a corpse already counting has its clock held
-   * while **my** window shows it (a broadcast and my own close that crossed — the 1 s after the close is kept).
+   * while **my** window shows it (a broadcast and my own close that crossed — the
+   * `CORPSE_EMPTY_REMOVE_DELAY_S` after the close is kept).
    */
   update(): void {
-    if (!this.netUnsub) this.hookNet();
+    this.hookNet();
     this.viewers.update();
     const now = this.ctx.missionTime;
     const mine = this.viewers.localViewing;
@@ -605,5 +621,18 @@ export class PlayerCorpseManager implements CorpsesRef {
     this.removed.clear();   // 2026-09-16
     this.owners.clear();
     this.viewers.reset();   // 2026-09-16 (2nd pass)
+  }
+
+  /**
+   * 2026-09-21: the system is going away (`GameFlowSystem.dispose`). `clear()` above is a **mission reset** and
+   * deliberately keeps listening, so this is the only place that drops the `pcorpse` subscription this manager
+   * holds on its own (`hookNet`) and the view tracker's.
+   */
+  dispose(): void {
+    this.netUnsub?.();
+    this.netUnsub = null;
+    this.hookedNet = null;
+    this.viewers.dispose();
+    this.clear();
   }
 }

@@ -17,7 +17,7 @@ const DEFAULT_BLOCKS: readonly CrewBlock[] = ['equip', 'bag', 'quick'];
 
 /**
  * **분대원 장비 열람** (Phase 10) — a read-only 장비 / 가방 / 빠른 사용 view of *another* member's loadout document
- * (`InventoryRef.captureCrewLoadout()`, delivered over `crew loadout`). The 발사 준비 패널 in `hub/` puts it inside its
+ * (`InventoryRef.captureCrewLoadout()`, delivered over `crew loadout`). The ready panel in `hub/` puts it inside its
  * own modeless frame; this class only owns the content.
  *
  * It is a genuine snapshot: the document is sanitised with `sanitizeLoadoutSave`, fresh instances are minted with

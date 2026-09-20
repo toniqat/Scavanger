@@ -14,7 +14,7 @@ export function resolveSkillId(raw: string, ctx: GameContext): SkillId | null {
   return null;
 }
 
-/** `skill <id|한국어> <±xp>` — signed raw skill XP through `ctx.progression.addSkillXpRaw`. */
+/** `skill <id|이름> <±xp>` (the live `usage`) — signed raw skill XP through `ctx.progression.addSkillXpRaw`. */
 export const skill: CommandFactory = () => ({
   name: 'skill',
   usage: 'skill <id|이름> <±xp>',

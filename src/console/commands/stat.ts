@@ -26,7 +26,7 @@ export function statNames(ctx: GameContext): string[] {
   return out;
 }
 
-/** `stat <id|한국어> <±xp>` — raw stat XP through `ctx.progression.addStatXp`; prints `근력 7 (312/1852)`. */
+/** `stat <id|이름> <±xp>` (the live `usage`) — raw stat XP through `ctx.progression.addStatXp`; prints `근력 7 (312/1852)`. */
 export const stat: CommandFactory = () => ({
   name: 'stat',
   usage: 'stat <id|이름> <±xp>',
