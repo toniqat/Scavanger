@@ -1,6 +1,6 @@
 import type { GameContext, ImplantDef, ImplantId } from '@/shared';
 import { Keys, createKeycap, onKeybindsChanged, paintKeycap } from '@/shared';
-import { el, restartAnim, setText, toggleClass } from '../dom';
+import { el, setText, toggleClass } from '../dom';
 import '../styles/implant.css';
 
 /** How the thumbnail draws the implant's state. */
@@ -126,14 +126,21 @@ export class ImplantWidget {
     );
   }
 
+  /** Restart a one-shot CSS animation class (remove → reflow → add is the only reliable way). */
+  private restart(...cls: string[]): void {
+    this.root.classList.remove(...cls);
+    void this.root.offsetWidth;
+  }
+
   private flash(cls: 'pulse' | 'hit'): void {
-    restartAnim(this.root, cls);
+    this.restart(cls);
+    this.root.classList.add(cls);
   }
 
   /** 2026-09-12: the ready moment — `major` for the last / only charge (and 안정제), `minor` for an intermediate one. */
   private flashReady(major: boolean): void {
-    this.root.classList.remove(major ? 'rdy-minor' : 'rdy-major');
-    restartAnim(this.root, major ? 'rdy-major' : 'rdy-minor');
+    this.restart('rdy-major', 'rdy-minor');
+    this.root.classList.add(major ? 'rdy-major' : 'rdy-minor');
     this.lastFlash = major ? 'major' : 'minor';
     this.flashCount++;
   }
@@ -142,7 +149,8 @@ export class ImplantWidget {
   private showRefund(seconds: number): void {
     if (!(seconds > 0)) return;
     setText(this.refundEl, `−${this.secs(seconds)}초`);
-    restartAnim(this.root, 'rf-flash');
+    this.restart('rf-flash');
+    this.root.classList.add('rf-flash');
   }
 
   private resetTransient(): void {

@@ -1,6 +1,6 @@
 import type { CharBuff, GameContext, Rarity } from '@/shared';
 import { ARMOR_SHIELD_PER_SEGMENT, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_DOWN_HP } from '@/shared';
-import { damp, el, rarityColor, restartAnim, setText, toggleClass } from '../dom';
+import { el, setText, toggleClass, damp, rarityColor } from '../dom';
 import '../styles/raidHud.css';
 import { BuffStrip } from './BuffStrip';
 
@@ -171,8 +171,10 @@ export class Vitals {
       }),
       ctx.bus.on('player:staminaDepleted', () => {
         this.depletedTimer = STAMINA_PULSE;
-        // restart the pulse animation even if it is still running (no `offsetWidth` reflow — this is inside a frame)
-        restartAnim(this.stamRoot, 'depleted');
+        // restart the pulse animation even if it is still running
+        this.stamRoot.classList.remove('depleted');
+        void this.stamRoot.offsetWidth;
+        this.stamRoot.classList.add('depleted');
       }),
       // ── downed / revive ──
       ctx.bus.on('player:downed', () => {

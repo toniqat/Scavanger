@@ -268,15 +268,18 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 ## Rules
 
 - **No layout read inside a frame**, and it is **counted** since 2026-09-20: `scripts/smoke-layout-reads.mjs` patches
-  every layout-forcing accessor and fails the build if one is touched while `Engine.frame` is on the stack. A widget
-  that needs the screen size reads `hudViewport` (`hud/viewport.ts`), measured once on `resize`. `clientWidth` /
-  `clientHeight` / `getBoundingClientRect` after a style write forces the browser to lay the whole UI out again —
-  twelve widgets used to do that every frame, and `hud/ChatLog` did it **per chat line** (8.3 ms on the frame three
-  android callouts landed, `docs/PERF_PLAN.md` Phase B). — `hud/viewport.ts`, `hud/ChatLog.ts`
-- **Replaying a one-shot CSS animation goes through `dom.restartAnim`**, never
-  `classList.remove(c); void el.offsetWidth; classList.add(c)`. That idiom's `offsetWidth` read is a forced layout, and
-  the paths that use it (hit marker, damage flash, magazine tick, stamina, implant ready) all run inside a frame.
-  `restartAnim` rewinds the running animation instead, which needs style and not layout. — `dom.ts`
+  every layout-forcing accessor and fails if one is touched while `Engine.frame` is on the stack. A widget that needs
+  the screen size reads `hudViewport` (`hud/viewport.ts`), measured once on `resize`. `clientWidth` / `clientHeight` /
+  `getBoundingClientRect` after a style write forces the browser to lay the whole UI out again — twelve widgets used
+  to do that every frame, and `hud/ChatLog` did it **per chat line** (8.3 ms on the frame three android callouts
+  landed, `docs/PERF_PLAN.md` Phase B). — `hud/viewport.ts`, `hud/ChatLog.ts`
+- **One exception, and it is a ratchet**: the CSS animation restart
+  `classList.remove(c); void el.offsetWidth; classList.add(c)` (hit marker, damage flash, magazine tick, stamina,
+  implant / ship-call ready …). Thirteen files are listed in the smoke's `KNOWN_IDIOM`; the list may shrink, never
+  grow. A read-free replacement was tried on 2026-09-20 and **retracted** — `getAnimations()` loses an animation that
+  finished with no `fill` and never sees one that lives on a descendant (`.imp-hud.rdy-major .imp-ring`), and a
+  same-task remove/add coalesces. A style flush is no cheaper than a layout flush either (1.5–2.1 ms vs 0.9–1.9 ms
+  inside a dirtied raid frame). Fixing it needs a decision — `docs/TODO.md` B-68.
 - **A widget whose DOM shape first appears mid-raid pays for it then.** A row's first layout costs several times its
   later ones (rules never matched, glyphs never shaped): a chat row measured **5.3 ms** the first time and 0.5 ms
   after. `hud/ChatLog` draws and drops one throwaway row on a timer at `bind`, and `hud/Detection` · `hud/ScanReveal`
@@ -384,7 +387,7 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
-- 2026-09-20 — `docs/PERF_PLAN.md` Phase B: the HUD reads no layout inside a frame, and a smoke counts it. `hud/ChatLog` stopped measuring a row per line (a `column-reverse` scroller pins its own bottom, the closed height is a `calc()`), the remove → `offsetWidth` → add animation idiom became `dom.restartAnim` at 14 sites, a chat row's first layout is paid at boot, and `hud/Detection` · `hud/ScanReveal` build their pillar pools on `world:ready` instead of on the first corpse. S4's android first-contact frame: js 17.9 → 15.5 ms, spike frames 1 → 0 (twice).
+- 2026-09-20 — `docs/PERF_PLAN.md` Phase B: the HUD reads no layout inside a frame, and a smoke counts it. `hud/ChatLog` stopped measuring a row per line (a `column-reverse` scroller pins its own bottom, the closed height is a `calc()`), a chat row's first layout is paid at boot, and `hud/Detection` · `hud/ScanReveal` build their pillar pools on `world:ready` instead of on the first corpse. S4's android first-contact frame: js 17.9 → 15.5 ms, spike frames 1 → 0 (twice). The animation-restart `offsetWidth` idiom was swept into a `dom.restartAnim` helper in the same pass and **reverted the same day** — it cannot replay a finished or a descendant animation; it is a listed exception in the smoke instead (`docs/TODO.md` B-68).
 - 2026-09-20 — The HUD's screen size has one owner (`hud/viewport.ts` `hudViewport`, measured on `resize`): twelve per-frame `ctx.uiRoot.clientWidth` / `clientHeight` reads across eleven projecting widgets are gone. Measured effect on this machine: none (`x:layoutFlush` is **one** layout of a HUD already dirtied by `HudSystem.update`, not read/write thrash — `docs/PERF_PLAN.md` Phase 2), but the trap is closed.
 - 2026-09-19 — Audit B-27 ~ B-30 + B-46: stale comments corrected (the skip prose's track count, the `.tm-ask` count, the danger-target list, `시설 제거`, the hazard banner text, the gone `hud/MealBadge`, the gone `.oarrow.drop` / `.call.airstrike`, the all-dead rule, where `Vitals` sits, `quit`'s copied body, `ChatTab.onShow`'s focus, the `net:peerJoined` direction, the ping callout examples, the comms wheel's hard-coded `H`); dead code dropped (`ShipManage.missingText`, `void main`, `void yaw`); the group-room 「초대 중 n」 rows are appended now, so the heading no longer stands over an empty drawer (`ChatTab.renderRoom`); the two raw NUL bytes in `map/QuestPanels.ts` became `' '` (git · `rg` read that file as binary and every tree-wide grep skipped it); four csv / constant values left their comments.
 - 2026-09-19 — A crate ping carries its **loot-container id** (`snap` · aim assist → `ping:placedV3.containerId` · `PingMessage.containerId`). `label` stays the display string `보급 상자 (n등급)`, which `allies/` had been using as an id, so a pinged crate was never actually looted (TODO B-61) — `hud/Pings.ts`.

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/shared';
-import { damp, el, restartAnim } from '../dom';
+import { el, damp } from '../dom';
 
 interface Arc { el: HTMLElement; angle: number; life: number; }
 const ARC_POOL = 6;
@@ -40,9 +40,9 @@ export class DamageOverlay {
       ctx.bus.on('ui:damageIndicator', ({ from }) => this.indicate(from, ctx)),
       // edge flash only — the arc for this hit comes through `ui:damageIndicator` (same emitter, one arc per hit)
       ctx.bus.on('player:damaged', () => {
-        // `restartAnim`, not remove → `offsetWidth` → add: this handler runs inside `Engine.frame`, where reading
-        // `offsetWidth` forces a full UI layout (CLAUDE.md §4.2, `docs/PERF_PLAN.md` Phase B).
-        restartAnim(this.edgeFlash, 'show');
+        this.edgeFlash.classList.remove('show');
+        void this.edgeFlash.offsetWidth;
+        this.edgeFlash.classList.add('show');
         window.setTimeout(() => this.edgeFlash.classList.remove('show'), 40);
       }),
       ctx.bus.on('game:newMission', () => this.reset()),

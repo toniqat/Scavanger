@@ -27,7 +27,8 @@ group spawns.
 is mostly the CPU waiting for it, and that wait is too noisy to attribute** (±1.7 ms on one build). What repeats is
 that the render block does **not** track draw calls or scene nodes, so the work is triangles and pixels. Nothing in
 S1–S4 sustains a drop on an RTX 4080 SUPER — every scenario sits on the 60 Hz vsync — so what the user feels is
-individual frames, and those are what Phase B goes after.
+individual frames. Phase B took those and **S4's no longer overruns**; the ones left in S2 · S3a are led by the
+render block, i.e. the same GPU question, not by any one-off.
 
 ---
 
@@ -146,8 +147,12 @@ measured on `resize` (`ui/hud/viewport.ts`). **The premise was wrong**: `x:layou
 1.04–1.07 ms/frame, and so is `l:hud` (1.13 → 1.15). That mark is the harness's *own* probe read at the top of
 `HudSystem.lateUpdate`, and what it measures is **one unavoidable layout** of a HUD that `HudSystem.update` has
 already dirtied — not eleven reads thrashing against each other. The change is kept because it is the right shape
-and costs nothing, but it is not a win, and **the real target is what dirties the layout**: per-body text writes and
-per-body DOM nodes (see Phase C).
+and costs nothing, but it is not a win.
+
+**What it guessed next was also wrong** (Phase B, below): 「the real target is what dirties the layout — per-body text
+writes and per-body DOM nodes」. Counted, there are **14 text writes in 836 frames** and the rendered box count moves
+1 085 → 1 116 when 60 bugs arrive. The layout that *was* worth removing belonged to one widget reading its own
+geometry (`hud/ChatLog`), which is the opposite of a per-body cost.
 
 ---
 
@@ -181,8 +186,8 @@ Same machine state, back to back, `--only s2`, two runs per side (`git stash pus
   after: 22 · 24; after with bloom off: 14. Never conclude from one run.
 
 **So the honest ranking is now: pixel and vertex work first, then the one-off spikes, then the multiplayer path.**
-*(Phase A took the body-side vertex work; the pixel and world-side vertex work is still there, but it now needs a
-decision. **The next phase to run is B.**)*
+*(Phase A took the body-side vertex work and A2 the world's; the pixel work is still untouched and needs a decision.
+Phase B took the one-off spikes. **What is left is C and D.**)*
 
 ---
 
@@ -356,7 +361,7 @@ The first row of the page costs ~10× the rest — selectors never matched, Kore
 same shape as the other three Phase B suspects (a pool built on first use), and the same cure: **pay it before
 anyone is watching.**
 
-#### Built
+#### Built (and one thing un-built)
 
 1. **`ui/hud/ChatLog` reads no layout at all.** The closed height was measured from a real row (`--chat-closed-h`);
    it is `3.5 × font-size × line-height + 3 gaps`, so `base.css` computes it with `calc()` — and the measurement was
@@ -365,17 +370,54 @@ anyone is watching.**
    origin **is** the bottom edge and it re-pins itself through open / close, a font swap and a resize — the three
    cases the old `stick()` + `ResizeObserver` + `document.fonts.ready` existed for. Rows keep their oldest→newest
    document order (`history()`, the smokes and `querySelectorAll('.chat-line')` read it).
-2. **The remove → `void offsetWidth` → add animation idiom is gone**, at 14 sites, replaced by `ui/dom.restartAnim`
-   (rewind the running animation — style, not layout). Five of those run inside a frame: the hit marker (**every
-   hit**), the damage flash, the magazine tick, the stamina pulse and the implant ready flash.
+2. ~~**The remove → `void offsetWidth` → add animation idiom is gone**, at 14 sites, replaced by
+   `ui/dom.restartAnim`.~~ **Built and retracted the same day — see [The sweep that was
+   retracted](#the-sweep-that-was-retracted).** The idiom is still there, listed as an exception the smoke ratchets.
 3. **First layouts are paid early.** `ChatLog` draws and drops one throwaway row on a timer at `bind` (the title
    screen is up, and it is off the frame so the guard stays at 0) — 3 × `ally:chat` went **5.3 → 1.4 ms**.
    `hud/Detection` and `hud/ScanReveal` build their pillar pools on **`world:ready`** instead of on the first corpse:
    that is inside the raid-entry hold, and it has to be `world:ready` rather than `game:newMission` because `world/`
    generates inside its own handler and `ui` is registered after it (docs/ARCHITECTURE.md gotcha).
 4. **The rule is now counted, not commented**: `scripts/smoke-layout-reads.mjs` patches every layout-forcing accessor
-   and fails if one is touched while `Engine.frame` is on the stack. It caught `hud/DamageOverlay` the first time it
-   ran, which is how the 14-site sweep started.
+   and fails if one is touched while `Engine.frame` is on the stack, outside the one listed idiom. It caught
+   `hud/DamageOverlay` the first time it ran.
+
+#### The sweep that was retracted
+
+The smoke's first run failed on `hud/DamageOverlay`, which fires the CSS animation restart
+`classList.remove(c); void el.offsetWidth; classList.add(c)` from a `player:damaged` handler — inside a frame. That
+turned into a 14-site sweep behind a helper, `ui/dom.restartAnim`, which rewound the running animation
+(`getAnimations()` → `currentTime = 0`) instead of forcing a layout. **It was wrong, and it was reverted the same
+day.** Two ways, both found by testing the helper rather than trusting it:
+
+- **A finished animation is not in `getAnimations()`.** With `animation-fill-mode: none` — `ammoFlash` (the magazine
+  tick), `stamPulse`, `contractPulse` — the animation leaves the timeline when it ends, so with the class still on
+  the element there is nothing to rewind and the *second* flash never plays. Measured directly: `first: added` ·
+  `while running: rewound 1` · **`after it finished: rewound 0`**.
+- **The animation often lives on a descendant.** `.imp-hud.rdy-major .imp-ring`, `.scall.rdy-major .sc-ring`,
+  `.stamina.depleted .stam-bar .fill` — the class goes on the root, the animation on a child, so
+  `root.getAnimations()` is empty from the start. Widening to `{subtree: true}` is not a fix either: it would rewind
+  unrelated animations running on the same subtree.
+
+And the read-free replacements do not exist. A same-task `remove` + `add` coalesces into no change, with or without
+one `requestAnimationFrame` (the callback runs before the frame's style recalc, so both edits land in one update).
+What *does* work is committing the removal with a flush — and a **style** flush is not cheaper than a **layout** one
+on this HUD:
+
+| 10 reads inside a dirtied raid frame | 1st | 2nd | 3rd | 4th |
+|---|---|---|---|---|
+| `uiRoot.clientWidth` (layout) | 0.9 | 1.2 | 1.1 | 1.9 |
+| `getComputedStyle(el).animationName` (style) | 1.9 | 1.5 | 1.5 | 2.1 |
+| remove → style flush → add, ×10 | 2.2 | 3.0 | 3.9 | 4.4 |
+
+So the honest cost of the idiom is **one extra flush, ~1–2 ms, on a frame where a flash fires**, and the only
+read-free cure left is a twin `@keyframes` per animation with two classes alternating — CSS duplication at 13 sites,
+which is a decision, not a cleanup. It is **`docs/TODO.md` B-68** (and B-69 for the ten more outside `src/ui`, which
+cannot import `ui/dom` under §4.1 anyway). The smoke keeps them visible: `KNOWN_IDIOM` is a 13-file ratchet that may
+shrink and never grow, and the run asserts the flashes really fired so the ratchet is never green on an empty test.
+
+**The lesson is the plan's own**: a 14-file sweep went in on the strength of 「this reads style, not layout」 with no
+measurement behind either half of it. Both halves were false.
 
 #### Result
 
@@ -396,6 +438,10 @@ Two runs per side, same machine state, `--only s2,s3a,s4`.
 - **S2 and S3a are not Phase B's to close.** Every remaining spike there is led by `x:rendererRender` (10–26 ms on
   those frames), which is the GPU block, not a one-off js call. Note the before pair again: 15 and 2 on the same
   build — the banner's warning, in this table.
+- **The retracted sweep cost nothing to give back**, which is the cleanest evidence that it was never the win. S4
+  re-measured twice *after* the revert — with `hud/DamageOverlay` forcing a layout on every bite again — is
+  **0 spike frames, js/frame max 15.3 · 13.5, `u:allies` worst 2.90 · 3.00**: the same numbers as the table above.
+  All of the S4 result belongs to `ChatLog` and the warm-up.
 - **Phase B's original 「done when」 (no spike frame over one vsync in s2 · s3a · s4, twice) is met for S4 and is not
   reachable for the other two from this folder.** It was written before the A/B showed the render block to be GPU
   time; it is restated here as **no one-off ≥ 10 ms js call**, which is met.
@@ -447,7 +493,8 @@ machine at this noise floor.
 
 ### Phase C — the sustained CPU costs · `enemies`, `ui`, `core`, `audio`
 
-Only worth doing after Phase A, and only as far as the numbers justify.
+**Next, with D.** A · A2 · B are done; take these only as far as the numbers justify, and read the banner first —
+two of the four bullets below are here *because* a counter, not a timer, put them there.
 
 - **B4, the biggest of them: enemy AI is 1.0–1.3 ms at 160 bodies and scales super-linearly.** Distance LOD or time
   slicing, the same shape the animation LOD just got (`EnemySystem.poseSkip` is the template, and the constants
@@ -478,9 +525,14 @@ encoding (C3) and the `ee spawn` burst (A6).
 
 ### Struck by measurement
 
-The old Phase 1 (pre-warm pools and geometry, A1 · A2 · C1), the old Phase 3 (throttle android AI per frame, B2),
-the old Phase 4's search and capacity work (A3 · A4), the old Phase 6 (garbage, B6) — and now **B1 itself as a cost
-driver**. The draw-call cut is built and kept for weaker machines; **do not spend more of this plan on draw calls.**
+The old Phase 1 (pre-warm pools and geometry, A1 · C1), the old Phase 3 (throttle android AI per frame, B2), the
+old Phase 4's search and capacity work (A3 · A4) — and **B1 itself as a cost driver**. The draw-call cut is built and
+kept for weaker machines; **do not spend more of this plan on draw calls.**
+
+Struck by Phase B on top of those: **A5** (the `burrow_emerge` audio graph — the 16.3 ms call never came back in five
+runs), **`h:detection`** (the corpse pillars — 0.20 ms worst, and the pool is pre-built now anyway), and the
+**per-body half of NEW-2**. **B6 moved the other way** — it was rated 「low」 on one run and is now the best remaining
+explanation for the S2 spikes. **A2 alone survives unreproduced**, which is why it is still listed.
 
 ---
 
@@ -495,6 +547,16 @@ driver**. The draw-call cut is built and kept for weaker machines; **do not spen
 Asked and answered the same day, for Phase A2: **the world's shadow casters** → distance LOD **and** small objects;
 **pebble geometry** → lowered; **boulder geometry and the terrain** → left alone. See
 [Still open after Phase A2](#still-open-after-phase-a2) for what that leaves.
+
+And for Phase B, the same day:
+
+4. **Scope** → the widest of three: fix what reproduced, close the lazy-build shape as well, **and** take S2's
+   `l:hud` spikes. The third of those turned into a refutation rather than a fix — see
+   [What the S2 spike frames are not](#what-the-s2-spike-frames-are-not).
+5. **`hud/ChatLog`** → **remove the measurement, do not make it cheaper** (rejected: deferring the read to the next
+   frame; batching to one read per frame — both leave one forced layout standing).
+6. **The rule gets a smoke**, not a note in `scripts/README.md`. It failed on `hud/DamageOverlay` the first time it
+   ran.
 
 ---
 

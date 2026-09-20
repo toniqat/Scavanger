@@ -80,7 +80,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-ladder.mjs` | player, net | Ladder grab/climb/leave, step smoothing, world ceiling clamp, remote `CLIMBING` |
 | `smoke-library.mjs` | housing, items, hub, inventory | Library series share formula, one-per-kind shelving, storages, game-disc stand |
 | `smoke-library-consumers.mjs` | inventory, meta, game, console, ui | "Not shelved" band, library effects at consumers, item aliases (uses `window.__imp`) |
-| `smoke-layout-reads.mjs` | ui | **No layout read inside a frame** (CLAUDE.md §4.2), as a count: every layout-forcing accessor (`offsetWidth` · `scrollHeight` · `getBoundingClientRect` · `getComputedStyle` …) is patched on its prototype and counted **only while `Engine.frame` is on the stack**, so a new widget is covered the day it is written and a read from a pointer handler or a resize is not. Ship frames · a 60-bug raid · and the chat / ping / notify / damage / hit-marker / animation-restart events fired **from inside a frame**; the bar is 0 and a failure names the file and function. `hud/ChatLog` broke the rule per chat line for a year (`docs/PERF_PLAN.md` Phase B) |
+| `smoke-layout-reads.mjs` | ui | **No layout read inside a frame** (CLAUDE.md §4.2), as a count: every layout-forcing accessor (`offsetWidth` · `scrollHeight` · `getBoundingClientRect` · `getComputedStyle` …) is patched on its prototype and counted **only while `Engine.frame` is on the stack**, so a new widget is covered the day it is written and a read from a pointer handler or a resize is not. Ship frames · a 60-bug raid · and the chat / ping / notify / damage / hit-marker / animation-restart events fired **from inside a frame**. Unknown sites must be **0**; the CSS animation-restart idiom is a **ratchet** (`KNOWN_IDIOM`, 13 files — may shrink, never grow, `docs/TODO.md` B-68) and the run asserts it really fired, so the ratchet is never green on an empty test. `hud/ChatLog` broke the rule per chat line for a year (`docs/PERF_PLAN.md` Phase B) |
 | `smoke-lights.mjs` | extraction, player, game, hub, world, core | Visible point-light count never changes across a full session; budget, prebuilt arrival ship |
 | `smoke-loadout.mjs` | inventory | Loadout persistence, corp-shop access methods, container events |
 | `smoke-map-quests.mjs` | ui, meta | Map quest panels, legend placement, quest toasts |
@@ -146,6 +146,12 @@ Things today's smokes deliberately do not measure. Each is here so the next read
 - **Eggs on a replica and across a host change.** Egg size is derived deterministically from `WorldRef.getNestEggSpots`
   with no wire field, so host and replica should agree by construction — untested live. A host change releases the
   nest leash by design (`Enemy.nestOf` is host-local).
+- **Layout reads outside the raid / ship HUD** (2026-09-20). `smoke-layout-reads` drives the `.hud` widgets and the
+  events that feed them, so it covers `src/ui`. The other folders that own DOM — `src/inventory/ui` (Tab screen,
+  craft, trade grids), `src/housing/ui` (ship management, cooking, gym), `src/hub/ui` (terminal, match tab) — are
+  screens built from pointer handlers, i.e. **outside** `Engine.frame`, which is exactly where the guard stops
+  counting. A widget of theirs that starts reading layout from an `update` would slip through. Covering it means
+  opening each screen inside the measured window, which is a different (and much longer) smoke.
 - **The tutorial credit gauge while actually looting.** `smoke-tutorial` drives `raidValue` directly because a hub-only
   smoke has no raid to loot in; the live 「loot an item → the bar moves」 path is uncovered.
 - **Artillery prep as a warning.** That 2.5 s of 포격 준비 reads as enough warning before the first shell is a feel

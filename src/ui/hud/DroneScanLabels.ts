@@ -3,7 +3,7 @@ import {
   DRONE_SCAN_LABEL_HEIGHT, DRONE_SCAN_LABEL_MAX_DIST, RARITY_COLORS, RARITY_LABEL_KO,
   type DroneScanResult, type GameContext,
 } from '@/shared';
-import { el, restartAnim, setText, toggleClass } from '../dom';
+import { el, setText, toggleClass } from '../dom';
 import { hudViewport } from './viewport';
 
 interface Label {
@@ -123,7 +123,9 @@ export class DroneScanLabels {
     setText(l.name, r.local ? r.name : `${r.name} · ${r.byName}`);
     l.lastKey = '';
     if (!pop) return;
-    restartAnim(l.root, 'pop');
+    l.root.classList.remove('pop');
+    void l.root.offsetWidth; // restart the animation
+    l.root.classList.add('pop');
     window.setTimeout(() => l.root.classList.remove('pop'), POP_MS);
   }
 

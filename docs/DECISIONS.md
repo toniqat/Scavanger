@@ -1073,9 +1073,20 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
   `scripts/README.md`). `scripts/smoke-layout-reads.mjs` patches every layout-forcing accessor on its prototype and
   counts calls made **while `Engine.frame` is on the stack**, so a widget written next year is covered and a read from
   a pointer handler or a resize is not. The bar is 0 and a failure prints file + function. It paid for itself
-  immediately: it failed on `hud/DamageOverlay` the first time it ran, which is what turned the fix into a 14-site
-  sweep of the `remove → void offsetWidth → add` animation idiom (`ui/dom.restartAnim`). *Rejected*: recording the
-  gap in `scripts/README.md` and moving on (the rule had lived in comments alone and was broken for a year).
+  immediately: it failed on `hud/DamageOverlay` the first time it ran. *Rejected*: recording the gap in
+  `scripts/README.md` and moving on (the rule had lived in comments alone and was broken for a year).
+- **그 실패가 이끓 14곳 정리는 같은 날 철회했다.** The CSS animation restart
+  `remove → void offsetWidth → add` was swept behind a `ui/dom.restartAnim` helper that rewound the running animation
+  instead. It cannot work: an animation with no `fill` leaves `getAnimations()` when it finishes (so the *second*
+  flash never plays), and the animation is often on a **descendant** of the element carrying the class
+  (`.imp-hud.rdy-major .imp-ring`), where the root's list is empty from the start. No read-free replacement exists
+  either — a same-task remove/add coalesces even with one `requestAnimationFrame`, and a **style** flush is not
+  cheaper than a **layout** flush on this HUD (1.5–2.1 ms vs 0.9–1.9 ms per flush inside a dirtied raid frame).
+  The idiom stays, listed as a 13-file **ratchet** in the smoke (`KNOWN_IDIOM`, may shrink only), and the real choice
+  — twin `@keyframes` per animation so two classes can alternate, versus accepting ~1–2 ms on a flash frame — is
+  [docs/TODO.md](TODO.md) B-68 · B-69. *Rejected*: `{subtree: true}` (it would rewind unrelated animations on the
+  same subtree); shipping the helper at the sites where it happens to work (one idiom with two behaviours is a trap
+  for the next reader).
 - **`ms` 는 여전히 근거가 아니다 — 세는 것으로 판정한다.** What actually cracked this phase was a counter, not a timer:
   7 forced layouts in a 637-frame window, all in one file, all on one frame. The same method refuted the standing
   NEW-2 hypothesis in passing (per-body text writes: **14 in 836 frames**; rendered boxes 1 085 → 1 116 when 60 bugs

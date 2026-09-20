@@ -1,6 +1,6 @@
 import type { GameContext, TrainingMode, TrainingRef } from '@/shared';
 import { TRAINING_MODE_LABEL_KO, TRAINING_COURSE_TARGETS, TRAINING_COURSE_TIME_S } from '@/shared';
-import { el, restartAnim, setText, toggleClass } from '../dom';
+import { el, setText, toggleClass } from '../dom';
 
 const PULSE_SECONDS = 0.9;
 const URGENT_S = 10;
@@ -145,7 +145,9 @@ export class TrainingPanel {
   private pulse(ctx: GameContext): void {
     this.pulseUntil = ctx.time + PULSE_SECONDS;
     // restart the CSS animation even if it is still running
-    restartAnim(this.root, 'pulse');
+    this.root.classList.remove('pulse');
+    void this.root.offsetWidth;
+    this.root.classList.add('pulse');
   }
 
   /**
