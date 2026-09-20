@@ -80,6 +80,7 @@ Host validation is existence only: an unknown / already-taken id is dropped sile
 ## Recent changes
 
 Older: `git log -- src/pickups`.
+- 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-15 — `takeBy(id, by)`: an android picks a ground item up on the authority (same broadcast as a peer's take).
 - 2026-09-15 — `ItemCategory 'grenade'` retired; visuals key on `VisualKind` (`def.grenade` → grenade silhouette).
 - 2026-09-13 — meal quality crosses the wire (`PickupWire.q`).

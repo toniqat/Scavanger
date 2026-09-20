@@ -29,11 +29,12 @@ function bakeUpwardFade(geo: THREE.BufferGeometry, height: number): void {
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 }
 /**
- * 2026-09-15 (가젯 개편): 떨어진 아이템의 **모습**을 고르는 열쇠. `ItemCategory` 에서 `'grenade'` 가 폐지되면서
- * (수류탄도 `category: 'gadget'`) 수류탄 실루엣을 잃지 않으려고 이 파일 안에서만 한 칸 넓힌 것이다 — 계약이 아니다.
+ * 2026-09-15 (the gadget rework): the key that picks a dropped item's **look**. When `'grenade'` was dropped from
+ * `ItemCategory` (a grenade is `category: 'gadget'` too), this was widened by one entry inside this file alone so
+ * the grenade silhouette would not be lost — it is not a contract.
  */
 type VisualKind = ItemCategory | 'grenade';
-/** 이 def 가 어떤 모습으로 떨어지는가 — 수류탄이면 제 실루엣, 아니면 카테고리 그대로. */
+/** Which look this def drops with — a grenade keeps its own silhouette, anything else its category. */
 function visualKindOf(def: ItemDef): VisualKind { return def.grenade ? 'grenade' : def.category; }
 
 /** Rest height of the body centre above the ground, per category (used by the physics too). */
@@ -43,31 +44,34 @@ const REST_Y: Record<VisualKind, number> = {
   armor: 0.12, gadget: 0.1, herb: 0.07,
   /* appended: ship housing */
   furniture: 0.16,
-  /* appended: Phase 8 — 씨앗 (small pouch, sits low like a herb) */
+  /* appended: Phase 8 — seed (small pouch, sits low like a herb) */
   seed: 0.07,
-  /* appended: Phase 9 — 서적 (flat, lies like a plate) */
+  /* appended: Phase 9 — book (flat, lies like a plate) */
   book: 0.06,
-  /* appended: 2026-09-12 서재 매체 — 디스크는 얇은 케이스, 레코드는 넓은 슬리브라 둘 다 책처럼 눕는다 */
+  /* appended: 2026-09-12 library media — a disc is a thin case and a record a wide sleeve, so both lie like a book */
   disc: 0.05,
   record: 0.04,
-  /* appended: 2026-09-08 — 임플란트 (small capsule) */
+  /* appended: 2026-09-08 — implant (small capsule) */
   implant: 0.08,
-  /* appended: 2026-09-11 온실 개편 — 작물은 약초처럼 낮게 눕고, 토양은 한 자루라 재료 상자와 같은 높이다.
-     둘 다 `crate` 실루엣(default 가지)을 타고 색은 def 의 등급색이다 (`CATEGORY_COLOR.crop/soil` 은 목록 · 탭용). */
+  /* appended: 2026-09-11 the greenhouse rework — a crop lies low like a herb, and soil is one sack, so it is as
+     tall as the material crate. Both take the `crate` silhouette (the default branch) and their colour is the def's
+     rarity colour (`CATEGORY_COLOR.crop/soil` is for the lists · tabs). */
   crop: 0.07,
   soil: 0.14,
-  /* appended: 2026-09-11 연구실 — 표본은 작은 채집물이라 약초처럼 낮게 눕고, 준비물은 몸에 두르는 장구라
-     가방보다 조금 낮게 선다. 둘 다 `crate` 실루엣(default 가지)을 타고 색은 def 의 등급색이다. */
+  /* appended: 2026-09-11 the lab — a sample is a small gathered thing, so it lies low like a herb, and a
+     preparation is gear worn on the body, so it stands a little lower than a bag. Both take the `crate` silhouette
+     (the default branch) and their colour is the def's rarity colour. */
   sample: 0.07,
   prep: 0.15,
-  /* appended: 2026-09-11 주방 · 프린터 (A-3c · A-15) — 셋 다 자기 실루엣이 있다 (아래 `create` 의 가지).
-     요리는 그릇이라 바닥에 놓이고, 주머니는 가방보다 작으니 조금 낮게 서고, 열쇠(키카드)는 서적처럼 납작하게 눕는다. */
+  /* appended: 2026-09-11 kitchen · printer (A-3c · A-15) — all three have their own silhouette (the branches in
+     `create` below). A meal is a bowl so it sits on the ground, a pouch is smaller than a bag so it stands a little
+     lower, and a key (keycard) lies flat like a book. */
   meal: 0.06,
   pouch: 0.12,
   key: 0.05,
-  /* appended: 2026-09-13 요리 재료 티어 — 소켓은 작은 캡슐이라 임플란트처럼 선다 */
+  /* appended: 2026-09-13 cooking material tiers — a socket is a small capsule, so it stands like an implant */
   socket: 0.08,
-  /* appended: 2026-09-13 비디오게임 — 게임 디스크는 얇은 케이스, 게임기는 납작한 상자 */
+  /* appended: 2026-09-13 video games — a game disc is a thin case, a console a flat box */
   game_disc: 0.05,
   console: 0.1,
 };
@@ -130,18 +134,18 @@ export class PickupVisualPool {
   private readonly gemBase = new THREE.CylinderGeometry(0.11, 0.13, 0.03, 8);
   private readonly crate = new THREE.BoxGeometry(0.28, 0.28, 0.28);
   private readonly crateEdge = new THREE.BoxGeometry(0.3, 0.05, 0.3);
-  // Phase 9: 서적 — a flat slab (cover) with a lighter page block and a raised spine
+  // Phase 9: book — a flat slab (cover) with a lighter page block and a raised spine
   private readonly bookCover = new THREE.BoxGeometry(0.24, 0.045, 0.32);
   private readonly bookPages = new THREE.BoxGeometry(0.215, 0.05, 0.3);
   private readonly bookSpine = new THREE.BoxGeometry(0.035, 0.055, 0.325);
-  // 2026-09-11 (A-3c): 요리 — 위가 넓은 얕은 그릇 + 가득 담긴 내용물(accent)
+  // 2026-09-11 (A-3c): meal — a shallow bowl, wide at the top, + a full filling (accent)
   private readonly mealBowl = new THREE.CylinderGeometry(0.17, 0.11, 0.09, 14);
   private readonly mealFill = new THREE.CylinderGeometry(0.15, 0.15, 0.03, 14);
-  // 2026-09-11 (A-15): 주머니 — 납작한 파우치 + 덮개 + 멜빵 (가방보다 한 치수 작다)
+  // 2026-09-11 (A-15): pouch — a flat pouch + flap + strap (one size smaller than a bag)
   private readonly pouchBody = new THREE.BoxGeometry(0.26, 0.2, 0.12);
   private readonly pouchFlap = new THREE.BoxGeometry(0.275, 0.07, 0.135);
   private readonly pouchStrap = new THREE.BoxGeometry(0.05, 0.215, 0.145);
-  // 2026-09-11 (A-15): 열쇠 — 자기 카드 한 장 + 자기 띠 + 칩
+  // 2026-09-11 (A-15): key — a single magnetic card + magnetic stripe + chip
   private readonly keyCard = new THREE.BoxGeometry(0.2, 0.016, 0.3);
   private readonly keyStripe = new THREE.BoxGeometry(0.2, 0.022, 0.055);
   private readonly keyChip = new THREE.BoxGeometry(0.06, 0.024, 0.05);
@@ -187,8 +191,9 @@ export class PickupVisualPool {
     // Phase 10: breathe around PICKUP_PILLAR_OPACITY (the geometry's vertex fade owns the vertical falloff).
     v.beamMat.opacity = resting ? PICKUP_PILLAR_OPACITY * (0.75 + 0.45 * s) : PICKUP_PILLAR_OPACITY * 0.25;
     v.ringMat.opacity = resting ? 0.35 + 0.35 * s : 0;
-    // 2026-09-11: 빛기둥은 시체에만 선다 (사용자 결정) — 떨어진 아이템은 바닥 고리와 몸체 발광만 남는다.
-    // 메시는 풀에 그대로 두고 감추기만 한다 (광원이 아니므로 개수 규칙과는 무관하다).
+    // 2026-09-11: a light pillar stands only on a corpse (user's decision) — a dropped item keeps only the
+    // ground ring and the body glow. The mesh stays in the pool and is merely hidden (it is not a light, so the
+    // count rule does not apply).
     v.beam.visible = false;
     v.ring.visible = resting;
     if (resting) {
@@ -259,14 +264,14 @@ export class PickupVisualPool {
         body.rotation.y = 0.35;
         break;
       }
-      /* 2026-09-11 (A-3c): 요리 — 얕은 그릇에 담겨 있다. 그릇이 bodyMat, 내용물이 accentMat 라
-         등급색이 "담긴 것" 쪽에서 더 밝게 난다. */
+      /* 2026-09-11 (A-3c): meal — it sits in a shallow bowl. The bowl is bodyMat and the filling accentMat, so
+         the rarity colour reads brighter on the "contents" side. */
       case 'meal': {
         m(this.mealBowl, bodyMat);
         m(this.mealFill, accentMat, 0, 0.035, 0);
         break;
       }
-      /* 2026-09-11 (A-15): 주머니 — 가방(2×2)보다 한 치수 작은 파우치. 덮개 · 멜빵이 accentMat 다. */
+      /* 2026-09-11 (A-15): pouch — a pouch one size smaller than the bag (2×2). Flap · strap are accentMat. */
       case 'pouch': {
         m(this.pouchBody, bodyMat);
         m(this.pouchFlap, accentMat, 0, 0.08, 0);
@@ -274,7 +279,7 @@ export class PickupVisualPool {
         body.rotation.y = 0.28;
         break;
       }
-      /* 2026-09-11 (A-15): 열쇠 — 자기 카드 한 장. 서적처럼 납작하게 눕고 띠 · 칩만 빛난다. */
+      /* 2026-09-11 (A-15): key — a single magnetic card. It lies flat like a book and only the stripe · chip glow. */
       case 'key': {
         m(this.keyCard, bodyMat);
         m(this.keyStripe, accentMat, 0, 0.004, -0.1);
@@ -306,8 +311,8 @@ export class PickupVisualPool {
   /** Pre-create one visual per category so the first drop allocates nothing (and shaders can be warmed up). */
   warm(): void {
     const cats: VisualKind[] = ['primary', 'secondary', 'grenade', 'stim', 'ammo', 'valuable', 'material', 'book',
-      /* 2026-09-11: 자기 실루엣을 가진 카테고리는 여기에 올린다 (`book` 이 만든 선례) — default 가지를 타는
-         것들(작물 · 토양 · 표본 · 준비물 …)은 `material` 하나로 이미 덥혀 있다. */
+      /* 2026-09-11: a category with its own silhouette goes on this list (the precedent `book` set) — the ones
+         that take the default branch (crop · soil · sample · prep …) are already covered by `material` alone. */
       'meal', 'pouch', 'key'];
     for (const c of cats) {
       if ((this.free.get(c)?.length ?? 0) > 0) continue;

@@ -91,10 +91,12 @@ export class PickupSystem implements GameSystem, PickupsRef {
   }
 
   /**
-   * 2026-09-15 (안드로이드 분대원) — 권위(솔로 · 로비 호스트): 사람이 아닌 몸(`by` = 안드로이드 id)이 바닥 아이템을 줍는다.
-   * 호스트가 남의 `itemq take` 를 심판하는 길(`onItemRequest`)과 **같다** — 지우고 `item take {id, by}` 를 방송한다.
-   * 받는 쪽에서 `by` 는 자기 PeerId 가 아니므로 「남이 주웠다」 경로를 그대로 탄다 (새 갈래가 생기지 않는다).
-   * 권위가 아니거나 없는 id 면 null.
+   * 2026-09-15 (android squadmates) — on the authority (solo · lobby host): a non-human body (`by` = an android
+   * id) picks a ground item up. It is **the same** path as the host judging someone else's `itemq take`
+   * (`onItemRequest`) — it removes the pickup and broadcasts `item take {id, by}`.
+   * On the receiving side `by` is not their own PeerId, so it takes the 「someone else took it」 path unchanged (no
+   * new branch appears).
+   * Not the authority, or an unknown id → null.
    */
   takeBy(id: string, by: string): ItemInstance | null {
     const ctx = this.ctx;
@@ -177,8 +179,9 @@ export class PickupSystem implements GameSystem, PickupsRef {
     p.position.addScaledVector(p.vel, dt);
     world.resolveCollision(p.position, BODY_R);
     if (!world.isInsideBounds(p.position.x, p.position.z)) { p.vel.x *= -0.5; p.vel.z *= -0.5; }
-    // 2026-09-11: 바닥은 지형이 아니라 **그 자리의 표면**이다 — 건물 2층 · 옥상 · 계단에 떨어뜨린 아이템이 바닥판을
-    // 뚫고 떨어지지 않는다. 몸 윗면 조금 위까지의 윗면만 잡으므로 천장판으로 튀어 오르지 않는다.
+    // 2026-09-11: the ground is not the terrain but **the surface at that spot** — an item dropped on a building's
+    // second floor · roof · stairs does not fall through the floor plate. Only a top up to a little above the
+    // body's top is taken, so it never pops up onto a ceiling plate.
     const terrain = world.getHeightAt(p.position.x, p.position.z);
     const surface = world.getSurfaceY(p.position.x, p.position.z, p.position.y - rest + 0.25 - PROP_STEP_UP_MAX);
     const ground = surface + rest;
@@ -324,8 +327,8 @@ export class PickupSystem implements GameSystem, PickupsRef {
     const w: PickupWire = { id: p.id, defId: p.item.defId, qty: p.item.qty, p: toTuple(p.position) };
     const ex = extrasOf(p.item);
     if (ex) w.ex = ex;
-    if (typeof p.item.raidFound === 'number') w.rf = p.item.raidFound;   // 2026-09-12: 아이템 회수 계약 표식
-    const q = normalizeMealQuality(p.item.quality);   // 2026-09-13: 요리 품질 (0 = 생략)
+    if (typeof p.item.raidFound === 'number') w.rf = p.item.raidFound;   // 2026-09-12: item recovery contract mark
+    const q = normalizeMealQuality(p.item.quality);   // 2026-09-13: meal quality (0 = omitted)
     if (q > 0) w.q = q;
     return w;
   }
