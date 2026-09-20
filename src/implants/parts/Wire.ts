@@ -1,8 +1,9 @@
 /**
- * src/implants/parts/Wire.ts — **임플란트의 네트워크 경로** (`imp` / `buff`).
+ * src/implants/parts/Wire.ts — the **implants' network path** (`imp` / `buff`).
  *
- * 방패 상태 · 오버차지 빔 · 실드 배쉬 · 정찰 스캔을 분대에 알리고, 남이 보낸 것을 우리 월드에 적용한다.
- * 정찰은 결과가 아니라 **시전 사실**만 보내고(`imp scanCast`) 각 피어가 자기 월드에서 드러낸다.
+ * Tells the squad about the shield state · the 오버차지 beam · a 실드 배쉬 · a 정찰 scan, and applies what
+ * someone else sent into our world. 정찰 sends only **the fact that it was cast** (`imp scanCast`), not the
+ * result, and each peer reveals it from its own world.
  */
 import * as THREE from 'three';
 import {

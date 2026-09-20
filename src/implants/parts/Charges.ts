@@ -1,9 +1,9 @@
 /**
- * src/implants/parts/Charges.ts — **쿨다운 · 충전 · 에너지 풀**.
+ * src/implants/parts/Charges.ts — **cooldowns · charges · the energy pool**.
  *
- * 임플란트를 쓸 수 있는지, 얼마나 남았는지 하나로 관리한다: 대시의 3충전, 오버차지의 에너지 풀,
- * 배리어 붕괴 후의 잠금, 그리고 `derived.implantCooldownMul` 이 곱해지는 지점.
- * 크로스헤어 왼쪽 세로 게이지가 읽는 이벤트(`implant:cooldown` / `energyChanged`)도 여기서 나간다.
+ * Holds in one place whether an implant can be used and how much is left: 대시's 3 charges, 오버차지's energy
+ * pool, the lockout after a 배리어 collapse, and the point where `derived.implantCooldownMul` is multiplied in.
+ * The events the vertical gauge left of the crosshair reads (`implant:cooldown` / `energyChanged`) go out here too.
  */
 import * as THREE from 'three';
 import {

@@ -83,8 +83,8 @@ Numbers live in `data/constants.csv` under the named keys. Every cooldown is mul
 ## Recent changes
 
 Last 5 only — older: `git log -- src/implants`.
+- 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched. The implant **names** (`갈고리` · `대시` · `배리어` · `오버차지` · `정찰`) stay Korean in English prose — they are live `ImplantDefs.name` strings.
 - 2026-09-15 — Anti-tank launcher (`atlauncher`) retired: def, update code and `effects/AtLauncher.ts` removed; barrier is the only wielded implant.
 - 2026-09-14 — Grapple cooldown raised; dash reach is a walking sweep (`dashReach`) so it no longer passes window frames.
 - 2026-09-13 — `piloting` also covers rover riding.
 - 2026-09-12 — Grapple cooldown refund, `implant:ready` per charge, `refillAll` for the stabilizer.
-- 2026-09-11 — Received `buff` passes `createBuffGuard`; overcharge beam skips allies behind walls.

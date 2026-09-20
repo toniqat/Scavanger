@@ -35,7 +35,8 @@ export function findAlly(ctx: GameContext, origin: THREE.Vector3, dir: THREE.Vec
     _to.divideScalar(d);
     const dot = _to.dot(dir);
     if (dot <= bestDot) continue;
-    // 2026-09-11 (E-4): 벽 · 지형 뒤의 분대원은 잡지 않는다 — 내 가슴 → 그 가슴이 트여 있어야 한다 (`shared/buffLineClear`)
+    // 2026-09-11 (E-4): a squadmate behind a wall · terrain is not picked — my chest → theirs has to be clear
+    // (`shared/buffLineClear`)
     if (me && !buffLineClear(ctx.world, _from, allyPoint(r, _chest))) continue;
     bestDot = dot; best = r;
   }

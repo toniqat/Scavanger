@@ -1,9 +1,9 @@
 /**
- * src/implants/parts/Wield.ts — **손에 드는 임플란트**와 프로필 연동.
+ * src/implants/parts/Wield.ts — the **wielded implant** and the profile hook-up.
  *
- * 방패는 손에 들리므로 총을 홀스터해야 하고(`blocksWeapons`), 무기 키를 누르면 집어넣어야
- * 한다(`stow`). 어떤 임플란트를 장착했는지는 진행도 프로필이 갖고 있으므로 그 적용도 여기서 한다.
- * (2026-09-15: 또 하나의 손에 드는 임플란트였던 대전차포는 은퇴 — 이 경로는 이제 배리어만 탄다.)
+ * The shield goes into the hands, so the gun has to be holstered (`blocksWeapons`) and a weapon key has to put it
+ * away (`stow`). Which implant is equipped lives in the progression profile, so applying that happens here too.
+ * (2026-09-15: 대전차포, the other wielded implant, is retired — only 배리어 takes this path now.)
  */
 import * as THREE from 'three';
 import {

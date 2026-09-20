@@ -25,7 +25,7 @@ import { ImplantFx } from './fx/ImplantFx';
 import { RemoteImplants } from './RemoteImplants';
 
 import { ABSORB_RANGE, BARRIER_SEND_EVERY_HITS, BASH_FX_Y, BEAM_SEND_INTERVAL, BOOST_LINGER, BOOST_SEND_INTERVAL, BUMP_FX_INTERVAL, GRAPPLE_ARRIVE_DIST, GRAPPLE_FLY_SPEED, GRAPPLE_MAX_TIME, HEAL_SEND_INTERVAL, HUD_EMIT_INTERVAL, type Host, OVERCHARGE_MIN_START, SCAN_PULSE_FX_S, SHIELD_SPEED_KEY, _bp, _d, _from, _hitPt, _hp, _muzzle, _n, _o, _p, _r, _t, _tmp, tuple } from './model';
-/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+/** The shared vocabulary (constants · types · scratch) is in `model.ts` — re-exported for existing import paths. */
 export * from './model';
 import * as Barrier from './parts/Barrier';
 import * as Dev from './parts/Devices';
@@ -109,9 +109,9 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   netHooked = false;
   readonly unsubs: Array<() => void> = [];
   readonly remoteBarriers: BarrierField[] = [];
-  /** 2026-09-11 (E-4): 받는 쪽 버프 상한 — `heal` · `boost` 는 이것을 통과해야 적용된다 (`parts/Wire.onBuff`). */
+  /** 2026-09-11 (E-4): the receive-side buff cap — `heal` · `boost` apply only if they pass (`parts/Wire.onBuff`). */
   readonly buffGuard = createBuffGuard();
-  /** 마지막 `buff` 판정 (디버그 · smoke-trust). */
+  /** The last `buff` verdict (debug · smoke-trust). */
   lastBuffVerdict: BuffVerdict | null = null;
 
   /* ═══════════════════════════ ImplantsRef ═══════════════════════════ */
@@ -194,7 +194,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   get piloting(): boolean {
     const ctx = this.ctx;
     if (!ctx) return false;
-    // 2026-09-13: 탐사 차량 안(`roverRide`)도 같은 처리 — Q 와 들고 있는 임플란트의 입력을 무시한다
+    // 2026-09-13: inside the rover (`roverRide`) is handled the same — Q and the wielded implant's input are ignored
     return ctx.player?.droneControl === true || ctx.player?.roverRide === true || (ctx.drones?.controlled ?? null) !== null;
   }
 
@@ -392,7 +392,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   /** 2026-09-14: where a dash from `from` along `dir` ends — the furthest point the body reaches walking (smoke-tactical reads it). */
   dashReach(from: THREE.Vector3, dir: THREE.Vector3, dist: number, out: THREE.Vector3): THREE.Vector3 { return Dev.dashReach(this, from, dir, dist, out); }
 
-  /* ═══════════════════════════ 배리어 = 들고 다니는 방패 (Phase 10) ═══════════════════════════ */
+  /* ═══════════════════════════ 배리어 = the carried shield (Phase 10) ═══════════════════════════ */
   /** Refused while the shield is recharging after a collapse (the lockout doubles as its cooldown). */
   canRaiseShield(): boolean { return Barrier.canRaiseShield(this); }
 
@@ -409,7 +409,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
    */
   private updateShield(active: boolean): void { return Barrier.updateShield(this, active); }
 
-  /* ═══════════════════════════ Phase 12: 실드 배쉬 · 충돌 · 정면 흡수 ═══════════════════════════ */
+  /* ═══════════════════════════ Phase 12: 실드 배쉬 · collision · frontal absorb ═══════════════════════════ */
   /** 실드 배쉬 swing in progress (pose + FX). Enemies in the box were already hit when this went true. */
   get bashing(): boolean { return this.bashTimer > 0; }
 
@@ -540,7 +540,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
    * (2026-09-11 C-3 — the flag is explicit, no longer inferred from the modifier key by player/).
    */
   applyBoost(p: PlayerRef, mul: number, duration: number): void { return Wire.applyBoost(this, p, mul, duration); }
-  /* ══ Phase 10 — 배리어 = 들고 다니는 방패 ══ */
+  /* ══ Phase 10 — 배리어 = the carried shield ══ */
   /** true while the shield is in the hands (mirrors `wielded` for the barrier implant). */
   get barrierCarried(): boolean { return this.wieldedFlag && this.equippedId === 'barrier'; }
 

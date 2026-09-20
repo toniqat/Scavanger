@@ -1,9 +1,9 @@
 /**
- * src/implants/model.ts — 임플란트 폴더의 공용 어휘.
+ * src/implants/model.ts — the implant folder's shared vocabulary.
  *
- * `ImplantSystem` 에서 떼어낸 상수 · 타입(그리고 상태 없는 보조 클래스)만 있다. 클래스를 참조하지 않으므로
- * `parts/*` 모듈이 `ImplantSystem.ts` 를 되돌아 import 하지 않고 쓸 수 있다(순환 import 방지).
- * `ImplantSystem.ts` 가 `export *` 로 재수출하므로 기존 import 경로는 전부 유지된다.
+ * Only the constants · types (and the stateless helper classes) split off from `ImplantSystem`. It references no
+ * class, so a `parts/*` module can use it without importing `ImplantSystem.ts` back (which avoids an import cycle).
+ * `ImplantSystem.ts` re-exports it with `export *`, so every existing import path is kept.
  */
 import * as THREE from 'three';
 import {

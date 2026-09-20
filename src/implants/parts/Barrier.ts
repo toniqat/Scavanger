@@ -1,11 +1,12 @@
 /**
- * src/implants/parts/Barrier.ts — **배리어 방패** (Phase 10 손에 드는 형태 → Phase 12 벽 + 실드 배쉬).
+ * src/implants/parts/Barrier.ts — the **배리어 shield** (Phase 10 the carried form → Phase 12 wall + 실드 배쉬).
  *
- * 방패는 세 가지를 동시에 한다: 적 발사체를 **막고**(`onBarrierBlocked`), 지상 적이 통과하지 못하는
- * **벽**이며(`resolveBarrierCollision` — 부딪힌 적은 잠시 방패를 든 사람을 노린다), 정면 근접을
- * 플레이어 대신 **받는다**(`absorbFrontalAttack`). 들고 좌클릭하면 **실드 배쉬**(`tryBash`).
- * `IMPLANT_BARRIER_CARRY_OFFSET` 은 `PLAYER_RADIUS` 보다 커야 한다 — 그보다 작으면 적 히트스캔이
- * 방패보다 먼저 플레이어 캡슐에 닿아 방패가 조용히 동작하지 않는다.
+ * The shield does three things at once: it **blocks** enemy projectiles (`onBarrierBlocked`), it is a **wall** that
+ * ground enemies cannot pass (`resolveBarrierCollision` — an enemy that bumps into it goes for the shield's holder
+ * for a moment), and it **takes** frontal melee in the player's place (`absorbFrontalAttack`). Left-click while
+ * carrying it = **실드 배쉬** (`tryBash`).
+ * `IMPLANT_BARRIER_CARRY_OFFSET` must stay larger than `PLAYER_RADIUS` — smaller than that, an enemy hitscan reaches
+ * the player capsule before the shield and the shield silently does nothing.
  */
 import * as THREE from 'three';
 import {
@@ -75,7 +76,7 @@ export function emitBarrier(sys: ImplantSystem): void {
   });
   }
 
-/* ═══════════════════════════ 배리어 = 들고 다니는 방패 (Phase 10) ═══════════════════════════ */
+/* ═══════════════════════════ 배리어 = the carried shield (Phase 10) ═══════════════════════════ */
 /** Refused while the shield is recharging after a collapse (the lockout doubles as its cooldown). */
 export function canRaiseShield(sys: ImplantSystem): boolean {
   if (sys.barrierLocked || sys.cdRemaining > 0 || sys.chargesLeft <= 0) {

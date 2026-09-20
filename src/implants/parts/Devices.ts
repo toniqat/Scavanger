@@ -1,10 +1,11 @@
 /**
  * src/implants/parts/Devices.ts — **갈고리 · 대시 · 정찰 · 오버차지**.
  *
- * 배리어를 뺀 나머지 임플란트 네 종의 실제 동작. 각각 `instant` / `hold` 중
- * 하나의 사용 방식을 갖고 Q 하나로 구동된다. 정찰은 Phase 12 에서 홀드 채널이 아니라
- * **한 번 누르는 광역 스캔**이 되어 이동 중에도 쓸 수 있다.
- * 2026-09-15: 대전차포(`updateLauncher` · `onRocketImpact`)는 은퇴해 지워졌다 — 전설 바주카와 겹친다.
+ * What the four implants other than 배리어 actually do. Each has one of the `instant` / `hold` modes and is
+ * driven by Q alone. In Phase 12 정찰 became **one wide scan on a single press** instead of a hold channel, so
+ * it can be used while moving.
+ * 2026-09-15: 대전차포 (`updateLauncher` · `onRocketImpact`) is retired and removed — it overlapped the
+ * legendary bazooka.
  */
 import * as THREE from 'three';
 import {
@@ -67,21 +68,25 @@ export function castDash(sys: ImplantSystem): void {
 const DASH_STEEP_COS = Math.cos(IMPLANT_DASH_MAX_SLOPE_DEG * Math.PI / 180);
 
 /**
- * 2026-09-14: **대시가 닿는 자리 = 걸어서 닿는 가장 먼 자리** (사용자 요청 "뛰어서 갈 수 있는지 체크").
+ * 2026-09-14: **where a 대시 lands = the farthest spot it could walk to** (user's request "check whether it can be
+ * run to").
  *
- * 예전에는 1 m 높이 레이 하나(− 반경 − 0.15)로 거리를 자르고 끝자리만 `resolveCollision` 했다. 창틀 · 깨진 유리
- * (`passRays`) · 1 m 높이를 비켜 가는 개구멍은 레이가 지나가므로 **벽 너머 자리가 비어 있기만 하면** 거기로
- * 순간이동했다. 이제 몸(`PLAYER_RADIUS`)을 `IMPLANT_DASH_SWEEP_STEP` 씩 걸음처럼 밀어 본다 — 걷기(`PlayerController`)와
- * **같은 질의 · 같은 순서**다:
- *   ① 표면 먼저: `getSurfaceY(x, z, 발)` (실내는 `getFloorAt`) — 발에서 `PROP_STEP_UP_MAX` 안의 윗면이면 올라서고,
- *      그 아래로 `PROP_STEP_UP_MAX` 안이면 따라 내려가고(계단 · 비탈), 더 깊으면 **공중**이다(턱에서 뛰어내리기 —
- *      발 높이를 유지하고 대시가 끝나면 떨어진다). 발이 지형 위일 때 그 지형이 `IMPLANT_DASH_MAX_SLOPE_DEG` 보다 가파른
- *      오르막이면 막힌다 (걷기의 경사 한계).
- *   ② 밀어내기 나중: `resolveCollision(자리, PLAYER_RADIUS)` — 사람 기준 머리 위 여유(`BOX_HEADROOM`)라 유리(깨졌어도
- *      `passSmall` 은 작은 몸만) · 창턱 벽 · 개구멍 인방이 몸을 막는다. 밀려난 뒤 진행 방향으로 걸음의
- *      `IMPLANT_DASH_SLIDE_MIN` 배도 못 나아갔으면 막힌 것이고 **그 앞 걸음**이 끝이다. 그보다 얕게 스치면 걷기처럼
- *      미끄러지며 계속 간다 (문틀 모서리).
- * 맵 경계(`isInsideBounds`) 밖으로 나가는 걸음도 끝이다 (예전엔 대시 전체가 취소됐다). 할당 없음 — `out` · `_o` · `_n` 만 쓴다.
+ * It used to cut the distance with one ray at 1 m height (− radius − 0.15) and `resolveCollision` only the end spot.
+ * A window frame · broken glass (`passRays`) · a vent that dodges the 1 m height all let the ray through, so
+ * **as long as the spot beyond the wall was empty** it teleported there. Now the body (`PLAYER_RADIUS`) is pushed
+ * forward in `IMPLANT_DASH_SWEEP_STEP` steps like walking — **the same queries in the same order** as walking
+ * (`PlayerController`):
+ *   ① surface first: `getSurfaceY(x, z, feet)` (`getFloorAt` indoors) — a top within `PROP_STEP_UP_MAX` of the feet
+ *      is stepped onto, one within `PROP_STEP_UP_MAX` below is followed down (stairs · slopes), and deeper than that
+ *      is **the air** (jumping off a ledge — the feet height is kept and it falls once the dash ends). While the
+ *      feet are on terrain, an uphill steeper than `IMPLANT_DASH_MAX_SLOPE_DEG` blocks (walking's slope limit).
+ *   ② push out after: `resolveCollision(spot, PLAYER_RADIUS)` — headroom is measured for a person (`BOX_HEADROOM`),
+ *      so glass (even broken, `passSmall` lets only a small body through) · a sill wall · a vent lintel block the
+ *      body. If after being pushed out it advanced less than `IMPLANT_DASH_SLIDE_MIN` of a step along the travel
+ *      direction it is blocked and **the step before it** is the end. A shallower graze slides on like walking
+ *      (a door-frame corner).
+ * A step leaving the map bounds (`isInsideBounds`) ends it too (the whole dash used to be cancelled). No allocation
+ * — only `out` · `_o` · `_n` are used.
  */
 export function dashReach(sys: ImplantSystem, from: THREE.Vector3, dir: THREE.Vector3, dist: number, out: THREE.Vector3): THREE.Vector3 {
   const ctx = sys.ctx;
@@ -262,8 +267,8 @@ export function releaseGrapple(sys: ImplantSystem, silent: boolean): void {
   }
 
 /**
- * 2026-09-12: 갈고리 쿨타임 환급 (사용자 결정). The cooldown started at the fire (`useCharge` in `fireGrapple`); when
- * the use ends it gives part of the **effective total** (`cdTotal`) back:
+ * 2026-09-12: the 갈고리 cooldown refund (user's decision). The cooldown started at the fire (`useCharge` in
+ * `fireGrapple`); when the use ends it gives part of the **effective total** (`cdTotal`) back:
  *   - attached, then released after a pull of `pullDist` m → `IMPLANT_GRAPPLE_REFUND_MAX × max(0, 1 − d / IMPLANT_GRAPPLE_REFUND_DIST)`
  *     (0 m = 50 %, ≥ 15 m = nothing);
  *   - ended before attaching (Q while flying, the drone anchor gone) → `IMPLANT_GRAPPLE_CANCEL_REFUND`, but at least
