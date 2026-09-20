@@ -74,15 +74,16 @@ Delete this file once the queue below is empty.
 | | Lines | Files |
 |---|---:|---:|
 | Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`, `src/gadgets`, `src/allies`, `src/game`, `src/meta`, `src/audio`) | 22,638 | 570 |
+| Done — the whole tail of the queue in one pass (2026-09-20): `src/weapons`, `src/net`, `src/stratagems`, `src/core`, `src/console`, `src/implants`, `src/pickups`, `server/`, `electron/` | 1,016 | 75 |
 | Done — `.css`, every folder at once (2026-09-20, B-65) | 1,335 | 34 |
-| **Remaining** ([§2](#2-queue)) | **4,017** | **177** |
+| **Remaining** ([§2](#2-queue)) — `scripts/` only | **3,001** | **102** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 86 lines — and the finished stylesheets 14 more — because a comment whose entire substance is
+**Intended permanent exceptions.** A finished folder still prints 91 lines — and the finished stylesheets 14 of those — because a comment whose entire substance is
 a quoted label, a quoted document heading or a verbatim user decision keeps its Korean (§3 rule 2 — the reader has to be
-able to grep it against the real string). So a raw run over everything prints 4,103 / 235, eighty-six more than the
+able to grep it against the real string). So a raw run over everything prints 3,092 / 165, ninety-one more than the
 queue. `src/ui` alone contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice —
 so its rows are grouped into one line instead of listed file by file:
 
@@ -119,6 +120,8 @@ so its rows are grouped into one line instead of listed file by file:
 | `game/parts/Death.ts:191` · `:345` · `:375` | verbatim user decisions: 「부활하면 서 있는 채로 나타나지 않고 쓰러졌다 일어난다」 and, twice, the wipe rule 「사람과 안드로이드가 모두 쓰러지거나 죽어야 레이드 실패」 — the same quote `ui/hud/SpectateOverlay.ts:76` keeps |
 | `*.css` — **14 lines in 7 files** | the same shapes, in the stylesheets (2026-09-20): `inventory.css` ×3 and `base.css` ×2 are English sentences whose letters are mostly a quoted label (`Panel order: ship = 창고 · 장비 · 가방 · 제작`) plus the verbatim user bug report the `.item-tip` text-flow pin was built from; `hub.css` ×2 the five equipment-slot labels and the two launch-warning buttons `[취소] / [그래도 준비]`; `mining.css` ×2 a verbatim 2026-09-17 user decision and a divider that is only the three tab labels; `messenger.css` a `docs/DECISIONS.md` heading; `named.css` ×2 and `social.css` ×2 dividers that are nothing but an on-screen string (`스캔에 노출되고 있음`, `대화 기록`) |
 | `meta/` — **9 lines in 3 files** | `ui/CorpView.ts` ×6: the `계약` page-tab divider, the `docs/DECISIONS.md` heading 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」, the tail of the quote 「물건이 어느 쪽으로 가는가」 that is why the flow chevrons stayed, the tile ribbon's 「아직 꽂지 않은」 state, the verbatim user bug report 「구매칸에는 가격이 아예 안 뜬다」 and the removed hint string 「〈라벨〉 버튼을 1초 동안 …」 that is the only way left to grep `meta.css`'s dead `.cv-ask-hint`; `NpcRules.ts` ×2 are the Korean **program output** `objectiveLabel` / `rewardSummary` build, quoted as worked examples; `parts/NpcQuests.ts` the verbatim user decision 「튜토리얼 직후 연락 오는 NPC 는 레이븐 하나」 |
+| `weapons/model.ts:110` · `weapons/parts/AimLine.ts:8` | two verbatim user bug reports (「바리케이드 사용 시간이 적용되지 않고 회수에만 시간이 걸린다」, "거리에 따라 가끔 왼쪽으로 날아간다") |
+| `console/commands/crypto.ts:8` · `net/parts/Crypto.ts:3` · `server/Rooms.ts:3` | `docs/DECISIONS.md` section headings, the re-wrap leaving each one a line of its own |
 | `audio/AudioSystem.ts:194` | the verbatim user decision the bug-footstep curve was re-tuned from (`벌레 발소리가 너무 안 난다 — 뒤에 있으면 소리로 알아차리게`), byte-identical to the one `data/constants.csv` `BUG_STEP_RANGE_M` shortens |
 | `game/parts/LoadGate.ts:3` | a `docs/DECISIONS.md` section heading (`2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩`), byte-identical to the one `allies/README.md:9` cites |
 | `allies/parts/` — **7 lines in 5 files** | verbatim user decisions, each the *whole* substance of its line: `Loot.ts:3` · `:5` (「먹고 있을 때 PC 가 그 상자를 열면 중단」, 「핑이 먼저고, 혼자 주워 담는 것은 한가할 때뿐」), `Rescue.ts:3-4` (the two-line rescue decision), `Commands.ts:271` (「일반 범위의 2배로 각자 일대를 수색, 일정 시간 뒤 자동 해제」), `Contract.ts:4` (the tail of 「계약에 따라 다르나, …」), `Support.ts:3` (the hand-over conditions). This folder is written almost entirely out of quoted decisions, which is why it keeps more than most |
@@ -128,6 +131,8 @@ so its rows are grouped into one line instead of listed file by file:
 ## 2. Queue
 
 Largest first, because the big folders set the vocabulary the smaller ones reuse. One commit per folder.
+
+**Only `scripts/` is left** (2026-09-20). Everything else in this table is struck.
 
 | # | Folder | Lines | Files | Notes |
 |---|---|---:|---:|---|
@@ -146,16 +151,16 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~13~~ | ~~`src/game`~~ | 537 | 14 | **Done 2026-09-20** (lead + 4 agents, one commit, 15 scripts + `e2e-mp` in 4 min 11 s). 4 quoted-only lines stay (§1). Cut **by subject** and it held: death · wipe · payout (`Death`) · corpses and their wire (`Corpses` · `CorpseNet`) · the session save, the title offer and the resume gate (`Session` · `Resume` · `SoloRaid` · `ResumeGate`) · raid entry and the two ends of a raid (`LoadGate` · `Leader` · `RaidReport`), lead on the centre (`GameFlowSystem` · `Phases` · `model` · `Wire`). Its phase · render hold · settlement · corpse-sink · title-offer · voluntary-return vocabulary is now the reference for every flow-shaped folder after it. |
 | ~~14~~ | ~~`src/meta`~~ | 305 | 15 | **Done 2026-09-20** (lead + 2 agents, one commit). 9 quoted-only lines stay (§1). Cut **by subject** and it held: the corp network screen (`ui/CorpView` · `HoldAsk` · `TileGrid` · `dom`) · the NPC quest engine (`parts/NpcQuests` · `NpcRules` · `parts/NpcObjectives`), lead on the centre and the economy (`MetaSystem` · `model` · `Rules` · `Storage` · `parts/{Credits,Trade,Contracts,ImplantDesk,Intel,Console}`). Its corp-rail · shelf-slot · offer · delivery · confirmed-objective · held-spec vocabulary is now the reference for every economy- and NPC-shaped folder after it. |
 | ~~15~~ | ~~`src/audio`~~ | 273 | 2 | **Done 2026-09-20** (lead alone, one commit, 12 scripts in 2 min 10 s, green first try). 1 quoted-only line stays (§1). **Not split** — two files cannot be cut without one reading the other's. Its voice · voice group · cap · stolen-voice · distance curve · falloff · panner · clip · grain · base volume · whistle · roar · launch-thump vocabulary is now the reference for every sound-shaped folder after it. |
-| 16 | `src/weapons` | 204 | 17 | |
-| 17 | `src/net` | 167 | 14 | |
-| 18 | `src/stratagems` | 124 | 7 | |
-| 19 | `src/core` | 67 | 5 | |
-| 20 | `src/console` | 61 | 11 | |
-| 21 | `src/implants` | 43 | 8 | Already mostly English. |
-| 22 | `src/pickups` | 31 | 2 | |
+| ~~16~~ | ~~`src/weapons`~~ | 204 | 17 | **Done 2026-09-20** (lead + 6 parallel agents, the whole tail of the queue in one pass, one commit per folder). Cut **by folder**, not by size — at this size a folder *is* a subject, and no agent had to read another's file. `src/weapons` alone took two bundles (the gun path · the thrown and consumable path). 4 quoted-only lines stay (§1). Its crosshair-line · muzzle-block · swept-projectile · throw-arc · fuse · hold-path · heal-spray · combat-boost vocabulary is the reference for every weapon-shaped folder after it. |
+| ~~17~~ | ~~`src/net`~~ | 167 | 14 | **Done 2026-09-20**, same pass. 1 quoted-only line stays (§1). Its player-code · quote-desk · group-room · history · background-probe vocabulary is the reference for every wire-shaped folder after it. |
+| ~~18~~ | ~~`src/stratagems`~~ | 124 | 7 | **Done 2026-09-20**, same pass. 0 lines left. Its ship-call · charge-left · deny-notice · squadmate-picker · top-view vocabulary is the reference for every call-shaped folder after it. |
+| ~~19~~ | ~~`src/core`~~ | 67 | 5 | **Done 2026-09-20** (the lead's own bundle, with `electron/`). 0 lines left. Its program-key · render-target · padding-light · warm-up · atmosphere-override vocabulary is the reference for every render-shaped folder after it. |
+| ~~20~~ | ~~`src/console`~~ | 61 | 11 | **Done 2026-09-20**, same pass (with `src/implants` · `src/pickups`). 1 quoted-only line stays (§1). Every Korean **console output string** stays — it is program output, not a comment. |
+| ~~21~~ | ~~`src/implants`~~ | 43 | 8 | **Done 2026-09-20**, same pass. 0 lines left, but 63 English lines keep a Korean **implant name** (`갈고리` · `대시` · `배리어` · `오버차지` · `정찰`): those are live `ImplantDefs.name` strings and `src/shared` already keeps them that way. |
+| ~~22~~ | ~~`src/pickups`~~ | 31 | 2 | **Done 2026-09-20**, same pass. 0 lines left. |
 | ~~23~~ | ~~`src/main.ts`~~ | 7 | 1 | **Done 2026-09-18**, folded into the `src/shared` commit as planned. |
-| 24 | `server/` | 267 | 9 | `RelayServer.ts` 66 · `Lobby.ts` 55 · `selftest.ts` 53 · `Store.ts` 22 · `CryptoMarket.ts` 19 · `Economy.ts` 15 · `Rooms.ts` 14 · `Console.ts` 13 · `index.ts` 10. Verified by `npm run typecheck:server` + `net:selftest`, not by folder smokes. |
-| 25 | `electron/` | 52 | 2 | `main.ts` 50 · `wsProxy.ts` 2. Touching `electron/` makes `verify` run `smoke-desktop`. |
+| ~~24~~ | ~~`server/`~~ | 267 | 9 | **Done 2026-09-20**, same pass (the largest single bundle). 1 quoted-only line stays (§1); the operator console's Korean **output strings** stay. Verified by `npm run typecheck:server` + `net:selftest`, not by folder smokes. |
+| ~~25~~ | ~~`electron/`~~ | 52 | 2 | **Done 2026-09-20** (the lead's own bundle, with `src/core`). 0 lines left; the boot error box's Korean strings stay. Touching `electron/` makes `verify` run `smoke-desktop`. |
 | 26 | `scripts/` | 3,001 | 102 | Last on purpose — these are the verification harness. Changing a runner's comments cannot break the game, but a bad edit hides a real failure, so do this only once the game code is done and green. Biggest: `verify.mjs` 203 · `smoke-tutorial.mjs` 185 · `smoke-housing.mjs` 123 · `smoke-inventory-p6.mjs` 121 · `smoke-cooking.mjs` 95. |
 | ~~27~~ | ~~`src/**/*.css`~~ | 1,335 | 34 | **Done 2026-09-20** (lead + 5 agents, one pass, `docs/TODO.md` B-65). Not a queue folder — a **file type the whole project had been filtering out** (§1 banner). Cut by owning folder, not by size: `base.css` (200) alone · the rest of `src/ui/styles` + `hud/rescuePicker.css` (371) · `inventory.css` (329) · `housing/**` + `game/resume-gate.css` + `ui/styles/fall.css` (238) · `tutorial` + `meta` + `hub` ×2 + `progression/ui` (220). 14 quoted-only lines stay (§1). A stylesheet's nouns are settled by **its own folder's already-English `.ts`**, not by §7 — the CSS has to read as one voice with the code beside it. |
 
@@ -1001,3 +1006,24 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 일괄 담기 vs 손으로 담는 · 셰브런 셋 · 흐름 셰브런 · 경험치 게이지 | the **bulk staging** (`귀중품 전부 담기`) vs **hand staging** (`stageSell`) · the **three chevrons** · the **flow chevrons** · the **XP gauge** (`.rep-bar` on the corp rail's branch, kept apart from the `신뢰도 Lv` number beside it) | `meta/ui/CorpView.ts` |
 | 판정 도우미 · 대화 목록 · 중복 방지 표 · 단위 「마리」 | the **judgement helpers** (`counting` / `planetOk` — `enemies`' *judgement constant* shape) · the **conversation list** (the messenger's `getContacts`, kept apart from §7's *the log* = 대화 기록) · the **duplicate-guard sets** (`searched` / `discovered`) · the **counter word** 「마리」 | `meta/parts/NpcQuests.ts`, `NpcObjectives.ts` |
 | 이름은 바탕 종류와 같다 | **named as its base type** (`ENEMY_TYPE_KO.scavenger_summon` — the artillery's summoned scavenger reads as the plain kind) | `meta/NpcRules.ts` |
+| 일시정지 메뉴 | **stays Korean in English prose** — not a live string anywhere, but `game` · `housing` · `progression` · `shared` · `ui` · `data/constants.csv` all already write it that way, so a folder that translates it alone is the one that breaks the voice. Decided 2026-09-20; do not re-litigate per folder | tree-wide |
+| 하이브리드 판정 · 판정선 · 총열 검사 · 막힘 검사 | **hybrid shot resolution** (CLAUDE.md §3.2's own words) · the **judged line** (= the crosshair line) · the **barrel check** · the **near check** | `weapons/parts/AimLine.ts` |
+| 모든 총알을 발사체로 · 자세 배수 · 피해 구간 · 창문 규칙 | **every bullet a projectile** (the 2026-09-14 decision's *title*; the explanation stays CLAUDE.md §4.6's 「Bullets are swept projectiles」) · the **stance multiplier** · **scope** (`withLocalGunHit`'s callback range — deliberately **not** a seventh sense of 구간: never *band* · *bucket* · *stretch* · *segment*) · the **window rule** | `weapons/parts/Firing.ts`, `Projectile.ts`, `WeaponSystem.ts` |
+| 쓰개 걸음 · 반발 계수 · 밀어내기 · 신관 · 쿠킹 | **sub-steps** / walks in sub-steps · **restitution** (`BOUNCE_RESTITUTION`) · the **push-out** · the **fuse** · **cooking** | `weapons/Grenade.ts` |
+| 궁적 미리보기 · 중심선 · 리본 · 릴리즈 지점 · 착지점 | the **throw preview** · the **centreline** · the **ribbon** · the **release point** · the **landing point** / **landing ring** | `weapons/fx/ThrowArc.ts` |
+| 회복 소모품 · 전투 소모품 · 회복 스프레이 · 실드 충전기 · 제세동기 | a **healing consumable** · **combat boosts** (never *combat consumables* — `weapons/README.md` and the code's own `boostItemOf` set it) · the **heal spray** · the **shield charger** · the **defibrillator**. Item **names** in a list stay Korean in backticks (`붕대` · `아드레날린`); the concept is English | `weapons/parts/Healing.ts`, `Defib.ts` |
+| 불발 (제세동기) | **nothing fires** — kept apart from §7 `gadgets`' 불발 = *a dud* (a remote mine broken before it blows). Here it means 「nothing happens and nothing is spent」 | `weapons/parts/Defib.ts` |
+| 아이디 (`PlayerCode`) | **the player code** — one word for client and relay alike. The screen strings `아이디 미확인` · `없는 아이디` and the operator console's output stay Korean | `net`, `server` |
+| 지명 이관 | **host transfer by nomination** — one name on both sides of the wire (§7 binds 호스트 이관 = *the host transfer*; 지명 is the qualifier that tells it from the `claim` after `hostDown`). `server/` said *the named squad-leader transfer* until 2026-09-20 | `net/parts/Lobby.ts`, `server/` |
+| 단체 메신저방 | **group rooms** — CLAUDE.md §4.3 and **both** READMEs say it; never *group messenger rooms* | `net/RoomSync.ts`, `server/Rooms.ts` |
+| 대화 기록 · 시세 · 시세 창구 · 봉 구간 · 신호 찾기 · 배경 프로브 | **the history** (`SocialSync`'s per-slot store — kept apart from §7 `meta`'s *the log* = `NpcLogEntry`) · **quote** · the **quote desk** · **candle bucket** · **quick match** · the **background probe** | `net` |
+| 최근 만난 플레이어 · 초대 표 · 외로운 분대 해산 · 푸시 합치기 · 원자적 이동 | **recent players** · the **invite table** · the **lonely-party prune** (`pruneLonely`) · **push coalescing** · the **atomic move** | `server/` |
+| 문서 리비전 · 세대 번호 · 손상 복구 · 춤(저장 절차) · 운영 콘솔 | **document revisions** · the **generation number** · **corruption recovery** · the **dance** (`server/README.md`'s 「persistence dance」) · the **operator console** | `server/Store.ts`, `Console.ts` |
+| 잔여 횟수 · 거절 통보 · 거부음 · 분대원 4칸 선택 화면 · 상단 시점 | **the count left** / **one charge** · the **deny notice** · the **deny sound** (`ui_deny`) · the **four-cell squadmate picker** · the **top view** | `stratagems` |
+| 건물 2층 | a building's **second floor** — the word `src/world` · `shared/types.ts` · `src/pickups` already use. Never *second storey* (`shared/explosion.ts`'s 「the storey above」 is prose about a blast, not the building's level) | tree-wide |
+| 콜라이더 와이어프레임 · 총알 층 · 선분 쌓기 · 빨간 줄 | the **collider wireframe** · **bullet bands** · **segment building** · a **red line** (a console error line) | `console/ColliderOverlay.ts` |
+| 연산 코어 vs 프로세서 · 막힌 사유 | the **compute core** (retired) vs the **processor** — never merged · **what blocks it** (why mining stopped; kept apart from §7 `gadgets`' *the refusal reason*) | `console/commands/crypto.ts` |
+| 들고 다니는 방패 · 에너지 풀 · (배리어) 잠금 · 받는 쪽 버프 상한 | the **carried shield** (`implants/README.md`'s own word) · the **energy pool** · the **lockout** · the **receive-side buff cap** | `implants` |
+| 창턱 벽 · 개구멍 인방 · 턱에서 뛰어내리기 | a **sill wall** · a **vent lintel** · **jumping off a ledge** — §7 `world/structures`' nouns reused, not new ones | `implants/parts/Devices.ts` |
+| 프로그램 키 · 렌더 타깃 · 여분 광원 · 워밍 · 대기 오버라이드 | the **program key** · the **render target** · a **padding light** (`LightBudget`'s `pads`) · the **warm-up** · the **atmosphere override** (`atmo:override`) | `core` |
+| 빌드에는 서버가 없다 · 오리진 = 세이브 | **builds ship no server** (CLAUDE.md §2's own phrase) · **the origin *is* the saves** — the reason the window port is fixed | `electron/main.ts` |
