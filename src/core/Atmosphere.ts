@@ -17,9 +17,10 @@ export class Atmosphere {
   spaceMode = false;
   private readonly scene: THREE.Scene;
   private readonly sunOffset = new THREE.Vector3();
-  /* ── appended (2026-09-09): 대기 오버라이드 (`atmo:override`) — 환경 재해가 시야를 좁히는 유일한 통로 ──
-   * 팔레트가 정한 값을 `base*` 에 떠 두고, 오버라이드를 그 **위에** 얹는다. 팔레트가 바뀌면 base 를 다시 잡고
-   * 오버라이드는 그대로 살아 있으므로, 재해 도중에 행성이 바뀌어도 어긋나지 않는다. */
+  /* ── appended (2026-09-09): the atmosphere override (`atmo:override`) — the only path by which a hazard narrows
+   * sight ── the values the palette decided are held in `base*` and the override is laid **on top** of them. A new
+   * palette re-takes the base while the override stays alive, so a planet change mid-hazard goes nowhere out of
+   * step. */
   private baseDensity = 0;
   private readonly baseColor = new THREE.Color(0xffffff);
   private readonly baseBg = new THREE.Color(0xffffff);
@@ -132,8 +133,8 @@ export class Atmosphere {
     this.captureBase();
   }
 
-  /* ── appended (2026-09-09): 대기 오버라이드 ───────────────────────────────────────────────────────────── */
-  /** 지금 fog 에 들어 있는 값을 "원래 하늘" 로 기억한다. 팔레트를 갈아 끼운 직후에 부른다. */
+  /* ── appended (2026-09-09): the atmosphere override ─────────────────────────────────────────── */
+  /** Remembers whatever `fog` holds right now as "the original sky". Called right after a palette swap. */
   private captureBase(): void {
     this.baseDensity = this.fog.density;
     this.baseColor.copy(this.fog.color);
@@ -142,9 +143,9 @@ export class Atmosphere {
   }
 
   /**
-   * 하늘 · 포그를 일시적으로 밀어붙인다 (`atmo:override` 이벤트의 구현). 마지막으로 받은 값 하나만 기억한다.
-   * `fogMul` = 원래 포그 농도의 배수, `color` = 섞어 넣을 색(null = 그대로), `blend` = 0..1 섞는 정도.
-   * `{1, null, 0}` 이면 완전히 원래대로 돌아간다.
+   * Pushes sky · fog temporarily (the implementation behind the `atmo:override` event). Only the last value received
+   * is remembered. `fogMul` = a multiplier on the original fog density, `color` = the colour to mix in (null = leave
+   * it alone), `blend` = how much is mixed, 0..1. `{1, null, 0}` goes all the way back to the original.
    */
   setOverride(fogMul: number, color: number | null, blend: number): void {
     this.ovFogMul = Number.isFinite(fogMul) ? Math.max(0, fogMul) : 1;
@@ -154,24 +155,25 @@ export class Atmosphere {
   }
 
   /**
-   * base + 오버라이드를 실제 fog / background 에 반영한다.
+   * Writes base + override into the real fog / background.
    *
-   * 농도는 **`base` 에서 `target` 으로의 보간**이다. 곱셈(`base × mul`)이 아닌 이유는 2026-09-09 에 드러났다:
-   * **포그가 없는 맑은 행성**(`PlanetDef.fog:false` → 카민 I)은 `baseDensity` 가 0 이라 무엇을 곱해도 0 이고,
-   * 그 행성의 모래 폭풍 안에서 시야가 전혀 좁아지지 않았다. `target` 을 팔레트 자신의 `fogDensity` 에서
-   * 잡으면 그 행성도 "맑음(0) → 폭풍(팔레트 농도 × mul)" 으로 자연스럽게 오른다.
-   * 포그가 있는 행성에서는 `lerp(base, base × mul, t)` = 예전 곱셈식과 **완전히 같은 값**이다.
+   * The density is **an interpolation from `base` to `target`**. Why it is not a multiplication (`base × mul`) came
+   * out on 2026-09-09: a **clear planet with no fog** (`PlanetDef.fog:false` → `카민 I`) has `baseDensity` 0, so
+   * anything multiplied by it stays 0 and sight never narrowed at all inside that planet's sandstorm. Taking `target`
+   * from the palette's own `fogDensity` lets that planet rise naturally too, "clear (0) → storm (palette density ×
+   * mul)". On a planet that has fog, `lerp(base, base × mul, t)` is **exactly the same value** as the old
+   * multiplication.
    */
   private applyOverride(): void {
     const t = this.ovBlend;
     const base = this.baseDensity;
-    // 맑은 행성(base 0)은 팔레트가 원래 갖고 있던 농도를 기준으로 삼는다 — 0 에 곱하면 영원히 0 이다
+    // a clear planet (base 0) measures from the density the palette already held — multiplying 0 stays 0 forever
     const target = (base > 0 ? base : this.palette.fogDensity) * this.ovFogMul;
     this.fog.density = base + (target - base) * t;
     this.fog.color.copy(this.baseColor);
     if (this.ovColor !== null && t > 0) this.fog.color.lerp(this.ovScratch.setHex(this.ovColor), t);
-    // 배경도 원래 색 → 포그 색으로 같이 넘어간다. t=0 이면 `baseBg` 그대로라 맑은 행성의 horizon 배경이 지켜지고,
-    // 포그가 있는 행성은 `baseBg === baseColor` 라 예전처럼 포그 색을 그대로 따라간다.
+    // the background crosses over with it, original colour → fog colour. At t=0 it stays `baseBg`, so a clear
+    // planet's horizon background is kept; a planet with fog has `baseBg === baseColor` and follows the fog colour.
     if (this.scene.background instanceof THREE.Color) {
       this.scene.background.copy(this.baseBg);
       if (t > 0) this.scene.background.lerp(this.fog.color, t);

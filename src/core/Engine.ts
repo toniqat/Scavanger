@@ -96,7 +96,7 @@ export class Engine {
       void this.shaders.holdForScene();
     });
     this.ctx.bus.on('game:abort', () => { this.fx.clear(); this.atmosphere.setOverride(1, null, 0); });
-    /* appended (2026-09-09): 환경 재해가 시야를 좁히는 유일한 통로. 마지막으로 받은 값 하나만 남는다. */
+    /* appended (2026-09-09): the only path by which a hazard narrows sight. Only the last value received stays. */
     this.ctx.bus.on('atmo:override', ({ fogMul, color, blend }) => this.atmosphere.setOverride(fogMul, color, blend));
     // freeze === false (multiplayer pause menu) keeps the simulation running; only the menu is shown.
     this.ctx.bus.on('game:paused', ({ paused, freeze }) => { this.paused = paused && freeze !== false; });
@@ -165,7 +165,7 @@ export class Engine {
 
   /* ── 화면 설정 (2026-09-08, driven by `ui:displayChanged` from main.ts) ────────────────────────────────────
    *
-   * Two knobs beyond the bloom above. **2026-09-11 정정 (C-44)**: the old note here said "nothing recompiles a
+   * Two knobs beyond the bloom above. **2026-09-11 correction (C-44)**: the old note here said "nothing recompiles a
    * material" — wrong for both. Bloom swaps the render target (above), and shadows change the program key (below).
    * Each is therefore applied **only when its value changes** and holds the frame for the one recompile; the same
    * value published again (boot, 전체화면, 해상도) costs nothing.

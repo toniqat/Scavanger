@@ -71,8 +71,8 @@ atmosphere → `shaders.update()` → `shaders.beforeRender()` → `outline.warm
 ## Recent changes
 
 Last 5 only — older: `git log -- src/core`.
+- 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-20 — `countVisiblePointLights` walks an explicit stack instead of `traverseVisible` and skips the padding group it already counts; `x:lightBudget` 0.156–0.157 → 0.132–0.142 ms/frame in S2. The count stays exact and per-frame — see the rule above for why a flag or an interval was rejected (`docs/DECISIONS.md` perf Phase C · B3).
 - 2026-09-15 — `ShaderWarmup.holdFor(ready, timeoutS)` and `compileProgress` for the raid-entry loading gate.
 - 2026-09-12 — `outline.warm` runs even while a shader hold is active.
 - 2026-09-12 — `Outline.ts` / `ctx.outline`: hover/selected screen-space outlines for ship management.
-- 2026-09-11 — Perf guard emits `render:autoAdjusted` once per boot; `debugForcePerfGuard()` hook (C-58).

@@ -35,21 +35,24 @@ export function countVisiblePointLights(root: THREE.Object3D, skip: THREE.Object
 }
 
 /**
- * **씬의 점광원 개수를 세션 내내 하나로 고정한다** (2026-09-10).
+ * **Holds the scene's point-light count at one number for the whole session** (2026-09-10).
  *
- * three.js 는 보이는 점광원 개수를 셰이더 프로그램 키에 넣는다. 개수가 바뀌면 씬의 모든 lit 머티리얼이 다음
- * 그리기에서 **다시 컴파일**되고, 개수마다 다른 프로그램이라 전에 컴파일한 것도 재사용되지 않는다. 측정값:
- * 개인 함선 27 → 도킹 컷씬 15 → 공유 함선 29 → 행성 20 — 전환마다 수백 ms ~ 3 초가 멈췄다.
+ * three.js puts the visible point-light count into the shader program key. When the count changes, every lit material
+ * in the scene **compiles again** on the next draw, and since each count is its own program, what was compiled before
+ * is not reused either. Measured: personal ship 27 → docking cutscene 15 → shared ship 29 → planet 20 — every
+ * transition stalled for a few hundred ms up to 3 s.
  *
- * 2026-09-10 에 광원을 하나씩 "끄지 말고 어둡게만" 고친 것(탈출 함선 · 신호탄 · 헬포드 · 분대장 기기)은 **한 장면
- * 안에서** 개수를 지켰다. 이것은 **장면과 장면 사이**를 지킨다: intensity 0 인 여분 광원을 예산만큼 들고 있다가,
- * 매 프레임 그리기 직전에 진짜 광원을 세서 모자란 만큼만 켠다. 그래서 함선 · 컷씬 · 행성 어디서든 셰이더가 보는
- * 개수는 `SCENE_POINT_LIGHT_BUDGET` 이다.
+ * Fixing the lights one at a time on 2026-09-10 to "dim rather than turn off" (the extraction ship · the flare · the
+ * hellpod · the squad-leader device) held the count **within one scene**. This holds it **between scenes**: padding
+ * lights at intensity 0 are carried up to the budget, and right before each frame is drawn the real lights are
+ * counted and only the shortfall is shown. So in the ship, in a cutscene or on a planet alike, the count the shader
+ * sees is `SCENE_POINT_LIGHT_BUDGET`.
  *
- * 여분 광원도 셰이더 루프를 한 바퀴씩 돈다 — 그래서 예산은 **실제로 가장 많이 켜지는 장면**에 맞춰 둔다: 상주 광원
- * 15 + 함선 `HUB_POINT_LIGHTS` 8 = 23 (함선은 자리가 스물이 넘어도 그 풀 안에서 돈다, `hub/interiors/LightPool`).
- * 행성은 패드 3 + 콘솔 3 이라 레이드 중 여분은 2 개다.
- * 진짜 광원이 예산을 넘으면 개수가 흔들리므로 그 값마다 한 번 경고한다.
+ * A padding light still costs one pass of the shader loop — so the budget is set to **the scene that really lights
+ * the most**: 15 resident lights + the ship's `HUB_POINT_LIGHTS` 8 = 23 (the ship holds more than twenty slots but
+ * runs them from that pool, `hub/interiors/LightPool`). A planet has 3 extraction pads + 3 consoles, so mid-raid 2
+ * are spare.
+ * Real lights over the budget make the count move, so each such value warns once.
  */
 export class LightBudget {
   readonly budget: number;

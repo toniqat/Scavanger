@@ -3,37 +3,44 @@ import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 import type { OutlineChannel, OutlineRef } from '@/shared';
 
 /**
- * `ctx.outline` (2026-09-12) — 화면 공간 외곽선. 계약은 `shared/render.ts` 의 `OutlineRef`.
+ * `ctx.outline` (2026-09-12) — the screen-space outline. Its contract is `OutlineRef` in `shared/render.ts`.
  *
- * 시설 관리에서 가구에 커서를 올리면 **약한 흰색**(`hover`), 골라 두면 **중간 밝기 연두색**(`selected`) 외곽선이 선다
- * (사용자 결정 — 화면 공간 아웃라인 패스). three 의 `OutlinePass` 를 채널마다 하나씩 쓴다.
+ * In ship management, hovering a piece of furniture raises a **faint white** (`hover`) outline and picking one a
+ * **mid-bright yellow-green** (`selected`) outline (user's decision — a screen-space outline pass). three's
+ * `OutlinePass` is used one per channel.
  *
- * - **안 쓸 때 비용 0**: 채널이 비면 `enabled = false` 라 컴포저가 건너뛰고, 캔버스 경로도 부르지 않는다.
- *   `set` 이 같은 목록이면 아무 일도 없다. 두 채널에 같은 오브젝트(또는 그 조상 · 자손)가 있으면 `selected` 만 그린다.
- * - **블룸 꺼짐에서도 선다**: 컴포저가 있으면 블룸 뒤 · OutputPass 앞에 끼워 넣고(`attach`), 블룸을 끈 캔버스 경로에서는
- *   `renderDirect` 가 씬을 그린 뒤 같은 패스를 캔버스에 **덧그린다** — 캔버스 경로를 컴포저로 바꾸면 그리는 렌더 타깃이
- *   바뀌어 씬 전체가 재컴파일되기 때문이다 (Engine `applyPost` 주석). 캔버스는 톤매핑 · sRGB 인코딩을 거치지 않으므로
- *   그 경로에서는 색을 sRGB 로 인코딩한 값으로 바꿔 끼운다.
- * - **첫 호버의 컴파일 멈춤을 없앤다** (`warm`): 외곽선 머티리얼의 프로그램 키는 **그리는 곳의 상태**를 따른다 — 씬을
- *   오버라이드로 그리는 깊이 · 마스크 머티리얼은 씬의 포그 · 점광원 개수 · 그림자와 렌더 타깃(선형)을, 전체 화면 쿼드는
- *   광원 0 · 포그 없음 · 렌더 타깃을, 마지막 덧그리기(overlay)는 캔버스 경로면 캔버스(sRGB · ACES)를 본다. 그래서 그 상태가
- *   바뀔 때마다(포그 종류 · 해의 그림자 · 블룸 경로) 똑같은 조건을 흉내 내 `renderer.compile` 로 링크를 걸어 둔다
- *   (KHR_parallel_shader_compile — 드라이버가 백그라운드에서 끝낸다). 점광원 개수는 `LightBudget` 이 세션 내내 고정이라
- *   Engine 이 `beforeRender`(예산 채움) **뒤**에만 부른다. 마스크 단계는 선택하지 않은 메시를 전부 숨기고 그리므로, 메시
- *   밑에 매달린 광원이 빠진 개수를 그대로 보도록 워밍도 같은 숨김 안에서 한다.
- * - **광원을 만들지 않는다.** 패스가 잠깐 바꾸는 `visible` 은 메시 · 스프라이트 · 점 · 선뿐이고 광원 · 그룹은 건드리지
- *   않으며 렌더가 끝나기 전에 되돌린다 — `smoke-lights` 가 세는 개수(`traverseVisible`)는 프레임 사이에서 그대로다.
- * - **그림자를 다시 그리지 않는다**: 패스 안의 `renderer.render(scene)` 두 번이 해의 그림자 맵까지 다시 그리지 않게,
- *   그동안만 `shadowMap.autoUpdate` 를 끈다 (그림자 맵은 이번 프레임에 본 렌더가 이미 갱신했다).
+ * - **Costs nothing while unused**: an empty channel sets `enabled = false`, so the composer skips it and the canvas
+ *   path never calls it. `set` with the same list does nothing. When both channels hold the same object (or its
+ *   ancestor · descendant), only `selected` is drawn.
+ * - **It stands with bloom off too**: with a composer it is inserted after bloom and before OutputPass (`attach`);
+ *   on the bloom-off canvas path `renderDirect` draws the scene and then **draws the same passes over** the canvas —
+ *   switching the canvas path to the composer would change the render target being drawn into and recompile the whole
+ *   scene (Engine `applyPost` comment). The canvas goes through neither tone mapping nor sRGB encoding, so that path
+ *   swaps in colours already encoded to sRGB.
+ * - **It removes the first hover's compile hitch** (`warm`): an outline material's program key follows **the state of
+ *   where it is drawn** — the depth · mask materials, which draw the scene as an override, see the scene's fog ·
+ *   point-light count · shadows and the render target (linear); the full-screen quad sees 0 lights · no fog · the
+ *   render target; and the final overlay sees the canvas (sRGB · ACES) on the canvas path. So whenever that state
+ *   changes (fog kind · the sun's shadow · the bloom path) the same conditions are mimicked and `renderer.compile`
+ *   links the programs ahead of time (KHR_parallel_shader_compile — the driver finishes it in the background). The
+ *   point-light count is held fixed for the whole session by `LightBudget`, so Engine calls this only **after**
+ *   `beforeRender` (which fills the budget). The mask step draws with every unselected mesh hidden, so the warm-up
+ *   runs inside that same hiding — a light parented under a mesh drops out of the count there too.
+ * - **It creates no light.** The `visible` the pass flips covers meshes · sprites · points · lines only, never
+ *   lights or groups, and it is restored before the render ends — the count `smoke-lights` takes (`traverseVisible`)
+ *   is the same between frames.
+ * - **It does not redraw shadows**: so that the two `renderer.render(scene)` calls inside the pass do not redraw the
+ *   sun's shadow map too, `shadowMap.autoUpdate` is off for their duration (the main render already refreshed the
+ *   shadow map this frame).
  */
 
-/** 채널별 겉모습 (UI 시각값이지 밸런스 수치가 아니다). */
+/** The look of each channel (a UI presentation value, not a balance number). */
 const STYLE: Readonly<Record<OutlineChannel, { color: number; strength: number; thickness: number }>> = {
-  hover: { color: 0xffffff, strength: 1.4, thickness: 1.0 },      // 약한 흰색
-  selected: { color: 0xa8f060, strength: 3.0, thickness: 1.5 },   // 중간 밝기 연두색
+  hover: { color: 0xffffff, strength: 1.4, thickness: 1.0 },      // faint white
+  selected: { color: 0xa8f060, strength: 3.0, thickness: 1.5 },   // mid-bright yellow-green
 };
 
-/** 외곽선 채널 하나를 그리는 패스 — 내부 씬 렌더 동안 그림자 맵 갱신을 끈다. */
+/** The pass that draws one outline channel — shadow-map updates are off during its internal scene renders. */
 class ChannelPass extends OutlinePass {
   override render(
     renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget,

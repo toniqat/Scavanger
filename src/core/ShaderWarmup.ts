@@ -4,7 +4,7 @@ import { countVisiblePointLights, type LightBudget } from './LightBudget';
 
 interface Job {
   pending: THREE.Material[];
-  /** 2026-09-15: 기다리기 시작할 때의 머티리얼 수 — `compileProgress` 의 분모 (0 이 되지 않는다). */
+  /** 2026-09-15: how many materials the wait started with — `compileProgress`'s denominator (never 0). */
   initial: number;
   deadline: number;
   resolve: (ok: boolean) => void;
@@ -17,20 +17,20 @@ function isInside(obj: THREE.Object3D, root: THREE.Object3D): boolean {
 }
 
 /**
- * `ctx.shaders` (2026-09-10) — 새 장면을 보여 주기 전에 셰이더를 컴파일해 둔다. 계약은 `shared/render.ts`.
+ * `ctx.shaders` (2026-09-10) — compiles shaders before a new scene is shown. The contract is `shared/render.ts`.
  *
- * **왜 `renderer.compileAsync` 를 그대로 쓰지 않나** — 이유가 둘이다.
- * 1. **렌더 타깃.** 프로그램 키의 `outputColorSpace` · `toneMapping` 은 *지금 바인딩된 렌더 타깃*에서 온다
- *    (`WebGLPrograms.getParameters`). 우리는 `EffectComposer` 의 렌더 타깃에 그리므로(선형 · 톤매핑 없음),
- *    업데이트 도중(타깃 null = 화면: sRGB · ACES) 부른 `compile` 은 **한 번도 쓰이지 않을 변형**을 컴파일한다.
- *    `weapons/fx/WeaponFx.warmUp` 이 정확히 그랬다. 여기서는 컴포저의 타깃을 잠깐 바인딩하고 부른다.
- * 2. **폐기된 머티리얼.** `compileAsync` 는 모은 머티리얼의 `currentProgram.isReady()` 를 10 ms 마다 부르는데,
- *    기다리는 동안 머티리얼이 dispose 되면 `currentProgram` 이 없어 three 의 `setTimeout` 안에서 던진다
- *    (`WeaponFx.warmUp` 주석). 여기서는 Engine 프레임마다 직접 확인하고 없는 프로그램은 준비된 것으로 친다.
+ * **Why `renderer.compileAsync` is not used as it comes** — two reasons.
+ * 1. **The render target.** The program key's `outputColorSpace` · `toneMapping` come from the *render target bound
+ *    right now* (`WebGLPrograms.getParameters`). The scene is drawn into `EffectComposer`'s render target (linear, no
+ *    tone mapping), so a `compile` called mid-update (target null = the canvas: sRGB · ACES) compiles a **variant
+ *    that is never used**. `weapons/fx/WeaponFx.warmUp` did exactly that. Here the composer's target is bound for it.
+ * 2. **Disposed materials.** `compileAsync` polls `currentProgram.isReady()` on the gathered materials every 10 ms,
+ *    and a material disposed while it waits has no `currentProgram`, so it throws inside three's `setTimeout`
+ *    (`WeaponFx.warmUp` comment). Here every Engine frame checks directly and a missing program counts as ready.
  *
- * 광원 상태도 맞춘다: 프로그램 키에는 점광원 개수가 들어가므로, `root` 가 들어오고 `replaces` 가 빠진 뒤의 개수를
- * 계산해 `LightBudget` 여분을 그만큼 잠깐 조정하고 컴파일한 뒤 되돌린다. `compile` 은 동기라 그 사이에 그려지는
- * 프레임은 없다.
+ * The light state is matched too: the program key holds the point-light count, so the count after `root` enters and
+ * `replaces` leaves is worked out, `LightBudget`'s padding is adjusted by that much for the compile and restored
+ * afterwards. `compile` is synchronous, so no frame is drawn in between.
  */
 export class ShaderWarmup implements ShaderWarmupRef {
   private jobs: Job[] = [];
@@ -52,9 +52,10 @@ export class ShaderWarmup implements ShaderWarmupRef {
   get pendingJobs(): number { return this.jobs.length; }
 
   /**
-   * 2026-09-15 (레이드 진입 로딩): 지금 걸린 컴파일의 진행도 0..1 — 준비된 머티리얼 / 처음 기다리던 머티리얼.
-   * 기다리는 것이 없으면 1 이고, 씬 컴파일이 **예약만 된 상태**(`holdForScene` 직후 · 아직 `beforeRender` 전)는 0 이다:
-   * 그 프레임에 1 을 돌려주면 로딩 게이지가 「다 됐다」로 시작했다가 도로 내려간다.
+   * 2026-09-15 (raid entry loading): progress 0..1 of the compile in flight — materials ready / materials waited
+   * on. With nothing waiting it is 1, and a scene compile that is **only queued** (right after `holdForScene`, still
+   * before `beforeRender`) is 0: returning 1 on that frame would start the loading gauge at "done" and send it back
+   * down.
    */
   get compileProgress(): number {
     if (this.sceneWaiters.length > 0) return 0;
@@ -88,8 +89,9 @@ export class ShaderWarmup implements ShaderWarmupRef {
   }
 
   /**
-   * 2026-09-15 (레이드 진입 로딩): 상한을 직접 받는 `hold`. 분대원 로딩 대기(`RAID_LOAD_TIMEOUT_S`, 60초)는
-   * 셰이더 컴파일 상한(`SHADER_WARMUP_TIMEOUT_S`)보다 길어서, 그 상한으로 잡으면 아무도 기다려 주지 않는다.
+   * 2026-09-15 (raid entry loading): a `hold` that takes its own cap. Waiting for squadmates to load
+   * (`RAID_LOAD_TIMEOUT_S`, 60 s) runs longer than the shader-compile cap (`SHADER_WARMUP_TIMEOUT_S`), so holding
+   * with that cap means nobody waits at all.
    */
   holdFor(ready: Promise<unknown>, timeoutS: number): void {
     this.holdWith(ready, Number.isFinite(timeoutS) && timeoutS > 0 ? timeoutS : SHADER_WARMUP_TIMEOUT_S);
