@@ -79,7 +79,14 @@ things this machine could not answer:
    The one thing S5 could **not** answer is a replica's frame time, because both clients shared one GPU; that needs
    a second machine.
 
-## How to work this plan
+## How to work this plan — and why it is still here
+
+**This file was written to be deleted when its last phase ended, and the user decided on 2026-09-20 to keep it
+instead** (`docs/DECISIONS.md`). What it holds is no longer a to-do list; it is the **measurement record** — the `ms`
+noise floor of this machine, the A/B that refuted 「draw calls are the frame」, three separate occasions on which the
+named suspect was not the owner, and the method that found the real one each time. `CLAUDE.md` §1 and §4.5 point
+here for exactly that. **Do not add work to it**: a new to-do goes in `docs/TODO.md`, an intended limit in the owning
+folder's `README.md`. Add to this file only a **measurement** — and only with the counters that back it.
 
 1. **Read first:** `CLAUDE.md` §4.1 (no numbers in code → csv), §4.5 (never change the point-light count at runtime;
    every scene compiles through `ctx.shaders`), §6 (verify). Then the README of every folder you touch.
@@ -88,7 +95,8 @@ things this machine could not answer:
 3. **Judge by what is deterministic.** Draw calls, scene nodes and triangles repeat to within 2 %; `ms` numbers do
    not. A phase that only moves the ms numbers by less than the run-to-run spread has not been shown to do anything.
 4. **One phase = one verify cycle** (`npm run verify`; `verify:all` at the end of the session). Record results as
-   `CLAUDE.md` §6 says; once every phase is done or retired this file is **deleted**.
+   `CLAUDE.md` §6 says. The harness itself (`scripts/perf-measure.mjs`) asserts nothing, so `verify` never selects
+   it — a change to it is checked by `npm run typecheck` and by running it.
 
 ---
 

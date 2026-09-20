@@ -1155,4 +1155,11 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
   `ally state` never reached the wire). *Rejected*: closing it by arithmetic from the contract (`AllyWire` field set ×
   `ALLY_NET_INTERVAL_S`) — a calculation is what this file keeps having to retract; and leaving C3 open, which would
   keep PERF_PLAN alive for one unanswered row.
+- **Phase D 뒤 `docs/PERF_PLAN.md` 는 삭제하지 않고 남긴다** (the file's own rule was 「delete it once every phase is
+  done」; the user chose to keep it). It stopped being a plan and is now the **measurement record**: the machine's `ms`
+  noise floor, the A/B that refuted 「draw calls are the frame」, the three times the named suspect was not the owner,
+  and the method that found the real one. `CLAUDE.md` §1 · §4.5 point at it for that. Its 「how to work this plan」
+  section was rewritten to say so — new work still goes to `docs/TODO.md`, and only a **measurement** may be added
+  here. *Rejected*: deleting it and moving the surviving facts into `CLAUDE.md` §4.5 (the detail is the value, and
+  §4.5 is a rules list, not a record); renaming it `PERF_NOTES.md` (every inbound link would move for a title).
 
