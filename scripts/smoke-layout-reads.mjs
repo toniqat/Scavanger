@@ -19,8 +19,9 @@
 // measured 1.5–2.1 ms against `clientWidth`'s 0.9–1.9) — but because **no read-free replacement works**:
 // `getAnimations()` drops an animation that has finished with no `fill`, it does not see one that lives on a
 // descendant, and a same-task remove/add (with or without one `requestAnimationFrame`) coalesces into no change.
-// Fixing it needs a decision, not a rewrite — `docs/TODO.md` B-68. So the bar here is: **unknown sites 0, and the
-// known-idiom file list never grows.**
+// The one cure left (a twin `@keyframes` per animation, two classes alternating) was declined on 2026-09-20 — the
+// idiom is an accepted limit (`src/ui/README.md` Rules, `docs/DECISIONS.md`). So the bar here is: **unknown sites 0,
+// and the known-idiom file list never grows.**
 //
 // Checks:
 //   1. hub frames (ship HUD · ship management layer) — 0 unexpected reads inside a frame
@@ -49,7 +50,7 @@ const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshad
 /**
  * Files allowed to force a layout **for the CSS animation restart idiom only** (see the header). Every entry is a
  * `void <el>.offsetWidth` sandwiched between a `classList.remove` and a `classList.add`. The list is a ratchet: it
- * may shrink, never grow. Shrinking it is `docs/TODO.md` B-68.
+ * may shrink, never grow. Nothing is scheduled to shrink it (an accepted limit since 2026-09-20).
  *
  * 2026-09-20: being on this list excuses **`offsetWidth` and nothing else** (`KNOWN_ACCESSOR`). It used to excuse
  * every accessor in those files, so a new `getBoundingClientRect` on a per-frame path in, say, `WeaponPanel.ts` would

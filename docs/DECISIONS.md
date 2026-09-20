@@ -1084,7 +1084,8 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
   cheaper than a **layout** flush on this HUD (1.5–2.1 ms vs 0.9–1.9 ms per flush inside a dirtied raid frame).
   The idiom stays, listed as a 13-file **ratchet** in the smoke (`KNOWN_IDIOM`, may shrink only), and the real choice
   — twin `@keyframes` per animation so two classes can alternate, versus accepting ~1–2 ms on a flash frame — is
-  [docs/TODO.md](TODO.md) B-68 · B-69. *Rejected*: `{subtree: true}` (it would rewind unrelated animations on the
+  what was TODO B-68 · B-69, **answered later the same day: accept it** (the last bullet of this section).
+  *Rejected*: `{subtree: true}` (it would rewind unrelated animations on the
   same subtree); shipping the helper at the sites where it happens to work (one idiom with two behaviours is a trap
   for the next reader).
 - **`ms` 는 여전히 근거가 아니다 — 세는 것으로 판정한다.** What actually cracked this phase was a counter, not a timer:
@@ -1097,6 +1098,16 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
   (`hud/ShipManage`, `visibility: hidden`) and four faded-out `.menu` screens. Taking them out of layout is a real cut
   of a deterministic counter, but no frame-time effect can be demonstrated at this machine's noise floor, so it is
   recorded rather than built.
+- **애니메이션 재시작 관용구는 받아들이고 닫는다 (B-68 · B-69, asked after the plan's closing audit).** The
+  `remove → void offsetWidth → add` idiom stays at all 19 sites in the 13 `src/ui/hud` files, as an **intended limit**
+  (`src/ui/README.md` Rules) instead of a to-do; the ten sites in other folders' menus (`housing/ui` · `hub/ui` ·
+  `inventory/ui/CatalogView`) are left alone too — they run outside `Engine.frame`, where §4.2 does not apply. The
+  evidence was already in Phase B: S4 re-measured twice with `hud/DamageOverlay` forcing a layout on every bite gave
+  the same numbers as the build without it. The smoke's `KNOWN_IDIOM` ratchet (13 files, `offsetWidth` only) stays, so
+  the idiom cannot spread. *Rejected*: twin `@keyframes` on the combat hot path only (`Reticle` · `DamageOverlay` ·
+  `WeaponPanel` · `Vitals`, ratchet 13 → 9); twin `@keyframes` at all 19 sites with the ratchet emptied (the same
+  blast radius as the sweep retracted that morning, for an effect this machine cannot show); for B-69, a two-class
+  helper in `src/shared` used by the three folders, or keeping the row open.
 
 ## 2026-09-20 — 지속 CPU 비용 · The sustained CPU costs (PERF_PLAN Phase C)
 
