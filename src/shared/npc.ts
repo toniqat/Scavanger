@@ -59,7 +59,7 @@ export const NPC_FLAGS = ['gathered', 'raidReturned'] as const;
 export type NpcFlag = typeof NPC_FLAGS[number];
 
 /**
- * ⚠ `'deferred'` **has retired** (2026-09-14 3rd pass, user's decision — the 「생각해볼게」 choice was removed).
+ * ⚠ `'deferred'` **has retired** (2026-09-14 3rd pass, user's decision — the 「생각해보지」 choice was removed).
  * A new quest only goes `offered` → `accept()` → `active`, and this value stays only so that old saves can be read
  * (the same treatment as `airstrike` · `secondary` — a contract is append-only).
  */
@@ -72,7 +72,7 @@ export const NPC_QUEST_STATE_LABEL_KO: Readonly<Record<NpcQuestState, string>> =
 export type MessengerTab = 'chat' | 'friends' | 'quests';
 
 /** The player's fixed answer attached to a quest card's button (it stays in the conversation log as a 「나」 speech bubble). */
-/** ⚠ `decline` · `brief` have retired (2026-09-14 3rd pass — 「생각해볼게」 removed). They are only used to resolve an old log. */
+/** ⚠ `decline` · `brief` have retired (2026-09-14 3rd pass — 「생각해보지」 removed). They are only used to resolve an old log. */
 export const NPC_REPLY_KO = {
   accept: '맡겠습니다.',
   decline: '생각해보지.',
@@ -481,7 +481,7 @@ export interface NpcQuestRef {
   /** offered | deferred → active (ship). Coming from deferred attaches a brief to the conversation. */
   accept(id: string): boolean;
   /**
-   * ⚠ **Retired** (2026-09-14 3rd pass, user's decision — the 「생각해볼게」 choice was removed). The implementation
+   * ⚠ **Retired** (2026-09-14 3rd pass, user's decision — the 「생각해보지」 choice was removed). The implementation
    * always returns false and nothing calls it. A contract is append-only, so only the name stays (the same treatment as `airstrike`).
    */
   defer(id: string): boolean;
