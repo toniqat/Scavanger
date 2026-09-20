@@ -8,16 +8,16 @@ import {
   FOOTSTEP_VOL_CROUCH, FOOTSTEP_VOL_PRONE, FOOTSTEP_VOL_SPRINT, FOOTSTEP_VOL_WALK,
   ROGUE_DROP_ALARM_VOLUME, ROGUE_DROP_ALERT_FALLOFF_EXP, ROGUE_DROP_ALERT_RADIUS,
   ROGUE_DROP_FALL_LEAD_S, ROGUE_DROP_FALL_VOLUME, ROGUE_DROP_MIN_VOLUME,
-  /* 2026-09-15: 낙하 착지 (B-14) */
+  /* 2026-09-15: the fall landing (B-14) */
   FALL_REMOTE_SOUND_RANGE, FALL_VIGNETTE_FULL_DAMAGE,
-  /* 2026-09-13: 탐사 차량 */
+  /* 2026-09-13: the rover */
   ROVER_CLANG_GAP_S, ROVER_TRIP_SPEED,
-  /* 2026-09-16: 벌레 소리 — 굴착음 · 발소리 · 포탄 낙하음 */
+  /* 2026-09-16: bug sounds — burrowing up · footsteps · the incoming shell whistle */
   BUG_STEP_GIANT_RANGE_M, BUG_STEP_RANGE_M, BUG_STEP_VOICE_CAP, BURROW_EMERGE_VOICE_CAP,
   SHELL_INCOMING_FLOOR, SHELL_INCOMING_LEAD_S, SHELL_INCOMING_RANGE_M, SHELL_INCOMING_VOICE_CAP, SHELL_INCOMING_VOLUME,
   SHELL_LAUNCH_RANGE_M, shellLaunchVelocity, shellPositionAt,
 } from '@/shared';
-/* 2026-09-13 (요리 미니게임): 조리대 요리의 제작 완료음 겹침 방지 */
+/* 2026-09-13 (the cooking minigame): keeps a cook bench dish from doubling the craft-done sound */
 import { cookStepsOf } from '@/shared';
 import { Synth, SOUNDS } from './Synth';
 
@@ -35,7 +35,7 @@ const SETTINGS_SAVE_DEBOUNCE_MS = 250;
 const PREVIEW_SOUND: Record<AudioChannel, { id: string; volume: number }> = {
   master: { id: 'ui_click', volume: 0.8 },
   sfx: { id: 'shot_pistol', volume: 0.7 },
-  // 2026-09-14: bgm 채널에는 아직 아무 소리도 안 걸려 있다 — 미리듣기는 sfx 버스의 중립 블립이다.
+  // 2026-09-14: nothing is wired to the bgm channel yet — its preview is a neutral blip on the sfx bus.
   bgm: { id: 'ui_click', volume: 0.5 },
 };
 /** Dragging a slider must not machine-gun the preview. */
@@ -48,28 +48,32 @@ interface Ambient {
   engine: { osc: OscillatorNode; osc2: OscillatorNode; filter: BiquadFilterNode; gain: GainNode } | null;
   /** Ship-interior hum + ventilation loop (hub / docking phases only). */
   hub: { filter: BiquadFilterNode; gain: GainNode; vent: GainNode } | null;
-  /** 창문 워프 (2026-09-09): drive hum that follows `hub:warpProgress.speed` (detuned saws + rushing noise → lowpass). */
+  /**
+   * The window warp (2026-09-09): drive hum that follows `hub:warpProgress.speed`
+   * (detuned saws + rushing noise → lowpass).
+   */
   warp: { osc: OscillatorNode; osc2: OscillatorNode; filter: BiquadFilterNode; gain: GainNode; rush: GainNode } | null;
 }
 
 /** Seconds without a `hub:warpProgress` after which the warp hum is treated as over (a cancelled trip emits no `end`). */
 const WARP_HUM_HOLD_S = 0.3;
 
-/* ── 발소리 (2026-09-10) ────────────────────────────────────────────────
- * 크기(자세별 · 사거리 · 감쇠 지수)는 전부 `data/constants.csv` 다. 여기 남는 것은 **소리 그 자체**인
- * 피치 배수뿐 — 어떤 표면을 어떤 자세로 밟았을 때의 톤이라 밸런스 수치가 아니다.
+/* ── footsteps (2026-09-10) ──────────────────────────────────────────
+ * The volumes (per stance · range · falloff exponent) are all in `data/constants.csv`. What stays here is only the
+ * pitch multipliers, **the sound itself** — the tone of a surface stepped on in a stance, not a balance number.
  */
 const FOOTSTEP_PITCH_SPRINT = 1.05;
 const FOOTSTEP_PITCH_CROUCH = 0.96;
 const FOOTSTEP_PITCH_PRONE = 0.9;
-/** 이보다 조용해질 바에는 보이스를 만들지 않는다 (사거리 끝자락의 무음 재생 방지). */
+/** Quieter than this and no voice is made at all (no silent playback at the far edge of the range). */
 const FOOTSTEP_MIN_VOLUME = 0.012;
 
-/* ── 재질별 발소리 (2026-09-11, C-22) ─────────────────────────────────────
- * 밟은 표면(`WorldRef.getSurfaceMaterial`)이 소리 id 를 고른다 — `footstep_<SurfaceMaterial>` 11종(`Synth`). 함선(허브 ·
- * 도킹 페이즈)은 `WorldRef` 가 아니라 **페이즈로 금속**이다 (본인 발소리 포함 — 옛 `FOOTSTEP_PITCH_DECK` 1.16 피치
- * 해킹이 원격에만 걸리던 것을 대신한다). 재질마다 체감 크기를 맞추는 배수는 csv (`FOOTSTEP_MATERIAL_GAIN`).
- * `Record<SurfaceMaterial, …>` 라 계약에 재질이 늘면 여기서 타입 오류가 난다.
+/* ── footsteps by material (2026-09-11, C-22) ───────────────────────
+ * The surface stepped on (`WorldRef.getSurfaceMaterial`) picks the sound id — the 11 `footstep_<SurfaceMaterial>`
+ * (`Synth`). Inside the ship (hub · docking phases) the material is **metal by phase**, not by `WorldRef` (the local
+ * player's own steps included — it replaces the old `FOOTSTEP_PITCH_DECK` 1.16 pitch hack, which only hit remotes).
+ * The multiplier that levels each material by ear is csv (`FOOTSTEP_MATERIAL_GAIN`). It is a
+ * `Record<SurfaceMaterial, …>`, so a material added to the contract is a type error right here.
  */
 const FOOTSTEP_ID: Readonly<Record<SurfaceMaterial, string>> = {
   dirt: 'footstep_dirt', sand: 'footstep_sand', snow: 'footstep_snow', mud: 'footstep_mud', moss: 'footstep_moss',
@@ -77,56 +81,64 @@ const FOOTSTEP_ID: Readonly<Record<SurfaceMaterial, string>> = {
   metal: 'footstep_metal', concrete: 'footstep_concrete',
 };
 const FOOTSTEP_MATERIAL_GAIN: Readonly<Partial<Record<SurfaceMaterial, number>>> = numberMap<SurfaceMaterial>('tables.csv', 'FOOTSTEP_MATERIAL_GAIN');
-/** id → 재질 배수 (적 발소리는 `audio:play` 의 id 로만 오므로 id 에서 찾는다). */
+/** id → material multiplier (an enemy footstep arrives only as an `audio:play` id, so it is found by id). */
 const FOOTSTEP_GAIN_BY_ID: Readonly<Record<string, number>> = Object.fromEntries(
   (Object.keys(FOOTSTEP_ID) as SurfaceMaterial[]).map((m) => [FOOTSTEP_ID[m], FOOTSTEP_MATERIAL_GAIN[m] ?? 1]),
 );
 /**
- * 적 발소리(2026-09-11 C-23 · X-3)의 거리 곡선. 적은 위치를 주는 `audio:play {footstep_<mat>}` 로 내므로 아래
- * `RANGED_SOUNDS` 에 11개 id 가 모두 이 한 줄로 들어간다 — 원격 분대원 발소리(`FOOTSTEP_AUDIBLE_RANGE` 26 m)보다
- * 멀리 들리는 대신 밑값은 호출부(`enemies/model.stepSound` 의 타입별 gain — 베헤모스는 크고 전사는 작다)가 정한다.
- * 예전에는 방출부의 선형 감쇠 × 패너 inverse 가 **두 번** 곱해져 20 m 에서 0.06 이었다.
- * (본인 · 원격 분대원 발소리는 `footstep()` 이 직접 `play` 하므로 이 곡선을 타지 않는다.)
+ * The distance curve for enemy footsteps (2026-09-11 C-23 · X-3). Enemies emit them as a positional
+ * `audio:play {footstep_<mat>}`, so all 11 ids go into `RANGED_SOUNDS` below through this one line — they carry
+ * further than a remote squadmate's steps (`FOOTSTEP_AUDIBLE_RANGE` 26 m), and in exchange the base volume is set
+ * by the caller (`enemies/model.stepSound`'s per-type gain — a behemoth is loud, a warrior quiet).
+ * It used to be the emitter's linear falloff × the panner's inverse multiplied **twice**: 0.06 at 20 m.
+ * (Local and remote squadmate steps never ride this curve — `footstep()` calls `play` directly.)
  */
 const ENEMY_STEP_RANGE: RangeProfile = { range: 45, exp: 1.5 };
 
-/* ── 로그 강하 (2026-09-10) ────────────────────────────────────────────
- * 피치는 "소리 그 자체" 라 코드에 둔다 (발소리 피치와 같은 규약). 크기 · 반경 · 감쇠 지수는 csv 다.
+/* ── the rogue drop (2026-09-10) ───────────────────────────────────
+ * The pitches stay in code because they are "the sound itself" (the same rule as the footstep pitches). Volume ·
+ * radius · falloff exponent are csv.
  */
-/** 경보음의 피치 — 아군 웨이브 경보(`wave_alarm`)보다 살짝 높아 "적의 것" 으로 읽힌다. */
+/** The alarm's pitch — a little above the friendly wave alarm (`wave_alarm`), so it reads as "theirs". */
 const ROGUE_DROP_ALARM_PITCH = 1.06;
-/** 낙하 굉음의 피치 — 아군 헬포드보다 낮게 깔린다. */
+/** The fall roar's pitch — it sits lower than a friendly hellpod. */
 const ROGUE_DROP_FALL_PITCH = 0.88;
-/** 착지 뒤 이만큼 지나면 추적을 버린다 (착지 방송을 못 받은 강하 대비). */
+/** This long after the landing the drop is dropped from tracking (for a drop whose landing never broadcast). */
 const ROGUE_DROP_FORGET_S = 3;
 
-/* ── 낙하 착지 (2026-09-15, B-14) ─────────────────────────────────────────
- * 피해 → 무게 k = min(1, 피해 / `FALL_VIGNETTE_FULL_DAMAGE`) — HUD 비네트가 가장 진해지는 피해와 같은 기준이라
- * 「화면이 가장 붉을 때 소리도 가장 무겁다」. 아래는 소리 그 자체(피치 · 층의 비율)라 코드에 둔다 (발소리 피치와 같은 규약).
- * 분대원 낙하의 사거리 · 지수는 `RANGED_SOUNDS.fall_impact` 한 줄이다.
+/* ── the fall landing (2026-09-15, B-14) ──────────────────────────────
+ * damage → weight k = min(1, damage / `FALL_VIGNETTE_FULL_DAMAGE`) — the same yardstick as the damage at which the
+ * HUD vignette is deepest, so 「the sound is heaviest when the screen is reddest」. What follows is the sound itself
+ * (pitch · the balance between the layers), so it stays in code (the same rule as the footstep pitches). A
+ * squadmate's landing takes its range and exponent from the one `RANGED_SOUNDS.fall_impact` line.
  */
 const FALL_PITCH_LIGHT = 1.15;
 const FALL_PITCH_HEAVY = 0.8;
 const FALL_VOL_LIGHT = 0.55;
 const FALL_VOL_HEAVY = 1;
-/** 겹치는 재질 발소리 = 달리기 발소리(`FOOTSTEP_VOL_SPRINT`) × 이 배수 (가벼운 → 무거운). 피치는 조금 눌러 무게를 싣는다. */
+/**
+ * The material footstep layered on top = the sprint step (`FOOTSTEP_VOL_SPRINT`) × this multiplier (light → heavy).
+ * The pitch is pushed down a little to carry the weight.
+ */
 const FALL_STEP_GAIN_LIGHT = 1.3;
 const FALL_STEP_GAIN_HEAVY = 2.2;
 const FALL_STEP_PITCH_LIGHT = 0.92;
 const FALL_STEP_PITCH_HEAVY = 0.78;
 
-/* ── 거리 곡선을 가진 효과음 (2026-09-11) ─────────────────────────────────
- * 드론 · 원격 지뢰 · 네임드 로그의 소리는 기본 패너(inverse, ref 4 m)로는 성격을 못 낸다 — 지상 드론 걷기는
- * 소유자 곁에서만, 저격 한 발은 맵 거의 끝까지 들려야 한다. 그래서 `audio:play` 에 위치가 오면 이 표의 id 는
- * 원격 발소리 · 로그 강하와 **같은 곡선** `(1 − d/range)^exp` 을 호출부 볼륨에 곱하고, 패너는 방향만 맡는다
- * (`panOnly`). `range` 밖은 보이스를 만들지 않는다.
+/* ── sounds with a distance curve (2026-09-11) ──────────────────
+ * Drones · remote mines · named rogues cannot get their character from the default panner (inverse, ref 4 m) — a
+ * ground drone walking has to stay beside its owner, a sniper shot has to carry almost the width of the map. So
+ * when `audio:play` comes with a position, the ids in this table multiply the caller's volume by the **same curve**
+ * `(1 − d/range)^exp` as remote footsteps and the rogue drop, and the panner only handles direction (`panOnly`).
+ * Beyond `range` no voice is made at all.
  *
- * `floor` = 사거리 안에서 보장하는 최소 비율. **전조가 들려야 공정한** 소리(저격 반짝임 · 저격 · 스캔 음파)만
- * 갖는다. 사거리 끝에서 뚝 끊기지 않게 마지막 `RANGED_FLOOR_EDGE` 구간에서 0 으로 줄어든다.
+ * `floor` = the smallest fraction guaranteed inside the range. Only sounds that are **fair only if their warning is
+ * heard** have one (the sniper glint · the sniper shot · the scan pulse). It falls to 0 over the last
+ * `RANGED_FLOOR_EDGE` of the range, so nothing cuts off abruptly at the edge.
  *
- * 이 반경들은 **플레이어 귀의 연출**이고 게임 판정에 쓰이지 않는다 — 판정 반경이 있는 소리는 그 계약 상수에
- * 묶는다: 질주하는 지상 드론은 적이 듣는 `DRONE_NOISE_RADIUS` 보다 조금 멀리까지 들린다 ("적이 들었는데 나는
- * 못 들었다" 가 없게).
+ * These radii are **presentation for the player's ear** and no gameplay judgement reads them — a sound that does
+ * have a judgement radius binds to that contract constant: a sprinting ground drone carries a little further than
+ * the `DRONE_NOISE_RADIUS` the enemies hear, so there is never a "they heard it and I did not".
  */
 interface RangeProfile { range: number; exp: number; floor?: number }
 const RANGED_SOUNDS: Readonly<Record<string, RangeProfile>> = {
@@ -151,18 +163,18 @@ const RANGED_SOUNDS: Readonly<Record<string, RangeProfile>> = {
   minigun_spinup: { range: 90, exp: 1.2 },
   minigun_fire: { range: 220, exp: 1.0, floor: 0.1 },
   minigun_spindown: { range: 90, exp: 1.2 },
-  // 2026-09-13: 버그 굴착 스폰 · 땅굴벌레 (enemies/). 전조 땅울림 · 분출 · 포효는 멀리서도 들려야 공정하다 — floor.
+  // 2026-09-13: burrow spawns · the sandworm (enemies/). Rumble · eruption · roar must carry to be fair — floor.
   burrow_emerge: { range: 40, exp: 1.5 },
   sandworm_rumble: { range: 200, exp: 1.0, floor: 0.3 },
   sandworm_erupt: { range: 260, exp: 0.9, floor: 0.3 },
   sandworm_roar: { range: 220, exp: 1.0, floor: 0.2 },
   sandworm_spit: { range: 90, exp: 1.2 },
   sandworm_death: { range: 200, exp: 1.0, floor: 0.15 },
-  // 2026-09-11 (C-23): 적 발소리 — 재질별 id 11개가 같은 곡선 (위 `ENEMY_STEP_RANGE`)
+  // 2026-09-11 (C-23): enemy footsteps — the 11 per-material ids share one curve (`ENEMY_STEP_RANGE` above)
   ...Object.fromEntries(Object.values(FOOTSTEP_ID).map((id) => [id, ENEMY_STEP_RANGE])),
-  // 2026-09-13: 안드로이드 서보음은 재질 발소리 위에 겹쳐 나므로 같은 곡선이어야 발소리보다 멀리 들리지 않는다
+  // 2026-09-13: the android servo layers over the material footstep, so it needs the same curve to not carry further
   android_step: ENEMY_STEP_RANGE,
-  // 2026-09-13: 탐사 차량 (world/rover). 파괴 폭발만 멀리서도 들려야 한다 — floor.
+  // 2026-09-13: the rover (world/rover). Only the destruction blast has to carry — floor.
   rover_engine: { range: 70, exp: 1.4 },
   rover_depart: { range: 120, exp: 1.2 },
   rover_shot: { range: 160, exp: 1.0 },
@@ -170,80 +182,91 @@ const RANGED_SOUNDS: Readonly<Record<string, RangeProfile>> = {
   rover_brake: { range: 60, exp: 1.3 },
   rover_clang: { range: 45, exp: 1.4 },
   rover_explode: { range: 320, exp: 0.9, floor: 0.2 },
-  // 2026-09-15 (B-14): 분대원 낙하 착지 — 원격 발소리와 같은 지수, 사거리는 player 가 `FallMessage` 를 거르는 값 그대로
-  // (사거리 끝에서 곡선이 0 이 되므로 player 의 컷과 맞물려 뚝 끊기지 않는다).
+  // 2026-09-15 (B-14): a squadmate's landing — the remote footstep exponent, and the range player filters
+  // `FallMessage` by, verbatim (the curve reaches 0 at the edge, so it meets player's cut without a hard stop).
   fall_impact: { range: FALL_REMOTE_SOUND_RANGE, exp: FOOTSTEP_FALLOFF_EXP },
-  // 2026-09-15 (B-16): 화염 지대 (enemies · gadgets). 붙는 순간은 조금 멀리, 지지직은 곁에서만 — 지대가 여럿이면 `VOICE_CAP` 이 자른다.
+  // 2026-09-15 (B-16): fire zones (enemies · gadgets). The ignition carries a little, the crackle only nearby —
+  // with several zones it is `VOICE_CAP` that cuts.
   fire_ignite: { range: 40, exp: 1.3 },
   fire_crackle: { range: 32, exp: 1.5 },
-  // 2026-09-15 (gadgets, 진동 장치): 땅을 치는 쿵 — 흔들림 반경(THUMPER_SHAKE_RADIUS 30 m)보다 조금 멀리까지 들린다
+  // 2026-09-15 (gadgets, the thumper): the ground strike — heard a little past THUMPER_SHAKE_RADIUS (30 m)
   thumper_thump: { range: 55, exp: 1.3 },
-  // 2026-09-16: 벌레 발소리 — 사람 발소리의 `ENEMY_STEP_RANGE` 45 m 보다 짧다, 베헤모스만 조금 멀리.
-  // 세 id 가 `VOICE_GROUP` 으로 한 상한을 나눈다; 무리 크기 1/√n 은 방출부(`enemies/model.emitEnemyStep`)가 곱해 온다.
-  // 2026-09-18 (사용자 결정 「벌레 발소리가 너무 안 난다 — 뒤에 있으면 소리로 알아차리게」): 지수 1.4 / 1.3 → 1.0 (선형) —
-  // 10 m 뒤 벌레가 예전 곡선(22 m, ^1.4)으로는 0.43 이었고 지금(32 m, ^1) 0.69 다. 밑값 상향은 `STEP_VOICES`.
+  // 2026-09-16: bug footsteps — shorter than a person's 45 m `ENEMY_STEP_RANGE`, the behemoth alone a bit further.
+  // The three ids share one cap through `VOICE_GROUP`; the swarm's 1/√n is multiplied in by the emitter
+  // (`enemies/model.emitEnemyStep`).
+  // 2026-09-18 (user's decision 「벌레 발소리가 너무 안 난다 — 뒤에 있으면 소리로 알아차리게」): exponent 1.4 / 1.3 → 1.0
+  // (linear) — a bug 10 m behind you was 0.43 on the old curve (22 m, ^1.4) and is 0.69 now (32 m, ^1). The base
+  // volumes were raised in `STEP_VOICES`.
   bug_step_skitter: { range: BUG_STEP_RANGE_M, exp: 1.0 },
   bug_step_heavy: { range: BUG_STEP_RANGE_M, exp: 1.0 },
   bug_step_giant: { range: BUG_STEP_GIANT_RANGE_M, exp: 1.0 },
-  // 2026-09-16: 포병 — 발사 쿵은 교전 거리 밖에서도, 낙하 휘파람은 **착탄점** 거리로 잰다 (floor = 공정한 경고; `updateShells`).
+  // 2026-09-16: artillery — the launch thump carries past engagement range, the whistle is measured to the
+  // **impact point** (floor = a fair warning; `updateShells`).
   shell_launch: { range: SHELL_LAUNCH_RANGE_M, exp: 1.1 },
   shell_incoming: { range: SHELL_INCOMING_RANGE_M, exp: 1.2, floor: SHELL_INCOMING_FLOOR },
 };
-/** 탐사 차량 엔진음 한 조각의 간격(초) — `rover_engine` 은 이보다 조금 길어 겹치며 이어진다. */
+/** Gap (s) between rover engine clips — `rover_engine` is a little longer than this, so the clips run together. */
 const ROVER_ENGINE_STEP_S = 0.5;
-/** `floor` 가 사거리 끝 이 비율 구간에서 선형으로 0 이 된다. */
+/** `floor` falls linearly to 0 over this fraction of the range at its far edge. */
 const RANGED_FLOOR_EDGE = 0.15;
-/** 이보다 조용해질 바에는 보이스를 만들지 않는다. */
+/** Quieter than this and no voice is made at all. */
 const RANGED_MIN_VOLUME = 0.01;
 /**
- * 같은 id 의 **동시 보이스** 상한 (2026-09-15, B-16). `RATE_MAX_SAME` 은 100 ms 창의 빈도만 자르므로, 0.7 s 마다 불리는
- * ≈1 s 짜리 `fire_crackle` 은 지대가 스무 개면 보이스가 스물 넘게 쌓인다. 상한에 닿으면 새 소리가 지금 울리는 것 중 가장
- * 작은 것보다 작거나 같으면 **만들지 않고**, 크면 가장 작은 것을 `VOICE_STEAL_FADE` 로 짧게 페이드시켜 자리를 넘긴다.
- * 볼륨은 이미 `RANGED_SOUNDS` 거리 곡선을 먹은 값이므로 「가까운 지대가 이긴다」 와 같다. 지대 하나가 조각 둘을 겹쳐
- * 쓰므로(0.95 s / 0.7 s) 8 = 가장 가까운 지대 넷.
+ * The cap on **simultaneous voices** of one id (2026-09-15, B-16). `RATE_MAX_SAME` only cuts the frequency inside a
+ * 100 ms window, so the ≈1 s `fire_crackle` called every 0.7 s stacks past twenty voices with twenty zones burning.
+ * At the cap a new sound is **not made** when it is no louder than the quietest one currently playing; when it is
+ * louder, the quietest is faded out over `VOICE_STEAL_FADE` and hands its slot over. The volume has already been
+ * through the `RANGED_SOUNDS` distance curve, so this is the same as 「the nearest zone wins」. One zone overlaps
+ * two clips (0.95 s / 0.7 s), so 8 = the four nearest zones.
  */
 const VOICE_CAP: Readonly<Record<string, number>> = {
   fire_crackle: 8, fire_ignite: 4,
-  // 2026-09-16: 벌레 발소리 세 id 는 한 무리(`VOICE_GROUP`) — 열 마리 넘게 걸어도 가까운 것만. 굴착음은 마리마다 나므로 상한.
+  // 2026-09-16: the three bug step ids are one group (`VOICE_GROUP`) — past ten walking bugs, only the near ones.
+  // The burrow emerge plays per bug, hence a cap.
   bug_steps: BUG_STEP_VOICE_CAP, burrow_emerge: BURROW_EMERGE_VOICE_CAP, shell_incoming: SHELL_INCOMING_VOICE_CAP,
 };
 /**
- * 2026-09-16: id → 상한을 나누는 보이스 무리 (없으면 id 자신이 무리다). 무리 이름은 소리 id 와 겹치지 않게 짓는다
- * (`bug_steps` ≠ 사냥꾼 착지 틱 `bug_step`).
+ * 2026-09-16: id → the voice group that shares a cap (with none, the id is its own group). A group name is chosen
+ * so it cannot collide with a sound id (`bug_steps` ≠ the hunter's landing tick `bug_step`).
  */
 const VOICE_GROUP: Readonly<Record<string, string>> = { bug_step_skitter: 'bug_steps', bug_step_heavy: 'bug_steps', bug_step_giant: 'bug_steps' };
-/** 빼앗긴 보이스의 페이드 시간 상수 (s) — 뚝 끊는 클릭이 나지 않을 만큼만. */
+/** Fade time constant (s) for a stolen voice — just long enough that cutting it makes no click. */
 const VOICE_STEAL_FADE = 0.04;
 /**
- * 살아 있는 보이스 하나 — `VOICE_CAP` 무리의 목록에 들어가고, `play` 가 돌려준다 (2026-09-16: 포탄 낙하음이 매 프레임 패너 ·
- * 크기를 옮기고 착탄에 끊는다). `stolen` = 상한에 밀려 페이드됐다 (다시 키우지 않는다). `panner` = 위치가 있을 때만.
+ * One live voice — it goes into its `VOICE_CAP` group's list and `play` returns it (2026-09-16: the incoming shell
+ * whistle moves its panner and volume every frame and cuts it on impact). `stolen` = faded out by the cap (never
+ * brought back up). `panner` = only when there is a position.
  */
 interface CappedVoice { end: number; vol: number; gain: GainNode; panner: PannerNode | null; stolen: boolean }
 
-/* ── 포병 포탄 낙하음 (2026-09-16) ──────────────────────────────────────
- * `enemy:shellFired` 는 호스트(`enemies/parts/Attacks.fireShell`)와 리플리카(`RemoteFx.shellVisual`) 모두에서 오므로 전원이 듣는다.
- * 사거리 · floor · 리드 · 크기 · 상한은 csv, 아래는 추적 슬롯 수 · 페이드 같은 소리 처리 상수다.
+/* ── the incoming shell whistle (2026-09-16) ─────────────────────
+ * `enemy:shellFired` comes from both the host (`enemies/parts/Attacks.fireShell`) and the replica
+ * (`RemoteFx.shellVisual`), so everyone hears it. Range · floor · lead · volume · cap are csv; what follows are
+ * sound-handling constants — the number of tracking slots, the fades.
  */
 const SHELL_TRACK_MAX = 8;
-/** 착탄 시각에서 이만큼(s) 지나도 착탄 · 요격 방송이 없으면 추적을 버린다. */
+/** This long (s) past the impact time with no landed · intercepted broadcast, tracking is given up. */
 const SHELL_FORGET_S = 1;
-/** 남은 비행이 이보다 짧으면 휘파람을 시작하지 않는다 (늦게 받은 방송 — 시작하자마자 잘린다). */
+/** With less flight left than this the whistle is not started (a late broadcast — it would be cut as it begins). */
 const SHELL_INCOMING_MIN_S = 0.35;
-/** 착탄 · 요격에 휘파람을 끊는 페이드 시간 상수(s) — 폭발음이 덮는다. */
+/** Fade time constant (s) that cuts the whistle on impact · interception — the blast covers it. */
 const SHELL_STOP_FADE = 0.03;
-/** 매 프레임 착탄점 거리 곡선을 다시 걸 때의 시간 상수(s) — 달아나면 부드럽게 작아진다. */
+/** Time constant (s) for re-applying the impact-point distance curve each frame — running away fades it down. */
 const SHELL_GAIN_RAMP = 0.08;
-/** 발사 쿵의 밑 크기 (거리 곡선 전). */
+/** The launch thump's base volume (before the distance curve). */
 const SHELL_LAUNCH_VOLUME = 0.85;
-/** 날아오는 포탄 하나 — 궤적은 `shared/ballistics` 의 닫힌 식 (`enemies/fx/ShellProjectile` · HUD 와 같은 함수). */
+/**
+ * One shell in flight — its trajectory is the closed form in `shared/ballistics` (the same function
+ * `enemies/fx/ShellProjectile` and the HUD use).
+ */
 interface IncomingShell {
   active: boolean; sid: number; firedAt: number; flight: number; started: boolean; voice: CappedVoice | null;
   readonly from: THREE.Vector3; readonly vel0: THREE.Vector3; readonly impact: THREE.Vector3; readonly pos: THREE.Vector3;
 }
-/** 드론 아이템의 `gadget:used` 는 `drone_deploy` 가 대신한다 (투척 휙 소리를 겹치지 않는다). */
+/** `drone_deploy` stands in for a drone item's `gadget:used` (no throw whoosh layered on top). */
 const DRONE_GADGET_IDS: readonly string[] = Object.values(DRONE_GADGET_OF);
 
-/** 예고를 받아 놓고 착지 직전에 굉음을 낼 강하 하나. */
+/** One announced drop whose roar is still waiting for the moment before it lands. */
 interface DropSound { id: string; pos: THREE.Vector3; landsAt: number; roared: boolean }
 
 const RECONNECT_WARN_INTERVAL_MS = 5000;
@@ -290,16 +313,16 @@ export class AudioSystem implements GameSystem, AudioRef {
   private barrierActive = false;
   private barrierHp = 0;
 
-  /** 예고~착지 사이의 로그 강하 (2026-09-10) — 굉음을 낼 시각을 기다린다. */
+  /** Rogue drops between the announcement and the landing (2026-09-10) — waiting for the moment to roar. */
   private drops: DropSound[] = [];
-  /* 2026-09-13: 탐사 차량 — 엔진음 다음 시각 · 속도 추정 · 피격음 간격 */
+  /* 2026-09-13: the rover — the next engine clip's time · the speed estimate · the gap between hit sounds */
   private roverEngineNext = 0;
   private readonly roverLastPos = new THREE.Vector3();
   private roverHasLast = false;
   private roverLastClang = -Infinity;
-  /** 2026-09-15 (B-16): `VOICE_CAP` id 별 살아 있는 보이스 (끝난 것은 `play` 가 그때그때 걷어낸다). */
+  /** 2026-09-15 (B-16): the live voices per `VOICE_CAP` id (`play` clears out the finished ones as it goes). */
   private cappedVoices = new Map<string, CappedVoice[]>();
-  /** 2026-09-16: 날아오는 포병 포탄 — 미리 만든 슬롯 (가득 차면 가장 오래된 것을 쓴다). */
+  /** 2026-09-16: incoming artillery shells — pre-made slots (when they are full the oldest is reused). */
   private incoming: IncomingShell[] = Array.from({ length: SHELL_TRACK_MAX }, () => ({
     active: false, sid: -1, firedAt: 0, flight: 0, started: false, voice: null,
     from: new THREE.Vector3(), vel0: new THREE.Vector3(), impact: new THREE.Vector3(), pos: new THREE.Vector3(),
@@ -342,11 +365,13 @@ export class AudioSystem implements GameSystem, AudioRef {
       // player
       b.on('player:damaged', () => auto('player_hurt', undefined, 0.9, 0.9 + Math.random() * 0.2)),
       b.on('player:died', () => auto('player_death')),
-      // 발소리 (2026-09-10): 본인은 거리 감쇠 없이 늘 같은 크기, 원격 분대원만 멀 수록 작아진다.
+      // footsteps (2026-09-10): the local player is always the same volume with no falloff; only a remote
+      // squadmate fades with distance.
       b.on('player:footstep', ({ position, sprinting }) => this.footstep(null, position, sprinting)),
       b.on('remote:footstep', ({ position, sprinting, peerId }) => this.footstep(peerId, position, sprinting)),
-      // 낙하 착지 (2026-09-15, B-14): 본인은 위치 없이 늘 같은 크기, 분대원은 거리 곡선. 둘 다 발밑 재질 발소리를 겹친다.
-      // (`player:fell` 은 피해가 실제로 들어갔을 때만, `player:remoteFell` 은 player/ 가 멤버 · 사거리를 거른 뒤에만 온다.)
+      // the fall landing (2026-09-15, B-14): the local player has no position and one volume, a squadmate rides
+      // the distance curve. Both layer the material footstep under the foot. (`player:fell` only when damage really
+      // landed; `player:remoteFell` only after player/ has filtered by member and range.)
       b.on('player:fell', ({ damage }) => this.fallImpact(null, damage)),
       b.on('player:remoteFell', ({ position, damage }) => this.fallImpact(position, damage)),
       b.on('player:stimUsed', () => auto('stim')),
@@ -372,15 +397,17 @@ export class AudioSystem implements GameSystem, AudioRef {
 
       // enemies (EnemySystem emits its own bug_* audio:play; we only add the wave alarm). Combat-only: never in the hub.
       b.on('enemy:waveStarted', () => { if (ctx.isGameplayPhase()) auto('wave_alarm'); }),
-      // 로그 강하 (2026-09-10): 경보는 지금, 낙하 굉음은 착지 직전에. 둘 다 인지력이 아니라 전용 반경을 본다.
+      // the rogue drop (2026-09-10): the alarm now, the fall roar just before the landing. Neither looks at
+      // perception — both read their own dedicated radius.
       b.on('rogueDrop:incoming', ({ dropId, position, eta }) => this.rogueDropIncoming(dropId, position, eta)),
       b.on('rogueDrop:landed', ({ dropId }) => this.rogueDropDone(dropId)),
-      // 포병 포탄 (2026-09-16): 발사 쿵은 지금 발사점에서, 낙하 휘파람은 착탄 `SHELL_INCOMING_LEAD_S` 전부터 날아오는 포탄 자리에서 (`updateShells`).
+      // artillery shells (2026-09-16): the launch thump now at the launch point, the whistle from
+      // `SHELL_INCOMING_LEAD_S` before impact at the shell's moving position (`updateShells`).
       b.on('enemy:shellFired', ({ sid, from, target, flightTime }) => this.shellFired(sid, from, target, flightTime)),
       b.on('enemy:shellLanded', ({ sid }) => this.shellDone(sid)),
       b.on('enemy:shellIntercepted', ({ sid }) => this.shellDone(sid)),
 
-      // 탐사 차량 (2026-09-13, world/rover). 엔진음은 `update` 가 차량 속도를 보고 조각으로 잇는다.
+      // the rover (2026-09-13, world/rover). `update` chains the engine clips from the vehicle's speed.
       b.on('rover:departed', () => { const v = ctx.world?.rover?.vehicle; if (v) this.playRequested('rover_depart', v.position, 0.9, 1); }),
       b.on('rover:fired', ({ from }) => this.playRequested('rover_shot', from, 0.7, 0.95 + Math.random() * 0.1)),
       b.on('rover:boarded', ({ local }) => {
@@ -449,8 +476,8 @@ export class AudioSystem implements GameSystem, AudioRef {
         if (stage === 'start') auto('hub_dock_thrusters', undefined, 0.8);
         else auto('hub_dock_clamp', undefined, 0.85);
       }),
-      // 창문 워프 (2026-09-09): the hub sends `hub_dock_thrusters` / `hub_dock_clamp` itself at the ends of a trip; in
-      // between, the drive hum rides `speed` (rising / falling with the ramps). No one-shot here.
+      // The window warp (2026-09-09): the hub sends `hub_dock_thrusters` / `hub_dock_clamp` itself at the ends of a
+      // trip; in between, the drive hum rides `speed` (rising / falling with the ramps). No one-shot here.
       b.on('hub:warpProgress', ({ speed }) => { this.warpSpeed = Math.max(0, Math.min(1, speed)); this.warpHold = WARP_HUM_HOLD_S; }),
       b.on('hub:travel', ({ stage }) => { if (stage === 'end') { this.warpSpeed = 0; this.warpHold = 0; } }),
       b.on('hub:slotChanged', ({ local, peerId }) => { if (local) auto('pod_door', undefined, 0.7, peerId === null ? 0.9 : 1); }),
@@ -520,9 +547,10 @@ export class AudioSystem implements GameSystem, AudioRef {
       b.on('implant:overcharge', ({ active }) => { if (active) auto('overcharge_beam', undefined, 0.6); }),
       b.on('implant:wieldChanged', ({ wielded }) => auto(wielded ? 'ui_equip' : 'ui_close', undefined, 0.45)),
       b.on('implant:equipped', () => auto('ui_equip', undefined, 0.7)),
-      // 2026-09-12 준비 소리: 임플란트 = 짧고 높은 전자음 (충전형의 중간 충전은 작고 조금 낮게, 마지막 충전 · 단일 충전 ·
-      // 안정제는 정식), 함선 호출 = 무전 두 음 차임. 거절 환불로 0 이 된 순간(`refunded`)은 조용하다 — 거절음이 이미 났다.
-      // 둘 다 게임플레이 페이즈에서만 나오는 이벤트라 여기서 페이즈를 다시 보지 않는다.
+      // 2026-09-12, the ready sounds: an implant = a short high electronic chirp (a charge-type implant's middle
+      // charge is quieter and a little lower; the last charge · a single charge · the `안정제` get the full one), a
+      // ship call = a two-note radio chime. The moment a denial refund takes it to 0 (`refunded`) is silent — the
+      // denial sound already played. Both events only fire in a gameplay phase, so the phase is not re-checked here.
       b.on('implant:ready', ({ full }) => auto('implant_ready', undefined, full ? 0.55 : 0.26, full ? 1 : 0.9)),
       b.on('stratagem:ready', ({ refunded }) => { if (!refunded) auto('stratagem_ready', undefined, 0.7); }),
       // gadgets
@@ -538,8 +566,9 @@ export class AudioSystem implements GameSystem, AudioRef {
           case 'mine': auto('mine_arm', position, 0.7); break;
           case 'domeShield': auto('dome_deploy', position, 0.85); break;
           case 'smoke': auto('smoke_hiss', position, 0.7); break;
-          // 2026-09-15 (B-16): 지대를 가진 gadgets/ 도 `audio:play fire_ignite` 를 낸다 — 같은 거리 곡선으로 받아야 중복 제거가
-          // 어느 쪽을 먼저 받든 같은 소리를 남긴다 (auto 표시는 그대로라 둘은 한 번으로 묶인다).
+          // 2026-09-15 (B-16): gadgets/ owns fire zones and emits `audio:play fire_ignite` too — it has to take
+          // the same distance curve so dedupe leaves the same sound whichever arrives first (the auto flag is
+          // unchanged, so the two collapse into one).
           case 'fire': this.playRequested('fire_ignite', position, 0.85, 1, true); break;
           case 'lure': auto('lure_beep', position, 0.7); break;
           case 'remoteMine': break; // 2026-09-11: gadgets/ plays `c4_place` itself
@@ -557,11 +586,13 @@ export class AudioSystem implements GameSystem, AudioRef {
       // gear upkeep, gathering, crafting, weight
       b.on('gather:collected', () => auto('gather', undefined, 0.8)),
       b.on('craft:started', () => auto('craft_start', undefined, 0.7)),
-      // 2026-09-13 (요리 미니게임): 조리대 요리(`cookStepsOf` 가 있는 산출물)는 housing 이 `cook_finish` 를 이미 냈다 — 제작 딸깍을 겹치지 않는다
+      // 2026-09-13 (the cooking minigame): housing already played `cook_finish` for a cook bench dish (an output
+      // with `cookStepsOf`) — no craft click on top of it
       b.on('craft:completed', ({ item }) => { if (cookStepsOf(item?.defId ?? '').length === 0) auto('craft_done', undefined, 0.8); }),
       b.on('craft:failed', ({ reason }) => { if (reason !== 'cancelled') auto('ui_error', undefined, 0.7); }),
       b.on('repair:completed', () => auto('repair_done', undefined, 0.8)),
-      // 2026-09-13 암호화폐 채굴: 주기가 끝나 지갑에 들어왔다 — 함선에 있을 때만 (레이드 · 오프라인 따라잡기 중에는 조용히), 거리 감쇠 없음
+      // 2026-09-13 crypto mining: a cycle finished and paid into the wallet — only while in the ship (silent
+      // during a raid or an offline catch-up), no distance falloff
       b.on('housing:cryptoMined', () => { if (ctx.phase === 'hub') auto('crypto_mined', undefined, 0.5); }),
       b.on('durability:broken', () => auto('durability_break', undefined, 0.9)),
       b.on('inventory:overloaded', ({ state }) => { if (state === 'heavy' || state === 'over') auto('ui_deny', undefined, 0.7); }),
@@ -677,8 +708,8 @@ export class AudioSystem implements GameSystem, AudioRef {
     h1.start(); h2.start(); h3.start(); vsrc.start(); vlfo.start();
     this.amb.hub = { filter: hf, gain: hg, vent: vg };
 
-    // 창문 워프 drive (2026-09-09): two detuned saws + a rushing noise band → lowpass → gain. Everything is a target
-    // set per frame from `hub:warpProgress.speed`: pitch 38 → 90 Hz, filter 180 → 1600 Hz, gain 0 → 0.22.
+    // Window warp drive (2026-09-09): two detuned saws + a rushing noise band → lowpass → gain. Everything is a
+    // target set per frame from `hub:warpProgress.speed`: pitch 38 → 90 Hz, filter 180 → 1600 Hz, gain 0 → 0.22.
     const w1 = ac.createOscillator(); w1.type = 'sawtooth'; w1.frequency.value = 38;
     const w2 = ac.createOscillator(); w2.type = 'sawtooth'; w2.frequency.value = 38.7;
     const wsub = ac.createOscillator(); wsub.type = 'sine'; wsub.frequency.value = 19;
@@ -736,7 +767,7 @@ export class AudioSystem implements GameSystem, AudioRef {
       this._settings = {
         master: num(parsed.master, AUDIO_DEFAULT_MASTER),
         sfx: num(parsed.sfx, AUDIO_DEFAULT_SFX),
-        // 2026-09-14 추가 — 옛 저장에는 없다. 생략은 0 이 아니라 「모른다」 이므로 기본값으로 채운다.
+        // Added 2026-09-14 — not in an old save. An omission means 「unknown」, not 0, so the default fills it.
         bgm: num(parsed.bgm, AUDIO_DEFAULT_BGM),
       };
     } catch { /* corrupt or unavailable storage → defaults */ }
@@ -753,8 +784,8 @@ export class AudioSystem implements GameSystem, AudioRef {
     } catch { /* private mode / quota → keep the session values only */ }
   }
 
-  /* ── 발소리 (2026-09-10) ─────────────────────────────────────────────── */
-  /** 자세별 크기: 달리기 > 걷기 > 웅크림 > 엎드림. 자세를 모르면 걷기/달리기만 구분한다. */
+  /* ── footsteps (2026-09-10) ───────────────────────────────────────── */
+  /** Volume by stance: sprint > walk > crouch > prone. With the stance unknown, only walk / sprint differ. */
   private footstepVolume(stance: Stance | undefined, sprinting: boolean): number {
     if (stance === 'prone') return FOOTSTEP_VOL_PRONE;
     if (stance === 'crouch') return FOOTSTEP_VOL_CROUCH;
@@ -762,17 +793,20 @@ export class AudioSystem implements GameSystem, AudioRef {
   }
 
   /**
-   * `player:footstep` (peerId null = 본인) 과 `remote:footstep` 의 공통 재생 경로.
+   * The shared playback path for `player:footstep` (peerId null = the local player) and `remote:footstep`.
    *
-   * - **본인**은 감쇠 대상이 아니다 — 위치를 주지 않으므로 패너를 아예 타지 않고 늘 같은 크기로 들린다.
-   * - **원격**은 `(1 - d / FOOTSTEP_AUDIBLE_RANGE) ^ FOOTSTEP_FALLOFF_EXP` 로 줄고 사거리 밖이면 재생조차
-   *   하지 않는다. 패너는 **방향만** 맡는다 (`panOnly`) — 패너의 inverse 감쇠까지 겹치면 두 번 줄어든다.
-   * - 자세는 이벤트에 없으므로 `ctx.player` / `ctx.net` 에서 읽는다 (계약은 추가만 하는 규칙 그대로 둔다).
-   * - 2026-09-11 (C-22): **밟은 재질**이 소리를 고른다(`surfaceAt` → `footstep_<mat>`, 크기 × `FOOTSTEP_MATERIAL_GAIN`).
-   *   함선 안(허브 · 도킹)은 본인 · 원격 모두 금속이다 — 옛 원격 전용 갑판 피치 배수를 대신한다.
-   * - 적 발소리와 id 를 나눠 쓰므로 **중복 제거(DEDUPE)를 타지 않는다** — 적 한 걸음과 내 한 걸음이 100 ms 안에
-   *   겹치면 한쪽이 사라졌을 것이다. 본인 발소리는 같은 id 속도 제한(RATE)도 건너뛴다 (적 무리가 같은 재질을 밟고
-   *   있어도 내 발소리는 먹히지 않는다).
+   * - **The local player** is never attenuated — no position is given, so no panner is involved at all and the step
+   *   is always the same volume.
+   * - **A remote** drops by `(1 - d / FOOTSTEP_AUDIBLE_RANGE) ^ FOOTSTEP_FALLOFF_EXP` and is not played at all
+   *   outside the range. The panner handles **direction only** (`panOnly`) — layering the panner's inverse falloff
+   *   on top of that would attenuate twice.
+   * - The stance is not on the event, so it is read from `ctx.player` / `ctx.net` (the contract stays add-only).
+   * - 2026-09-11 (C-22): **the material stepped on** picks the sound (`surfaceAt` → `footstep_<mat>`, volume ×
+   *   `FOOTSTEP_MATERIAL_GAIN`). Inside the ship (hub · docking) both local and remote are metal — it replaces the
+   *   old remote-only deck pitch multiplier.
+   * - The ids are shared with enemy footsteps, so **dedupe is skipped** — an enemy's step and mine landing within
+   *   100 ms would have silenced one of them. The local player's step skips the same-id rate limit too (a swarm
+   *   walking the same material never eats my own footsteps).
    */
   private footstep(peerId: PeerId | null, position: THREE.Vector3, sprinting: boolean): void {
     const ctx = this.ctx;
@@ -796,8 +830,9 @@ export class AudioSystem implements GameSystem, AudioRef {
   }
 
   /**
-   * 발 위치 `p`(발 높이 = `p.y`)의 재질. 함선(허브 · 도킹)은 페이즈로 `metal`, 월드가 준비되지 않았거나 world 가
-   * `getSurfaceMaterial` 을 아직 안 가지면(옵셔널 계약) `dirt` — 옛 단일 발소리 음색이다.
+   * The material at foot position `p` (foot height = `p.y`). Inside the ship (hub · docking) it is `metal` by
+   * phase; with the world not ready, or with no `getSurfaceMaterial` on it yet (the contract is optional), `dirt` —
+   * the old single footstep tone.
    */
   private surfaceAt(p: THREE.Vector3): SurfaceMaterial {
     const ctx = this.ctx;
@@ -808,14 +843,17 @@ export class AudioSystem implements GameSystem, AudioRef {
     return m && m in FOOTSTEP_ID ? m : 'dirt';
   }
 
-  /* ── 낙하 착지 (2026-09-15, B-14) ────────────────────────────────────── */
+  /* ── the fall landing (2026-09-15, B-14) ─────────────────────────── */
   /**
-   * `player:fell`(position null = 본인) · `player:remoteFell` 의 공통 경로.
+   * The shared path for `player:fell` (position null = the local player) and `player:remoteFell`.
    *
-   * - **본인**: 위치를 주지 않는다 = 패너를 타지 않고 늘 같은 크기 (본인 발소리와 같은 처리). 재질은 `ctx.player.position`(발).
-   * - **분대원**: `RANGED_SOUNDS.fall_impact` 곡선을 **한 번** 재서 `fall_impact` 와 재질 발소리 둘 다에 곱하고 `panOnly` 로
-   *   낸다 — 패너는 방향만, inverse 감쇠가 곡선 위에 겹치지 않는다. 재질은 착지한 발 위치에서 묻는다.
-   * - 재질 발소리 층은 `footstep()` 과 같은 이유로 중복 제거 · 속도 제한을 타지 않는다 (같은 id 를 적 발소리와 나눠 쓴다).
+   * - **The local player**: no position given = no panner and always the same volume (the same handling as the
+   *   local footstep). The material is read at `ctx.player.position` (the feet).
+   * - **A squadmate**: the `RANGED_SOUNDS.fall_impact` curve is measured **once** and multiplied into both
+   *   `fall_impact` and the material footstep, both emitted `panOnly` — direction only, so no inverse falloff on
+   *   top of the curve. The material is asked for at the landing foot position.
+   * - The material footstep layer skips dedupe and the rate limit for the same reason as in `footstep()` (its id is
+   *   shared with enemy footsteps).
    */
   private fallImpact(position: THREE.Vector3 | null, damage: number): void {
     if (!this.ac || this.ac.state !== 'running') return;
@@ -835,12 +873,13 @@ export class AudioSystem implements GameSystem, AudioRef {
     }
   }
 
-  /* ── 로그 강하 (2026-09-10) ──────────────────────────────────────────── */
+  /* ── the rogue drop (2026-09-10) ─────────────────────────────────── */
   /**
-   * 강하음의 크기. **인지력 반경(`derived.enemyDetectRadius`)을 보지 않는다** — 대기를 찢고 떨어지는 굉음이라
-   * 인지력이 좁아도 들려야 한다는 것이 이 소리의 요구사항이고, 그 대신 전용 반경
-   * `ROGUE_DROP_ALERT_RADIUS`(인지력의 10배) 하나로 게이트한다. 반경 밖은 0 = 재생하지 않는다 —
-   * 맵 반대편의 강하까지 들리면 안 되기 때문이다. 안쪽은 원격 발소리와 같은 곡선으로 줄어든다.
+   * The volume of a drop sound. **It does not look at the perception radius (`derived.enemyDetectRadius`)** — this
+   * is a roar tearing through the air, and the requirement is that it be heard however narrow perception is, so it
+   * is gated by one dedicated radius instead, `ROGUE_DROP_ALERT_RADIUS` (10× perception). Outside it the gain is
+   * 0 = not played, because a drop on the far side of the map must not be audible. Inside, it falls on the same
+   * curve as a remote footstep.
    */
   private dropGain(position: THREE.Vector3, base: number): number {
     const d = this.camPos.distanceTo(position);
@@ -850,12 +889,12 @@ export class AudioSystem implements GameSystem, AudioRef {
   }
 
   /**
-   * `rogueDrop:incoming` — 호스트가 굴렸든(`enemies/RogueDrop.call`) 리플리카가 `rdrop` 으로 받았든 같은
-   * 이벤트가 오므로 **멀티에서도 전원이 듣는다.** 지금 울리는 것은 경보뿐이고, 굉음은 착지 직전에 나간다
-   * (`update`) — 8초 전에 다 울려 버리면 정작 떨어질 때가 조용하다.
+   * `rogueDrop:incoming` — the same event arrives whether the host rolled it (`enemies/RogueDrop.call`) or a
+   * replica received it as `rdrop`, so **everyone hears it in multiplayer too.** Only the alarm sounds now; the
+   * roar goes out just before the landing (`update`) — spending it all 8 seconds early leaves the landing silent.
    *
-   * 경보는 **위치를 주지 않는다**: 분대 무전에 뜨는 경고이지 하늘에서 나는 소리가 아니다 (본인 발소리와 같은
-   * 처리). 방향은 굉음과 HUD 위험 표시가 말한다.
+   * The alarm is given **no position**: it is a warning on the squad radio, not a sound coming out of the sky (the
+   * same handling as the local footstep). Direction is what the roar and the HUD danger indicator say.
    */
   private rogueDropIncoming(dropId: string, position: THREE.Vector3, eta: number): void {
     const now = this.ctx?.time ?? 0;
@@ -867,16 +906,17 @@ export class AudioSystem implements GameSystem, AudioRef {
     if (vol > 0) this.play('rogue_drop_alarm', undefined, vol, ROGUE_DROP_ALARM_PITCH, true);
   }
 
-  /** 착지했다 — 굉음은 이미 났고 충격음은 `enemies/RogueDrop` 이 포드마다 낸다. 추적만 끝낸다. */
+  /** It landed — the roar already played and `enemies/RogueDrop` sounds the impact per pod. Only tracking ends. */
   private rogueDropDone(dropId: string): void {
     const i = this.drops.findIndex((d) => d.id === dropId);
     if (i >= 0) this.drops.splice(i, 1);
   }
 
   /**
-   * 매 프레임: 착지 `ROGUE_DROP_FALL_LEAD_S` 초 전이 되면 낙하 굉음을 한 번 낸다. 굉음은 **방향이 중요하다**
-   * (어느 쪽 하늘에서 내려오는가) — 그래서 위치를 주되 `panOnly` 로 넘겨 패너의 inverse 감쇠가 우리 곡선과
-   * 겹치지 않게 한다. 감쇠는 그 순간의 거리로 다시 잰다 (예고 때 멀었어도 달려갔으면 크게 들린다).
+   * Every frame: `ROGUE_DROP_FALL_LEAD_S` seconds before the landing the fall roar plays once. **Direction matters**
+   * for the roar (which part of the sky it is coming down from), so a position is given but passed `panOnly`, so
+   * the panner's inverse falloff is never layered on our curve. The falloff is measured again from the distance at
+   * that moment (far away when it was announced but close now = loud).
    */
   private updateDrops(now: number): void {
     for (let i = this.drops.length - 1; i >= 0; i--) {
@@ -890,10 +930,11 @@ export class AudioSystem implements GameSystem, AudioRef {
     }
   }
 
-  /* ── 포병 포탄 (2026-09-16) ──────────────────────────────────────────── */
+  /* ── artillery shells (2026-09-16) ───────────────────────────────── */
   /**
-   * `enemy:shellFired`: 발사점에서 둔한 쿵(`shell_launch`, 교전 거리 밖까지)을 내고 포탄을 추적한다. 같은 `sid` 가 다시 오면
-   * (호스트 이양 재전송) 제자리에서 갱신하고 이미 울리는 휘파람은 그대로 둔다. 슬롯이 없으면 가장 오래된 것을 끊고 쓴다.
+   * `enemy:shellFired`: sounds a dull thump at the launch point (`shell_launch`, carrying past engagement range)
+   * and starts tracking the shell. The same `sid` arriving again (a host transfer re-send) refreshes the slot in
+   * place and leaves a whistle that is already sounding alone. With no slot free, the oldest is cut and reused.
    */
   private shellFired(sid: number, from: THREE.Vector3, target: THREE.Vector3, flightTime: number): void {
     if (!this.ctx) return;
@@ -920,7 +961,7 @@ export class AudioSystem implements GameSystem, AudioRef {
     this.playRequested('shell_launch', from, SHELL_LAUNCH_VOLUME, 0.95 + Math.random() * 0.1, true);
   }
 
-  /** 착탄 · 요격: 휘파람을 짧게 끊고 추적을 끝낸다. */
+  /** Impact · interception: the whistle is cut short and the tracking ends. */
   private shellDone(sid: number): void {
     for (const s of this.incoming) if (s.active && s.sid === sid) this.stopShell(s);
   }
@@ -934,7 +975,7 @@ export class AudioSystem implements GameSystem, AudioRef {
     if (v && !v.stolen && this.ac && v.end > this.ac.currentTime) {
       const now = this.ac.currentTime;
       try { v.gain.gain.cancelScheduledValues(now); v.gain.gain.setTargetAtTime(0, now, SHELL_STOP_FADE); } catch { /* already gone */ }
-      v.vol = 0;          // 상한 목록에서 가장 작은 것 = 다음 휘파람이 이 자리를 먼저 가져간다
+      v.vol = 0;          // the quietest in the cap list = the next whistle takes this slot first
       v.stolen = true;
     }
     s.voice = null;
@@ -942,10 +983,12 @@ export class AudioSystem implements GameSystem, AudioRef {
   }
 
   /**
-   * 매 프레임 (camPos 갱신 뒤): 착탄 `SHELL_INCOMING_LEAD_S` 전이 된 포탄은 휘파람을 한 번 시작한다 — 크기는 **귀와 착탄점 사이
-   * 거리**의 `RANGED_SOUNDS.shell_incoming` 곡선(floor = 공정한 경고), 패너는 `shellPositionAt` 의 지금 포탄 자리(방향만).
-   * 시작한 뒤에는 패너를 포탄에 붙여 옮기고 크기를 지금 거리로 다시 건다 (달아나면 작아진다). 시작 순간 사거리 밖이면
-   * 그 포탄은 조용하다 (휘파람을 중간부터 틀 수 없다). 방송을 못 받은 포탄은 `SHELL_FORGET_S` 뒤 버린다.
+   * Every frame (after camPos is updated): a shell `SHELL_INCOMING_LEAD_S` from impact starts its whistle once —
+   * the volume is the `RANGED_SOUNDS.shell_incoming` curve on the **distance between the ear and the impact
+   * point** (floor = a fair warning), the panner the shell's current position from `shellPositionAt` (direction
+   * only). Once started, the panner rides the shell and the volume is re-applied from the current distance
+   * (running away makes it quieter). Out of range at the moment it starts, that shell stays silent (a whistle
+   * cannot be started from the middle). A shell whose broadcast never arrived is dropped after `SHELL_FORGET_S`.
    */
   private updateShells(now: number): void {
     const ac = this.ac;
@@ -975,9 +1018,10 @@ export class AudioSystem implements GameSystem, AudioRef {
   }
 
   /**
-   * 탐사 차량 엔진음 (2026-09-13). 루프 노드를 두지 않고 `rover_engine` 조각을 `ROVER_ENGINE_STEP_S` 마다 차량 자리에서 낸다 —
-   * 조각이 간격보다 조금 길어 이어져 들린다. 크기 · 피치는 프레임 사이 이동 거리로 잰 속도를 따른다 (차량이 속도를 내보이지 않는다).
-   * 서 있는 차는 출발 유예(`departing`) 동안만 공회전한다.
+   * The rover engine (2026-09-13). No loop node: a `rover_engine` clip is played at the vehicle every
+   * `ROVER_ENGINE_STEP_S` — each clip is a little longer than the gap, so they run together. Volume and pitch
+   * follow the speed measured from the distance travelled between frames (the vehicle does not expose its speed).
+   * A standing vehicle idles only during its departure grace (`departing`).
    */
   private updateRoverEngine(dt: number, ctx: GameContext): void {
     const rv = ctx.world?.rover;
@@ -994,8 +1038,8 @@ export class AudioSystem implements GameSystem, AudioRef {
     this.playRequested('rover_engine', v.position, 0.5 + 0.4 * k, 0.78 + 0.45 * k);
   }
 
-  /* ── 거리 곡선 (2026-09-11) ──────────────────────────────────────────── */
-  /** `RANGED_SOUNDS` 한 줄의 거리별 배수. 0 = 사거리 밖. */
+  /* ── the distance curve (2026-09-11) ─────────────────────────────── */
+  /** The multiplier one `RANGED_SOUNDS` line gives at a distance. 0 = out of range. */
   private rangeGain(prof: RangeProfile, d: number): number {
     if (d >= prof.range) return 0;
     const k = 1 - d / prof.range;
@@ -1006,14 +1050,15 @@ export class AudioSystem implements GameSystem, AudioRef {
   }
 
   /**
-   * `audio:play` 의 입구. `RANGED_SOUNDS` 에 있는 id 가 위치와 함께 오면 그 곡선을 곱해 **방향 전용** 패너로
-   * 낸다 (감쇠가 두 번 걸리지 않게). 나머지는 예전 그대로 기본 패너를 탄다.
+   * The entry point for `audio:play`. An id listed in `RANGED_SOUNDS` arriving with a position is multiplied by
+   * that curve and emitted through a **direction-only** panner (so nothing attenuates twice). Everything else
+   * rides the default panner as before.
    */
   private playRequested(id: string, position: THREE.Vector3 | undefined, volume: number | undefined, pitch: number | undefined, auto = false): void {
     const prof = position ? RANGED_SOUNDS[id] : undefined;
     if (!position || !prof) { this.play(id, position, volume, pitch, auto); return; }
     if (!this.ac || this.ac.state !== 'running') return;
-    // 2026-09-11 (C-22): 적 발소리도 재질 배수를 먹는다 (본인 · 원격은 `footstep()` 이 곱한다)
+    // 2026-09-11 (C-22): enemy steps take the material multiplier too (`footstep()` applies it for local · remote)
     const v = (volume ?? 1) * (FOOTSTEP_GAIN_BY_ID[id] ?? 1) * this.rangeGain(prof, this.camPos.distanceTo(position));
     if (v < RANGED_MIN_VOLUME) return;
     this.play(id, position, v, pitch, auto, true);
@@ -1021,8 +1066,9 @@ export class AudioSystem implements GameSystem, AudioRef {
 
   /* ── playback ────────────────────────────────────────────────────────── */
   /**
-   * `panOnly` = 거리 감쇠를 **호출부가 이미 계산했다** (발소리). 패너는 방향(equalpower)만 맡고 rolloff 0 이라
-   * 게인을 건드리지 않는다 — 그렇지 않으면 inverse 감쇠가 겹쳐 두 번 줄어든다.
+   * `panOnly` = **the caller has already computed** the distance falloff (footsteps). The panner handles direction
+   * only (equalpower) and with rolloff 0 it never touches the gain — otherwise the inverse falloff layers on top
+   * and attenuates twice.
    */
   private play(id: string, position: THREE.Vector3 | undefined, volume = 1, pitch = 1, auto = false, panOnly = false, dedupe = true, rateLimit = true): CappedVoice | null {
     if (!this.ac || !this.synth || this.ac.state !== 'running') return null;
@@ -1031,9 +1077,11 @@ export class AudioSystem implements GameSystem, AudioRef {
     const now = this.ac.currentTime;
     const vol = Math.max(0, Math.min(2, volume));
 
-    // 2026-09-15 (B-16): 동시 보이스 상한 — 지금 울리는 것 중 가장 작은 것보다 크지 않으면 여기서 버린다
-    // (중복 제거 · 속도 제한의 자리를 쓰기 전에). 빼앗기는 것은 이 소리가 실제로 만들어질 때만이다 (아래).
-    // 2026-09-16: 상한은 id 가 아니라 보이스 무리(`VOICE_GROUP`, 없으면 id 자신)에 건다 — 벌레 발소리 세 id 가 한 상한을 나눈다.
+    // 2026-09-15 (B-16): the simultaneous-voice cap — no louder than the quietest one currently playing and it
+    // is dropped right here (before it takes a dedupe · rate-limit slot). A voice is only stolen once this sound
+    // is actually made (below).
+    // 2026-09-16: the cap is keyed by the voice group (`VOICE_GROUP`, else the id itself), not by the id — the
+    // three bug step ids share one cap.
     const group = VOICE_GROUP[id] ?? id;
     const cap = VOICE_CAP[group];
     let capped: CappedVoice[] | undefined;
@@ -1050,7 +1098,7 @@ export class AudioSystem implements GameSystem, AudioRef {
     }
 
     // Dedupe: same id from a different source within a short window → one plays.
-    // (2026-09-11: 발소리는 `dedupe` false — 같은 재질 id 를 적과 나눠 쓰므로 검사도 기록도 하지 않는다.)
+    // (2026-09-11: footsteps pass `dedupe` false — material ids are shared with enemies: no check, no record.)
     if (dedupe) {
       const last = this.lastPlay.get(id);
       if (last && last.auto !== auto && now - last.t < DEDUPE_WINDOW) return null;
@@ -1082,7 +1130,7 @@ export class AudioSystem implements GameSystem, AudioRef {
       panner = p;
       p.panningModel = 'equalpower';
       if (panOnly) {
-        // 감쇠는 호출부의 곡선이 이미 걸었다 — rolloff 0 = 방향만, 게인은 그대로.
+        // The caller's curve already applied the falloff — rolloff 0 = direction only, the gain untouched.
         p.distanceModel = 'linear'; p.refDistance = 1; p.maxDistance = 10000; p.rolloffFactor = 0;
       } else {
         p.distanceModel = 'inverse';
@@ -1090,7 +1138,7 @@ export class AudioSystem implements GameSystem, AudioRef {
       }
       this.setParam(p.positionX, position.x, now); this.setParam(p.positionY, position.y, now); this.setParam(p.positionZ, position.z, now);
       p.connect(dest); dest = p;
-      // Quick distance cull for tiny sounds (발소리는 `footstep()` 이 `FOOTSTEP_AUDIBLE_RANGE` 로 이미 걸렀다)
+      // Quick distance cull for tiny sounds (`footstep()` already filtered steps by `FOOTSTEP_AUDIBLE_RANGE`)
       if (!panOnly) {
         const d = this.camPos.distanceTo(position);
         if (d > 160 && (id === 'bug_step' || id === 'hit_terrain')) { p.disconnect(); g.disconnect(); return null; }
@@ -1105,7 +1153,7 @@ export class AudioSystem implements GameSystem, AudioRef {
     return voice;
   }
 
-  /** Debug / smoke (2026-09-16): 보이스 무리(`VOICE_GROUP` 이름, 없으면 id)에서 지금 울리고 있는(빼앗기지 않은) 보이스 수. */
+  /** Debug / smoke (2026-09-16): voices in a group (`VOICE_GROUP` name, else the id) still sounding (not stolen). */
   debugVoices(group: string): number {
     const list = this.cappedVoices.get(group);
     if (!list || !this.ac) return 0;
@@ -1115,7 +1163,7 @@ export class AudioSystem implements GameSystem, AudioRef {
     return n;
   }
 
-  /** Debug / smoke (2026-09-16): 추적 중인 포탄 — 휘파람을 시작했나 · 지금 울리나 · 크기. */
+  /** Debug / smoke (2026-09-16): the tracked shells — has the whistle started · is it sounding · its volume. */
   debugIncomingShells(): Array<{ sid: number; started: boolean; playing: boolean; vol: number }> {
     const now = this.ac?.currentTime ?? 0;
     return this.incoming.filter((s) => s.active).map((s) => ({
@@ -1147,11 +1195,11 @@ export class AudioSystem implements GameSystem, AudioRef {
       (L as any).setOrientation?.(this.camFwd.x, this.camFwd.y, this.camFwd.z, this.camUp.x, this.camUp.y, this.camUp.z);
     }
 
-    // 로그 강하: 착지 직전의 굉음 (camPos 를 갱신한 뒤라야 거리 감쇠가 이 프레임 값이다).
+    // The rogue drop: the roar just before the landing (only after camPos is updated is the falloff this frame's).
     if (this.drops.length) this.updateDrops(ctx.time);
-    // 포병 포탄 낙하음 (2026-09-16) — 같은 이유로 camPos 갱신 뒤
+    // The incoming shell whistle (2026-09-16) — after camPos for the same reason
     this.updateShells(ctx.time);
-    // 탐사 차량 엔진 (2026-09-13)
+    // The rover engine (2026-09-13)
     this.updateRoverEngine(dt, ctx);
 
     // Ambience targets by phase. The hub is not gameplay: planet wind + ship engine are silenced, interior hum runs.
@@ -1166,7 +1214,7 @@ export class AudioSystem implements GameSystem, AudioRef {
       this.amb.hub.vent.gain.setTargetAtTime(docking ? 0.15 : 0.3, now, 0.8);
     }
 
-    // 창문 워프 drive: follows the last `hub:warpProgress.speed`; forgotten after `WARP_HUM_HOLD_S` without one.
+    // Window warp drive: follows the last `hub:warpProgress.speed`; forgotten after `WARP_HUM_HOLD_S` without one.
     if (this.amb.warp) {
       if (this.warpHold > 0) { this.warpHold -= dt; if (this.warpHold <= 0) this.warpSpeed = 0; }
       const s = inHub ? this.warpSpeed : 0;

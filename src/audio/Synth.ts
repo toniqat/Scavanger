@@ -835,9 +835,11 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.8;
   },
   /**
-   * 불붙음 (2026-09-15 다시 짬, B-16) — 화염 지대가 막 번지는 순간. 공기를 빨아들이는 짧은 휙(밴드패스가 위로 열린다) +
-   * 연료가 한꺼번에 붙는 낮은 훅 + 잠깐 부푸는 불꽃 포효(로우패스 노이즈) + 크랙 셋. 뒤이어 지대를 가진 폴더가
-   * `fire_crackle` 을 `FIRE_ZONE_CRACKLE_S` 마다 잇기 때문에 옛 판의 크랙 여섯 알은 셋으로 줄였다 (첫 1초가 자글거렸다). ≈0.75 s.
+   * Ignition (2026-09-15, re-voiced, B-16) — the moment a fire zone catches. A short whoosh of air being drawn in
+   * (a bandpass opening upward) + a low whump as the fuel takes all at once + a briefly swelling flame roar
+   * (lowpass noise) + three cracks. The folders that own fire zones chain `fire_crackle` every
+   * `FIRE_ZONE_CRACKLE_S` after it, so the old version's six crack grains were cut to three (the first second
+   * fizzed). ≈0.75 s.
    */
   fire_ignite: (s, d, t, p) => {
     const q = p * r(0.94, 1.06);
@@ -889,7 +891,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t, dur: 0.3, gain: 0.1, attack: 0.05, filter: { type: 'highpass', f0: 2400 }, decayCurve: 'lin' });
     return 0.8;
   },
-  /** 인내 save: heartbeat thump + defiant rising tone. */
+  /** The `인내` (grit) save: heartbeat thump + defiant rising tone. */
   grit_save: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 62, t0: t, dur: 0.2, gain: 0.8 });
     s.tone(d, { type: 'sine', f0: 56, t0: t + 0.24, dur: 0.22, gain: 0.6 });
@@ -930,7 +932,10 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 1046 * p, t0: t + 0.11, dur: 0.22, gain: 0.14 });
     return 0.36;
   },
-  /** 2026-09-13 암호화폐 채굴: 연산 클러스터가 주기를 끝내 지갑에 넣었다 — 짧은 디지털 블립 + 높은 동전 음 + 딸깍. ≈0.26 s. */
+  /**
+   * 2026-09-13 crypto mining: the compute cluster finished a cycle and paid it into the wallet — a short digital
+   * blip + a high coin tone + a click. ≈0.26 s.
+   */
   crypto_mined: (s, d, t, p) => {
     s.tone(d, { type: 'square', f0: 1318 * p, t0: t, dur: 0.05, gain: 0.05, lp: 3200 });
     s.click(d, t + 0.055, 3200 * p, 0.08, 0.02);
@@ -968,21 +973,21 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.25;
   },
 
-  /* ── appended (2026-09-09): 레이드 플레이 개선 — 의사소통 · 구조물 · 전차 · 재해 · 로그 강하 ────────── */
+  /* ── appended (2026-09-09): raid play improvements — comms · structures · tram · hazards · rogue drop ─────── */
 
-  /** 의사소통 휠이 열린다: 아주 짧고 부드러운 틱. */
+  /** The comms wheel opens: a very short, soft tick. */
   comms_wheel: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 880 * p, f1: 1180 * p, t0: t, dur: 0.06, gain: 0.05 });
     return 0.08;
   },
-  /** 한 마디를 보냈다: 무전 클릭 + 상승 블립 (분대 전원이 듣는다). */
+  /** A line was sent: a radio click + a rising blip (the whole squad hears it). */
   comms_send: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 0.035, gain: 0.14, filter: { type: 'bandpass', f0: 2400 * p, q: 3 } });
     s.tone(d, { type: 'square', f0: 660 * p, f1: 990 * p, t0: t + 0.03, dur: 0.09, gain: 0.07, lp: 2600 });
     s.noise(d, { t0: t + 0.13, dur: 0.03, gain: 0.08, filter: { type: 'bandpass', f0: 1800 * p, q: 3 } });
     return 0.2;
   },
-  /** 키카드 인식 → 잠금 해제: 삑 두 번 + 빗장이 빠지는 둔탁한 클렁크. */
+  /** Keycard read → unlocked: two beeps + the dull clunk of the bolt sliding out. */
   keycard_use: (s, d, t, p) => {
     s.tone(d, { type: 'square', f0: 1320 * p, t0: t, dur: 0.05, gain: 0.07, lp: 3000 });
     s.tone(d, { type: 'square', f0: 1760 * p, t0: t + 0.08, dur: 0.06, gain: 0.07, lp: 3000 });
@@ -990,26 +995,26 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.22, dur: 0.16, gain: 0.2, filter: { type: 'lowpass', f0: 900 * p, f1: 200, q: 0.8 } });
     return 0.5;
   },
-  /** 키카드가 없다: 낮은 거부 버저 두 번. */
+  /** No keycard: two low refusal buzzes. */
   keycard_deny: (s, d, t, p) => {
     s.tone(d, { type: 'square', f0: 220 * p, t0: t, dur: 0.09, gain: 0.09, lp: 1200, decayCurve: 'lin' });
     s.tone(d, { type: 'square', f0: 185 * p, t0: t + 0.13, dur: 0.12, gain: 0.09, lp: 1200, decayCurve: 'lin' });
     return 0.3;
   },
-  /** 전차 시동: 릴레이가 딸깍 물리고 모터가 감기며 올라온다. */
+  /** Tram start: the relay clicks closed and the motor winds up. */
   tram_start: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 0.05, gain: 0.22, filter: { type: 'bandpass', f0: 1400 * p, q: 2 } });
     s.tone(d, { type: 'sawtooth', f0: 42 * p, f1: 130 * p, t0: t + 0.08, dur: 1.1, gain: 0.26, attack: 0.12, lp: 700 });
     s.noise(d, { t0: t + 0.1, dur: 1.2, gain: 0.1, attack: 0.25, filter: { type: 'lowpass', f0: 500 * p, f1: 1400 * p, q: 0.7 }, decayCurve: 'lin' });
     return 1.3;
   },
-  /** 전차 정차: 제동 쉭 + 완충기 클렁크. */
+  /** Tram docking: a brake hiss + a buffer clunk. */
   tram_dock: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 0.55, gain: 0.2, filter: { type: 'highpass', f0: 2600 * p, f1: 1200 * p, q: 0.8 } });
     s.tone(d, { type: 'sine', f0: 110 * p, f1: 48 * p, t0: t + 0.35, dur: 0.3, gain: 0.28 });
     return 0.7;
   },
-  /** 재해 예고: 함선에서 오는 낮은 2음 경보. `wave_alarm` 보다 무겁고 느리다. */
+  /** A hazard is announced: a low two-note alarm from the ship. Heavier and slower than `wave_alarm`. */
   hazard_warn: (s, d, t, p) => {
     for (let i = 0; i < 3; i++) {
       s.tone(d, { type: 'square', f0: 196 * p, f1: 147 * p, t0: t + i * 0.42, dur: 0.34, gain: 0.1, lp: 1400, decayCurve: 'lin' });
@@ -1017,13 +1022,13 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t, dur: 1.4, gain: 0.05, attack: 0.4, filter: { type: 'lowpass', f0: 400 * p, q: 0.7 }, decayCurve: 'lin' });
     return 1.4;
   },
-  /** 피해 구역에 들어갔다: 귀를 덮는 저역 러시 (나올 때는 이 소리를 쓰지 않는다). */
+  /** Entered the damaging area: a low rush covering the ears (leaving it does not use this sound). */
   hazard_inside: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 1.1, gain: 0.3, attack: 0.25, filter: { type: 'lowpass', f0: 260 * p, f1: 700 * p, q: 0.6 }, decayCurve: 'lin' });
     s.tone(d, { type: 'sine', f0: 70 * p, f1: 44 * p, t0: t, dur: 0.9, gain: 0.2, attack: 0.2 });
     return 1.2;
   },
-  /** 로그 강하 경보: 하늘에서 뭔가 떨어진다 — 날카로운 3음 + 대기를 가르는 소리. */
+  /** The rogue drop alarm: something is coming down out of the sky — three sharp notes + air being cut. */
   rogue_drop_alarm: (s, d, t, p) => {
     for (let i = 0; i < 3; i++) {
       s.tone(d, { type: 'square', f0: 740 * p, t0: t + i * 0.13, dur: 0.09, gain: 0.09, lp: 3000, decayCurve: 'lin' });
@@ -1032,10 +1037,11 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 1.5;
   },
   /**
-   * 적 강하 포드가 대기를 찢고 내려오는 굉음 (2026-09-10). `hellpod_fall` 과 **같은 어휘**(위에서 아래로 쓸리는
-   * 밴드패스 노이즈 + 내려가는 saw)를 쓰되 셋이 다르다: ① 더 길고(4.2 s) 더 어둡게 끝나며(260 Hz),
-   * ② saw 가 **둘로 디튠**돼 맥놀이가 생겨 아군 포드의 매끈한 한 줄과 갈린다, ③ 마지막 1 초에 금속이 우는
-   * 상승음이 붙는다(적 포드의 역추진). 아군 헬포드와 헷갈리면 안 되는 소리라 음색과 피치를 둘 다 비틀었다.
+   * The roar of an enemy drop pod tearing down through the air (2026-09-10). It uses the **same vocabulary** as
+   * `hellpod_fall` (bandpass noise sweeping top to bottom + a descending saw) with three differences: ① longer
+   * (4.2 s) and ending darker (260 Hz), ② the saw is **detuned into two**, so the beating splits it from the clean
+   * single line of a friendly pod, ③ a rising metallic wail over the last second (the enemy pod's retro burn). It
+   * must never be mistaken for a friendly hellpod, so both the timbre and the pitch were bent.
    */
   rogue_pod_fall: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 4.2, gain: 0.5, attack: 1.3, filter: { type: 'bandpass', f0: 2600 * p, f1: 260 * p, q: 0.7 }, decayCurve: 'lin' });
@@ -1046,8 +1052,8 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 4.3;
   },
   /**
-   * 적 강하 포드의 착지 충격 (2026-09-10). `hellpod_impact` 보다 낮고 무겁게 꽂히고, 아군 포드에는 없는
-   * **파편 클릭 3개**와 해치가 열리는 저역 클렁크가 붙는다.
+   * An enemy drop pod's landing impact (2026-09-10). It drives in lower and heavier than `hellpod_impact`, and
+   * adds **three debris clicks** and the low clunk of the hatch opening, neither of which a friendly pod has.
    */
   rogue_pod_impact: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 56 * p, f1: 19, t0: t, dur: 0.9, gain: 1.15 });
@@ -1060,7 +1066,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 1.3;
   },
 
-  /* ══ appended (2026-09-11): 드론 · 원격 지뢰 · 네임드 로그 ═══════════════════════════════════════════
+  /* ══ appended (2026-09-11): drones · the remote mine · named rogues ═══════════════════════
    * ★ = periodic: the owner re-sends it every 0.1–0.6 s. Those are short hits with a soft attack and a held body
    * + linear release (`release`) and a little pitch jitter, so overlapping hits blur into one continuous sound
    * instead of pulsing or phasing. How far each one carries is `AudioSystem`'s `RANGED_SOUNDS`, not the synth.
@@ -1317,12 +1323,13 @@ export const SOUNDS: Record<string, SoundFn> = {
     return dur + 0.02;
   },
 
-  /* ══ appended (2026-09-11): C 항목 배치 — 실드 충전 · 전차 · 재질별 발소리 ═══════════════════════════════════ */
+  /* ══ appended (2026-09-11): the C batch — the shield charge · the tram · footsteps by material ═════════════════ */
 
   /**
-   * C-21: 실드 충전기 사용 완료 (`player/` 가 부른다, 위치 없음). 올라가는 saw 충전음(400 → 1600 Hz, 로우패스가 함께
-   * 열린다) + 끝에 맺히는 사인 2음 화음 + 하이패스 노이즈 반짝임 + 마지막 딸깍 (≈0.6 s). `stim`(회복)과 같은 "쓰고
-   * 나면 오르는" 어휘지만 금속 · 전기 쪽이라 헷갈리지 않는다.
+   * C-21: a shield charger has finished (called by `player/`, no position). A rising saw charge tone (400 →
+   * 1600 Hz, the lowpass opening with it) + a two-note sine chord settling at the end + a highpass noise sparkle +
+   * a final click (≈0.6 s). The same "used it and it rises" vocabulary as `stim` (healing), but metal · electric,
+   * so the two are never confused.
    */
   shield_charge: (s, d, t, p) => {
     s.tone(d, { type: 'sawtooth', f0: 400 * p, f1: 1600 * p, t0: t, dur: 0.42, gain: 0.08, attack: 0.08, lp: 2400, decayCurve: 'lin' });
@@ -1334,7 +1341,10 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.62;
   },
 
-  /** C-39: 전차 호출 수락 — 승강장 안내 차임 (딩-동 두 음 + 은은한 잔향). 부른 사람의 콘솔에서 난다. */
+  /**
+   * C-39: tram call accepted — a platform announcement chime (a ding-dong pair + a soft tail). It sounds at the
+   * console of whoever called it.
+   */
   tram_call: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 988 * p, t0: t, dur: 0.7, gain: 0.14, attack: 0.006 });
     s.tone(d, { type: 'triangle', f0: 1976 * p, t0: t, dur: 0.3, gain: 0.03 });
@@ -1344,7 +1354,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 1.3;
   },
 
-  /** C-39: 전차 호출 거부 — 승강장 안내의 낮은 역차임 두 음 (`keycard_deny` 버저와 다르다). */
+  /** C-39: tram call refused — the platform announcement's two low reverse notes (not the `keycard_deny` buzzer). */
   tram_deny: (s, d, t, p) => {
     s.tone(d, { type: 'triangle', f0: 392 * p, t0: t, dur: 0.22, gain: 0.12, lp: 1600 });
     s.tone(d, { type: 'triangle', f0: 294 * p, t0: t + 0.2, dur: 0.34, gain: 0.12, lp: 1400 });
@@ -1353,8 +1363,9 @@ export const SOUNDS: Record<string, SoundFn> = {
   },
 
   /**
-   * C-18 · C-39: 달리는 전차에 치였다 — 금속 차체가 몸을 들이받는 둔탁한 충격(서브 쿵 + 로우패스 노이즈) + 차체의
-   * 금속 클렁크와 짧은 울림 + 레일의 쇳소리 긁힘. 옛 `tram_dock` pitch 0.7 대용을 대신한다.
+   * C-18 · C-39: hit by a running tram — the dull impact of a metal car body driving into you (a sub thump +
+   * lowpass noise) + the car's metallic clunk and a short ring + the rail's screech. It replaces the old stand-in,
+   * `tram_dock` at pitch 0.7.
    */
   tram_hit: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 120 * p, f1: 34, t0: t, dur: 0.45, gain: 0.95 });
@@ -1367,13 +1378,14 @@ export const SOUNDS: Record<string, SoundFn> = {
   },
 
   /*
-   * C-22: 재질별 발소리 11종 (`SurfaceMaterial` 이름 그대로 `footstep_<mat>`). 전부 ≈0.05–0.13 s 의 한 걸음이고 크기의
-   * 밑값은 기존 `footstep` 과 비슷하게 맞췄다 — 재질마다 체감 크기를 다시 맞추는 배수는 `data/tables.csv` 의
-   * `FOOTSTEP_MATERIAL_GAIN` 이다(`AudioSystem`). `footstep_dirt` 는 옛 `footstep` 그 자체다(= 폴백 음색이 바뀌지 않는다).
-   * 피치 `p` 로 무게를 낸다: 적(`enemies/model.stepSound`)은 낮은 피치로 같은 소리를 쓴다.
+   * C-22: the 11 footsteps by material (`footstep_<mat>`, the `SurfaceMaterial` name verbatim). Each is one step
+   * of ≈0.05–0.13 s and its base volume was matched to the existing `footstep` — the multiplier that levels each
+   * material by ear again is `FOOTSTEP_MATERIAL_GAIN` in `data/tables.csv` (`AudioSystem`). `footstep_dirt` is the
+   * old `footstep` itself (= the fallback tone did not change). Weight comes from the pitch `p`: enemies
+   * (`enemies/model.stepSound`) use the same sounds at a lower pitch.
    */
   footstep_dirt: (s, d, t, p) => SOUNDS.footstep(s, d, t, p),
-  /** 모래: 사각거리는 넓은 대역 노이즈 + 아주 작은 몸 무게. */
+  /** Sand: a wide-band rustling noise + a very small body weight. */
   footstep_sand: (s, d, t, p) => {
     const q = p * r(0.88, 1.12);
     s.noise(d, { t0: t, dur: 0.11, gain: 0.13, attack: 0.012, filter: { type: 'bandpass', f0: 2600 * q, f1: 1500 * q, q: 0.6 } });
@@ -1382,19 +1394,24 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.12;
   },
   /**
-   * 눈: 뽀드득 — 짧은 크런치 알갱이 셋이 몇 ms 씩 어긋나 겹친다 + 눌리는 낮은 몸.
+   * Snow: a squeaky crunch — three short crunch grains overlapping a few ms apart + a low compressed body.
    *
-   * **2026-09-12 — 고역을 눌러 다시 튜닝했다** (사용자 불만 "툰드라 발걸음이 거슬린다"). 옛 판은 `highpass` 알갱이
-   * 4겹이었는데, 하이패스는 **위가 열려 있어** 흰 노이즈의 8–16 kHz 가 그대로 나간다 — 거기에 기본 attack 0.003 s 의
-   * 트랜지언트가 한 걸음에 4번 찍히니, 매 걸음 듣는 로컬 발소리로는 몇 분 만에 귀가 아팠다. 편하다고 평가받은
-   * `footstep_sand` 를 기준으로 세 가지를 옮겨 왔다:
-   *  ① **위를 닫는다** — `highpass` → `bandpass`(q 0.8). 모래처럼 중심이 아래로 쓸려 내려가고(1300–1900 → 700–1000 Hz)
-   *     양쪽 스커트가 6 dB/oct 로 떨어지므로 10 kHz 성분이 중심 대비 ~12 dB 죽는다. 중심도 옛 1800–3200 Hz 에서
-   *     1300–1900 Hz 로 내려 **귀가 가장 예민한 3–5 kHz 대를 비운다**.
-   *  ② **어택을 완만하게** — 알갱이 attack 0.003(기본) → 0.007 s, 몸통 0.01 → 0.012 s(모래와 같은 값). 클릭이 사라진다.
-   *  ③ **꼬리를 짧게** — 알갱이 4 → 3겹, 간격 0.018 → 0.016 s 라 밝은 성분이 0.09 s 가 아니라 ~0.07 s 에서 끝난다.
-   * 알갱이 gain 은 0.1 → 0.055 (−5 dB). 대신 대역이 좁아진 만큼 빠진 무게를 몸통에서 되돌린다(0.1 → 0.12,
-   * lowpass 700 → 620 Hz). 저역 몸통 · 사인은 거의 그대로라 **여전히 "눈을 밟는" 소리**로 들린다.
+   * **2026-09-12 — retuned by pushing the top end down** (the user's complaint "툰드라 발걸음이 거슬린다"). The old
+   * version was four `highpass` grains, and a highpass is **open at the top**, so white noise's 8–16 kHz went
+   * through untouched — with the default 0.003 s attack stamping a transient four times per step, a local footstep
+   * heard on every single step made the ears hurt within minutes. Three things were carried over from
+   * `footstep_sand`, which had been judged comfortable:
+   *  ① **close the top** — `highpass` → `bandpass` (q 0.8). Like sand, the centre sweeps downward (1300–1900 →
+   *     700–1000 Hz) and both skirts fall at 6 dB/oct, so the 10 kHz content sits ~12 dB under the centre. The
+   *     centre itself came down from 1800–3200 Hz to 1300–1900 Hz, **emptying the 3–5 kHz the ear is most
+   *     sensitive to**.
+   *  ② **soften the attack** — grain attack 0.003 (the default) → 0.007 s, body 0.01 → 0.012 s (sand's value). The
+   *     click disappears.
+   *  ③ **shorten the tail** — grains 4 → 3, spacing 0.018 → 0.016 s, so the bright content ends at ~0.07 s instead
+   *     of 0.09 s.
+   * The grain gain went 0.1 → 0.055 (−5 dB). The weight lost to the narrower band is given back by the body
+   * (0.1 → 0.12, lowpass 700 → 620 Hz). The low body · sine are nearly unchanged, so it still reads as
+   * **"stepping on snow"**.
    */
   footstep_snow: (s, d, t, p) => {
     const q = p * r(0.9, 1.1);
@@ -1408,7 +1425,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 90 * q, f1: 55, t0: t, dur: 0.05, gain: 0.07 });
     return 0.1;
   },
-  /** 진흙: 철벅 — 밴드패스가 열렸다 닫히는 젖은 노이즈 + 무거운 저음 + 끝의 작은 빨림. */
+  /** Mud: a splat — wet noise as the bandpass opens then closes + a heavy low end + a small suck at the end. */
   footstep_mud: (s, d, t, p) => {
     const q = p * r(0.88, 1.1);
     s.noise(d, { t0: t, dur: 0.1, gain: 0.2, attack: 0.008, filter: { type: 'bandpass', f0: 320 * q, f1: 900 * q, q: 1.6 } });
@@ -1416,14 +1433,14 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.07, dur: 0.05, gain: 0.06, filter: { type: 'bandpass', f0: 1300 * q, f1: 600 * q, q: 3 } });
     return 0.13;
   },
-  /** 이끼: 푹신하게 먹히는 걸음 — 어두운 로우패스 노이즈만, 고역이 거의 없다. */
+  /** Moss: a step swallowed softly — dark lowpass noise only, almost no top end. */
   footstep_moss: (s, d, t, p) => {
     const q = p * r(0.88, 1.12);
     s.noise(d, { t0: t, dur: 0.09, gain: 0.2, attack: 0.012, filter: { type: 'lowpass', f0: 420 * q, f1: 150, q: 0.6 } });
     s.tone(d, { type: 'sine', f0: 100 * q, f1: 58, t0: t, dur: 0.06, gain: 0.1 });
     return 0.1;
   },
-  /** 화산재: 바삭하게 부서지는 마른 걸음 — 중역 노이즈 + 작은 크래클 둘. */
+  /** Ash: a dry step crumbling crisply — mid-band noise + two small crackles. */
   footstep_ash: (s, d, t, p) => {
     const q = p * r(0.9, 1.1);
     s.noise(d, { t0: t, dur: 0.08, gain: 0.14, attack: 0.006, filter: { type: 'bandpass', f0: 1200 * q, f1: 700 * q, q: 0.8 } });
@@ -1432,7 +1449,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 105 * q, f1: 60, t0: t, dur: 0.045, gain: 0.08 });
     return 0.09;
   },
-  /** 바위: 단단한 짧은 타격 + 자갈 틱 — 흙보다 밝고 짧다. */
+  /** Rock: a hard short strike + a gravel tick — brighter and shorter than dirt. */
   footstep_rock: (s, d, t, p) => {
     const q = p * r(0.9, 1.1);
     s.noise(d, { t0: t, dur: 0.035, gain: 0.2, filter: { type: 'bandpass', f0: 1500 * q, f1: 900 * q, q: 1.2 } });
@@ -1440,7 +1457,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + r(0.02, 0.05), dur: 0.01, gain: 0.05, filter: { type: 'bandpass', f0: r(3000, 4500) * q, q: 3 } });
     return 0.07;
   },
-  /** 크리스탈: 단단한 타격 위에 비조화 유리 울림 둘이 짧게 맺힌다. */
+  /** Crystal: two inharmonic glass rings settle briefly over a hard strike. */
   footstep_crystal: (s, d, t, p) => {
     const q = p * r(0.94, 1.06);
     s.noise(d, { t0: t, dur: 0.03, gain: 0.16, filter: { type: 'bandpass', f0: 2200 * q, q: 1.4 } });
@@ -1449,14 +1466,14 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 3710 * q * r(0.97, 1.03), t0: t + 0.004, dur: 0.09, gain: 0.018 });
     return 0.13;
   },
-  /** 유기물 · 점액: 끈적하게 눌리는 걸음 — 좁은 밴드패스가 아래로 쓸리고 짧게 떨린다. */
+  /** Organic · slime: a sticky compressed step — a narrow bandpass sweeps downward and wobbles briefly. */
   footstep_organic: (s, d, t, p) => {
     const q = p * r(0.88, 1.12);
     s.noise(d, { t0: t, dur: 0.1, gain: 0.17, attack: 0.01, filter: { type: 'bandpass', f0: 650 * q, f1: 260 * q, q: 2.2 } });
     s.tone(d, { type: 'sine', f0: 78 * q, f1: 46, t0: t, dur: 0.07, gain: 0.12, vibratoHz: 30, vibratoDepth: 60 });
     return 0.11;
   },
-  /** 금속: 갑판 · 선로 · 전차 · 상자 — 딸깍 금속 트랜지언트 + 판이 짧게 우는 소리 + 낮은 몸 쿵. */
+  /** Metal: decks · rails · the tram · crates — a clicking metal transient + a short plate ring + a low body thud. */
   footstep_metal: (s, d, t, p) => {
     const q = p * r(0.92, 1.08);
     s.click(d, t, 1900 * q, 0.1, 0.022);
@@ -1465,7 +1482,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 130 * q, f1: 70, t0: t, dur: 0.05, gain: 0.12 });
     return 0.11;
   },
-  /** 콘크리트: 평평하고 건조한 타격 — 중역 노이즈 + 짧은 저음 + 고역 틱 (반향 없음). */
+  /** Concrete: a flat dry strike — mid-band noise + a short low end + a high tick (no ring). */
   footstep_concrete: (s, d, t, p) => {
     const q = p * r(0.9, 1.1);
     s.noise(d, { t0: t, dur: 0.045, gain: 0.18, filter: { type: 'bandpass', f0: 1100 * q, f1: 700 * q, q: 0.9 } });
@@ -1474,10 +1491,11 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.07;
   },
 
-  /* ══ appended (2026-09-12): 헬스장 (A-3a) · 서재 매체 가구 (A-3e) — 전부 housing/ · hub/ 가 `audio:play` 로 부른다 ════════
-   * 함선 안 UI 성격의 소리라 `RANGED_SOUNDS` 에 넣지 않는다 — 위치 없이 오면 늘 같은 크기, 위치와 오면 기본 패너(가까이서만). */
+  /* ══ appended (2026-09-12): the gym (A-3a) · the library's media furniture (A-3e) — all called by housing/ ·
+   * hub/ through `audio:play`. They are UI-natured sounds inside the ship, so they are not in `RANGED_SOUNDS` —
+   * with no position always the same volume, with one the default panner (nearby only). */
 
-  /** 운동 시작 — 호루라기 대신 짧은 준비 신호: 오르는 삼각파 두 음 + 기구를 잡는 딸깍. */
+  /** Workout start — a short ready signal instead of a whistle: two rising triangle notes + a grip click. */
   gym_start: (s, d, t, p) => {
     s.click(d, t, 1600 * p, 0.08, 0.02);
     s.tone(d, { type: 'triangle', f0: 587 * p, t0: t + 0.03, dur: 0.14, gain: 0.12, lp: 3000 });
@@ -1485,7 +1503,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 1760 * p, t0: t + 0.16, dur: 0.16, gain: 0.025 });
     return 0.42;
   },
-  /** 판정 완벽 — 밝은 두 음 차임 + 고역 반짝임. `gym_good` 보다 높고 길다. */
+  /** Perfect judgement — a bright two-note chime + a high sparkle. Higher and longer than `gym_good`. */
   gym_perfect: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 1319 * p, t0: t, dur: 0.22, gain: 0.13, attack: 0.004 });
     s.tone(d, { type: 'sine', f0: 1976 * p, t0: t + 0.05, dur: 0.3, gain: 0.11, attack: 0.004 });
@@ -1493,19 +1511,19 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.03, dur: 0.18, gain: 0.03, filter: { type: 'highpass', f0: 6000 * p, q: 0.6 } });
     return 0.38;
   },
-  /** 판정 좋음 — 가운데 높이의 짧은 한 음 (차분한 확인). */
+  /** Good judgement — one short note in the middle register (a calm confirmation). */
   gym_good: (s, d, t, p) => {
     s.tone(d, { type: 'triangle', f0: 880 * p, t0: t, dur: 0.18, gain: 0.12, lp: 2600 });
     s.tone(d, { type: 'sine', f0: 1320 * p, t0: t, dur: 0.1, gain: 0.03 });
     return 0.22;
   },
-  /** 판정 실패 — 낮게 꺾이는 둔한 음 + 짧은 저역 쿵 (`ui_error` 버저보다 부드럽다). */
+  /** Miss judgement — a dull note bending down + a short low thud (softer than the `ui_error` buzzer). */
   gym_miss: (s, d, t, p) => {
     s.tone(d, { type: 'triangle', f0: 262 * p, f1: 175 * p, t0: t, dur: 0.24, gain: 0.13, lp: 1200 });
     s.noise(d, { t0: t, dur: 0.1, gain: 0.08, filter: { type: 'lowpass', f0: 500 * p, f1: 160, q: 0.7 } });
     return 0.28;
   },
-  /** 세션 끝 — 원반을 거치대에 내려놓는 금속 쿵 + 오르는 네 음 아르페지오. */
+  /** Session end — the metal thud of the plates set back on the rack + a rising four-note arpeggio. */
   gym_finish: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 110 * p, f1: 50, t0: t, dur: 0.22, gain: 0.3 });
     s.click(d, t + 0.005, 1200 * p, 0.14, 0.04);
@@ -1517,21 +1535,24 @@ export const SOUNDS: Record<string, SoundFn> = {
     });
     return 0.95;
   },
-  /** 호흡 — 부드러운 날숨: 아래로 쓸리는 밴드패스 노이즈, 어택이 느리고 선형으로 사라진다 (클릭 없음). */
+  /** Breath — a soft exhale: bandpass noise sweeping downward, a slow attack and a linear fade (no click). */
   gym_breath: (s, d, t, p) => {
     const q = p * r(0.95, 1.05);
     s.noise(d, { t0: t, dur: 0.46, gain: 0.09, attack: 0.07, filter: { type: 'bandpass', f0: 1300 * q, f1: 520 * q, q: 0.9 }, decayCurve: 'lin' });
     s.noise(d, { t0: t, dur: 0.36, gain: 0.05, attack: 0.05, filter: { type: 'lowpass', f0: 420 * q, f1: 200, q: 0.5 }, decayCurve: 'lin' });
     return 0.5;
   },
-  /** 페달 — 가벼운 기계 틱: 체인 딸깍 + 크랭크의 아주 작은 몸. */
+  /** Pedal — a light mechanical tick: a chain click + a very small crank body. */
   gym_pedal: (s, d, t, p) => {
     const q = p * r(0.94, 1.06);
     s.click(d, t, 2600 * q, 0.05, 0.012);
     s.tone(d, { type: 'sine', f0: 160 * q, f1: 110, t0: t, dur: 0.035, gain: 0.04 });
     return 0.06;
   },
-  /** 흔들의자 삐걱 — 나무 스틱-슬립: 좁은 밴드패스 알갱이가 점점 벌어지며 이어지고 그 밑에 낮은 나무 몸통이 운다. */
+  /**
+   * Rocking chair creak — wooden stick-slip: narrow bandpass grains spacing further apart as they run, with a low
+   * wooden body ringing under them.
+   */
   chair_creak: (s, d, t, p) => {
     const q = p * r(0.9, 1.1);
     let at = 0, gap = 0.014;
@@ -1542,7 +1563,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sawtooth', f0: 190 * q, f1: 150 * q, t0: t, dur: 0.44, gain: 0.025, attack: 0.05, lp: 700, vibratoHz: 24, vibratoDepth: 70, decayCurve: 'lin' });
     return 0.48;
   },
-  /** TV 켜기 — 스위치 딸깍 + 브라운관 퍽 + 짧은 잡음 + 가늘게 사라지는 고음. */
+  /** TV on — a switch click + the CRT thump + a short hiss + a thin high tone fading out. */
   tv_on: (s, d, t, p) => {
     s.click(d, t, 2200 * p, 0.08, 0.02);
     s.tone(d, { type: 'sine', f0: 90 * p, f1: 45, t0: t + 0.02, dur: 0.18, gain: 0.18 });
@@ -1550,14 +1571,14 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 4200 * p, t0: t + 0.05, dur: 0.45, gain: 0.012, attack: 0.04, decayCurve: 'lin' });
     return 0.52;
   },
-  /** TV 끄기 — 스위치 딸깍 + 화면이 점으로 줄어드는 하강 블립 + 꼬리 잡음. */
+  /** TV off — a switch click + a descending blip as the picture shrinks to a dot + a hiss tail. */
   tv_off: (s, d, t, p) => {
     s.click(d, t, 2000 * p, 0.07, 0.02);
     s.tone(d, { type: 'sine', f0: 1400 * p, f1: 90 * p, t0: t + 0.01, dur: 0.2, gain: 0.07 });
     s.noise(d, { t0: t + 0.01, dur: 0.12, gain: 0.03, filter: { type: 'highpass', f0: 2600 * p, q: 0.6 } });
     return 0.3;
   },
-  /** 레코드 켜기 — 스위치 딸깍 + 바늘이 닿는 작은 쿵 + 따뜻한 바닥 음 + 잠깐의 치직임. */
+  /** Record on — a switch click + the small thud of the needle landing + a warm floor tone + a little crackle. */
   record_on: (s, d, t, p) => {
     s.click(d, t, 1500 * p, 0.08, 0.02);
     s.tone(d, { type: 'sine', f0: 140 * p, f1: 70, t0: t + 0.12, dur: 0.1, gain: 0.1 });
@@ -1568,7 +1589,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.14, dur: 0.5, gain: 0.012, attack: 0.05, filter: { type: 'bandpass', f0: 2400 * p, q: 0.5 }, decayCurve: 'lin' });
     return 0.72;
   },
-  /** 레코드 끄기 — 스위치 딸깍 + 플래터가 느려지며 내려가는 음. */
+  /** Record off — a switch click + a tone falling as the platter slows. */
   record_off: (s, d, t, p) => {
     s.click(d, t, 1400 * p, 0.08, 0.02);
     s.tone(d, { type: 'triangle', f0: 330 * p, f1: 100 * p, t0: t + 0.02, dur: 0.5, gain: 0.05, lp: 800, decayCurve: 'lin' });
@@ -1576,10 +1597,12 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.55;
   },
 
-  /* ── 준비 소리 (2026-09-12) — 임플란트와 함선 호출이 서로 다르게 들린다 ─────────────────────── */
+  /* ── the ready sounds (2026-09-12) — an implant and a ship call sound different ──────────────────────── */
   /**
-   * 전술 임플란트 준비 — 짧고 높은 전자음: 위로 튕기는 사각파 칩 하나 + 맑은 사인 핑 + 아주 옅은 배음. ≈0.16 s.
-   * (id 는 implants/ 가 오래전부터 보내던 것인데 정의가 없어 한 번도 울리지 않았다. 이제 audio/ 가 `implant:ready` 를 듣는다.)
+   * A tactical implant is ready — a short high electronic chirp: one square-wave chip flicking upward + a clear
+   * sine ping + a very faint harmonic. ≈0.16 s.
+   * (implants/ had been sending the id for a long time, but with no definition it never once sounded. audio/ now
+   * listens for `implant:ready`.)
    */
   implant_ready: (s, d, t, p) => {
     s.tone(d, { type: 'square', f0: 1568 * p, f1: 2093 * p, t0: t, dur: 0.045, gain: 0.06, lp: 5200 });
@@ -1588,8 +1611,9 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.17;
   },
   /**
-   * 함선 호출 준비 — 무전 톤 두 음 차임: 스퀠치가 열리는 잡음 + 딸깍, 좁은 대역의 두 음(G5 → D6, 뒤 음이 길다),
-   * 스퀠치가 닫히는 짧은 잡음. 임플란트의 높은 핑과 달리 낮고 둥글다. ≈0.56 s.
+   * A ship call is ready — a two-note radio chime: the hiss of the squelch opening + a click, two narrow-band
+   * notes (G5 → D6, the second held longer), and the short hiss of the squelch closing. Low and round, unlike the
+   * implant's high ping. ≈0.56 s.
    */
   stratagem_ready: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 0.07, gain: 0.07, filter: { type: 'bandpass', f0: 2400 * p, q: 1.2 } });
@@ -1603,10 +1627,11 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.56;
   },
 
-  /* ── 안드로이드 (2026-09-13) — 연구소 · 전진기지의 백색 로봇. 살이 아니라 외피 · 서보 · 전원이다 ────────── */
+  /* ── androids (2026-09-13) — the white robots of labs · outposts. Not flesh but shell · servo · power ────────── */
   /**
-   * 피격: 속이 빈 외피를 친 금속음 — 날카로운 클릭 + 900 Hz 대의 짧은 공명(두 배음이 살짝 어긋나 "통" 소리) +
-   * 둔한 저음 한 번 + 튀는 스파크 틱. `hit_flesh` 자리에 온다(`enemies/model.hurtSound`). ≈0.26 s.
+   * Hit: the metallic sound of striking a hollow shell — a sharp click + a short resonance around 900 Hz (two
+   * partials slightly out of step give it a "tong") + one dull low note + sparking ticks. It takes `hit_flesh`'s
+   * place (`enemies/model.hurtSound`). ≈0.26 s.
    */
   android_hit: (s, d, t, p) => {
     const q = p * r(0.93, 1.07);
@@ -1621,8 +1646,8 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.26;
   },
   /**
-   * 사망 = 전원 차단: 전기 지직 한 번 → 서보 모터가 느려지며 1 kHz 에서 40 Hz 로 가라앉는 톱니파(로우패스) +
-   * 꺼져 가는 사인 험 + 몸이 땅에 부딪는 금속 쿵 두 번(외피 · 팔다리). ≈1.3 s.
+   * Death = power cut: one electrical crackle → a saw sinking from 1 kHz to 40 Hz as the servo motors slow
+   * (lowpass) + a sine hum dying away + two metallic thuds as the body hits the ground (shell · limbs). ≈1.3 s.
    */
   android_death: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 0.12, gain: 0.28, filter: { type: 'bandpass', f0: 3200 * p, q: 2 } });
@@ -1635,7 +1660,10 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.click(d, t + 0.97, 1200 * p, 0.12, 0.03);
     return 1.3;
   },
-  /** 한 걸음의 서보: 좁은 대역의 짧은 모터 윙(위로 살짝 휜다) + 작은 금속 틱. 재질 발소리 위에 겹친다. ≈0.1 s. */
+  /**
+   * One step's servo: a short narrow-band motor whine (bending slightly upward) + a small metal tick. It layers
+   * over the material footstep. ≈0.1 s.
+   */
   android_step: (s, d, t, p) => {
     const q = p * r(0.94, 1.06);
     s.tone(d, { type: 'sawtooth', f0: 520 * q, f1: 700 * q, t0: t, dur: 0.08, gain: 0.03, attack: 0.01, lp: 1600 });
@@ -1643,7 +1671,10 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.click(d, t + 0.05, 2600 * q, 0.05, 0.012);
     return 0.1;
   },
-  /** 전소(불타며 몸부림) = 비명 대신 오작동: 끊기는 사각파 경고음 3개 + 전기 잡음. ≈0.5 s. */
+  /**
+   * Burning up (thrashing in the flames) = a malfunction instead of a scream: three broken square-wave warning
+   * tones + electrical noise. ≈0.5 s.
+   */
   android_glitch: (s, d, t, p) => {
     for (let i = 0; i < 3; i++) {
       const f = [1480, 1110, 1660][i] * p;
@@ -1654,12 +1685,14 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.5;
   },
 
-  /* ══ appended (2026-09-13): 버그 굴착 스폰 · 땅굴벌레 — `enemies/` 가 위치와 함께 `audio:play` 로 부른다 ══════════════
-   * 거리 곡선은 `AudioSystem.RANGED_SOUNDS` (전조 땅울림 · 분출 · 포효는 멀리서도 들려야 공정해서 floor 를 갖는다).
+  /* ══ appended (2026-09-13): burrow spawns · the sandworm — `enemies/` calls them with a position through
+   * `audio:play`. The distance curves are `AudioSystem.RANGED_SOUNDS` (the warning rumble · the eruption · the
+   * roar have a floor, because they are only fair if they carry).
    */
   /**
-   * 2026-09-15 (gadgets, 진동 장치): 망치가 땅을 내리친다 — 아주 낮은 서브 쿵 + 흙 먼지의 짧은 저역 노이즈 + 쇠 머리의 짧은 클랙.
-   * 타길라의 `hammer_impact` 보다 둔하고 짧다 (1 초마다 반복되므로 꼬리가 짧아야 겹치지 않는다). ≈0.4 s.
+   * 2026-09-15 (gadgets, the thumper): the hammer drives into the ground — a very low sub thump + a short
+   * low-band noise of dust + the short clack of the iron head. Duller and shorter than 타길라's `hammer_impact`
+   * (it repeats once a second, so the tail has to be short or they overlap). ≈0.4 s.
    */
   thumper_thump: (s, d, t, p) => {
     const q = p * r(0.96, 1.04);
@@ -1670,10 +1703,12 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.42;
   },
   /**
-   * 버그 한 마리가 흙을 깨고 올라온다 (2026-09-16 다시 냄 — 예전 판은 무리당 한 번이라 일부러 작았다; 이제 한 마리마다 나므로
-   * 크기는 `enemies/parts/Burrow.emergeSound` 의 1/√k 와 `VOICE_CAP` 이 누른다). 흙이 갈라지는 첫 균열 + 낮은 쿵 → 부서지는
-   * 흙덩이 · 자갈 틱 → 갑각이 흙을 긁고 빠져나오는 소리 → 흘러내리는 흙 꼬리. 한 프레임에 올라온 무리가 한 점으로 뭉쳐
-   * 플램이 되지 않게 시작을 몇 십 ms 흩는다. ≈0.8 s.
+   * One bug breaks the soil and comes up (2026-09-16, re-voiced — the old version played once per batch and was
+   * deliberately quiet; it now plays per bug, so the volume is held down by the 1/√k in
+   * `enemies/parts/Burrow.emergeSound` and by `VOICE_CAP`). The first crack of splitting soil + a low thump →
+   * breaking clods · gravel ticks → the carapace scraping its way out → a tail of soil running back down. The
+   * starts are scattered over a few tens of ms so a batch surfacing in one frame does not clump into a flam.
+   * ≈0.8 s.
    */
   burrow_emerge: (s, d, t, p) => {
     const q = p * r(0.92, 1.08);
@@ -1688,10 +1723,14 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t0 + 0.1, dur: 0.62, gain: 0.1, attack: 0.05, filter: { type: 'lowpass', f0: 900 * q, f1: 160, q: 0.7 }, decayCurve: 'lin' });
     return 0.8;
   },
-  /* ── appended (2026-09-16): 벌레 발소리 3종 — `enemies/model.STEP_VOICES` 가 몸집별로 고른다 (피치 · 밑값도 거기).
-   * 사거리 · 동시 보이스 상한(세 id 가 한 무리 `bug_steps`)은 `AudioSystem.RANGED_SOUNDS` / `VOICE_CAP`, 무리 크기 1/√n 은 `emitEnemyStep`.
-   * 사람 발소리(`footstep_<mat>`)와 id 를 나누지 않으므로 벌레 무리가 사람 발소리의 상한 · 속도 제한을 먹지 않는다. */
-  /** 작은 벌레: 딱딱한 갑각 다리 끝이 땅을 두세 번 톡톡 긁는다 + 아주 작은 흙 몸. 3–5 kHz 는 비운다 (매 걸음 듣는 소리). ≈0.1 s. */
+  /* ── appended (2026-09-16): the three bug footsteps — `enemies/model.STEP_VOICES` picks one by body size (the
+   * pitches · base volumes are there too). The ranges and the simultaneous-voice cap (the three ids are one group
+   * `bug_steps`) are `AudioSystem.RANGED_SOUNDS` / `VOICE_CAP`; the swarm's 1/√n is `emitEnemyStep`. They share no
+   * id with a person's footsteps (`footstep_<mat>`), so a swarm never eats a person's cap or rate limit. */
+  /**
+   * A small bug: the hard tips of its carapace legs tap and scrape the ground two or three times + a very small
+   * soil body. The 3–5 kHz is left empty (this one is heard on every step). ≈0.1 s.
+   */
   bug_step_skitter: (s, d, t, p) => {
     const q = p * r(0.9, 1.1);
     const n = Math.random() < 0.5 ? 2 : 3;
@@ -1702,7 +1741,10 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t, dur: 0.05, gain: 0.08, filter: { type: 'lowpass', f0: 700 * q, f1: 200, q: 0.7 } });
     return 0.1;
   },
-  /** 큰 벌레(전사 · 돌진 · 포병): 무거운 쿵 + 흙 몸 + 갑각 발끝의 둔한 딸깍 + 자갈 한 톨. ≈0.16 s. */
+  /**
+   * A big bug (warrior · charger · artillery): a heavy thud + a soil body + the dull click of a carapace toe + one
+   * grain of gravel. ≈0.16 s.
+   */
   bug_step_heavy: (s, d, t, p) => {
     const q = p * r(0.92, 1.08);
     s.tone(d, { type: 'sine', f0: 115 * q, f1: 46, t0: t, dur: 0.13, gain: 0.32 });
@@ -1711,7 +1753,10 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + r(0.03, 0.05), dur: 0.02, gain: 0.04, filter: { type: 'bandpass', f0: r(1700, 2300) * q, q: 2.5 } });
     return 0.16;
   },
-  /** 베헤모스: 땅이 울리는 서브 쿵 + 짓눌리는 흙 + 갑판 같은 발판의 둔한 울림 + 튀는 흙덩이. ≈0.42 s. */
+  /**
+   * The behemoth: a sub thump shaking the ground + crushed soil + the dull ring of a deck-like floor plate +
+   * flying clods. ≈0.42 s.
+   */
   bug_step_giant: (s, d, t, p) => {
     const q = p * r(0.94, 1.06);
     s.tone(d, { type: 'sine', f0: 68 * q, f1: 24, t0: t, dur: 0.38, gain: 0.75 });
@@ -1720,11 +1765,14 @@ export const SOUNDS: Record<string, SoundFn> = {
     for (let i = 0; i < 3; i++) s.noise(d, { t0: t + 0.05 + r(0, 0.18), dur: 0.05, gain: 0.04, filter: { type: 'bandpass', f0: r(400, 900) * q, q: 1.5 } });
     return 0.42;
   },
-  /* ── appended (2026-09-16): 포병 포탄 — `AudioSystem` 이 `enemy:shellFired` 를 받아 직접 낸다 (enemies/ 는 모른다). ── */
+  /* ── appended (2026-09-16): artillery shells — `AudioSystem` takes `enemy:shellFired` and sounds them itself
+   * (enemies/ knows nothing of them). ── */
   /**
-   * 포탄 낙하 휘파람: 높은 곳에서 떨어지는 사인 둘(살짝 디튠 → 맥놀이) + 아래로 쓸리는 바람 노이즈 + 뒤에 깔리는 낮은 윙.
-   * 전체가 한 envelope 을 타고 끝으로 갈수록 커진다 (`env` 의 attack 은 길이의 절반에서 잘리므로 따로 `envelope` 을 쓴다).
-   * **길이 2.6 s = `SHELL_INCOMING_LEAD_S`** — 절정에서 착탄한다. 착탄 · 요격 방송이 오면 `AudioSystem` 이 보이스를 짧게 끊는다.
+   * The incoming shell whistle: two sines falling from high up (slightly detuned → beating) + wind noise sweeping
+   * downward + a low whine laid under them. The whole thing rides one envelope and grows toward the end (`env`'s
+   * attack is clamped at half the length, so a separate `envelope` is used).
+   * **Length 2.6 s = `SHELL_INCOMING_LEAD_S`** — impact lands at the peak. On the landed · intercepted broadcast
+   * `AudioSystem` cuts the voice short.
    */
   shell_incoming: (s, d, t, p) => {
     const T = 2.6;
@@ -1735,7 +1783,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(env, { type: 'sawtooth', f0: 95 * p, f1: 60 * p, t0: t + 0.8, dur: T - 0.8, gain: 0.06, attack: 0.3, release: 0.05, lp: 400 });
     return T;
   },
-  /** 멀리서 포병이 쏜 둔한 발사 쿵: 낮은 사인 쿵 + 먹힌 저역 노이즈 + 짧은 울림 꼬리. ≈1 s. */
+  /** The dull launch thump of distant artillery: a low sine thud + muffled low noise + a short ringing tail. ≈1 s. */
   shell_launch: (s, d, t, p) => {
     const q = p * r(0.94, 1.06);
     s.tone(d, { type: 'sine', f0: 78 * q, f1: 34, t0: t, dur: 0.4, gain: 0.7 });
@@ -1744,7 +1792,10 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tail(d, t + 0.08, 0.9, 0.07, 500, 60);
     return 1.0;
   },
-  /** 땅굴벌레 전조 땅울림: 서브 저음이 5초 동안 부풀고, 갈리는 흙 · 암반 균열이 점점 잦아진다. ≈5.3 s. */
+  /**
+   * The sandworm's warning rumble: a sub swelling over 5 seconds, with grinding soil · cracking rock coming more
+   * and more often. ≈5.3 s.
+   */
   sandworm_rumble: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 26 * p, f1: 42 * p, t0: t, dur: 5.3, gain: 0.55, attack: 4.2, decayCurve: 'lin' });
     s.tone(d, { type: 'sawtooth', f0: 38 * p, f1: 55 * p, t0: t + 0.5, dur: 4.8, gain: 0.08, attack: 3.8, lp: 160, vibratoHz: 7, vibratoDepth: 30, decayCurve: 'lin' });
@@ -1757,7 +1808,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     }
     return 5.4;
   },
-  /** 분출: 대지가 찢어지는 서브 충격 + 흙 · 암반 폭발 + 쏟아지는 파편 + 긴 꼬리. ≈2.4 s. */
+  /** The eruption: a sub shock of the ground tearing open + a soil · rock blast + debris + a long tail. ≈2.4 s. */
   sandworm_erupt: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 72 * p, f1: 18, t0: t, dur: 1.6, gain: 1.2 });
     s.noise(d, { t0: t, dur: 1.1, gain: 1.0, filter: { type: 'lowpass', f0: 2400, f1: 90, q: 0.6 } });
@@ -1766,7 +1817,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tail(d, t + 0.1, 2.3, 0.22, 900, 60);
     return 2.5;
   },
-  /** 땅굴벌레 포효: 디튠 saw 둘이 내려앉는 목울림 + 거친 대역 잡음 + 쉭쉭대는 고역. ≈2.4 s. */
+  /** The sandworm's roar: a throat growl of two detuned saws settling + rough band noise + a hissing top. ≈2.4 s. */
   sandworm_roar: (s, d, t, p) => {
     const t0 = t + 0.18;
     s.tone(d, { type: 'sawtooth', f0: 110 * p, f1: 58 * p, t0, dur: 2.2, gain: 0.16, attack: 0.25, lp: 900, vibratoHz: 11, vibratoDepth: 45, decayCurve: 'lin' });
@@ -1776,7 +1827,10 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t0 + 0.1, dur: 1.6, gain: 0.06, attack: 0.4, filter: { type: 'highpass', f0: 3200, q: 0.7 }, decayCurve: 'lin' });
     return 2.5;
   },
-  /** 입에서 무언가를 뱉는다: 목구멍이 꿀렁이는 젖은 소리 → 퍽 하고 튀어나감. 독극물은 피치를 올려 부른다. ≈0.7 s. */
+  /**
+   * Something is spat out of the mouth: a wet gurgle in the throat → it bursts out with a thwack. Poison is called
+   * at a raised pitch. ≈0.7 s.
+   */
   sandworm_spit: (s, d, t, p) => {
     for (let i = 0; i < 4; i++) {
       s.noise(d, { t0: t + i * 0.07, dur: 0.1, gain: 0.12, attack: 0.02, filter: { type: 'bandpass', f0: (320 + i * 110) * p, q: 3.5 } });
@@ -1786,7 +1840,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.34, dur: 0.3, gain: 0.08, filter: { type: 'highpass', f0: 2600, q: 0.6 }, decayCurve: 'lin' });
     return 0.72;
   },
-  /** 땅굴벌레 사망: 길게 꺼지는 목울림 + 굴로 무너져 내리는 흙더미. ≈3.2 s. */
+  /** The sandworm's death: a throat growl dying away at length + soil collapsing back into the tunnel. ≈3.2 s. */
   sandworm_death: (s, d, t, p) => {
     s.tone(d, { type: 'sawtooth', f0: 96 * p, f1: 32 * p, t0: t, dur: 2.4, gain: 0.14, attack: 0.1, lp: 650, vibratoHz: 5, vibratoDepth: 60, decayCurve: 'lin' });
     s.tone(d, { type: 'sine', f0: 48 * p, f1: 20, t0: t + 0.2, dur: 2.8, gain: 0.5, attack: 0.3, decayCurve: 'lin' });
@@ -1795,11 +1849,13 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 3.3;
   },
 
-  /* ══ appended (2026-09-13): 요리 미니게임 — `housing/ui/cook/CookScreen` · `parts/Cooking` 이 `audio:play {id}` 로 부른다 ════════
-   * 조리대 앞 UI 소리라 `RANGED_SOUNDS` 에 넣지 않는다 (위치 없이 오면 늘 같은 크기 — 헬스장 `gym_*` 와 같은 규약). 입력마다 · 누르는 동안
-   * 주기적으로 불리는 것(`cook_chop` · `cook_mince` · `cook_stir` · `cook_toss`)은 짧고 작게, 무작위 피치로 반복감이 덜하게 만들었다. */
+  /* ══ appended (2026-09-13): the cooking minigame — `housing/ui/cook/CookScreen` · `parts/Cooking` call these
+   * through `audio:play {id}`. They are UI sounds in front of the cook bench, so they are not in `RANGED_SOUNDS`
+   * (with no position always the same volume — the same rule as the gym's `gym_*`). The ones called per input and
+   * periodically while a key is held (`cook_chop` · `cook_mince` · `cook_stir` · `cook_toss`) are short and quiet,
+   * with a random pitch so the repetition is less obvious. */
 
-  /** 조리 시작 — 가스레인지 점화 딸깍 두 번 + 불꽃이 붙는 부드러운 훅 + 오르는 두 음. ≈0.55 s. */
+  /** Cooking starts — two stove igniter clicks + the soft whump of the flame catching + two rising notes. ≈0.55 s. */
   cook_start: (s, d, t, p) => {
     s.click(d, t, 2400 * p, 0.07, 0.015);
     s.click(d, t + 0.07, 2600 * p, 0.06, 0.015);
@@ -1808,7 +1864,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'triangle', f0: 784 * p, t0: t + 0.27, dur: 0.26, gain: 0.11, lp: 3000 });
     return 0.56;
   },
-  /** 썰기 — 나무 도마에 칼이 닿는 탁: 짧은 중역 노크 + 나무 몸통 + 칼날의 아주 짧은 고역. ≈0.09 s. */
+  /** Chopping — knife on the wooden board: a short mid knock + a wooden body + a very short blade top. ≈0.09 s. */
   cook_chop: (s, d, t, p) => {
     const q = p * r(0.93, 1.07);
     s.noise(d, { t0: t, dur: 0.035, gain: 0.2, filter: { type: 'bandpass', f0: 1150 * q, f1: 700 * q, q: 1.6 } });
@@ -1817,14 +1873,14 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t, dur: 0.008, gain: 0.05, filter: { type: 'highpass', f0: 5200 * q } });
     return 0.09;
   },
-  /** 다지기 — 썰기보다 더 짧고 가볍고 높은 탁 (연타해도 뭉개지지 않게). ≈0.05 s. */
+  /** Mincing — a shorter, lighter, higher tap than chopping (so a fast run of them does not smear). ≈0.05 s. */
   cook_mince: (s, d, t, p) => {
     const q = p * r(0.9, 1.12);
     s.noise(d, { t0: t, dur: 0.022, gain: 0.15, filter: { type: 'bandpass', f0: 1500 * q, f1: 1000 * q, q: 1.8 } });
     s.tone(d, { type: 'sine', f0: 300 * q, f1: 200 * q, t0: t, dur: 0.04, gain: 0.1 });
     return 0.05;
   },
-  /** 굽기 시작 — 재료가 달군 철판에 닿는 치익 → 지글지글 (밴드패스 노이즈 + 무작위 기름 튀는 틱). ≈1.2 s. */
+  /** Frying starts — food hitting the hot plate → a sizzle (bandpass noise + random oil-spit ticks). ≈1.2 s. */
   cook_sizzle: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 0.18, gain: 0.16, attack: 0.004, filter: { type: 'highpass', f0: 2600 * p, q: 0.6 } });
     s.noise(d, { t0: t + 0.05, dur: 1.15, gain: 0.08, attack: 0.05, filter: { type: 'bandpass', f0: 4200 * p, f1: 3000 * p, q: 0.7 }, decayCurve: 'lin' });
@@ -1833,7 +1889,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     }
     return 1.22;
   },
-  /** 뒤집기 — 뒤집개가 철판을 긁는 짧은 쇳소리 + 조각이 떨어지는 작은 철썩 + 다시 치익. ≈0.4 s. */
+  /** Flipping — a short scrape of the turner on the plate + the small slap of the piece landing + a hiss. ≈0.4 s. */
   cook_flip: (s, d, t, p) => {
     const q = p * r(0.95, 1.05);
     s.noise(d, { t0: t, dur: 0.07, gain: 0.08, filter: { type: 'bandpass', f0: 2200 * q, f1: 3200 * q, q: 3 } });
@@ -1843,7 +1899,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.14, dur: 0.26, gain: 0.07, attack: 0.01, filter: { type: 'highpass', f0: 3000 * q, q: 0.6 }, decayCurve: 'lin' });
     return 0.42;
   },
-  /** 꺼내기 — 조각을 들어 올리는 짧은 긁힘 + 접시에 놓는 도자기 딸깍. ≈0.3 s. */
+  /** Removing — a short scrape lifting the piece + the ceramic click of setting it on the plate. ≈0.3 s. */
   cook_remove: (s, d, t, p) => {
     const q = p * r(0.95, 1.05);
     s.noise(d, { t0: t, dur: 0.06, gain: 0.06, filter: { type: 'bandpass', f0: 2600 * q, f1: 1800 * q, q: 2.5 } });
@@ -1852,14 +1908,14 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 3150 * q, t0: t + 0.14, dur: 0.08, gain: 0.015 });
     return 0.3;
   },
-  /** 탔다 — 치익 하고 꺼지는 연기 + 낮게 꺾이는 둔한 음 (실패음보다 불쾌하지 않게). ≈0.6 s. */
+  /** Burnt — smoke hissing out + a dull note bending down (kept less unpleasant than the miss sound). ≈0.6 s. */
   cook_burn: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 0.5, gain: 0.1, attack: 0.02, filter: { type: 'bandpass', f0: 1800 * p, f1: 500 * p, q: 0.8 }, decayCurve: 'lin' });
     s.tone(d, { type: 'triangle', f0: 233 * p, f1: 147 * p, t0: t + 0.05, dur: 0.4, gain: 0.1, lp: 1000 });
     s.tone(d, { type: 'sine', f0: 90 * p, f1: 55, t0: t + 0.05, dur: 0.2, gain: 0.1 });
     return 0.6;
   },
-  /** 볶기 — 팬을 튕기는 금속 덜컹 + 재료가 떨어지며 지글. ≈0.3 s. */
+  /** Tossing — the metal rattle of the pan flicking + a sizzle as the food drops back. ≈0.3 s. */
   cook_toss: (s, d, t, p) => {
     const q = p * r(0.94, 1.06);
     s.click(d, t, 1700 * q, 0.07, 0.02);
@@ -1868,7 +1924,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.08, dur: 0.22, gain: 0.07, attack: 0.01, filter: { type: 'bandpass', f0: 3800 * q, f1: 2800 * q, q: 0.7 }, decayCurve: 'lin' });
     return 0.3;
   },
-  /** 젓기 — 국자가 냄비 바닥을 긁는 짧은 소리 (누르는 동안 주기적으로 불린다 — 일부러 작다). ≈0.22 s. */
+  /** Stirring — the ladle scraping the pot (called periodically while held — deliberately quiet). ≈0.22 s. */
   cook_stir: (s, d, t, p) => {
     const q = p * r(0.9, 1.1);
     s.noise(d, { t0: t, dur: 0.2, gain: 0.05, attack: 0.04, filter: { type: 'bandpass', f0: 900 * q, f1: 1400 * q, q: 2.2 }, decayCurve: 'lin' });
@@ -1876,7 +1932,10 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.06, dur: 0.012, gain: 0.02, filter: { type: 'bandpass', f0: 600 * q, q: 4 } });
     return 0.22;
   },
-  /** 붓기 — 졸졸: 좁은 밴드패스 알갱이(물방울 공명)가 흔들리며 이어지고 그 밑에 부드러운 흐름 잡음. ≈0.7 s. */
+  /**
+   * Pouring — a trickle: narrow bandpass grains (droplet resonance) wobbling one after another, with a soft flow
+   * noise under them. ≈0.7 s.
+   */
   cook_pour: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 0.66, gain: 0.05, attack: 0.06, filter: { type: 'bandpass', f0: 1100 * p, f1: 800 * p, q: 1.2 }, decayCurve: 'lin' });
     for (let i = 0; i < 12; i++) {
@@ -1886,33 +1945,33 @@ export const SOUNDS: Record<string, SoundFn> = {
     }
     return 0.7;
   },
-  /** 판정 완벽 — 주방 타이머 같은 맑은 벨 두 음 (헬스장 `gym_perfect` 보다 둥글다). ≈0.36 s. */
+  /** Perfect judgement — two clear bell notes, a kitchen timer (rounder than the gym's `gym_perfect`). ≈0.36 s. */
   cook_perfect: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 1568 * p, t0: t, dur: 0.2, gain: 0.12, attack: 0.003 });
     s.tone(d, { type: 'sine', f0: 2349 * p, t0: t + 0.06, dur: 0.3, gain: 0.1, attack: 0.003 });
     s.tone(d, { type: 'sine', f0: 4698 * p, t0: t + 0.06, dur: 0.1, gain: 0.015 });
     return 0.36;
   },
-  /** 판정 좋음 — 가운데 높이의 짧은 나무 블록 톡. ≈0.16 s. */
+  /** Good judgement — a short wood-block tap in the middle register. ≈0.16 s. */
   cook_good: (s, d, t, p) => {
     s.tone(d, { type: 'triangle', f0: 988 * p, t0: t, dur: 0.12, gain: 0.1, lp: 2600 });
     s.noise(d, { t0: t, dur: 0.02, gain: 0.05, filter: { type: 'bandpass', f0: 2000 * p, q: 3 } });
     return 0.16;
   },
-  /** 판정 실패 — 낮게 꺾이는 둔한 음 (버저가 아니라 「앗」). ≈0.26 s. */
+  /** Miss judgement — a dull note bending down (an "oops", not a buzzer). ≈0.26 s. */
   cook_miss: (s, d, t, p) => {
     s.tone(d, { type: 'triangle', f0: 247 * p, f1: 165 * p, t0: t, dur: 0.22, gain: 0.11, lp: 1100 });
     s.noise(d, { t0: t, dur: 0.08, gain: 0.05, filter: { type: 'lowpass', f0: 600 * p, f1: 200, q: 0.7 } });
     return 0.26;
   },
-  /** 단계 끝 — 다음 단계로 넘어가는 가벼운 세 음 계단. ≈0.42 s. */
+  /** Step done — a light three-note staircase moving on to the next step. ≈0.42 s. */
   cook_step: (s, d, t, p) => {
     [659, 784, 988].forEach((f, i) => {
       s.tone(d, { type: 'triangle', f0: f * p, t0: t + i * 0.08, dur: i === 2 ? 0.22 : 0.1, gain: 0.09, lp: 3000 });
     });
     return 0.42;
   },
-  /** 자동 처리 — 기계가 도는 윙: 스핀업 → 유지 → 스핀다운하는 톱니파 + 모터 잡음 + 끝의 딸깍. ≈1.1 s. */
+  /** Handled automatically — a machine whirring: a saw spins up → holds → down + motor noise + a click. ≈1.1 s. */
   cook_auto: (s, d, t, p) => {
     s.tone(d, { type: 'sawtooth', f0: 90 * p, f1: 240 * p, t0: t, dur: 0.35, gain: 0.04, attack: 0.08, lp: 1200 });
     s.tone(d, { type: 'sawtooth', f0: 240 * p, t0: t + 0.3, dur: 0.5, gain: 0.04, lp: 1400, vibratoHz: 18, vibratoDepth: 12, decayCurve: 'lin' });
@@ -1921,7 +1980,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.click(d, t + 1.02, 2000 * p, 0.06, 0.015);
     return 1.1;
   },
-  /** 요리 완성 — 접시를 내려놓는 도자기 딸깍 + 벨 + 오르는 네 음 아르페지오. ≈1.0 s. */
+  /** The dish is done — the ceramic click of the plate set down + a bell + a rising four-note arpeggio. ≈1.0 s. */
   cook_finish: (s, d, t, p) => {
     s.click(d, t, 3000 * p, 0.07, 0.015);
     s.tone(d, { type: 'sine', f0: 2093 * p, t0: t, dur: 0.18, gain: 0.04 });
@@ -1933,15 +1992,18 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 1.0;
   },
 
-  /* ── 탐사 차량 (2026-09-13, world/rover) — 거리 곡선은 `AudioSystem.RANGED_SOUNDS` ── */
-  /** 엔진 한 조각: 낮은 디젤 톱니 + 5도 위 사각 + 흙먼지 잡음. 조각끼리 겹쳐 이어지게 평탄 유지 + 짧은 페이드. ≈0.62 s. */
+  /* ── the rover (2026-09-13, world/rover) — the distance curves are `AudioSystem.RANGED_SOUNDS` ── */
+  /**
+   * One engine clip: a low diesel saw + a square a fifth above + dust noise. A flat sustain and a short fade so
+   * the clips overlap into one. ≈0.62 s.
+   */
   rover_engine: (s, d, t, p) => {
     s.tone(d, { type: 'sawtooth', f0: 46 * p, t0: t, dur: 0.62, gain: 0.15, attack: 0.08, release: 0.14, lp: 380 });
     s.tone(d, { type: 'square', f0: 69 * p, t0: t, dur: 0.62, gain: 0.05, attack: 0.08, release: 0.14, lp: 300 });
     s.noise(d, { t0: t, dur: 0.62, gain: 0.06, attack: 0.1, release: 0.16, filter: { type: 'lowpass', f0: 260 * p, q: 0.7 } });
     return 0.62;
   },
-  /** 출발: 두 음 경적 + 엔진이 감겨 오른다. ≈1.4 s. */
+  /** Departure: a two-note horn + the engine winding up. ≈1.4 s. */
   rover_depart: (s, d, t, p) => {
     s.tone(d, { type: 'square', f0: 311 * p, t0: t, dur: 0.32, gain: 0.08, lp: 1600, decayCurve: 'lin' });
     s.tone(d, { type: 'square', f0: 392 * p, t0: t + 0.38, dur: 0.4, gain: 0.08, lp: 1600, decayCurve: 'lin' });
@@ -1949,7 +2011,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.2, dur: 1.1, gain: 0.08, attack: 0.3, filter: { type: 'lowpass', f0: 300 * p, f1: 900 * p, q: 0.7 }, decayCurve: 'lin' });
     return 1.4;
   },
-  /** 포탑 기관포 한 발: 대역 잡음 폭발 + 둔한 저역 쿵 + 금속 딸깍. ≈0.3 s. */
+  /** One turret autocannon round: a band-noise burst + a dull low thud + a metal click. ≈0.3 s. */
   rover_shot: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 0.12, gain: 0.34, filter: { type: 'bandpass', f0: 950 * p, f1: 420 * p, q: 0.9 } });
     s.tone(d, { type: 'sine', f0: 150 * p, f1: 48 * p, t0: t, dur: 0.22, gain: 0.34 });
@@ -1957,27 +2019,27 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.05, dur: 0.25, gain: 0.06, filter: { type: 'lowpass', f0: 700 * p, f1: 200, q: 0.5 }, decayCurve: 'lin' });
     return 0.3;
   },
-  /** 해치 여닫힘: 빗장 딸깍 + 무거운 문짝 쿵. ≈0.45 s. */
+  /** The hatch opening or closing: a latch click + the thud of a heavy door. ≈0.45 s. */
   rover_hatch: (s, d, t, p) => {
     s.click(d, t, 1800 * p, 0.08, 0.025);
     s.tone(d, { type: 'sine', f0: 120 * p, f1: 58 * p, t0: t + 0.12, dur: 0.28, gain: 0.3 });
     s.noise(d, { t0: t + 0.12, dur: 0.16, gain: 0.12, filter: { type: 'lowpass', f0: 900 * p, f1: 250, q: 0.7 } });
     return 0.45;
   },
-  /** 정차: 공기 제동 쉭 + 차체가 한 번 출렁이는 쿵. ≈0.9 s. */
+  /** Dwell: the hiss of air brakes + one thud as the body rocks. ≈0.9 s. */
   rover_brake: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 0.7, gain: 0.18, attack: 0.02, filter: { type: 'highpass', f0: 3000 * p, f1: 1400 * p, q: 0.7 } });
     s.tone(d, { type: 'sine', f0: 92 * p, f1: 44 * p, t0: t + 0.5, dur: 0.35, gain: 0.26 });
     return 0.9;
   },
-  /** 장갑 피격: 금속 쨍 + 짧은 울림. ≈0.35 s. */
+  /** A hit on the armour: a metallic clang + a short ring. ≈0.35 s. */
   rover_clang: (s, d, t, p) => {
     s.tone(d, { type: 'square', f0: 820 * p, f1: 610 * p, t0: t, dur: 0.1, gain: 0.07, lp: 3200 });
     s.noise(d, { t0: t, dur: 0.06, gain: 0.16, filter: { type: 'bandpass', f0: 2400 * p, q: 2 } });
     s.tone(d, { type: 'sine', f0: 470 * p, t0: t, dur: 0.33, gain: 0.08, vibratoHz: 9, vibratoDepth: 15 });
     return 0.35;
   },
-  /** 파괴: 큰 폭발 — 저역 붕괴 + 긴 잔향 + 늦게 튀는 파편 딸깍. ≈2.0 s. */
+  /** Destroyed: a big blast — a low-end collapse + a long tail + late debris clicks. ≈2.0 s. */
   rover_explode: (s, d, t, p) => {
     s.noise(d, { t0: t, dur: 1.6, gain: 0.6, filter: { type: 'lowpass', f0: 1400 * p, f1: 110, q: 0.6 } });
     s.tone(d, { type: 'sine', f0: 72 * p, f1: 26 * p, t0: t, dur: 1.3, gain: 0.6 });
@@ -1985,23 +2047,26 @@ export const SOUNDS: Record<string, SoundFn> = {
     for (let i = 0; i < 5; i++) s.click(d, t + 0.35 + i * 0.17 + r(0, 0.06), r(1200, 3200) * p, 0.05, 0.02);
     return 2.0;
   },
-  /** 요금 결제 (로컬): 짧은 두 음 차임. ≈0.3 s. */
+  /** The fare paid (local): a short two-note chime. ≈0.3 s. */
   rover_pay: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 880 * p, t0: t, dur: 0.12, gain: 0.1 });
     s.tone(d, { type: 'sine', f0: 1320 * p, t0: t + 0.09, dur: 0.2, gain: 0.1 });
     return 0.3;
   },
 
-  /* ══ appended (2026-09-15): 낙하 착지 (B-14) · 화염 지대 (B-16) ═════════════════════════════════════════════════════
-   * `fall_impact` 은 AudioSystem 이 `player:fell` / `player:remoteFell` 에서 직접 낸다. `fire_crackle` 은 지대를 가진 폴더
-   * (enemies · gadgets)가 위치와 함께 `audio:play` 로 부른다 — 둘 다 `RANGED_SOUNDS` 곡선을 탄다. */
+  /* ══ appended (2026-09-15): the fall landing (B-14) · fire zones (B-16) ═══════════════════════════════════════════
+   * AudioSystem sounds `fall_impact` itself off `player:fell` / `player:remoteFell`. `fire_crackle` is called with
+   * a position through `audio:play` by the folders that own fire zones (enemies · gadgets) — both ride a
+   * `RANGED_SOUNDS` curve. */
 
   /**
-   * 낙하 착지 — 몸이 땅에 부딪히는 무거운 쿵. 크기는 호출부 볼륨이, **무게는 피치**가 말한다: AudioSystem 이 피해가
-   * 클수록 피치를 낮춰(1.15 → 0.8) 부르고 여기서는 피치의 역수로 꼬리를 늘인다 — 큰 낙하 = 낮고 · 크고 · 길다.
-   * ① 서브 쿵(사인 95 → 30 Hz) ② 몸통 둔탁음(로우패스 노이즈 + 삼각파) ③ 한 박자 늦게 가라앉는 장비 달그락(금속 클릭 5 +
-   * 버클 짤랑) ④ 튀는 자갈 알갱이 + 가라앉는 먼지. 신음은 없다. 발밑 재질은 AudioSystem 이 `footstep_<mat>` 으로 겹친다.
-   * ≈0.5 s (무거우면 ≈0.65 s).
+   * The fall landing — the heavy thud of a body hitting the ground. The volume is the caller's, **the weight is
+   * the pitch**: the more damage, the lower the pitch AudioSystem calls with (1.15 → 0.8), and here the inverse of
+   * the pitch stretches the tail — a big fall = low · loud · long.
+   * ① a sub thump (sine 95 → 30 Hz) ② a dull body (lowpass noise + triangle) ③ gear rattling a beat late (5 metal
+   * clicks + a buckle jingle) ④ bouncing gravel grains + settling dust. There is no groan. The material under the
+   * foot is layered on by AudioSystem as `footstep_<mat>`.
+   * ≈0.5 s (≈0.65 s when heavy).
    */
   fall_impact: (s, d, t, p) => {
     const L = Math.max(0.8, Math.min(1.4, 1 / p));
@@ -2017,11 +2082,14 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.45 * L + 0.05;
   },
   /**
-   * 화염 지대 지지직 한 조각 — ★ 소리: 지대마다 `FIRE_ZONE_CRACKLE_S`(0.7 s)마다 다시 불린다.
-   * ① 느린 어택 · 유지 · 선형 릴리스의 낮은 불꽃 바닥(로우패스 + 옅은 중역 밴드) — 조각(0.95 s)이 간격보다 길어 앞 조각의
-   *    릴리스와 겹치므로 끊긴 한 방이 아니라 **이어지는 불** 로 들린다. ② 무작위 자리 · 크기 · 대역의 크랙 3–5 알 —
-   *    밴드패스라 위가 닫혀 있다 (하이패스 크랙은 몇 분이면 귀가 아프다 — 2026-09-12 `footstep_snow` 교훈). ③ 가끔(35 %)
-   *    낮은 나무 퍽. 매 조각 필터 중심 · 알 수 · 자리가 달라 반복이 같게 들리지 않고, 전체 크기를 작게 둬 오래 들어도 지치지 않는다.
+   * One clip of a fire zone crackling — a ★ sound: every zone calls it again every `FIRE_ZONE_CRACKLE_S` (0.7 s).
+   * ① a low flame floor with a slow attack · hold · linear release (lowpass + a faint mid band) — the clip
+   *    (0.95 s) is longer than the gap, so it overlaps the previous clip's release and reads as **a fire that
+   *    continues**, not as separate hits. ② 3–5 crack grains at random positions · volumes · bands — bandpass, so
+   *    the top is closed (highpass cracks make the ears hurt within minutes — the 2026-09-12 `footstep_snow`
+   *    lesson). ③ occasionally (35 %) a low wooden pop. The filter centre · grain count · positions differ every
+   *    clip, so the repetition never sounds identical, and the whole thing is kept quiet so long exposure does not
+   *    tire.
    */
   fire_crackle: (s, d, t, p) => {
     const q = p * r(0.9, 1.1);

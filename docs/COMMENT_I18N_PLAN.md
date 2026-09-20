@@ -6,15 +6,23 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **15, `src/audio`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
+> **Next session starts here:** queue item **16, `src/weapons`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
 > before picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this
 > file originally described**; the old one let a deleted `*/` through, and **§3 step 4b**, which `src/tutorial` added
-> after catching a re-typed Korean label. `src/audio` is 273 lines over **two** files — `AudioSystem.ts` 138 ·
-> `Synth.ts` 135 — so it is a one-person folder, not a split: two files cannot be cut without one agent reading the
-> other's. It is also the first folder whose subject is **sound**, and its nouns are its own (envelope · voice ·
-> oscillator · the distance curve · the per-surface footstep · the voice cap), so expect to extend §7 more than the
-> line count suggests. CLAUDE.md §3.5's `src/audio` row and the folder `README.md` settle the vocabulary; the wire and
-> the `bgm` channel's 「state, not sound」 rule are §4.8's.
+> after catching a re-typed Korean label. `src/weapons` is 204 lines over 17 files, so it is a one-person folder like
+> `src/audio` was. Its vocabulary is **already settled elsewhere and has to be grepped, not coined**: CLAUDE.md §4.6 is
+> the contract in English (the crosshair line · the muzzle block · swept projectiles · falloff by travelled distance ·
+> recoil / spread · the quick-use wheel · legendary uniques), `src/shared/ballistics.ts` and `src/items/WeaponStats.ts`
+> name the stats, and §7's `items` row already binds 대상 판정 · 안전장치 · 조준 계수 · 채널형 스프레이. §7's `audio`
+> rows cover the fire / throw / reload sounds it will mention.
+
+> **A one-person folder still needs §3's lead check 2 — against the folder's own `README.md`.** `src/audio` had no
+> agents to disagree with, and the check still earned its keep: the folder `README.md` is already English and already
+> names every noun this folder needed (*distance falloff* · *voice group* · *the fall roar* · *the shell whistle* ·
+> *rover engine clips* · *the impact point*), so the pass was a grep against that file rather than a coining exercise,
+> and §7's new `audio` rows are transcribed from it. The one thing the README does **not** settle is the onomatopoeia —
+> 딸깍 · 쿵 · 클렁크 · 삑 · 치익 · 뽀드득 — which is most of `Synth.ts`; those are in §7 now because nothing else in the
+> repo will ever name them.
 
 > **`src/meta` proved §3's lead check 2 again, and the contract is what settles it.** Two of its three bundles named
 > the same thing differently and neither was wrong on its own terms — an agent wrote *the main message* for `introAfter`
@@ -65,16 +73,16 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`, `src/gadgets`, `src/allies`, `src/game`, `src/meta`) | 22,365 | 568 |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`, `src/gadgets`, `src/allies`, `src/game`, `src/meta`, `src/audio`) | 22,638 | 570 |
 | Done — `.css`, every folder at once (2026-09-20, B-65) | 1,335 | 34 |
-| **Remaining** ([§2](#2-queue)) | **4,259** | **179** |
+| **Remaining** ([§2](#2-queue)) | **4,017** | **177** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 85 lines — and the finished stylesheets 14 more — because a comment whose entire substance is
+**Intended permanent exceptions.** A finished folder still prints 86 lines — and the finished stylesheets 14 more — because a comment whose entire substance is
 a quoted label, a quoted document heading or a verbatim user decision keeps its Korean (§3 rule 2 — the reader has to be
-able to grep it against the real string). So a raw run over everything prints 4,344 / 236, eighty-five more than the
+able to grep it against the real string). So a raw run over everything prints 4,103 / 235, eighty-six more than the
 queue. `src/ui` alone contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice —
 so its rows are grouped into one line instead of listed file by file:
 
@@ -111,6 +119,7 @@ so its rows are grouped into one line instead of listed file by file:
 | `game/parts/Death.ts:191` · `:345` · `:375` | verbatim user decisions: 「부활하면 서 있는 채로 나타나지 않고 쓰러졌다 일어난다」 and, twice, the wipe rule 「사람과 안드로이드가 모두 쓰러지거나 죽어야 레이드 실패」 — the same quote `ui/hud/SpectateOverlay.ts:76` keeps |
 | `*.css` — **14 lines in 7 files** | the same shapes, in the stylesheets (2026-09-20): `inventory.css` ×3 and `base.css` ×2 are English sentences whose letters are mostly a quoted label (`Panel order: ship = 창고 · 장비 · 가방 · 제작`) plus the verbatim user bug report the `.item-tip` text-flow pin was built from; `hub.css` ×2 the five equipment-slot labels and the two launch-warning buttons `[취소] / [그래도 준비]`; `mining.css` ×2 a verbatim 2026-09-17 user decision and a divider that is only the three tab labels; `messenger.css` a `docs/DECISIONS.md` heading; `named.css` ×2 and `social.css` ×2 dividers that are nothing but an on-screen string (`스캔에 노출되고 있음`, `대화 기록`) |
 | `meta/` — **9 lines in 3 files** | `ui/CorpView.ts` ×6: the `계약` page-tab divider, the `docs/DECISIONS.md` heading 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」, the tail of the quote 「물건이 어느 쪽으로 가는가」 that is why the flow chevrons stayed, the tile ribbon's 「아직 꽂지 않은」 state, the verbatim user bug report 「구매칸에는 가격이 아예 안 뜬다」 and the removed hint string 「〈라벨〉 버튼을 1초 동안 …」 that is the only way left to grep `meta.css`'s dead `.cv-ask-hint`; `NpcRules.ts` ×2 are the Korean **program output** `objectiveLabel` / `rewardSummary` build, quoted as worked examples; `parts/NpcQuests.ts` the verbatim user decision 「튜토리얼 직후 연락 오는 NPC 는 레이븐 하나」 |
+| `audio/AudioSystem.ts:194` | the verbatim user decision the bug-footstep curve was re-tuned from (`벌레 발소리가 너무 안 난다 — 뒤에 있으면 소리로 알아차리게`), byte-identical to the one `data/constants.csv` `BUG_STEP_RANGE_M` shortens |
 | `game/parts/LoadGate.ts:3` | a `docs/DECISIONS.md` section heading (`2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩`), byte-identical to the one `allies/README.md:9` cites |
 | `allies/parts/` — **7 lines in 5 files** | verbatim user decisions, each the *whole* substance of its line: `Loot.ts:3` · `:5` (「먹고 있을 때 PC 가 그 상자를 열면 중단」, 「핑이 먼저고, 혼자 주워 담는 것은 한가할 때뿐」), `Rescue.ts:3-4` (the two-line rescue decision), `Commands.ts:271` (「일반 범위의 2배로 각자 일대를 수색, 일정 시간 뒤 자동 해제」), `Contract.ts:4` (the tail of 「계약에 따라 다르나, …」), `Support.ts:3` (the hand-over conditions). This folder is written almost entirely out of quoted decisions, which is why it keeps more than most |
 
@@ -136,7 +145,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~12~~ | ~~`src/allies`~~ | 561 | 22 | **Done 2026-09-19** (lead + 4 agents, one commit, 10 scripts in 1 min 10 s, green first try). 7 quoted-only lines stay (§1) — the most of any folder so far, because the folder *is* a transcription of user decisions. Cut **by subject** and it held: orders · pings · requests · hand-over (`Commands` · `Support` · `Ping` · `Console`) · movement · free search · harness · combat (`Nav` · `Roam` · `Harness` · `Combat`) · bag · looting · objectives · vitals · extraction (`Bag` · `Loot` · `Extract` · `Rescue` · `Contract` · `Vitals`) · roster · ship · raid entry · wire (`Roster` · `Hub` · `Spawn` · `Sync`), lead on the centre (`AllySystem` · `model` · `Body` · `Fsm` · `index`). Its roster · unit · bay · proposal · rank · reaction-delay · harness · free-search · point-of-interest · designation · bound-kit vocabulary is now the reference for every AI-squad- and roster-shaped folder after it. |
 | ~~13~~ | ~~`src/game`~~ | 537 | 14 | **Done 2026-09-20** (lead + 4 agents, one commit, 15 scripts + `e2e-mp` in 4 min 11 s). 4 quoted-only lines stay (§1). Cut **by subject** and it held: death · wipe · payout (`Death`) · corpses and their wire (`Corpses` · `CorpseNet`) · the session save, the title offer and the resume gate (`Session` · `Resume` · `SoloRaid` · `ResumeGate`) · raid entry and the two ends of a raid (`LoadGate` · `Leader` · `RaidReport`), lead on the centre (`GameFlowSystem` · `Phases` · `model` · `Wire`). Its phase · render hold · settlement · corpse-sink · title-offer · voluntary-return vocabulary is now the reference for every flow-shaped folder after it. |
 | ~~14~~ | ~~`src/meta`~~ | 305 | 15 | **Done 2026-09-20** (lead + 2 agents, one commit). 9 quoted-only lines stay (§1). Cut **by subject** and it held: the corp network screen (`ui/CorpView` · `HoldAsk` · `TileGrid` · `dom`) · the NPC quest engine (`parts/NpcQuests` · `NpcRules` · `parts/NpcObjectives`), lead on the centre and the economy (`MetaSystem` · `model` · `Rules` · `Storage` · `parts/{Credits,Trade,Contracts,ImplantDesk,Intel,Console}`). Its corp-rail · shelf-slot · offer · delivery · confirmed-objective · held-spec vocabulary is now the reference for every economy- and NPC-shaped folder after it. |
-| 15 | `src/audio` | 273 | 2 | |
+| ~~15~~ | ~~`src/audio`~~ | 273 | 2 | **Done 2026-09-20** (lead alone, one commit, 12 scripts in 2 min 10 s, green first try). 1 quoted-only line stays (§1). **Not split** — two files cannot be cut without one reading the other's. Its voice · voice group · cap · stolen-voice · distance curve · falloff · panner · clip · grain · base volume · whistle · roar · launch-thump vocabulary is now the reference for every sound-shaped folder after it. |
 | 16 | `src/weapons` | 204 | 17 | |
 | 17 | `src/net` | 167 | 14 | |
 | 18 | `src/stratagems` | 124 | 7 | |
@@ -147,7 +156,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~23~~ | ~~`src/main.ts`~~ | 7 | 1 | **Done 2026-09-18**, folded into the `src/shared` commit as planned. |
 | 24 | `server/` | 267 | 9 | `RelayServer.ts` 66 · `Lobby.ts` 55 · `selftest.ts` 53 · `Store.ts` 22 · `CryptoMarket.ts` 19 · `Economy.ts` 15 · `Rooms.ts` 14 · `Console.ts` 13 · `index.ts` 10. Verified by `npm run typecheck:server` + `net:selftest`, not by folder smokes. |
 | 25 | `electron/` | 52 | 2 | `main.ts` 50 · `wsProxy.ts` 2. Touching `electron/` makes `verify` run `smoke-desktop`. |
-| 26 | `scripts/` | 2,970 | 102 | Last on purpose — these are the verification harness. Changing a runner's comments cannot break the game, but a bad edit hides a real failure, so do this only once the game code is done and green. Biggest: `verify.mjs` 203 · `smoke-tutorial.mjs` 185 · `smoke-housing.mjs` 123 · `smoke-inventory-p6.mjs` 121 · `smoke-cooking.mjs` 95. |
+| 26 | `scripts/` | 3,001 | 102 | Last on purpose — these are the verification harness. Changing a runner's comments cannot break the game, but a bad edit hides a real failure, so do this only once the game code is done and green. Biggest: `verify.mjs` 203 · `smoke-tutorial.mjs` 185 · `smoke-housing.mjs` 123 · `smoke-inventory-p6.mjs` 121 · `smoke-cooking.mjs` 95. |
 | ~~27~~ | ~~`src/**/*.css`~~ | 1,335 | 34 | **Done 2026-09-20** (lead + 5 agents, one pass, `docs/TODO.md` B-65). Not a queue folder — a **file type the whole project had been filtering out** (§1 banner). Cut by owning folder, not by size: `base.css` (200) alone · the rest of `src/ui/styles` + `hud/rescuePicker.css` (371) · `inventory.css` (329) · `housing/**` + `game/resume-gate.css` + `ui/styles/fall.css` (238) · `tutorial` + `meta` + `hub` ×2 + `progression/ui` (220). 14 quoted-only lines stay (§1). A stylesheet's nouns are settled by **its own folder's already-English `.ts`**, not by §7 — the CSS has to read as one voice with the code beside it. |
 
 `data/*.csv` is **out of scope** — its Korean columns are in-game display text. Its `#` **comment** lines are a
@@ -386,6 +395,9 @@ wall-clock, because four of its five are short and the 4 lanes absorb them.
   `src/enemies` — whose folder map pulls in **`e2e-mp`**, so a red there is a real two-client run, not a unit check.
   `src/player` cost 22 scripts and 5 min 53 s, `e2e-mp` among them (179/179).
   Every remaining queue item except `src/core` is one of these.
+- **`src/audio`** cost 12 scripts and 2 min 10 s (`smoke-weapons` · `smoke-tactical` · `smoke-fall-damage` ·
+  `smoke-fire-zones` · `smoke-burrow` · `smoke-sandworm` · `smoke-rover`, plus the four static checks and
+  `net-selftest`) — a folder nothing imports directly, but whose ids every combat smoke plays through.
 - **`src/core`** still selects **everything** (~17 min, 96 scripts), as `src/shared` and `src/main.ts` did — those two
   were done together in one commit on 2026-09-18 so that run happened once.
 - **`server/`** is covered by `npm run typecheck:server` and `npm run net:selftest`.
@@ -698,6 +710,18 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 사선 | **two words**: *diagonal* (the tutorial barrier) and *line of sight* (the visibility checks). Decide from the code, never the word | `world/tutorial/model.ts` |
 | 파고듦 · 파고든다 · 흔든다 | bite · bites inward · jitter (both match the code's own locals) | `world/tutorial/parts/Ground.ts` |
 | 쐐기 · 돌결 · 얼룩 · 부스러기 · 잔해 | wedge · rock grain · mottling · rubble · wreckage | `world/tutorial`, `world/surface.ts` |
+| 보이스 · 보이스 무리 · 상한 · 빼앗긴 | **voice** · **voice group** (`VOICE_GROUP`) · **cap** (`VOICE_CAP`) · **stolen** — the folder `README.md`'s own words | `audio` |
+| 거리 곡선 · 감쇠 · 밑값 · 패너 (방향 전용) | the **distance curve** · **falloff** (never *attenuation curve*) · the **base volume** · the panner (**direction-only**, `panOnly`) | `audio` |
+| 조각 (소리) · 알갱이 · 몸통 / 몸 · 꼬리 · 층 | **clip** (a ★ periodic one-shot: `rover_engine`, `fire_crackle`) · **grain** · the **body** · the **tail** · **layer** | `audio` |
+| 어택 · 유지 · 릴리스 · 맥놀이 · 디튠 · 배음 | attack · hold · release · **beating** · **detuned** · harmonic | `audio` |
+| 톱니파 · 사각파 · 삼각파 · 사인 · 노이즈 | saw · square · triangle · sine · noise (the `ToneOpts.type` names, kept as the code spells them) | `audio` |
+| 딸깍 · 틱 · 쿵 · 클렁크 · 삑 · 버저 · 차임 · 블립 · 치익 · 뽀드득 · 철벅 · 쨍 | click · tick · thud / thump · clunk · beep · buzzer · chime · blip · hiss · squeaky crunch · splat · clang | `audio/Synth.ts` |
+| 굉음 · 경보 · 휘파람 · 발사 쿵 · 전조 땅울림 | the **fall roar** (a drop pod) · the **alarm** · the **whistle** (an incoming shell) · the **launch thump** · the **warning rumble** (the sandworm) | `audio` |
+| 중복 제거 · 속도 제한 · 미리듣기 · 덕 | **dedupe** · the **rate limit** · the **preview** · the (pause) **duck** | `audio` |
+| 예고 (강하 · 재해) | **announced** — the same word `world/hazard` already binds | `audio/Synth.ts` |
+| 판정 완벽 · 좋음 · 실패 | **perfect · good · miss judgement** — `housing/parts/GymGames` names them, so the sound ids read the same way | `audio/Synth.ts` |
+| 불붙음 · 지지직 · 지대 | **ignition** · **crackle** · the **fire zone** (CLAUDE.md §3.2's word) | `audio/Synth.ts` |
+| 재질 발소리 · 자세별 크기 | the **material footstep** (`footstep_<mat>`) · **volume by stance** | `audio` |
 | 유령 토막 (`tut_fence_ghost`) | the **ghost band** — one name only, the one `world/README.md` and CLAUDE.md §4.6 use | `world/tutorial/parts/Dressing.ts` |
 | 살 · 칸 · 콘크리트 턱 · 기둥 | slat · pitch (`SLAT_PITCH`) / bay (`POST_STEP_M`) · sill · post | `world/tutorial` |
 | 도움닫기 · 체공 · 볏 · 깨우기 | run-up · airtime · crest · waking | `world/tutorial` |
