@@ -5,7 +5,7 @@ export interface BuiltinHost {
   clearLog(): void;
   setMoveCheat(enabled: boolean): void;
   readonly moveCheat: boolean;
-  /** 2026-09-12: 콜라이더 와이어프레임 (`ColliderOverlay`). */
+  /** 2026-09-12: the collider wireframe (`ColliderOverlay`). */
   setColliders(enabled: boolean): void;
   readonly colliders: boolean;
   readonly colliderCount: number;

@@ -2,10 +2,12 @@ import type { CommandFactory } from './types';
 import { err, parseNumber } from './types';
 
 /**
- * `worm [뱉기초] [weak]` (2026-09-13 · 2026-09-15) — 땅굴벌레 이벤트를 **지금** 내 발밑에서 시작한다 (레이드 중 · 권위만).
- * 누적 확률 · 레이드당 1회 · 땅 검사를 무시한다. `뱉기초` = 이번 분출의 버그 뱉기 단계 길이(초, 0 = 곧장 독극물).
- * `weak` = 어린 개체(`sandworm_weak`, 체력 750 · 70 %)로 강제 — 생략하면 행성 위협이 정한다 (1 → 어린, 2–3 → 성체).
- * 콘솔은 enemies/ 를 import 하지 않는다 — `cheat:sandworm` 버스 명령만 낸다 (`EnemySystem` 이 받는다).
+ * `worm [뱉기초] [weak]` (2026-09-13 · 2026-09-15) — starts the sandworm event **now** under my own feet (in a
+ * raid · authority only). It ignores the cumulative probability · the once-per-raid limit · the ground test.
+ * `뱉기초` = how long this eruption's bug-spit phase lasts (seconds, 0 = straight to the poison).
+ * `weak` = forces the young one (`sandworm_weak`, hp 750 · 70 %) — omitted, the planet threat decides (1 → young,
+ * 2–3 → adult).
+ * The console does not import enemies/ — it only emits the `cheat:sandworm` bus command (`EnemySystem` receives it).
  */
 export const worm: CommandFactory = () => ({
   name: 'worm',

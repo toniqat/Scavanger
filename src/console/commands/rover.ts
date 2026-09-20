@@ -4,10 +4,12 @@ import { err, fmt, parseNumber } from './types';
 const SUBS = ['tp', 'hp', 'speed', 'depart', 'arrive'];
 
 /**
- * `rover [tp | hp <n> | speed <배수> | depart | arrive]` (2026-09-13) — 탐사 차량 상태 · 개발용 치트.
- * 인자 없음 = 상태 한 줄. `tp` = 내 몸을 차량 옆으로. 나머지는 권위(싱글 · 호스트)만: `hp` = 체력 설정 (0 = 파괴) ·
- * `speed` = 주행 속도 배수 · `depart` = 정차 타이머 0 · `arrive` = 달리는 중이면 목적지 바로 앞으로 건너뛴다.
- * 콘솔은 world/ 를 import 하지 않는다 — 읽기는 `ctx.world.rover`, 치트는 `cheat:rover` 버스 명령뿐이다.
+ * `rover [tp | hp <n> | speed <배수> | depart | arrive]` (2026-09-13) — rover status · dev cheat.
+ * No argument = one status line. `tp` = my body to the side of the vehicle. The rest are authority (solo · host)
+ * only: `hp` = sets the hp (0 = destroyed) · `speed` = the travel speed multiplier · `depart` = the dwell timer to
+ * 0 · `arrive` = while it is running, skips to just short of the destination.
+ * The console does not import world/ — reading is `ctx.world.rover`, and the only cheat is the `cheat:rover` bus
+ * command.
  */
 export const rover: CommandFactory = () => ({
   name: 'rover',

@@ -4,29 +4,32 @@ import type { CommandFactory } from './types';
 import { err, parseNumber } from './types';
 
 /**
- * `analyze [ff <시간> | done [uid|all]]` — **분석기(세포 해석) 시간 치트** (2026-09-15, 사용자 결정).
+ * `analyze [ff <시간> | done [uid|all]]` — **the analyzer (cell analysis) time cheat** (2026-09-15, user's decision).
  *
- * `gym` · `cook` · `crypto` · `library` 와 같은 결이다: **`HousingRef` 의 공개 API 만** 쓰고 `ShipState` 를 직접
- * 만지지 않는다. 시계를 앞당기는 것만 dev 전용 optional (`devAdvanceAnalysis`) 이고, 없으면 무엇이 없는지
- * 빨간 줄로 말한다 (`devAdvanceMining` 과 같은 규약).
+ * The same grain as `gym` · `cook` · `crypto` · `library`: it uses **only `HousingRef`'s public API** and never
+ * touches `ShipState` directly. Only fast-forwarding the clock is a dev-only optional (`devAdvanceAnalysis`), and
+ * with none it says in a red line what is missing (the same contract as `devAdvanceMining`).
  *
- *   - `analyze`              배치된 분석기마다 레벨 · 칸 · 남은 시간, 그리고 계열별 분석 레벨 · 시간 배수.
- *   - `analyze ff <시간>`     모든 분석기의 해석 시계를 그만큼 앞당긴다.
- *   - `analyze done [uid|all]` 그 분석기(생략 = 전부)의 해석을 **지금** 끝낸다 — 남은 시간 중 가장 긴 것만큼
- *                            앞당기므로 코드에 「충분히 큰 수」를 적지 않는다. 회수는 평소대로 화면에서 한다.
+ *   - `analyze`              level · slots · time left per placed analyzer, plus each family's analysis level and
+ *                            time multiplier.
+ *   - `analyze ff <시간>`     fast-forwards every analyzer's analysis clock by that much.
+ *   - `analyze done [uid|all]` finishes that analyzer's analysis (omitted = all) **now** — it advances by the longest
+ *                            remaining time, so no 「large enough number」 is written into the code. Collecting still
+ *                            happens on screen as usual.
  *
- * 분석기를 고르는 기준은 def id 가 아니라 **`FurnitureDef.interaction === 'analyzer'`** 다 — 가구가 늘어도 이 줄은 안 바뀐다.
+ * An analyzer is picked by **`FurnitureDef.interaction === 'analyzer'`**, not by def id — so this line does not
+ * change as more furniture is added.
  */
 const USAGE = '사용법: /analyze [ff <시간> | done [uid|all]]';
 
 /**
- * 리드 · 하우징(에이전트 D)에게 요청한 dev optional. **계약(`HousingRef`)에 아직 없으므로** 여기서 구조적으로만
- * 좁혀 쓴다 — D 가 `HousingRef` 끝에 같은 시그니처를 optional 로 더하면 이 타입은 그대로 맞물린다
- * (`devAdvanceMining` 과 같은 규약: 없으면 빨간 줄).
+ * A dev optional asked of the lead · housing (agent D). **It is not in the contract (`HousingRef`) yet**, so it is
+ * narrowed structurally here — once D adds the same signature as an optional at the end of `HousingRef` this type
+ * meshes with it unchanged (the same contract as `devAdvanceMining`: with none, a red line).
  *
  *   `devAdvanceAnalysis?(hours: number, uid?: string): number`
- *   — 배치된 분석기(`uid` 생략 = 전부)의 해석 시계를 `hours` 만큼 앞당기고 **이번에 끝난 칸 수**를 돌려준다.
- *     회수는 하지 않는다 (화면의 일이다).
+ *   — advances the analysis clock of the placed analyzers (`uid` omitted = all) by `hours` and returns **how many
+ *     slots finished this time**. It does not collect (that is the screen's job).
  */
 type AnalyzeDev = { devAdvanceAnalysis?(hours: number, uid?: string): number };
 
@@ -37,7 +40,7 @@ function hms(seconds: number): string {
   return `${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
-/** 배치된 분석기 전부 (`interaction: 'analyzer'`), 방 · uid 순. */
+/** Every placed analyzer (`interaction: 'analyzer'`), in room · uid order. */
 function analyzers(h: HousingRef): PlacedFurniture[] {
   return h.getPlaced().filter((p) => h.getFurnitureDef(p.defId)?.interaction === 'analyzer');
 }
@@ -76,7 +79,7 @@ function status(ctx: GameContext, h: HousingRef): string {
   return lines.join('\n');
 }
 
-/** 이 분석기들의 해석 중 가장 오래 남은 시간(시간 단위). 돌아가는 해석이 없으면 0. */
+/** The longest remaining time (in hours) among these analyzers' analyses. 0 when none is running. */
 function longestRemainingHours(h: HousingRef, uids: string[]): number {
   let max = 0;
   for (const uid of uids) for (const s of h.getAnalyses(uid)) {

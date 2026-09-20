@@ -4,14 +4,18 @@ import type { CommandFactory } from './types';
 import { err } from './types';
 
 /**
- * `library [give <seriesId> [권|all]]` — 서재 시리즈 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) 개발용 명령. **공개 ref 만** 쓴다.
+ * `library [give <seriesId> [권|all]]` — the library series dev command (2026-09-13, docs/DECISIONS.md
+ * 「2026-09-13 — 서재 시리즈 · 비디오게임」). Uses **public refs only**.
  *
- *   - `library`                          `HousingRef.getLibraryEffects()` 합산 요약 (대상마다 한 줄 + 열린 레시피 + 리비전).
- *   - `library give <seriesId> [권|all]`  그 시리즈의 매체 아이템(`ItemDef.book` · `disc` · `record` 의 `series` · `volume`)을 만들어
- *                                        **함선 창고**에 넣는다 (`InventoryRef.tryAddToStash`, 자리가 없으면 가방 → 바닥 = `tryAddItemAnywhere`).
- *                                        권을 생략하면 전권.
+ *   - `library`                          the `HousingRef.getLibraryEffects()` summary (one line per target + the
+ *                                        opened recipes + the revision).
+ *   - `library give <seriesId> [권|all]`  creates that series' media items (the `series` · `volume` of
+ *                                        `ItemDef.book` · `disc` · `record`) and puts them in **the stash**
+ *                                        (`InventoryRef.tryAddToStash`; with no room, bag → ground =
+ *                                        `tryAddItemAnywhere`). An omitted volume means every volume.
  *
- * 꽂기(`shelve`)는 넣지 않았다 — 보관함 칸을 고르는 규칙은 housing 의 서재 화면 몫이고, 아이템을 창고에 넣으면 그 화면에서 끌어 꽂을 수 있다.
+ * Shelving (`shelve`) was left out — which holder slot to pick is housing's library screen's job, and an item in
+ * the stash can be dragged onto a shelf from that screen.
  */
 const USAGE = '사용법: /library [give <시리즈 id> [권|all]]';
 
@@ -25,7 +29,7 @@ function skillName(ctx: GameContext, id: string): string {
   try { return ctx.progression?.getSkillDef(id as never)?.name ?? id; } catch { return id; }
 }
 
-/** 합산 요약 — 값이 0 인 대상은 뺀다. */
+/** The summed-up summary — a target whose value is 0 is left out. */
 function summaryLines(ctx: GameContext, e: LibraryEffectsSummary): string[] {
   const out: string[] = [];
   for (const [k, v] of Object.entries(e.skillGain)) if (v) out.push(`숙련 상승량 · ${skillName(ctx, k)} ${pct(v)}`);
@@ -40,7 +44,7 @@ function summaryLines(ctx: GameContext, e: LibraryEffectsSummary): string[] {
   return out;
 }
 
-/** 시리즈 매체 아이템 (권 번호 순). */
+/** The series' media items (in volume order). */
 function seriesItems(ctx: GameContext, seriesId: string): ItemDef[] {
   let defs: readonly ItemDef[] = [];
   try { defs = ctx.loot?.getAllItemDefs() ?? []; } catch { defs = []; }

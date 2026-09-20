@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import type { GameContext, Obstacle } from '@/shared';
 
-/** 플레이어 둘레 이 반경(m) 안의 콜라이더만 그린다. */
+/** Only colliders within this radius (m) around the player are drawn. */
 const RADIUS = 30;
-/** 다시 그리는 간격(초) — 전차처럼 움직이는 콜라이더를 따라가기에 충분하다. */
+/** Rebuild interval (s) — enough to follow a moving collider such as the tram. */
 const REBUILD_S = 0.25;
-/** 원기둥 둘레 분할 수. */
+/** Segments around a cylinder. */
 const CIRCLE_SEGS = 16;
 
 const COLOR_CYLINDER = new THREE.Color(0xffd84a);
@@ -15,13 +15,14 @@ const COLOR_HULL = new THREE.Color(0xff9a3c);
 const COLOR_BAND = new THREE.Color(0xb86a2a);
 
 /**
- * 2026-09-12 — `colliders` 명령의 **콜라이더 와이어프레임** (개발자 콘솔 전용).
+ * 2026-09-12 — the **collider wireframe** of the `colliders` command (developer console only).
  *
- * `ctx.world.getObstacles()` 중 플레이어(없으면 카메라) 둘레 `RADIUS` 안의 것을 선분으로 그린다:
- * 원기둥 노랑 · 상자(OBB) 하늘 · 경사 발판 초록 · 볼록 윤곽 주황(총알 층은 어두운 주황).
- * `LineSegments` 하나에 버퍼를 다시 채우므로 켜 둔 동안 할당은 버퍼가 커질 때뿐이다. 깊이 검사를 끄고 그린다 —
- * 벽 속에 파묻힌 콜라이더가 보여야 "보이지 않는 벽" 을 찾는다. 광원은 만들지 않는다 (광원 예산 규약).
- * 게임플레이 페이즈가 아니면 숨고, 끄면 지오메트리 · 머티리얼을 dispose 한다.
+ * Draws those of `ctx.world.getObstacles()` within `RADIUS` of the player (the camera when there is none) as line
+ * segments: cylinder yellow · box (OBB) sky blue · ramp green · convex hull orange (bullet bands a darker orange).
+ * One `LineSegments` has its buffers refilled, so while it is on the only allocation is the buffer growing. Drawn
+ * with the depth test off — a collider buried in a wall has to be visible to find an "invisible wall". No lights are
+ * created (the light budget contract).
+ * Outside gameplay phases it hides; turning it off disposes the geometry and the material.
  */
 export class ColliderOverlay {
   private lines: THREE.LineSegments | null = null;
@@ -36,7 +37,7 @@ export class ColliderOverlay {
   constructor(private readonly ctx: GameContext) {}
 
   get enabled(): boolean { return this.lines !== null; }
-  /** 마지막으로 그린 콜라이더 수. */
+  /** How many colliders the last rebuild drew. */
   get count(): number { return this._count; }
 
   setEnabled(on: boolean): void {
@@ -104,7 +105,7 @@ export class ColliderOverlay {
     geo.setDrawRange(0, this.n);
   }
 
-  /* ── 선분 쌓기 ─────────────────────────────────────────────────────────── */
+  /* ── Segment building ──────────────────────────────────────────────────── */
 
   private seg(ax: number, ay: number, az: number, bx: number, by: number, bz: number, c: THREE.Color): void {
     if ((this.n + 2) * 3 > this.pos.length) {
@@ -121,7 +122,7 @@ export class ColliderOverlay {
     this.n += 2;
   }
 
-  /** 닫힌 XZ 다각형 `pts`(x, z 쌍)를 높이 y0 · y1 에 그리고 꼭짓점마다 세로선. */
+  /** Draws the closed XZ polygon `pts` (x, z pairs) at heights y0 · y1, plus a vertical at every vertex. */
   private prism(pts: ArrayLike<number>, y0: number, y1: number, c: THREE.Color, verticals = true): void {
     const k = pts.length / 2;
     for (let i = 0; i < k; i++) {
@@ -150,7 +151,7 @@ export class ColliderOverlay {
     }
   }
 
-  /** 상자 네 모서리 (XZ) — 수학 규약 yaw, 로컬 (±halfX, ±halfZ). */
+  /** The box's four corners (XZ) — math-convention yaw, local (±halfX, ±halfZ). */
   private corners(o: Obstacle): Float32Array {
     const b = o.box!;
     const c = Math.cos(b.yaw), s = Math.sin(b.yaw);
@@ -168,11 +169,11 @@ export class ColliderOverlay {
     this.prism(this.corners(o), o.position.y, o.position.y + o.height, COLOR_BOX);
   }
 
-  /** 경사 발판: 밑면 사각형 + 기운 윗면 (로컬 −X 끝이 `rise` 만큼 낮다) + 세로선. */
+  /** Ramp: the bottom rectangle + the tilted top face (the local −X end is `rise` lower) + verticals. */
   private ramp(o: Obstacle): void {
     const p = this.corners(o);
     const y0 = o.position.y, hi = o.position.y + o.height, lo = hi - o.ramp!.rise;
-    // 모서리 순서: 0 (−X,−Z) · 1 (+X,−Z) · 2 (+X,+Z) · 3 (−X,+Z)
+    // Corner order: 0 (−X,−Z) · 1 (+X,−Z) · 2 (+X,+Z) · 3 (−X,+Z)
     const top = [lo, hi, hi, lo];
     for (let i = 0; i < 4; i++) {
       const j = (i + 1) % 4;

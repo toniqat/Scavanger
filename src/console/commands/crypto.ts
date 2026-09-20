@@ -4,14 +4,21 @@ import type { CommandFactory } from './types';
 import { err, parseNumber } from './types';
 
 /**
- * `crypto [wallet <coin> <coins> | cores <uid|all> <n> | ff <hours>]` — 암호화폐 채굴 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) 개발용 명령.
- * **`HousingRef` 의 공개 API 만** 쓴다 (`state.clusters` · `cryptoWallet` 를 직접 만지지 않는다 — dev 메서드 셋은 계약의 optional 이다).
+ * `crypto [wallet <coin> <coins> | cores <uid|all> <n> | ff <hours>]` — the crypto mining dev command (2026-09-13,
+ * docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」).
+ * Uses **only `HousingRef`'s public API** (it never touches `state.clusters` · `cryptoWallet` directly — the three
+ * dev methods are optionals of the contract).
  *
- *   - `crypto`                       클러스터마다 코인 · 프로세서 · 주기 · 진행 · 막힌 사유, 그리고 지갑.
- *   - `crypto wallet <coin> <coins>`  지갑 잔고를 그 코인 개수로 **맞춘다** (`devSetCryptoWallet`, `housing:walletChanged {reason:'cheat'}`).
- *   - `crypto cores <uid|all> <n>`    프로세서를 아이템 없이 n 개로 맞춘다 (`devSetClusterCores` — 진행도는 접는다).
- *     2026-09-16 에 연산 코어가 없어지고 프로세서가 직접 꽂히지만, 하위 명령 이름 `cores` 는 그대로 둔다 — dev 명령의 철자를 바꾸면 손에 익은 것이 조용히 깨진다.
- *   - `crypto ff <hours>`             채굴할 수 있는 모든 클러스터의 시계를 앞당기고 끝난 주기를 넣는다 (`devAdvanceMining`).
+ *   - `crypto`                       per cluster the coin · processors · cycle · progress · what blocks it, plus
+ *                                    the wallet.
+ *   - `crypto wallet <coin> <coins>`  **sets** the wallet balance to that many coins (`devSetCryptoWallet`,
+ *                                     `housing:walletChanged {reason:'cheat'}`).
+ *   - `crypto cores <uid|all> <n>`    sets the processors to n without items (`devSetClusterCores` — progress is
+ *                                     folded).
+ *     On 2026-09-16 the compute core went away and a processor is mounted directly, but the sub-command keeps the
+ *     name `cores` — changing a dev command's spelling silently breaks what the hand is used to.
+ *   - `crypto ff <hours>`             advances the clock of every mineable cluster and adds the cycles that
+ *                                     finished (`devAdvanceMining`).
  */
 const USAGE = '사용법: /crypto [wallet <코인> <개수> | cores <uid|all> <n> | ff <시간>]';
 

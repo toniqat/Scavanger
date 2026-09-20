@@ -4,21 +4,24 @@ import type { CommandFactory } from './types';
 import { err, parseNumber } from './types';
 
 /**
- * `cook [plate <요리 id|한국어 이름> [품질 0-5] | clear]` — 요리 미니게임 · 식탁 접시 개발용 명령 (2026-09-13 → 2026-09-16 접시 모델).
- * **공개 ref 만** 쓴다: `ctx.housing.cookSession` · `getPlate` · `devSetPlate` · `clearPlate`, 요리 표 `MEAL_DEFS` (`shared/meals`).
+ * `cook [plate <요리 id|한국어 이름> [품질 0-5] | clear]` — the dev command for the cooking minigame · the
+ * dining-table plate (2026-09-13 → the 2026-09-16 plate model).
+ * Uses **public refs only**: `ctx.housing.cookSession` · `getPlate` · `devSetPlate` · `clearPlate`, and the meal
+ * table `MEAL_DEFS` (`shared/meals`).
  *
- *   - `cook`                         지금 조리 중인 요리 · 식탁의 접시 한 줄씩 + 사용법.
- *   - `cook plate <요리> [품질]`       조리 없이 내 함선 식탁에 접시를 놓는다 (옛 접시는 바뀐다).
- *   - `cook clear`                   내 식탁의 접시를 치운다.
+ *   - `cook`                         one line each for the meal being cooked now · the plate on the dining table,
+ *                                    plus the usage.
+ *   - `cook plate <요리> [품질]`       puts a plate on my ship's dining table without cooking (replacing the old one).
+ *   - `cook clear`                   takes the plate off my dining table.
  *
- * 2026-09-16 (사용자 결정): 요리는 더 이상 아이템이 아니다 — 옛 `cook give`(품질 요리를 가방에)는 없어졌다.
- * 요리 이름에는 띄어쓰기가 있을 수 있어(`치즈 오믈렛`) **끝의 숫자 토큰**을 품질로 읽는다.
+ * 2026-09-16 (user's decision): a meal is no longer an item — the old `cook give` (a quality meal into the bag) is
+ * gone. A meal name may hold a space (`치즈 오믈렛`), so the **trailing numeric token** is read as the quality.
  */
 const USAGE = '사용법: /cook plate <요리 id|이름> [품질 0-5]  ·  /cook clear';
 
 const squash = (s: string): string => s.replace(/\s+/g, '').toLowerCase();
 
-/** id(대소문자 무시) · 한국어 이름 · 띄어쓰기를 뺀 이름 → 요리 정의. */
+/** id (case-insensitive) · the Korean name · the name with spaces removed → the meal def. */
 function resolveMeal(raw: string): MealItemDef | null {
   const s = raw.trim();
   if (!s) return null;
@@ -46,7 +49,7 @@ export const cook: CommandFactory = () => ({
         if (s) line = `조리 중: ${MEAL_DEFS.find((d) => d.id === s.mealDefId)?.name ?? s.mealDefId} (단계 ${s.steps.length}개)`;
         const p = h?.getPlate?.();
         if (p) plateLine = `식탁: ${label(MEAL_DEFS.find((d) => d.id === p.mealDefId), p.mealDefId, p.quality)}`;
-      } catch { /* housing 미준비 */ }
+      } catch { /* housing not ready */ }
       return `${line}\n${plateLine}\n${USAGE}`;
     }
     const sub = args[0].toLowerCase();
@@ -54,7 +57,7 @@ export const cook: CommandFactory = () => ({
     if (sub === 'clear') return h.clearPlate() ? '식탁의 접시를 치웠습니다' : '식탁에 접시가 없습니다';
     if (sub !== 'plate' || args.length < 2) return err(USAGE);
 
-    // 끝의 숫자 토큰(이름은 한 토큰 이상 남긴다) = 품질
+    // The trailing numeric token (at least one token is left for the name) = the quality
     const rest = args.slice(1);
     let quality = 0;
     if (rest.length > 1 && !Number.isNaN(parseNumber(rest[rest.length - 1]))) quality = parseNumber(rest.pop());

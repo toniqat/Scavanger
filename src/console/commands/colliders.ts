@@ -5,8 +5,9 @@ const ON = new Set(['1', 'on', 'true', 'yes']);
 const OFF = new Set(['0', 'off', 'false', 'no']);
 
 /**
- * `colliders [0|1]` — 플레이어 둘레 콜라이더 와이어프레임 토글 (인자 없음 = 뒤집기). 2026-09-12: 실내 "보이지 않는 벽"
- * 을 눈으로 찾는 도구. 그리기는 `ColliderOverlay` (원기둥 노랑 · 상자 하늘 · 경사 초록 · 볼록 윤곽 주황).
+ * `colliders [0|1]` — toggles the collider wireframe around the player (no argument = flips it). 2026-09-12: a tool
+ * for finding an indoor "invisible wall" by eye. The drawing is `ColliderOverlay` (cylinder yellow · box sky blue ·
+ * ramp green · convex hull orange).
  */
 export const colliders: CommandFactory = (host) => ({
   name: 'colliders',

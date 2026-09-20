@@ -53,7 +53,7 @@ export class ConsoleSystem implements GameSystem, ConsoleRef {
 
   private readonly fwd = new THREE.Vector3();
   private readonly next = new THREE.Vector3();
-  /** 2026-09-12: `colliders` 명령의 와이어프레임 (dev 클라이언트에서만 만든다). */
+  /** 2026-09-12: the `colliders` command's wireframe (built on a dev client only). */
   private overlay: ColliderOverlay | null = null;
 
   get isOpen(): boolean { return this._open; }

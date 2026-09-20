@@ -5,17 +5,19 @@ import { err, parseNumber } from './types';
 import { resolveStatId } from './stat';
 
 /**
- * `gym [clear [str|end] | <str|end> <±xp>]` — 헬스장 (A-3a, 2026-09-12) 개발용 명령. **`ProgressionRef` 의 공개 API 만** 쓴다
- * (`profile.trained` · `gymFatigueUntil` 를 직접 만지지 않는다).
+ * `gym [clear [str|end] | <str|end> <±xp>]` — the gym dev command (A-3a, 2026-09-12). Uses **only
+ * `ProgressionRef`'s public API** (it never touches `profile.trained` · `gymFatigueUntil` directly).
  *
- *   - `gym`                    운동 능력치의 단련 보너스 · 능력치 경험치 바 · 디버프 남은 시간.
- *   - `gym <stat> <±xp>`       `addTrainedXp(stat, xp)` — 디버프 · 함선 게이트 · 세션 상한 없음. 2026-09-17: 양수 = 미니게임 경험치로
- *                              능력치 경험치 바에 (넘기면 단련 +1), 음수 = 단련 보너스를 내린다 (0 아래로는 progression 이 막는다).
+ *   - `gym`                    the training bonus · stat XP bar · remaining debuff time of the gym stats.
+ *   - `gym <stat> <±xp>`       `addTrainedXp(stat, xp)` — no debuff · no ship gate · no session cap. 2026-09-17:
+ *                              positive = minigame XP into the stat XP bar (past the top, training +1), negative
+ *                              lowers the training bonus (progression blocks it below 0).
  *
- * 2026-09-17 (사용자 결정): 단련 수치는 `+N` 으로만 적는다 (`단련 +N` 아님).
- *   - `gym clear [str|end]`    `clearGymFatigue(stat?)` — 생략하면 둘 다.
+ * 2026-09-17 (user's decision): a training number is written as `+N` only (never `단련 +N`).
+ *   - `gym clear [str|end]`    `clearGymFatigue(stat?)` — omitted = both.
  *
- * 두 dev 메서드는 계약상 optional 이라 `typeof` 로 묻고, 없으면 빨간 줄로 무엇이 없는지 말한다.
+ * Both dev methods are optional in the contract, so they are asked for with `typeof`; with none a red line says
+ * what is missing.
  */
 const STAT_SHORT: Readonly<Record<GymStat, string>> = { strength: 'str', endurance: 'end', intelligence: 'int', perception: 'per' };
 
@@ -27,7 +29,7 @@ function now(ctx: GameContext): number {
   return Date.now();
 }
 
-/** `23:12:05` (올림 초). */
+/** `23:12:05` (seconds rounded up). */
 function formatRemaining(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
   const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
@@ -50,7 +52,7 @@ function statusLine(prog: ProgressionRef, id: GymStat, ctx: GameContext): string
   return `${name} +${bonus} (${Math.round(progress * next)}/${next}) · ${fatigue}`;
 }
 
-/** `str` / `end` / `strength` / `근력` … → 운동 능력치, 아니면 null. */
+/** `str` / `end` / `strength` / `근력` … → a gym stat, else null. */
 function gymStatOf(raw: string, ctx: GameContext): GymStat | null {
   const id = resolveStatId(raw, ctx);
   return id && (GYM_STATS as readonly string[]).includes(id) ? (id as GymStat) : null;
