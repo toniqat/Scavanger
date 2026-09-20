@@ -799,11 +799,11 @@ export class Rover {
   }
 
   /** Host: one turret shot — FX, event, broadcast. */
-  private readonly onFire = (from: THREE.Vector3, to: THREE.Vector3): void => {
+  private readonly onFire = (from: THREE.Vector3, to: THREE.Vector3, targetId: number): void => {
     const game = this.game;
     this.fx?.tracer(from, to);
     if (!game) return;
-    game.bus.emit('rover:fired', { from: this.fireFrom.copy(from), to: this.fireTo.copy(to) });
+    game.bus.emit('rover:fired', { from: this.fireFrom.copy(from), to: this.fireTo.copy(to), targetId });
     if (game.isMultiplayer && game.net?.isHost) game.net.send({ t: 'rover', ev: 'fire', p: [to.x, to.y, to.z] }, 'others');
   };
 
@@ -936,7 +936,8 @@ export class Rover {
     this.tmp.set(p[0], p[1], p[2]);
     applyRemoteShot(this.turret, body, this.tmp, game.time, this.muzzle);
     this.fx?.tracer(this.muzzle, this.tmp);
-    game.bus.emit('rover:fired', { from: this.fireFrom.copy(this.muzzle), to: this.fireTo.copy(this.tmp) });
+    // A replica is sent the impact point only, so the shot arrives with no target (`rover:fired.targetId`).
+    game.bus.emit('rover:fired', { from: this.fireFrom.copy(this.muzzle), to: this.fireTo.copy(this.tmp), targetId: null });
   }
 
   private handleRequest(m: RoverRequest, from: PeerId): void {

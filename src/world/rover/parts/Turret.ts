@@ -65,12 +65,14 @@ export function applyRemoteShot(ts: TurretState, body: RoverBody, p: THREE.Vecto
 }
 
 /**
- * The authority: picking a target · aiming · firing. `fire(from, to)` is called once per shot (`Rover` does the FX,
- * the broadcast and the event). `from` and `to` are scratch — they are not kept.
+ * The authority: picking a target · aiming · firing. `fire(from, to, targetId)` is called once per shot (`Rover`
+ * does the FX, the broadcast and the event). `from` and `to` are scratch — they are not kept. The target is handed
+ * over with the shot rather than read back off `ts.targetId`, so `rover:fired` names the body that took the damage
+ * on the line above even when the next frame has already retargeted (2026-09-21, B-73).
  */
 export function updateTurretLogic(
   game: GameContext, ts: TurretState, body: RoverBody, dt: number, now: number,
-  fire: (from: THREE.Vector3, to: THREE.Vector3) => void,
+  fire: (from: THREE.Vector3, to: THREE.Vector3, targetId: number) => void,
 ): void {
   ts.fireTimer -= dt;
   ts.retarget -= dt;
@@ -114,7 +116,7 @@ export function updateTurretLogic(
   body.barrelTip.getWorldPosition(_muzzle);
   _dir.subVectors(_tgt, _muzzle).normalize();
   target.takeDamage(ROVER_TURRET_DAMAGE, _tgt.clone(), _dir.clone(), ROVER_DAMAGE_SOURCE);
-  fire(_muzzle, _tgt);
+  fire(_muzzle, _tgt, target.id);
 }
 
 /** Is the line from the turret to the enemy's mid-body clear of terrain and obstacles? The ray starts outside the body. */

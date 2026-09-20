@@ -1498,8 +1498,14 @@ export interface GameEvents {
   'rover:damaged': { hp: number; maxHp: number; hazard: boolean };
   /** Fact (every client): it was destroyed (unusable for the rest of the raid). */
   'rover:destroyed': { position: THREE.Vector3 };
-  /** Fact (every client): the turret fired a shot (effect · sound). */
-  'rover:fired': { from: THREE.Vector3; to: THREE.Vector3 };
+  /**
+   * Fact (every client): the turret fired a shot (effect · sound). `targetId` is the enemy that round went to: the
+   * authority fires and damages in one step (`world/rover/parts/Turret.updateTurretLogic` calls `fire()` on the line
+   * after `takeDamage`), so the shot and the body it hit travel together instead of having to be matched up
+   * afterwards. A **replica** is handed the impact point alone (`rover fire {p}`) and never knows the target, so it
+   * is `null` there.
+   */
+  'rover:fired': { from: THREE.Vector3; to: THREE.Vector3; targetId: number | null };
   /* appended (2026-09-13, R2) */
   /**
    * Command (console `rover` → world/rover, applied on the authority only): a dev cheat. `hp` = set the hp to `value`

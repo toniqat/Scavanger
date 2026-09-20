@@ -163,10 +163,10 @@ Things today's smokes deliberately do not measure. Each is here so the next read
   another bug is nearer — or where the circling rover keeps the spawned one outside `ROVER_TURRET_AIM_CONE` or behind
   cover — the run prints `29/30` with 16–20 shots fired and `hp 213 → 213`. The two halves of the assertion have to be
   measured against the **same** enemy, or the check has to clear the area first. **Fixed 2026-09-20 (B-22)**: step 5
-  now despawns every other living enemy before it spawns its own, and records `turret.targetId` at the instant
-  `rover:fired` arrives — `updateTurretLogic` calls `fire()` on the line after `target.takeDamage(...)` and the bus is
-  synchronous, so that id *is* the body just hit. A shot that went elsewhere is named in the failure payload. The
-  event still carries no target of its own, which is why the smoke reads a `private` field (`docs/TODO.md` B-73).
+  now despawns every other living enemy before it spawns its own and names the body each round went to. **Closed
+  2026-09-21 (B-73)**: that id comes off `rover:fired.targetId` — `updateTurretLogic` hands `fire()` the target on the
+  line after `target.takeDamage(...)`, so the check stands on the public event instead of the `private` turret state
+  it used to reach for. A shot that went elsewhere is named in the failure payload.
 
 - **A hand-rolled comment stripper is not a proof — a regex literal holding a quote defeats it (2026-09-20).** Proving
   a change is comment-only by stripping comments from both sides and comparing needs a real tokenizer: at
@@ -276,11 +276,6 @@ after touching `damageSource.ts` is checked by restarting vite, not by debugging
   tab is `분석 도감` (`housing/ui/Analyzer.ts:109`) — `data/constants.csv:818` says `해석 도감` in prose. `.css` itself
   joined the comment side on 2026-09-20 (B-65); splitting a csv's comment lines from its data rows is the other half
   (`docs/TODO.md` B-74).
-- **`rover:fired` does not name its target** (`docs/TODO.md` B-73), so `smoke-rover`'s turret check reaches through `getSystem('world').roverSys.turret`
-  (a TS `private`) to read `turret.targetId` at the moment the event fires. It is correct — `updateTurretLogic` calls
-  `fire()` on the line after `target.takeDamage(...)` and the bus is synchronous — but it is the only way to tie a shot
-  to a body, and neither `RoverRef` nor the event payload offers one. Putting `targetId` on the event would stand the
-  check on the public API (`docs/TODO.md` B-68).
 
 ### Runner options (`node scripts/verify.mjs --help`)
 

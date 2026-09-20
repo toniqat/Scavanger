@@ -221,21 +221,19 @@ try {
     // The turret picks the **nearest** enemy inside its range (ROVER_TURRET_RANGE) and hits it directly
     // (src/world/rover/parts/Turret.ts). So reading 「it fired」 (the rover:fired count) and 「this enemy's hp went
     // down」 apart judges two different bodies — with a closer bug around it can fire 20 rounds and the enemy stood
-    // here keeps its hp (docs/TODO.md B-22). The two conditions are tied to one body:
+    // here keeps its hp. The two conditions are tied to one body:
     //   ① every other living enemy is cleared away before it is stood up. The patrol loop covers more than 40 m in
     //      5 s, so cutting by 「a radius around the current spot」 is not enough. They are despawned rather than
     //      killed — the shallowest removal, which makes no corpse · loot · death performance. Eggs (isEgg) are left
     //      alone: queryNear filters them out by default, so they never compete for the target.
-    //   ② rover:fired does not carry its target (only from · to). The turret's target at the moment the event
-    //      arrives (ts.targetId — the enemy that took takeDamage on the line just before) is noted alongside. The
-    //      turret state is not on RoverRef, so it is reached through the world system's Rover.
+    //   ② rover:fired names the body the round went to (targetId, 2026-09-21 B-73). Until then the event carried
+    //      only from · to, and this check had to reach through the world system into the turret's private state;
+    //      now the recorder above already holds every round's target. The authority fires on the line after
+    //      takeDamage, so the id on the event is the enemy that took it.
     const cleared = await page.evaluate(() => {
       const es = window.__game.getSystem('enemies');
       const others = es.getEnemies().filter((e) => !e.isDead && !e.isEgg);
       for (const e of others) es.despawn(e);
-      const turret = window.__game.getSystem('world').roverSys.turret;
-      window.__rvFireTargets = [];
-      window.__game.ctx.bus.on('rover:fired', () => { window.__rvFireTargets.push(turret.targetId); });
       return others.length;
     });
     const firedBefore = (await events(page, 'rover:fired')).length;
@@ -251,19 +249,20 @@ try {
       return { id: e.id, hp: e.hp };
     });
     await waitSim(page, 5);
-    const shot = await page.evaluate(() => {
+    const hurt = await page.evaluate(() => {
       const es = window.__game.getSystem('enemies');
       const e = es.byId.get(window.__rvEnemy);
-      const hits = window.__rvFireTargets;
-      const r = {
-        hp: e ? e.hp : null, dead: e ? e.state === 'dead' : true,
-        mine: hits.filter((id) => id === window.__rvEnemy).length,
-        others: [...new Set(hits.filter((id) => id !== window.__rvEnemy))],
-      };
+      const r = { hp: e ? e.hp : null, dead: e ? e.state === 'dead' : true };
       if (e && e.state !== 'dead') e.takeDamage(999999, undefined, undefined, 'ai');
       return r;
     });
-    const firedAfter = (await events(page, 'rover:fired')).length;
+    const rounds = (await events(page, 'rover:fired')).slice(firedBefore).map((e) => e.p.targetId);
+    const firedAfter = firedBefore + rounds.length;
+    const shot = {
+      ...hurt,
+      mine: rounds.filter((id) => id === spawn?.id).length,
+      others: [...new Set(rounds.filter((id) => id !== null && id !== spawn?.id))],
+    };
     if (spawn) {
       // Rounds fired at an enemy that surfaced after the clear-out may be mixed in — they are printed as they
       // are, but the judgement uses only the rounds that went to this enemy
