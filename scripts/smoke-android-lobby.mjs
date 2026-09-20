@@ -1,5 +1,5 @@
 // 안드로이드 분대원 — 봇 로비 멤버 smoke (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」).
-// 두 헤드리스 클라이언트가 **이 스크립트가 직접 띄운** 릴레이(8896, 임시 프로필 저장소)에 붙는다 — 공용 릴레이(8787, 옛 코드일 수
+// 두 헤드리스 클라이언트가 **이 스크립트가 직접 띄운** 릴레이(9896, 임시 프로필 저장소)에 붙는다 — 공용 릴레이(8787, 옛 코드일 수
 // 있다)는 건드리지 않는다. 여기서 보는 것은 `src/net` 과 `server/` 의 계약뿐이다 (조종실 슬롯 연출 · 몸 · AI 는 hub/allies 의 스모크).
 //   1. 분대장이 `setAndroidBay(bay, true)` 로 세 기를 들인다 → 로비 멤버로 `bot`·`bay`·`ready`·`recruitedAt` 이 실려 온다.
 //   2. 봇은 **사람이 아니다** — `net:peerJoined` 도, `RemotePlayerRef` 도 생기지 않는다.
@@ -19,7 +19,8 @@ import os from 'node:os';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
-const RELAY_PORT = Number(process.env.ANDROID_LOBBY_RELAY_PORT ?? 8896);
+// ⚠ 2026-09-20: 원래 8896 였는데 이 개발 PC 의 WinNAT 이 **8800–8899** 를 통째로 예약해 bind 가 EACCES 로 죽고, 스모크가 「포트가 비어 있어야 한다」로 오진단해 항상 실패했다 (`netsh interface ipv4 show excludedportrange protocol=tcp`). 9896 는 그 범위 밖이다 — `smoke-netlink` 이 같은 날 9885 · 9886 으로 옮긴 것과 같은 이유다.
+const RELAY_PORT = Number(process.env.ANDROID_LOBBY_RELAY_PORT ?? 9896);
 const RELAY_URL = `ws://127.0.0.1:${RELAY_PORT}/ws`;
 const CHROME = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',

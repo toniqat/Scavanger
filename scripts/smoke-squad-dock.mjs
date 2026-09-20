@@ -1,5 +1,5 @@
 // 분대 · 도킹 매칭 smoke (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」) — three headless clients against
-// a relay this script starts itself from the working tree's `server/index.ts` (port 8894, temp profile store), so the
+// a relay this script starts itself from the working tree's `server/index.ts` (port 9894, temp profile store), so the
 // shared relay (8787, possibly older code) is never touched:
 //   1. A invites B (`social.playWith`) → A leads an **undocked** lobby; B accepts (P-hold path = `acceptInvite`) → both stay in
 //      their personal ships, exchange no hub snapshots (no remote refs, `inHubSession` false), squad HUD shows the other member's row as `개인 함선` (2026-09-16: my own row is never drawn).
@@ -25,7 +25,8 @@ import os from 'node:os';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
-const RELAY_PORT = Number(process.env.SQUAD_DOCK_RELAY_PORT ?? 8894);
+// ⚠ 2026-09-20: 원래 8894 였는데 이 개발 PC 의 WinNAT 이 **8800–8899** 를 통째로 예약해 bind 가 EACCES 로 죽고, 스모크가 「포트가 비어 있어야 한다」로 오진단해 항상 실패했다 (`netsh interface ipv4 show excludedportrange protocol=tcp`). 9894 는 그 범위 밖이다 — `smoke-netlink` 이 같은 날 9885 · 9886 으로 옮긴 것과 같은 이유다.
+const RELAY_PORT = Number(process.env.SQUAD_DOCK_RELAY_PORT ?? 9894);
 const RELAY_URL = `ws://127.0.0.1:${RELAY_PORT}/ws`;
 const CHROME = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',

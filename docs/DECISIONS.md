@@ -1097,3 +1097,39 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
   (`hud/ShipManage`, `visibility: hidden`) and four faded-out `.menu` screens. Taking them out of layout is a real cut
   of a deterministic counter, but no frame-time effect can be demonstrated at this machine's noise floor, so it is
   recorded rather than built.
+
+## 2026-09-20 — 지속 CPU 비용 · The sustained CPU costs (PERF_PLAN Phase C)
+
+- **범위: 측정 → B4 · B3 · B5** (user chose it over 「B4 만」, 「C 전부 + DOM 평탄화」 and 「측정만」). *Rejected*: the DOM
+  flattening (`hud/ShipManage` + four faded `.menu` screens out of layout) — it is a real cut of a counter with no
+  demonstrable frame effect on this machine, so it stays recorded rather than built.
+- **B4 적 AI: 애니 LOD 와 같은 모양의 거리 LOD** (user chose it over time slicing, over both together, and over leaving
+  it alone). Beyond `ENEMY_AI_LOD_HALF_M` (70 m) a body ticks every other frame, beyond `ENEMY_AI_LOD_QUARTER_M`
+  (140 m) every fourth. Three things were decided with it, and the design only holds with all three:
+  - the distance is to the nearest **anchor** — camera, players, androids, drones, rover — **not** to the camera
+    alone, because a host simulates bugs fighting a squadmate 200 m from its own screen;
+  - the near band is wider than the longest reach of anything the LOD applies to — `ARTILLERY_AI maxRange` 98 m,
+    **not** the `ARTILLERY_RANGE` 63 that first looked like the answer: 63 m is where an artillery bug *stands*, and
+    it fights while approaching and relocating out to 88 m. `smoke-phase4` found that (110 m, not the 70 m first
+    written). A named sniper reaches 320 m and is excluded from the LOD outright;
+  - the skipped frames' `dt` is carried in `Enemy.aiDebt`, so speed, cadence and every timer are unchanged and the
+    only thing lost is one tick of reaction;
+  - and a tick may never grow past `ENEMY_AI_LOD_MAX_STEP_S` (0.08 s). Carrying the `dt` keeps timers right but not
+    what happens **once per tick** — one shot, one steering decision, one gravity step — so the ceiling makes the
+    LOD fade out exactly when frames lengthen, and it is set under a rogue's 0.12 s `shotGap`.
+  *Rejected*: time slicing (a per-frame body budget caps the cost as the crowd grows, but it reduces **near** bodies
+  too and makes 「why did that one react late」 untraceable); both together (two overlapping rules, same problem);
+  freezing the far band outright (a frozen body never notices anyone walking up to it).
+- **B3 광원 예산: 매 프레임 정확한 채로, 순회만 싸게** — *rejected*: the plan's own suggestion of a dirty flag from the
+  light-pool owners, and of a csv recount interval. Point lights really do enter and leave the scene mid-raid
+  (`extraction/Ship`, `player/Hellpod`, `game/parts/Leader`), and a single frame with the count wrong costs **two**
+  recompiles of every lit material — exactly what `LightBudget` exists to prevent. The honest cheap-and-exact version
+  would be a registry every light is created through (11 call sites, seven folders, plus a check script), which is
+  not worth 0.14 ms. So the walk itself became an explicit stack instead of `traverseVisible`.
+- **B6 쓰레기: 소유자별 계측만** (user chose it over 「계측 + 상위 소유자 수정」 and over skipping it). It took three
+  counters, and the lesson is that **the first two both lie in the same direction**: the V8 sampling heap profiler
+  keeps only the samples whose object is still alive, so it sees 0.085 MB/s of the raid's 63 MB/s; a construct trap on
+  the typed-array and `AudioContext.createBuffer` paths sees ~0, so it is not off-heap either. What sees churn is
+  `performance.memory` read **around each wrapped mark**. The answer: nothing owns it — `x:rendererRender` 15 MB/s
+  (three.js's own render path, not ours), `u:world` 7.9, `u:enemies` 6.5, `l:hud` 4.2, `x:audioPlay` 2.8, everything
+  else under 1. No fix follows from that, which is why the measurement was the whole scope.

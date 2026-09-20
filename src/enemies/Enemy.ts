@@ -70,6 +70,12 @@ export interface EnemyHost {
   readonly targets: TargetList;
   /** Every active enemy (alive, staggered, corpses) — faction warfare / charge paths scan it. */
   readonly active: readonly Enemy[];
+  /**
+   * 2026-09-20: the camera's world position, read **once** at the top of `EnemySystem.update` and then shared by
+   * everything in this folder that needs the ear or the eye (the AI LOD, the animation LOD, the footstep range
+   * gate). Valid for the current frame only — never hold a reference past it.
+   */
+  readonly camPos: THREE.Vector3;
   /** true on a joined multiplayer client: enemies are replicas driven by host snapshots, damage is a request. */
   readonly replica: boolean;
   /** Wake every unaware bug within radius (propagation). */
@@ -126,6 +132,11 @@ export interface EnemyHost {
 }
 
 const _v = new THREE.Vector3();
+/**
+ * 2026-09-20 (AI LOD): the running phase handed to the next body out of the pool. Bodies spawn in bursts, so a
+ * per-spawn counter spreads the reduced AI bands (`Enemy.aiPhase`) evenly where a hash of the id would not.
+ */
+let aiPhaseSeq = 0;
 
 export class Enemy implements EnemyRef {
   id = 0;
@@ -183,6 +194,19 @@ export class Enemy implements EnemyRef {
   /** cached nearby obstacles (refreshed every ~0.25 s) */
   nearObstacles: Obstacle[] = [];
   obstacleTimer = 0;
+  /* ── appended (2026-09-20, AI LOD — `docs/PERF_PLAN.md` finding B4) ───────── */
+  /**
+   * Seconds of skipped AI ticks waiting to be spent. `EnemySystem` adds `dt` here on a frame this body's AI is
+   * skipped and hands `dt + aiDebt` to `updateEnemyAI` on the frame it runs, so speed, cooldowns and every timer
+   * come out the same as they do at full rate — what a distant body loses is one tick of reaction, nothing else.
+   */
+  aiDebt = 0;
+  /**
+   * 0..3, fixed for this body's life: which frame of the cycle it ticks on in the reduced bands
+   * (`ENEMY_AI_LOD_*`). Without it every distant body would tick on the same frame and the LOD would trade a
+   * steady cost for a spike every other frame.
+   */
+  aiPhase = 0;
   /** What this enemy hunts: a player or (Phase 4) an enemy of the other faction. Kept while dead so "target died" logic can run. */
   target: CombatTarget | null = null;
   targetTimer = 0;
@@ -581,6 +605,7 @@ export class Enemy implements EnemyRef {
     this.chargePhase = 0; this.chargeTimer = 0; this.chargeCd = 2;
     this.spitPhase = 0;
     this.nearObstacles.length = 0; this.obstacleTimer = Math.random() * 0.25;
+    this.aiDebt = 0; this.aiPhase = aiPhaseSeq = (aiPhaseSeq + 1) & 3;   // 2026-09-20: spread the reduced AI bands over the cycle
     this.target = null; this.targetTimer = 0; this.distToTarget = Infinity; this.hasLOS = false;
     this.distTravelled = 0; this.stepAccum = 0; this.stepAt = -Infinity;
     this.carrier = null; this.lastCarrier = null; this.rideBlend = 0; this.corpseDropped = false;

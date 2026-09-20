@@ -7,14 +7,14 @@
  * (수동 기록은 git 이력에 있다). 이 스크립트가 그 절차다.
  *
  * **2026-09-15 — 빌드에는 서버가 없다 (사용자 결정).** 셸의 임베디드 릴레이 · `--port` · `--lan` · `--lazy-relay` 가
- * 없어졌으므로 이 스모크는 릴레이를 **스스로 띄워**(`server/index.ts`, 8823) 셸을 거기에 붙이고, 셸이 어떤 포트도
+ * 없어졌으므로 이 스모크는 릴레이를 **스스로 띄워**(`server/index.ts`, 9823) 셸을 거기에 붙이고, 셸이 어떤 포트도
  * 릴레이로 열지 않는지 · 번들 · 배포본에 서버 코드가 없는지를 본다.
  *
  *   0. 준비   `dist/` 가 `src/` · `data/` 보다, `dist-electron/main.js` 가 `electron/` · `src/shared/` 보다 오래됐으면
  *             다시 굽는다 (`vite build` + `node electron/build.mjs` — `npm run app:build` 에서 tsc 만 뺐다: 타입 검사는
  *             러너의 1단계가 하고, 남의 폴더의 반쯤 된 타입 에러로 셸 검사가 막히지 않게). 번들에 릴레이 코드
- *             (`startRelayServer` · `WebSocketServer` · `ProfileStore` · `ws` import)가 **없다**. 스모크의 릴레이를 8823 에 띄운다.
- *   1. 부팅   `electron.exe <repo> --hidden --relay=ws://127.0.0.1:8823/ws --app-port=8820 --user-data=<tmp>
+ *             (`startRelayServer` · `WebSocketServer` · `ProfileStore` · `ws` import)가 **없다**. 스모크의 릴레이를 9823 에 띄운다.
+ *   1. 부팅   `electron.exe <repo> --hidden --relay=ws://127.0.0.1:9823/ws --app-port=8820 --user-data=<tmp>
  *             --remote-debugging-port=9340` → `/json/version` → puppeteer-core `connect` → `127.0.0.1:8820` 페이지.
  *             `window.__game.ctx` · UA `Electron/` · `__scavDesktop` 흉내 없음 · `__scavShellRelock` 설치 ·
  *             숨긴 창에서도 시뮬레이션이 돈다 · 메인 프로세스 인스펙터(`--inspect=9341`)로 `webContents.sendInputEvent`
@@ -37,7 +37,7 @@
  *
  * 포트 (다른 러너와 겹치지 않게 고정):
  *   8787 공용 릴레이(이 스모크는 듣지 않는다 — 3번에서 셸이 그리로 파이프할 뿐) · 8790–8799 **사용자의 실제 세이브 오리진(절대
- *   안 쓴다)** · 8820 창 · 8822 두 번째 창 오리진 · 8823 스모크 릴레이 (8821 · 8824–8829 여분) · 9340 원격 디버깅(렌더러 CDP) ·
+ *   안 쓴다)** · 8820 창 · 8822 두 번째 창 오리진 · 9823 스모크 릴레이 · 9340 원격 디버깅(렌더러 CDP) ·
  *   9341 메인 프로세스 Node 인스펙터.
  *   시작할 때 이 포트가 막혀 있으면 — 이 스크립트가 남긴 것(명령줄에 `scav-desktop-`)만 죽이고, 아니면 아무것도 안 하고 실패한다.
  *
@@ -81,7 +81,8 @@ const FORCE_BUILD = args.includes('--build');
 
 const APP_PORT = 8820;
 const APP_PORT_2 = 8822;
-const PROXY_RELAY_PORT = 8823;
+// ⚠ 2026-09-20: 원래 8823 였는데 이 개발 PC 의 WinNAT 이 **8800–8899** 를 통째로 예약해 bind 가 EACCES 로 죽고, 스모크가 「포트가 비어 있어야 한다」로 오진단해 항상 실패했다 (`netsh interface ipv4 show excludedportrange protocol=tcp`). 9823 는 그 범위 밖이다 — `smoke-netlink` 이 같은 날 9885 · 9886 으로 옮긴 것과 같은 이유다.
+const PROXY_RELAY_PORT = 9823;
 const DEBUG_PORT = 9340;
 /** 메인 프로세스(Node) 인스펙터 — `webContents.sendInputEvent` 로 CDP 가 아닌 **네이티브 입력 경로**의 Escape 를 넣는다. */
 const INSPECT_PORT = 9341;

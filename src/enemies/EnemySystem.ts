@@ -3,7 +3,7 @@ import type { RogueShotOpts } from './Enemy';
 import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
-  ENEMY_ANIM_LOD_FREEZE_M, ENEMY_ANIM_LOD_HALF_M, SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet, planetThreat,
+  ENEMY_AI_LOD_HALF_M, ENEMY_AI_LOD_MAX_STEP_S, ENEMY_AI_LOD_QUARTER_M, ENEMY_ANIM_LOD_FREEZE_M, ENEMY_ANIM_LOD_HALF_M, SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet, planetThreat,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
   /* appended (2026-09-09): the rogue drop contract */
@@ -50,6 +50,7 @@ import { placeTutorialEnemies, type TutorialPlacement } from './Tutorial';
 import { onTutorialCheckpoint, onTutorialFell, onTutorialLiftoff, updateTutorialScript } from './Tutorial';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
 import { NamedRogueDirector, type NamedRollResult } from './named/Director';
+import { isNamedAiType } from './ai/named';   // 2026-09-20: a named rogue is never reduced by the AI LOD
 /* appended (2026-09-13): the dig-in spawn · the sandworm */
 import { BURROW_EMERGE_S } from '@/shared';
 import { SandwormDirector } from './sandworm/Director';
@@ -167,12 +168,21 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** ctx.time when the spatial grid was last rebuilt (so `queryNear` knows it can trust it). */
   private gridTime = -1;
   /**
-   * 2026-09-20 (`docs/PERF_PLAN.md` Phase 1): the camera position, read **once per frame** for the animation LOD —
-   * and the frame counter that staggers the half-rate band, so half the far bodies animate on one frame and the
-   * other half on the next instead of every one of them stuttering together.
+   * 2026-09-20 (`docs/PERF_PLAN.md` Phase 1, widened in Phase C): the camera position, read **once** at the top of
+   * `update` and then shared by everything in the folder that needs the ear or the eye — the animation LOD, the AI
+   * LOD and the footstep range gate (`EnemyHost.camPos` → `model.emitEnemyStep`). Beside it, the frame counter that
+   * staggers the animation's half-rate band, so half the far bodies pose on one frame and the other half on the
+   * next instead of every one of them stuttering together.
    */
-  private readonly camPos = new THREE.Vector3();
+  readonly camPos = new THREE.Vector3();
   private animFrame = 0;
+  /**
+   * 2026-09-20 (`docs/PERF_PLAN.md` Phase C, finding B4): the AI LOD's frame counter (0..3) and the scratch list of
+   * **anchors** — every position an enemy could act on this frame. Refilled with references (no allocation) at the
+   * top of the AI pass; see `collectAiAnchors`.
+   */
+  private aiFrame = 0;
+  private readonly aiAnchors: THREE.Vector3[] = [];
   nextId = 1;
   nextShellId = 1;
   private paused = false;
@@ -470,6 +480,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     const world = ctx.world;
     if (!world || !world.ready || this.paused) return;
     this.targets.refresh(ctx);
+    // 2026-09-20: one camera read for the whole frame — the AI LOD, the animation LOD and the footstep range gate
+    // (`model.emitEnemyStep`, via `EnemyHost.camPos`) all ask the same question and used to ask it separately.
+    this.camPos.setFromMatrixPosition(ctx.camera.matrixWorld);
 
     // spatial grid for neighbour queries + faction target proxies
     const grid = this.grid;
@@ -489,7 +502,19 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
     if (this.authority) {
       if (ctx.isGameplayPhase()) {
-        for (let i = 0; i < this.active.length; i++) updateEnemyAI(this.active[i], dt, this);
+        // AI LOD (2026-09-20, `docs/PERF_PLAN.md` finding B4): a body far from everything it could act on ticks
+        // every other / every fourth frame, spending the skipped frames' dt in one piece when it does.
+        this.collectAiAnchors();
+        const aiFrame = (this.aiFrame = (this.aiFrame + 1) & 3);
+        const aiHalfD2 = ENEMY_AI_LOD_HALF_M * ENEMY_AI_LOD_HALF_M;
+        const aiQuarterD2 = ENEMY_AI_LOD_QUARTER_M * ENEMY_AI_LOD_QUARTER_M;
+        for (let i = 0; i < this.active.length; i++) {
+          const e = this.active[i];
+          if (this.aiSkip(e, aiHalfD2, aiQuarterD2, aiFrame, dt)) { e.aiDebt += dt; continue; }
+          const step = dt + e.aiDebt;
+          e.aiDebt = 0;
+          updateEnemyAI(e, step, this);
+        }
         Status.updateHazardDot(this, dt);   // 2026-09-11 (C-14): enemies inside the hazard zone — quiet damage (authority only)
         this.acid?.update(dt, this);
         this.shells?.update(dt, this);
@@ -524,8 +549,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     // 2026-09-16 (2nd pass): emptied corpses — the lifetime is cut once nobody is looking, and held while my own window is open (`parts/CorpseEmpty`)
     CorpseEmpty.updateEmptyCorpses(this);
     const slack = this.authority ? 0 : 1;   // replicas: the host's despawn normally arrives first
-    // Animation LOD (2026-09-20): one camera read for the whole list — legs are ~10 cm on screen at 60 m.
-    this.camPos.setFromMatrixPosition(ctx.camera.matrixWorld);
+    // Animation LOD (2026-09-20): legs are ~10 cm on screen at 60 m. `camPos` was read at the top of the frame.
     const halfD2 = ENEMY_ANIM_LOD_HALF_M * ENEMY_ANIM_LOD_HALF_M;
     const freezeD2 = ENEMY_ANIM_LOD_FREEZE_M * ENEMY_ANIM_LOD_FREEZE_M;
     const odd = (this.animFrame = (this.animFrame + 1) & 1);
@@ -548,6 +572,58 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.corpses.update(dt);
     this.fx?.update(dt, world);
     this.burrowFx?.update(ctx.time, dt);   // 2026-09-13
+  }
+
+  /**
+   * Refill `aiAnchors` with every position an enemy could act on this frame — the AI LOD's distance is measured to
+   * the **nearest** of them, never to the camera alone (`data/constants.csv` `ENEMY_AI_LOD_*`).
+   *
+   * The camera goes in first so anything on screen always ticks at full rate even with the local player dead; then
+   * every present player (downed and riding ones included — a body someone is standing over is where the action
+   * is), every android, every aggroable drone and the rover. That is 1–10 entries, so the per-body test below is a
+   * handful of subtractions.
+   */
+  private collectAiAnchors(): void {
+    const a = this.aiAnchors;
+    a.length = 0;
+    a.push(this.camPos);
+    const t = this.targets;
+    for (let i = 0; i < t.all.length; i++) { const c = t.all[i]; if (c.present && !c.isDead) a.push(c.position); }
+    for (let i = 0; i < t.allies.length; i++) { const c = t.allies[i]; if (c.present && !c.isDead) a.push(c.position); }
+    for (let i = 0; i < t.drones.length; i++) a.push(t.drones[i].position);
+    for (let i = 0; i < t.vehicles.length; i++) a.push(t.vehicles[i].position);
+  }
+
+  /**
+   * Whether this body's **AI tick** may be left out this frame (`data/constants.csv` `ENEMY_AI_LOD_*`). The skipped
+   * frames' `dt` is not lost — `Enemy.aiDebt` carries it into the next tick — so the only thing a reduced body gives
+   * up is one frame of reaction, at a distance past the longest reach of anything the LOD applies to (the artillery
+   * bug's `ARTILLERY_AI maxRange`, 98 m — the named sniper's 320 m is longer, and a named rogue is never reduced).
+   *
+   * Never reduced, wherever it stands: the tutorial (scripted, and a dozen bodies at most), a corpse still falling
+   * and a body in the air (a leap, a spat bug, a hunter's flip) — all three integrate gravity, and a coarser step
+   * would land them somewhere else — and a named rogue, of which there is at most one per raid and whose own file
+   * owns its timing. Nor is any body reduced on a frame that would push its tick past `ENEMY_AI_LOD_MAX_STEP_S`:
+   * the carried `dt` keeps timers right but cannot keep what happens **once per tick**, so the tick has a ceiling
+   * and the LOD fades out on its own when frames get long.
+   */
+  private aiSkip(e: Enemy, halfD2: number, quarterD2: number, frame: number, dt: number): boolean {
+    if (this.tutorial) return false;
+    if (e.aiDebt + dt * 2 > ENEMY_AI_LOD_MAX_STEP_S) return false;   // the tick this skip would build, not the debt so far
+    if (e.state === 'dead' ? !e.deathLanded : (e.airborne || e.leaping || e.flipFalling)) return false;
+    if (isNamedAiType(e.type)) return false;
+    const a = this.aiAnchors;
+    const p = e.position;
+    let best = Infinity;
+    for (let i = 0; i < a.length; i++) {
+      const q = a[i];
+      const dx = p.x - q.x, dy = p.y - q.y, dz = p.z - q.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < best) best = d2;
+    }
+    if (best > quarterD2) return (frame & 3) !== e.aiPhase;
+    if (best > halfD2) return (frame & 1) !== (e.aiPhase & 1);
+    return false;
   }
 
   /**

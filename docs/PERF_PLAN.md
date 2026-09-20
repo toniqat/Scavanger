@@ -1,6 +1,6 @@
 # Performance plan — frame hitches with many bodies
 
-**Status:** **Phase 0 measured (2026-09-19) · Phases 1 · 2 · A · A2 · B built (2026-09-20).**
+**Status:** **Phase 0 measured (2026-09-19) · Phases 1 · 2 · A · A2 · B · C built (2026-09-20). Only Phase D is left.**
 
 > ### ⚠ Read this before any number below: `ms` in this plan is not evidence
 > On 2026-09-20 the **same committed build** measured `x:rendererRender` **6.842 ms and 5.112 ms** back to back
@@ -14,7 +14,9 @@
 Phases A and A2 cut what is drawn; neither has a demonstrated `ms` effect on this machine, and Phase A's own
 「below 6.0 ms」 target was dropped as unreachable with shadows on. **Phase B is done** — and it is the first phase
 with a result that repeats: S4's android first-contact frame stopped overrunning a vsync, twice, and the owner it
-found was not the one this file predicted. **Phase C or D is next.** The 2026-09-20
+found was not the one this file predicted. **Phase C is done too** — `u:enemies` −15 %, and its own census explains
+why that is the ceiling: S2 is 60 bodies inside the full-rate band and 100 beyond 140 m. **Phase D is next.**
+The 2026-09-20
 A/B (same machine state, back to back, `--only s2` twice per side) **refutes the central finding of Phase 0**: the
 work removed 31 % of the draw calls and 36 % of the scene nodes and `x:rendererRender` did not move. The render
 block is not paid per draw call on this machine — it is the GPU. The ranking below is rewritten around that.
@@ -37,21 +39,28 @@ render block, i.e. the same GPU question, not by any one-off.
 1. **Read the banner above, then [What the 2026-09-20 A/B says](#what-the-2026-09-20-ab-says)** before planning
    anything — between them they strike 「draw calls」 as a cost and strike every `ms` figure in this file as a
    verdict.
-2. **Phase B is done** ([what it found](#phase-b--the-one-off--10-ms-calls--done-2026-09-20--ui)). Its lesson for
-   whoever picks this up: **the autopsy names a mark, and the mark was not the owner.** The 10 ms `u:allies` was
-   `ui/hud/ChatLog` forcing a layout from inside `AllySystem.update`, not `pickCoverSpot`. Do not write a fix against
-   a mark name — instrument until a **counter** names the line.
+2. **Phases B and C are done.** B's lesson ([what it found](#phase-b--the-one-off--10-ms-calls--done-2026-09-20--ui)):
+   **the autopsy names a mark, and the mark was not the owner** — the 10 ms `u:allies` was `ui/hud/ChatLog` forcing a
+   layout from inside `AllySystem.update`, not `pickCoverSpot`. C's ([what it found](#phase-c--the-sustained-cpu-costs--done-2026-09-20--enemies-core-data-scripts)):
+   **measure the shape of the list before choosing the shape of the fix** — the AI LOD works, and its own census says
+   it could never have been large, because S2's cost is 60 bodies *inside* the full-rate band. Do not write a fix
+   against a mark name — instrument until a **counter** names the line.
 3. **Counters beat traces here.** What cracked Phase B was patching the layout-forcing accessors on their prototypes
    and counting them per frame: 7 reads in a 637-frame window, all of them in one file, on one frame. That technique
    is now a smoke (`scripts/smoke-layout-reads.mjs`) and the same shape — *count the thing, don't time it* — is what
    the banner above is asking for everywhere else.
 4. **Take a fresh `before`** — the logs are git-ignored and the tree moves:
-   `npm run dev`, then `node scripts/perf-measure.mjs --only s2 --label before-phaseC`. **Run it twice.** One run
-   is not a measurement: on 2026-09-20 two runs of one build gave 5 and 22 frames over 33 ms.
-5. Use `--display bloom=0`, `--display bloom=0,shadows=0` to split the render block whenever a change is supposed to
+   `npm run dev`, then `node scripts/perf-measure.mjs --only s2 --label before-phaseD`. **Run it twice.** One run
+   is not a measurement: on 2026-09-20 two runs of one build gave 5 and 22 frames over 33 ms. Judge by the rows that
+   repeat: a **mark average** over ~1 300 frames does (`x:lightBudget` 0.156 vs 0.157 on one build), a `js/frame p50`
+   or a spike count does not.
+5. **Garbage has been counted and has no owner** — see [B6](#b6--allocation-by-owner-three-counters-two-of-which-lie-the-same-way).
+   Two of the three instruments lie the same way; a CDP sampling heap profile keeps only what survives and so cannot
+   see churn at all. If allocation comes up again, start from the `--alloc` mark table, not from a profiler.
+6. Use `--display bloom=0`, `--display bloom=0,shadows=0` to split the render block whenever a change is supposed to
    touch it. That split is what turned the ranking over — and in Phase A it is what showed the 6.0 ms target to be
    arithmetically impossible.
-6. **If the render block is picked up again**, fix the measurement first (see the banner), then look at the terrain's
+7. **If the render block is picked up again**, fix the measurement first (see the banner), then look at the terrain's
    346k triangles and at resolution scale — [Still open after Phase A2](#still-open-after-phase-a2).
 
 ---
@@ -187,7 +196,8 @@ Same machine state, back to back, `--only s2`, two runs per side (`git stash pus
 
 **So the honest ranking is now: pixel and vertex work first, then the one-off spikes, then the multiplayer path.**
 *(Phase A took the body-side vertex work and A2 the world's; the pixel work is still untouched and needs a decision.
-Phase B took the one-off spikes. **What is left is C and D.**)*
+Phase B took the one-off spikes and C the sustained CPU costs. **What is left is D** — and the pixel question, which
+needs the measurement fixed first.)*
 
 ---
 
@@ -213,10 +223,10 @@ Phase B took the one-off spikes. **What is left is C and D.**)*
 | **NEW-1** | **GPU frame, not CPU submission**: the render block scales with triangles (1.0 M in S2) and pixels | the `--display` split above; then Phase A bought **0.6 ms for 6.7 % of the triangles** | **confirmed and acted on — Phase A.** Refinement: bloom is free here, the shadow pass is 1.07 ms, and what is left belongs to the **world** |
 | **NEW-2** | **Layout flush** 1.04–1.07 ms/frame is one layout of a HUD dirtied by **per-body text and per-body nodes** | Phase B counted both: **14 text writes in 836 frames**, and the rendered box count goes 1 085 → 1 116 (+3 %) when 60 bugs arrive | **the 「per-body」 half is refuted.** What was real, and is fixed, is `ChatLog` forcing a layout **per chat line** (8.3 ms in one frame) — Phase B |
 | B2 | Android combat AI per ally per frame | 0.055 ms/frame for 3; the 10.0–11.7 ms first-contact call was **`ui/hud/ChatLog`, not `allies`** — world queries were 0.4 ms of it and `getObstaclesNear` ran zero times | **struck entirely; the one-off is fixed in `ui`** (Phase B) |
-| B3 | `LightBudget.update` walks the whole visible scene every frame | 0.10 idle → 0.27–0.30 at 160 bodies (worst 1.7) | **small, real** → Phase C |
-| B4 | Enemy AI has no distance LOD or time slicing | 0.19 at 44 bodies → 0.41 at 99 → **1.0–1.3 at 160**; worst call 4.9 ms | **confirmed, #2 of the CPU costs** |
-| B5 | Bug footsteps scan all active enemies before the range gate | inside `u:enemies`; `x:audioPlay` 0.27 ms/frame | **small** → Phase C |
-| B6 | Recurring garbage | 18–65 MB/s, ~3 GC drops/s. S2 allocates 63–65 MB/s against 40–45 in S3a · S4, and S2 is the scenario whose spike frames have **everything** slow at once | **raised: the best remaining suspect for the S2 spikes** → Phase C |
+| B3 | `LightBudget.update` walks the whole visible scene every frame | 0.156 · 0.157 ms/frame at 160 bodies → **0.132 · 0.142** with an explicit stack walk | **done (Phase C), small.** The recount stays exact and per-frame — a flag or an interval would cost two recompiles the first time it missed a frame |
+| B4 | Enemy AI has no distance LOD or time slicing | 0.99–1.02 → **0.85–0.86** ms/frame at 160 bodies, twice per side | **done (Phase C), and the census bounds it**: S2 is 60 bodies at full rate and 100 beyond 140 m, so a distance LOD can only ever reach the far third. The near band is untouched — see [What Phase C leaves](#what-phase-c-leaves) |
+| B5 | Bug footsteps scan all active enemies before the range gate | the crowd scan was already behind the gate; what was in front of it was a `getWorldPosition` per call | **done (Phase C)**, folded into `EnemyHost.camPos`. Too small to separate from B4 in the same window |
+| B6 | Recurring garbage | counted three ways (Phase C): 63 MB/s is real, but **no owner owns it** — `x:rendererRender` 15.1 · `u:world` 7.9 · `u:enemies` 6.5 · `l:hud` 4.2 MB/s, the largest being three.js's own render path | **struck as a lead.** There is no hot spot to remove; and a CDP sampling heap profile cannot see churn at all (it keeps only surviving samples) |
 
 **C. Multiplayer / squadmate-specific** — C1 (`SoldierPool.acquire`), C3 (`ally state` encoding) were never reached
 without S5; C2 (a `SoldierModel` per corpse) never fired; C4 (`snapshotFace`) is ship-only and out of scope.
@@ -491,31 +501,139 @@ screens (death · complete · title · pause, ~120 boxes) are in layout too beca
 Taking them out of layout is a real cut of a deterministic counter; proving it moves a frame is not possible on this
 machine at this noise floor.
 
-### Phase C — the sustained CPU costs · `enemies`, `ui`, `core`, `audio`
+### Phase C — the sustained CPU costs · done 2026-09-20 · `enemies`, `core`, `data`, `scripts`
 
-**Next, with D.** A · A2 · B are done; take these only as far as the numbers justify, and read the banner first —
-two of the four bullets below are here *because* a counter, not a timer, put them there.
+Built, from the user's answers (recorded in `docs/DECISIONS.md`):
 
-- **B4, the biggest of them: enemy AI is 1.0–1.3 ms at 160 bodies and scales super-linearly.** Distance LOD or time
-  slicing, the same shape the animation LOD just got (`EnemySystem.poseSkip` is the template, and the constants
-  belong next to `ENEMY_ANIM_LOD_*` in `data/constants.csv`).
-- **NEW-2 is mostly closed and partly refuted** (Phase B): nothing writes text per body, the rendered box count does
-  not follow the crowd, and the one real offender (`ChatLog`, a forced layout per chat line) is fixed and guarded.
-  What is left is a **flat** cut, not a per-body one: 1 085 of `#ui-root`'s 4 346 elements are in layout during a
-  raid, including `hud/ShipManage` (116, ship-only, `visibility: hidden`) and four faded-out `.menu` screens (~120).
-  Take them out of layout if the counter is worth it — no `ms` effect is demonstrable at this machine's noise floor.
-- **B6, the S2 spikes**: on those frames `x:rendererRender` *and* `x:layoutFlush` are both ~3× their own average at
-  the same time, which is a whole-frame stall rather than any one owner. S2 also allocates the most (63–65 MB/s).
-  Measure allocation by owner before writing anything.
-- `LightBudget` (B3): recount on a flag from the light-pool owners or at a csv interval. The invariant "the shader
-  always sees `SCENE_POINT_LIGHT_BUDGET`" must hold on the frame a light appears — read `core/LightBudget.ts`'s
-  header first. `smoke-lights` **must stay green**.
-- Footsteps (B5): move the range gate before `getWorldPosition` and `bugStepCrowd`; the camera position is already
-  cached once per frame in `EnemySystem.update` (`camPos`, added 2026-09-20).
+1. **B4 — enemy AI distance LOD**, the same shape the animation LOD got in Phase 1. Beyond `ENEMY_AI_LOD_HALF_M`
+   (110 m) a body's whole AI + movement tick runs every other frame, beyond `ENEMY_AI_LOD_QUARTER_M` (140 m) every
+   fourth. The distance is to the nearest **anchor** — camera, present players, androids, aggroable drones, the rover
+   (`EnemySystem.collectAiAnchors`) — never to the camera alone, because a host simulates bugs fighting a squadmate
+   200 m from its own screen. The near band is wider than the longest reach of anything the LOD applies to
+   (`ARTILLERY_AI maxRange` 98 m), so a body that can fight anyone is never reduced; skipped frames' `dt` is carried in
+   `Enemy.aiDebt`, so speed, cadence and every timer are unchanged; `Enemy.aiPhase` (0..3, per spawn) spreads the far
+   half over the cycle so the LOD does not trade a steady cost for a spike every other frame. Never reduced: the
+   tutorial, a falling corpse, a body in the air, a named rogue. And **a tick has a ceiling**
+   (`ENEMY_AI_LOD_MAX_STEP_S` 0.08 s, tested against the tick a skip would *build* — `aiDebt + 2 × dt`): carrying the
+   `dt` keeps every timer right but cannot keep what happens once per tick (one shot, one steering decision, one
+   gravity step), so the LOD fades out by itself as frames get long — the quarter band survives at 60 fps, only the
+   half band at 30, and nothing at the engine's own `MAX_DT` of 50 ms, which is where a headless smoke sits. The
+   ceiling is under the shortest per-tick thing an enemy does, a rogue's `shotGap` (0.12 s).
+2. **B3 — the light-budget recount stays exact and per-frame; only the walk got cheaper.** `countVisiblePointLights`
+   is an explicit stack walk instead of `traverseVisible` (a recursive method call plus a closure call per node,
+   ≈3 978 nodes a frame) and skips the padding group it already knows the size of. The flag and the interval the
+   plan suggested were **rejected**, with a reason worth keeping: point lights really do enter and leave the scene
+   mid-raid (`extraction/Ship`, `player/Hellpod`, `game/parts/Leader`), and one frame with the count wrong is two
+   recompiles of every lit material.
+3. **B5 — one camera read per frame.** `EnemyHost.camPos` is stamped at the top of `EnemySystem.update` and serves
+   the AI LOD, the animation LOD and the footstep range gate alike; `model.emitEnemyStep` no longer calls
+   `getWorldPosition` per footstep (`model.StepHost` so the replica's narrower host satisfies it too).
+4. **B6 — counted, not fixed** (the user's scope). `perf-measure.mjs --alloc`.
+
+#### Result — two runs per side, same machine state, `--only s2`, measured twice over
+
+The phase was measured once before the tick ceiling existed and once after, hours apart. **The machine state moved
+between them by more than the change did** — and the ratio did not move at all, which is the cleanest demonstration
+of this file's banner anyone has produced here:
+
+| | before 1 | before 2 | after 1 | after 2 | |
+|---|---|---|---|---|---|
+| `u:enemies` ms/frame | 1.018 | 0.986 | **0.860** | **0.845** | −15 % (morning state) |
+| `u:enemies` ms/frame | 0.769 | 0.769 | **0.658** | **0.667** | −14 % (evening state, final build) |
+| `x:lightBudget` ms/frame | 0.156 | 0.157 | **0.142** | **0.132** | −12 % |
+| `x:lightBudget` ms/frame | 0.119 | 0.112 | **0.090** | **0.095** | −20 % |
+| systems total ms/frame | 1.95 | 1.97 | 1.86 | 1.86 | evening pair |
+| js/frame p50 | 6.8 | 7.0 | 6.9 | 6.9 | evening pair — flat, as 0.13 ms in 6.9 must be |
+| AI LOD census | 60 full · 0 half · 96 quarter | 60 · 0 · 101 | 60 · 0 · 101 | 60 · 0 · 99 | |
+
+(The evening 「after」 was measured twice more as the build changed under it — with the tick ceiling at
+`ENEMY_AI_LOD_HALF_M` 70 it read 0.657 · 0.648, at 110 it reads 0.658 · 0.667. Widening the full-rate band from
+70 m to 110 m costs nothing, exactly as the census predicts: at either value the half band holds **zero** bodies.)
+
+The same build's `u:enemies` reads 0.85–0.86 in one state and 0.65–0.66 in another, six hours apart on an idle
+machine. **An absolute `ms` from this harness means nothing across sessions; a ratio measured inside one state means
+something**, and both pairs give the same one.
+
+- **`u:enemies` −15 %, and it repeats — in two different machine states.** Within a pair the two sides never
+  overlap (0.986–1.018 against 0.845–0.860; 0.769–0.769 against 0.648–0.657). A **mark average over ~1 300
+  frames** is the one `ms` figure in this plan that repeats inside a session — `x:lightBudget` gave 0.156 and 0.157
+  on two runs of one build, and `u:enemies` 0.769 twice — which is why these rows are quoted as results and
+  `js/frame p50` is not.
+- **`x:lightBudget` −12 % and −20 %** in the two pairs. Small, real, and not worth a third digit.
+- **The AI LOD's ceiling is set by the scenario, and the new census says so out loud**: S2 is **60 bodies at full
+  rate, 0 in the half band and 100 beyond 140 m**. The far hundred are the 56 nest eggs and the site humanoids, which
+  were only ~0.2 ms of `u:enemies` to begin with; three quarters of that is what the phase removed. **The 60 bugs at
+  25–40 m are the cost, and a distance LOD is not allowed to touch them by design.** Anything that wants the near
+  band has to make one bug's tick cheaper, not rarer.
+- **Nothing else moved.** Spike frames are 4 · 5 → 3 · 4 with every one of them still led by `x:rendererRender`
+  (10–28 ms), which is the GPU block. `js/frame p50` is flat inside its spread, as a 0.17 ms change in a 9.6 ms frame
+  must be.
+
+#### Two things the smokes caught that the measurement never would have
+
+Neither shows up in a frame-time number, and both are the sort of thing a perf change quietly breaks.
+
+- **A carried `dt` keeps timers, not per-tick events.** `smoke-humanoid-ai` printed 「a rogue in the same spot fires
+  more (0 vs android 15)」. Firing is `burstTimer -= dt; if (burstTimer <= 0) { fire(); burstTimer = shotGap }` — one
+  shot per **tick**, whatever the tick's length — so a tick longer than `shotGap` (0.12 s) loses shots, and a
+  headless smoke runs at the engine's `MAX_DT` of 50 ms where the quarter band would build a 200 ms tick. The cure
+  is `ENEMY_AI_LOD_MAX_STEP_S`: **the LOD may never build a tick longer than 0.08 s**, tested against the tick a
+  skip would produce (`aiDebt + 2 × dt`), so it fades out on its own as frames lengthen and is inert at 50 ms.
+  Every per-tick action in the folder is now bounded by one csv number.
+- **The threshold was read off the wrong constant.** 「70 m is past every engagement range (`ARTILLERY_RANGE` 63)」
+  was wrong: 63 m is where an artillery bug *stands*, and `ARTILLERY_AI maxRange` is **98** with an approach out to
+  88, which is why `smoke-phase4` kept finding the piece in `chase` at 76–87 m. `ENEMY_AI_LOD_HALF_M` is **110**.
+  It costs nothing measurable — the census says the half band is empty at either value, because S2's far bodies are
+  all past 140 m — and it makes the invariant true rather than nearly true.
+
+#### B6 — allocation by owner: three counters, two of which lie the same way
+
+The plan raised B6 to 「best remaining suspect」 on the strength of S2 allocating 63–65 MB/s. Counting it took three
+independent instruments, and **the first two both say the raid barely allocates at all**:
+
+| instrument | what it reported for one S2 window |
+|---|---|
+| `performance.memory` delta-sum per frame (what the 63 MB/s figure is) | **62.8–64.3 MB/s**, 63–66 GC drops / 20 s |
+| V8 sampling heap profiler over CDP (`HeapProfiler.startSampling`) | **0.085 MB/s**, top owner three.js `cloneUniforms` 42 % |
+| construct trap on typed arrays · `ArrayBuffer` · `AudioContext.createBuffer` | **~0 MB/s** |
+
+Two calibrations settle which one to believe. A known allocation of 1 000 000 live objects came back as **47.3 MB**
+from the sampling profiler — it is accurate on what survives. An idle headful rAF page reported **0.0 MB/s on both**
+counters — `performance.memory` is not manufacturing the number. The gap is therefore the profiler's own rule: it
+keeps only the samples whose object is **still alive** when the profile is taken, so pure churn is invisible to it.
+**A CDP sampling profile cannot answer 「who makes the garbage」**, and that is worth knowing before anyone reaches
+for it again.
+
+What can answer it is the same signal the probe already had, read around **each wrapped mark** instead of once per
+frame (`--alloc`, upper bound per mark):
+
+| mark | MB/s |
+|---|---|
+| `x:rendererRender` | **15.1** |
+| `u:world` | 7.9 |
+| `u:enemies` | 6.5 |
+| `l:hud` | 4.2 |
+| `x:audioPlay` | 2.8 |
+| `u:net` · `u:housing` · `u:player` · `u:weapons` · `u:hud` · rest | ≤ 1.1 each |
+
+**No owner owns it.** The largest single line is three.js's own render path — render lists, sort arrays, uniform
+clones — which this repo does not write, and the game-side total (`world` + `enemies` + `hud` ≈ 19 MB/s) is spread
+over everything a frame does. **B6 is struck as a lead**: there is no allocation hot spot to remove, which is
+consistent with Phase 0's 「no dropped frame was attributable to GC」 and with the S2 spikes being led by the render
+block. The instrument stays (`--alloc`) because the next person to suspect garbage should start from these rows.
+
+#### What Phase C leaves
+
+- **The near band is untouched and is where the cost is.** 60 bugs at 25–40 m are ~0.65 ms of `u:enemies`; making one
+  tick cheaper (perception cadence, obstacle refresh, steering) is a different phase from making ticks rarer, and it
+  was not in this one's scope.
+- **The flat DOM cut** (`hud/ShipManage` 116 boxes + four faded `.menu` screens ≈ 120, of `#ui-root`'s 1 085 laid-out
+  boxes) — still recorded, still unbuilt, still not demonstrable at this machine's noise floor.
+- **Phase D is what is left**: S5 and the multiplayer findings A6 · C1 · C3.
 
 ### Phase D — S5 and the multiplayer findings (A6, C1, C3) · `net`, `player`, `allies`
 
-Everything the user reported about *other players* is still unmeasured. A remote body costs what an android does —
+**Next, and the only phase left.** Everything the user reported about *other players* is still unmeasured. A remote body costs what an android does —
 which Phase 1 has now cut to ~70 draws, but the wire and the pool are untouched. Extend the harness to two clients
 through the relay (`scripts/e2e-multiplayer.mjs` is the launch template; the probe is page-local, so it installs on
 both), measure the **replica** as well as the host, then decide on `SoldierPool` pre-fill (C1), the `ally state`
@@ -528,6 +646,11 @@ encoding (C3) and the `ee spawn` burst (A6).
 The old Phase 1 (pre-warm pools and geometry, A1 · C1), the old Phase 3 (throttle android AI per frame, B2), the
 old Phase 4's search and capacity work (A3 · A4) — and **B1 itself as a cost driver**. The draw-call cut is built and
 kept for weaker machines; **do not spend more of this plan on draw calls.**
+
+Struck by Phase C on top of those: **B6** — raised to 「best remaining suspect」 on one run's evidence and now counted
+three ways: the 63 MB/s is real and **nothing owns it**, the biggest single line being three.js's own render path.
+**B3** and **B5** are done and were always small. **B4 is done and bounded**: the LOD works, and the scenario census
+says a distance LOD could never have been large here.
 
 Struck by Phase B on top of those: **A5** (the `burrow_emerge` audio graph — the 16.3 ms call never came back in five
 runs), **`h:detection`** (the corpse pillars — 0.20 ms worst, and the pool is pre-built now anyway), and the
@@ -547,6 +670,10 @@ explanation for the S2 spikes. **A2 alone survives unreproduced**, which is why 
 Asked and answered the same day, for Phase A2: **the world's shadow casters** → distance LOD **and** small objects;
 **pebble geometry** → lowered; **boulder geometry and the terrain** → left alone. See
 [Still open after Phase A2](#still-open-after-phase-a2) for what that leaves.
+
+And for Phase C, the same day: **scope** → measure first, then B4 · B3 · B5 (the flat DOM cut stays unbuilt);
+**the AI LOD's shape** → a distance LOD like the animation LOD's, *not* time slicing and not both; **B6** → counted
+by owner only, no fix. Full text in `docs/DECISIONS.md` 「2026-09-20 — 지속 CPU 비용」.
 
 And for Phase B, the same day:
 

@@ -164,6 +164,8 @@ export interface ReplicaHost {
   readonly ctx: GameContext;
   readonly targets: TargetList;
   readonly active: readonly Enemy[];
+  /** 2026-09-20: this frame's ear — a replica plays footsteps too (`model.emitEnemyStep`). See `EnemyHost.camPos`. */
+  readonly camPos: THREE.Vector3;
   find(id: number): Enemy | undefined;
   /** Get-or-create a pooled Enemy carrying the host's id. Silent: no `enemy:spawned`. */
   acquire(id: number, type: EnemyType, position: THREE.Vector3, yaw: number): Enemy | null;
@@ -580,7 +582,7 @@ export class EnemyReplica {
     a.speed += (targetAnimSpeed - a.speed) * Math.min(1, dt * 8);
     // 2026-09-11 (C-23 · X-3): non-hosts hear enemy footsteps too — the same stride accumulation and emission as the authority, from the interpolated movement.
     // A jump of several metres in one frame (the first snapshot · a teleport) is not a step.
-    if (s.stepSound && !e.airborne && moved < 2) footfall(e, this.host.ctx, this.host.targets, moved);
+    if (s.stepSound && !e.airborne && moved < 2) footfall(e, this.host, moved);
 
     // animation targets from state + hint (mirrors what the host AI would be setting)
     let shakeT = 0, abdT = 0, crouchT = 0, mandT = e.aware ? 0.25 : 0, pitchT: number | null = null;

@@ -23,6 +23,12 @@
  *     --display k=v,…     apply `설정 › 화면 설정` before recording: `bloom` · `shadows` (0/1), `scale` (0.5…1).
  *                         The composer passes and the shadow map are part of the render block, so this is how a run
  *                         answers 「how much of `x:rendererRender` is the scene and how much is the post chain」.
+ *     --alloc             count **allocation by owner** during each window (V8 sampling heap profiler over CDP) and
+ *                         print the top call sites by bytes. `docs/PERF_PLAN.md` finding B6 — S2 allocates 63-65 MB/s
+ *                         and its spike frames have everything slow at once, so the question is 「who makes the
+ *                         garbage」, which is a count, not a timing. The profiler itself costs time: a `--alloc` run's
+ *                         `ms` columns are **not** comparable with a plain one, and the banner in PERF_PLAN applies
+ *                         twice over.
  *     --out <path>        json path (default scripts/logs/perf/<label>.json)
  *
  * Scenarios follow the PERF_PLAN table: S1 idle · S2 60 bugs · S3a a burrow group in one frame · S3b the natural patrol
@@ -46,6 +52,7 @@ const SETTLE_S = Number(opt('--settle', '4'));
 const OUT = opt('--out', `scripts/logs/perf/${LABEL}.json`);
 const ONLY = opt('--only', 's1,s2,s3a,s3b,s4').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 const HEADLESS = flag('--headless');
+const ALLOC = flag('--alloc');
 const PLANET = opt('--planet', 'tundra');   // threat 2, as PERF_PLAN's S1 asks for
 const SEED = Number(opt('--seed', '7001'));
 // A frame whose JS runs past one 60 Hz interval is a frame the player can lose — that is what gets an autopsy.
@@ -79,6 +86,8 @@ function installProbe() {
   const state = {
     on: false, frames: [], work: [], marks: {}, counts: {}, worst: {}, calls: [], tris: [],
     lastNow: 0, lastHeap: 0, heapDrops: 0, heapAlloc: 0, heapPeak: 0, frameIndex: 0, jobs: [], queue: [], healer: 0,
+    typedOrig: [], typedRows: new Map(), typedTotal: 0, typedNth: 0, audioBufOrig: null,
+    allocByMark: false, markAlloc: {},
     frameMarks: {}, spikes: [], spikeMs: 16.7, spikeCap: 60,
   };
   const addMark = (k, ms) => {
@@ -88,13 +97,28 @@ function installProbe() {
     if (!(state.worst[k] >= ms)) state.worst[k] = ms;
     state.frameMarks[k] = (state.frameMarks[k] || 0) + ms;
   };
+  /*
+   * 2026-09-20 (finding B6): allocation **by mark**, in `--alloc` runs only. The V8 sampling heap profiler keeps only
+   * the samples whose object is still alive when the profile is taken, so it cannot see churn — it reported
+   * 0.085 MB/s against `performance.memory`'s 64 MB/s on the same window. What can see churn is the same signal the
+   * probe's `heap.allocMBPerS` already uses, read around each wrapped call instead of once per frame: a positive
+   * `usedJSHeapSize` delta over a call is allocation that happened inside it. It is an upper bound per mark (another
+   * mark's garbage can land in the window) and it misses everything under a GC, but summed over ~1 300 frames it is
+   * enough to say **which system** makes the garbage — which is the whole question.
+   */
+  const heapOf = () => (performance.memory ? performance.memory.usedJSHeapSize : 0);
+  const addAlloc = (k, bytes) => { if (bytes > 0) state.markAlloc[k] = (state.markAlloc[k] || 0) + bytes; };
   const wrap = (obj, key, label) => {
     if (!obj || typeof obj[key] !== 'function') return false;
     const orig = obj[key].bind(obj);
     obj[key] = function wrapped(...a) {
       if (!state.on) return orig(...a);
+      const h = state.allocByMark ? heapOf() : 0;
       const t = performance.now();
-      try { return orig(...a); } finally { addMark(label, performance.now() - t); }
+      try { return orig(...a); } finally {
+        addMark(label, performance.now() - t);
+        if (state.allocByMark) addAlloc(label, heapOf() - h);
+      }
     };
     return true;
   };
@@ -211,6 +235,79 @@ function installProbe() {
       if (on) state.healer = setInterval(() => { const p = g.ctx.player; if (p && !p.isDead) p.heal(9999); }, 150);
       return !!state.healer;
     },
+    /**
+     * Count **typed-array and ArrayBuffer bytes** by owner (--alloc, finding B6). The V8 sampling heap profiler
+     * attributes only on-heap size, so a `new Float32Array(100000)` shows up as its ~100-byte JS object and its
+     * 400 KB backing store is invisible to it — while `performance.memory.usedJSHeapSize`, which the probe's
+     * `heap.allocMBPerS` is built from, does count that store. Anything that reconciles the two has to count the
+     * stores, so this wraps the constructors themselves.
+     *
+     * `new Float32Array(...)` resolves the **global** binding on every evaluation, so replacing the globals with a
+     * construct-trapping Proxy catches module code without touching it. The proxy forwards `prototype`, so
+     * `instanceof` and `ArrayBuffer.isView` keep working. Stacks are taken every 32nd allocation — a stack per
+     * allocation would cost more than the thing being measured — and the reported bytes are the **real** total,
+     * with only the attribution sampled.
+     */
+    allocTyped(on) {
+      const NAMES = ['ArrayBuffer', 'Float32Array', 'Float64Array', 'Uint8Array', 'Uint8ClampedArray', 'Uint16Array',
+        'Uint32Array', 'Int8Array', 'Int16Array', 'Int32Array'];
+      if (!on) {
+        for (const [name, Orig] of state.typedOrig) window[name] = Orig;
+        state.typedOrig.length = 0;
+        if (state.audioBufOrig) { AudioContext.prototype.createBuffer = state.audioBufOrig; state.audioBufOrig = null; }
+        state.allocByMark = false;
+        const rows = [...state.typedRows.entries()].sort((a, b) => b[1].bytes - a[1].bytes);
+        const byMark = Object.entries(state.markAlloc).sort((a, b) => b[1] - a[1]).map(([k, bytes]) => ({ mark: k, bytes }));
+        return { total: state.typedTotal, rows: rows.map(([site, v]) => ({ site, bytes: v.bytes, calls: v.calls })), byMark };
+      }
+      state.typedOrig.length = 0; state.typedRows.clear(); state.typedTotal = 0; state.typedNth = 0;
+      state.markAlloc = {}; state.allocByMark = true;
+      for (const name of NAMES) {
+        const Orig = window[name];
+        if (typeof Orig !== 'function') continue;
+        state.typedOrig.push([name, Orig]);
+        window[name] = new Proxy(Orig, {
+          construct(target, args, nt) {
+            const o = Reflect.construct(target, args, nt);
+            const bytes = o.byteLength || 0;
+            state.typedTotal += bytes;
+            if (bytes >= 1024 && (state.typedNth++ & 31) === 0) {
+              // The first frame that is not this trap and not the constructor itself is the owner.
+              const lines = String(new Error().stack || '').split(/\r?\n/).slice(2, 8);
+              const hit = lines.find((l) => l.includes('/src/')) || lines.find((l) => l.includes('.js')) || lines[0] || '?';
+              const site = hit.trim().replace(/^at\s+/, '').replace(/https?:\/\/[^/]+\//, '').replace(/\?[^)]*/, '');
+              const row = state.typedRows.get(site) || { bytes: 0, calls: 0 };
+              row.bytes += bytes * 32; row.calls += 32;   // one sample stands for 32 allocations
+              state.typedRows.set(site, row);
+            }
+            return o;
+          },
+        });
+      }
+      /*
+       * WebAudio buffers are off-heap too and are **not** made through any of the constructors above —
+       * `createBuffer` hands back storage the audio engine owns, and `getChannelData()` wraps it. `src/audio` builds
+       * every sound procedurally, several times a frame, so it is the one other thing that can move
+       * `performance.memory` without showing in either counter.
+       */
+      const origCreate = AudioContext.prototype.createBuffer;
+      state.audioBufOrig = origCreate;
+      AudioContext.prototype.createBuffer = function (channels, length, rate) {
+        const b = origCreate.call(this, channels, length, rate);
+        const bytes = channels * length * 4;
+        state.typedTotal += bytes;
+        if ((state.typedNth++ & 31) === 0) {
+          const lines = String(new Error().stack || '').split(/\r?\n/).slice(1, 8);
+          const hit = lines.find((l) => l.includes('/src/')) || lines[0] || '?';
+          const site = 'createBuffer ← ' + hit.trim().replace(/^at\s+/, '').replace(/https?:\/\/[^/]+\//, '').replace(/\?[^)]*/, '');
+          const row = state.typedRows.get(site) || { bytes: 0, calls: 0 };
+          row.bytes += bytes * 32; row.calls += 32;
+          state.typedRows.set(site, row);
+        }
+        return b;
+      };
+      return NAMES.length;
+    },
     report() {
       // Frame 0 of a window carries the window's own setup (the probe's first reset, the queued job), so it is left out
       // of the percentiles. The raw arrays keep it — `jobs[].frame` indexes into them.
@@ -270,6 +367,24 @@ function installProbe() {
           eggs: g.ctx.enemies ? g.ctx.enemies.getEnemies().filter((e) => e.isEgg).length : 0,
           allies: g.ctx.allies ? g.ctx.allies.roster.length : 0,
         },
+        /*
+         * 2026-09-20 (finding B4): how the AI LOD splits this scenario's list, sampled once at the end of the window.
+         * Measured from the camera — in every solo scenario here that is the anchor that decides it
+         * (`EnemySystem.collectAiAnchors` also counts players, androids, drones and the rover). The two distances
+         * mirror `data/constants.csv` `ENEMY_AI_LOD_HALF_M` / `_QUARTER_M` and have to be kept in step by hand: this
+         * file is a measurement harness, not game code, and reads nothing out of `src/`.
+         */
+        aiLod: (() => {
+          const out = { near: 0, half: 0, quarter: 0 };
+          if (!g.ctx.enemies) return out;
+          const m = g.ctx.camera.matrixWorld.elements;
+          for (const e of g.ctx.enemies.getEnemies()) {
+            const dx = e.position.x - m[12], dy = e.position.y - m[13], dz = e.position.z - m[14];
+            const d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 > 140 * 140) out.quarter++; else if (d2 > 70 * 70) out.half++; else out.near++;
+          }
+          return out;
+        })(),
         render: { bloom: g.isPostProcessing, shadows: g.hasShadows, pixelRatio: g.ctx.renderer.getPixelRatio() },
         raw: { frames: state.frames, work: state.work },
       };
@@ -290,6 +405,7 @@ function printScenario(r) {
   }
   console.log(`  draw ${r.draw.calls} calls (max ${r.draw.callsMax}) · ${(r.draw.triangles / 1000).toFixed(0)}k tris · scene ${r.scene.nodes} nodes · ${r.scene.pointLights} point lights`);
   console.log(`  bodies ${r.bodies.enemies} enemies (${r.bodies.eggs} eggs) · ${r.bodies.allies} androids · heap ${fmt(r.heap.allocMBPerS)} MB/s, ${r.heap.gcDrops} gc drops, peak ${fmt(r.heap.peakMB)} MB`);
+  if (r.aiLod) console.log(`  ai lod    ${r.aiLod.near} full rate · ${r.aiLod.half} half · ${r.aiLod.quarter} quarter (by camera distance at the end of the window)`);
   for (const m of r.marks.filter((x) => x.perFrame >= 0.02).slice(0, 14)) {
     console.log(`    ${m.key.padEnd(22)} ${fmt(m.perFrame, 3).padStart(8)} ms/frame  (worst call ${fmt(m.worst, 2)} ms, ${fmt(m.total, 0)} ms total, ${m.calls} calls)`);
   }
@@ -303,6 +419,51 @@ function printScenario(r) {
     if (!j || j.frame === undefined) continue;
     console.log(`    job ${j.name}: ${fmt(j.ms, 2)} ms in-frame · that frame's js ${fmt(j.frameWork, 2)} ms · worst rAF delta after ${fmt(j.deltaAfter)} ms`
       + `${j.error ? ' ERROR ' + j.error : ''}${j.result === undefined ? '' : ' → ' + JSON.stringify(j.result)}`);
+  }
+}
+
+
+/* ── allocation by owner (--alloc, finding B6) ────────────────────────── */
+/**
+ * Fold a `HeapProfiler.getSamplingProfile` tree into one row per call site, `selfSize` summed. `selfSize` is the
+ * sampled byte total attributed to that frame itself, so the rows answer 「which line allocates」 rather than 「which
+ * line is on the stack」. Vite serves `src/` over http, so the urls come back as real file paths.
+ */
+function allocOwners(head) {
+  const rows = new Map();
+  const walk = (node) => {
+    const f = node.callFrame ?? {};
+    if (node.selfSize > 0) {
+      const url = String(f.url || '').replace(/^https?:\/\/[^/]+\//, '').replace(/\?.*$/, '');
+      const key = `${f.functionName || '(anonymous)'} @ ${url || '(native)'}:${(f.lineNumber ?? -1) + 1}`;
+      rows.set(key, (rows.get(key) || 0) + node.selfSize);
+    }
+    for (const c of node.children ?? []) walk(c);
+  };
+  walk(head);
+  return [...rows.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+/** Print the typed-array / ArrayBuffer byte owners of one window (`__perf.allocTyped`). */
+function printTyped(t, seconds) {
+  console.log(`  off-heap bytes by owner (typed arrays · WebAudio buffers) — ${(t.total / 1048576).toFixed(1)} MB in ${seconds.toFixed(1)}s (${(t.total / 1048576 / seconds).toFixed(1)} MB/s), attribution sampled 1 in 32:`);
+  for (const r of t.rows.slice(0, 15)) {
+    console.log(`    ${(r.bytes / 1048576).toFixed(2)} MB  ${String(r.calls).padStart(6)} calls  ${r.site}`);
+  }
+  if (t.byMark && t.byMark.length) {
+    console.log('  heap growth by mark (upper bound — performance.memory read around each wrapped call):');
+    for (const r of t.byMark.slice(0, 14)) {
+      console.log(`    ${(r.bytes / 1048576 / seconds).toFixed(1).padStart(6)} MB/s  ${r.mark}`);
+    }
+  }
+}
+
+/** Print the top allocation owners of one window, as a share of the window's own total. */
+function printAlloc(rows, seconds) {
+  const total = rows.reduce((s, r) => s + r[1], 0);
+  console.log(`  allocation by owner — ${(total / 1048576).toFixed(1)} MB sampled in ${seconds.toFixed(1)}s (${(total / 1048576 / seconds).toFixed(1)} MB/s):`);
+  for (const [key, bytes] of rows.slice(0, 20)) {
+    console.log(`    ${(bytes / 1048576).toFixed(2)} MB  ${((bytes / total) * 100).toFixed(1).padStart(4)} %  ${key}`);
   }
 }
 
@@ -419,17 +580,30 @@ try {
     await waitFor((k) => { const j = window.__perf.job(k); return !!j && j.done; }, `job ${name}`, 60000, i);
     return i;
   };
+  const cdp = ALLOC ? await page.createCDPSession() : null;
+  if (cdp) await cdp.send('HeapProfiler.enable');
+
   const record = async (id, name, setup) => {
     await P((ms) => window.__perf.start(ms), SPIKE_MS);
     await sleep(600);                    // keep the setup out of frame 0, whose cost is the window's own
     if (setup) await setup();
+    // Both counters start **after** the setup so a one-off spawn burst is not charged to the steady state.
+    if (cdp) await cdp.send('HeapProfiler.startSampling', { samplingInterval: 8192 });
+    if (ALLOC) await P(() => window.__perf.allocTyped(true));
     await sleep(WINDOW_S * 1000);
+    let alloc = null, typed = null;
+    if (cdp) alloc = allocOwners((await cdp.send('HeapProfiler.stopSampling')).profile.head);
+    if (ALLOC) typed = await P(() => window.__perf.allocTyped(false));
     await P(() => window.__perf.stop());
     const rep = await P(() => window.__perf.report());
     rep.id = id; rep.name = name;
     if (rep.phase !== 'playing') console.log(`  !! the raid ended during the window (phase ${rep.phase}) — these numbers are not the scenario`);
+    if (alloc) rep.alloc = alloc.slice(0, 40).map(([site, bytes]) => ({ site, bytes }));
+    if (typed) rep.allocTyped = { total: typed.total, rows: typed.rows.slice(0, 40) };
     results.push(rep);
     printScenario(rep);
+    if (alloc) printAlloc(alloc, WINDOW_S);
+    if (typed) printTyped(typed, WINDOW_S);
     return rep;
   };
 

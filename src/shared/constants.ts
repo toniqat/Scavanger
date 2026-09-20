@@ -2292,6 +2292,40 @@ export const ENEMY_ANIM_LOD_HALF_M = K.num('ENEMY_ANIM_LOD_HALF_M');
 /** Beyond this distance (m) a living enemy's pose is not recomputed at all — see `ENEMY_ANIM_LOD_HALF_M`. */
 export const ENEMY_ANIM_LOD_FREEZE_M = K.num('ENEMY_ANIM_LOD_FREEZE_M');
 
+/* ── 2026-09-20 enemy AI LOD (owner: enemies — `EnemySystem.update` → `updateEnemyAI`) ── */
+/**
+ * Beyond this distance (m) an enemy's **AI and movement** tick runs every other frame, and beyond
+ * `ENEMY_AI_LOD_QUARTER_M` every fourth. The distance is **not** to the camera: it is to the nearest thing this
+ * enemy could act on — a live player, an android, an aggroable drone, the rover — with the camera thrown in so
+ * anything on screen always ticks. A host simulates bugs fighting a squadmate 200 m from its own camera, and a
+ * camera-only gate would make that squadmate pay for it.
+ *
+ * The value sits above the longest engagement range of any body the LOD applies to — the artillery bug's
+ * `enemy_abilities.csv` `ARTILLERY_AI maxRange`, 98 m. (`ARTILLERY_RANGE` 63 and `ROGUE_RANGE` 55 are the distances
+ * they *stand* at; an artillery piece approaches and relocates out to 88 m while fighting, which is what made 70 m
+ * too low. The one longer reach in the game, `NAMED_SNIPER range` 320, belongs to a named rogue, and a named rogue
+ * is never reduced at all.) So **an enemy that can fight anyone still runs every frame**. Skipped frames accumulate their `dt` and go into the
+ * next tick in one piece, so speed, attack cadence and every timer are unchanged — what a distant body loses is one
+ * frame of reaction. `docs/PERF_PLAN.md` Phase C / finding B4.
+ */
+export const ENEMY_AI_LOD_HALF_M = K.num('ENEMY_AI_LOD_HALF_M');
+/**
+ * Beyond this distance (m) an enemy ticks every fourth frame — see `ENEMY_AI_LOD_HALF_M`. It is never frozen
+ * outright: a frozen body would not notice anyone walking up to it. Bodies carry a fixed phase (`Enemy.aiPhase`) so
+ * the far half of the list spreads across frames instead of landing on one and making its own spike.
+ */
+export const ENEMY_AI_LOD_QUARTER_M = K.num('ENEMY_AI_LOD_QUARTER_M');
+/**
+ * The longest tick (s) the AI LOD is allowed to produce. Carrying the skipped frames' `dt` keeps every **timer**
+ * right, but it cannot keep what happens **once per tick** — one shot, one steering decision, one gravity step — so
+ * a tick that grows without bound starts losing those. The test is on the tick a skip would **build**
+ * (`aiDebt + 2 × dt`, this frame's carry plus the frame that would then run), so the LOD fades out by itself exactly
+ * when frames get long: at 60 fps the quarter band's 67 ms tick is inside it, at 30 fps only the half band survives,
+ * and at the engine's own `MAX_DT` (50 ms — where a headless smoke sits) no body is reduced at all. The ceiling has
+ * to stay under the shortest thing an enemy does once per tick, which is a rogue's `shotGap` (0.12 s).
+ */
+export const ENEMY_AI_LOD_MAX_STEP_S = K.num('ENEMY_AI_LOD_MAX_STEP_S');
+
 /* ── 2026-09-20 bug mesh segment budget (owner: enemies — `models/BugModel.ellipsoid`) ── */
 /**
  * The widest sphere segment count any one ellipsoid of a **bug body** may use. The per-part numbers stay where they

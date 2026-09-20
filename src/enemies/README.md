@@ -322,6 +322,32 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
   `ENEMY_ANIM_LOD_FREEZE_M` not at all (`EnemySystem.poseSkip` → `Enemy.animate(dt, poseSkip)`). Position, facing and
   every timer still run each frame, and a body that is dead, flashing, burning, shocked or flipped is never skipped.
   — `EnemySystem.ts`, `Enemy.ts`
+- **AI LOD**: past `ENEMY_AI_LOD_HALF_M` a body's whole AI + movement tick runs every other frame and past
+  `ENEMY_AI_LOD_QUARTER_M` every fourth (`EnemySystem.aiSkip` → `updateEnemyAI(e, dt + e.aiDebt, this)`). Three
+  things make it safe, and a change to any of them has to keep all three:
+  - **The distance is to the nearest *anchor*, never to the camera** (`EnemySystem.collectAiAnchors`): the camera
+    plus every present player, android, aggroable drone and the rover. A host simulates bugs fighting a squadmate
+    200 m from its own camera; a camera-only gate would make that squadmate pay for the LOD.
+  - **The skipped frames' `dt` is carried, not dropped** (`Enemy.aiDebt`), so speed, cooldowns, attack cadence and
+    every timer come out the same. What a reduced body loses is one tick of reaction — and the near band is wider
+    than the longest reach of anything the LOD applies to (`ARTILLERY_AI maxRange` 98 m; `ARTILLERY_RANGE` 63 is
+    only the distance it *stands* at, and it fights while approaching out to 88 m), so **a body that can fight
+    anyone is never reduced**. The one longer reach in the game is a named sniper's 320 m, and a named rogue is
+    excluded outright.
+  - **Bodies carry a fixed phase** (`Enemy.aiPhase`, 0..3 handed out per spawn) so the far half of the list spreads
+    across the cycle instead of landing on one frame and making its own spike.
+  - **A tick has a ceiling** (`ENEMY_AI_LOD_MAX_STEP_S`, tested against the tick a skip would *build* —
+    `aiDebt + 2 × dt`). Carrying the `dt` keeps every timer right but not what happens **once per tick** — one
+    shot, one steering decision, one gravity step — so the LOD weakens by itself as frames lengthen: the quarter
+    band survives at 60 fps, only the half band at 30, and **nothing at the engine's `MAX_DT` of 50 ms**, which is
+    where a headless smoke sits (so the smokes exercise the full-rate path and the perf harness exercises this one).
+
+  Never reduced wherever it stands: the tutorial, a corpse still falling, a body in the air (leap · spat · flip) and
+  a named rogue. — `EnemySystem.ts`, `Enemy.ts`
+- **One camera read per frame**: `EnemyHost.camPos` is stamped at the top of `EnemySystem.update` and is the ear and
+  the eye for everything in the folder that needs one — the AI LOD, the animation LOD and the footstep range gate
+  (`model.emitEnemyStep`, whose host type is `model.StepHost` so a replica satisfies it too). It is valid for the
+  current frame only. — `EnemySystem.ts`, `model.ts`, `ai/EnemyAI.footfall`, `net/Replica.ts`
 - Bodies are pooled; spawn only through `Pool.acquire` / `spawn` / `spawnRogue` (threat hp multiplier, egg size and corpse lifetime are applied there) — `parts/Pool.ts`.
 - `bug_egg` is a **prop with hit points**: `Enemy.isCombatant` is false for it, which is the single switch that keeps it out of
   `Pool.aliveCount` (ambient / wave / sandworm caps), `Pool.ensureCapacity` recycling (plus an explicit `isEgg` guard — an egg's
@@ -393,8 +419,8 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
 ## Recent changes
 
 Last 5 only — older: `git log -- src/enemies`.
+- 2026-09-20 — `docs/PERF_PLAN.md` Phase C (finding B4 · B5): AI LOD — a body farther than `ENEMY_AI_LOD_HALF_M` (110 m) from every **anchor** (camera · players · androids · drones · rover, `collectAiAnchors`) ticks every other frame and past `ENEMY_AI_LOD_QUARTER_M` (140 m) every fourth, carrying the skipped `dt` in `Enemy.aiDebt` and spreading over the cycle by `Enemy.aiPhase`, and never building a tick longer than `ENEMY_AI_LOD_MAX_STEP_S` (0.08 s — under a rogue's 0.12 s `shotGap`, so the LOD fades out as frames lengthen and is fully off at the engine's 50 ms `MAX_DT`); never the tutorial, a falling corpse, a body in the air or a named rogue. S2 `u:enemies` 0.99–1.02 → 0.85–0.86 ms/frame, twice per side — and the census that explains the size of that: S2 is **60 bodies at full rate and 100 beyond 140 m**, so the LOD can only ever reach the far third of the cost. Footsteps read `EnemyHost.camPos` instead of a `getWorldPosition` per call (`model.StepHost`).
 - 2026-09-20 — `docs/PERF_PLAN.md` Phase A (the first change in that plan to move the render block): every sphere of a bug body passes through `segBudget` → `BUG_MESH_SEGMENTS` (12), so a thorax is 12×8 instead of 18×13 and S2 carries 930k triangles instead of 997k; humanoid enemies cast shadows the soldier's way (trunk · head · legs — not the visor, the grenade or the merged `gunArms`), 9 shadow draws each → 7. S2 `x:rendererRender` 7.29–7.75 → 6.75–6.77 ms and js/frame p50 10.2–10.9 → 9.7–9.9, twice per side.
 - 2026-09-20 — A bug's 6 legs are two `InstancedMesh` (femur · tibia) whose matrices `animateBug` composes itself, so a bug is 7–8 draws instead of 17–18 and 30 scene nodes lighter (`models/BugModel.setLegMatrices`; `fx/Xray` clones an instanced source sharing its `instanceMatrix`). Animation LOD: past `ENEMY_ANIM_LOD_HALF_M` (40 m) a living body poses every other frame, past `ENEMY_ANIM_LOD_FREEZE_M` (80 m) not at all — never a dead, flashing, burning, shocked or flipped one (`EnemySystem.poseSkip`).
 - 2026-09-19 — Dead weight out of the folder: the retired crate-guard no-ops (`placeRogueGuards` · `guardCap` · `MAX_GUARDS` · `ECO_BOSS_CHANCE` · `GuardPlacement`) deleted with their six import lines and the barrel export — `RogueGuards.ts` is the `RogueSpawnHost` contract and nothing else; `parts/Damage` · `Attacks` · `Alerts` shed the copied `EnemySystem` import block (~50 unused specifiers, found with a `noUnusedLocals` pass); `Sniper.ts` reads `ScanDrone.scanDroneLeaving()` instead of its own copy of that file's phase number. Comments: csv values no longer hand-copied into the `named/Director` · `Sniper` · `Hammer` headers (the Hammer's 「10 × a rogue's hp」 had gone stale at the 2026-09-17 rebalance — it is ~5 × now, so the text names `hp` instead of a ratio), the artillery summon is no longer tagged 「one-time」, and `outwardYaw` describes the convention rather than the deleted `RogueGuards.placeAround`.
 - 2026-09-19 — Doc fixes the comment translation turned up (no behaviour change): the sandworm appearance note now points at `sandworm/Director.ts` (it said `named/Director.ts`); `AmbientSpawner.tuning` says three things, not two; `parts/Alerts.ts`'s divider drops the recon x-ray (it lives in `parts/Status.ts`) along with its unused `EnemyXray` import; `parts/Attacks.ts` lists `onFireZoneTick` and `acidBurst`; `RogueDrop.launch`'s zero-spot branch and the 「only that many come down」 rule are commented apart; `statusEmissive` is documented as the `void` it is.
-- 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.

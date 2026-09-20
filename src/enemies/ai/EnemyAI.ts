@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { CORPSE_FALL_MAX_SPEED, GRAVITY, PLAYER_RADIUS, type GameContext, type WorldRef } from '@/shared';
+import { CORPSE_FALL_MAX_SPEED, GRAVITY, PLAYER_RADIUS, type WorldRef } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import { BEHEMOTH_AI, CHARGER_CHARGE, HUNTER_LEAP, SPEWER_SPIT, baseTypeOf, isWormType } from '../EnemyTypes';
-import type { CombatTarget, TargetList } from '../Targets';
-import { emitEnemyStep } from '../model';
+import type { CombatTarget } from '../Targets';
+import { emitEnemyStep, type StepHost } from '../model';
 import { rideCarry, rideRecord, rideRelease } from './Ride';
 import { avoidObstacles, seek, separate, turnToward, yawTo } from './Steering';
 import { acquireTarget, updatePerception } from './Perception';
@@ -632,7 +632,7 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
       // 2026-09-11 (C-51): a blocked thud plays that type's footstep heavier — the bug-only `bug_step` never leaks onto Tagilla.
       // The step throttle is cleared before the call (a step taken a moment ago still lets the impact sound through).
       e.stepAt = -Infinity;
-      emitEnemyStep(e, host.ctx, 1.8, 0.85);
+      emitEnemyStep(e, host, 1.8, 0.85);
       if (host.targets.distToLocal(pos) < (big ? 45 : 25)) host.ctx.bus.emit('camera:shake', { intensity: big ? 0.6 : 0.35, duration: 0.35 });
     }
   }
@@ -650,7 +650,7 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   a.speed += (targetAnimSpeed - a.speed) * Math.min(1, dt * 8);
 
   // footsteps (heavies only) — 2026-09-11 (C-23 · C-22 · X-10): `footfall` emits the surface footstep + the behemoth shake
-  if (s.stepSound) footfall(e, host.ctx, host.targets, moved);
+  if (s.stepSound) footfall(e, host, moved);
 
   // yaw
   let targetYaw = e.yaw;
@@ -689,14 +689,14 @@ function steerToVehicleSide(e: Enemy): void {
  * Before: host only, gated at 30 m from the local **body** with a linear falloff on top of the panner's (≈0.06 at 20 m),
  * and the 40 m shake sat inside that 30 m block so 30–40 m never shook.
  */
-export function footfall(e: Enemy, ctx: GameContext, targets: TargetList, moved: number): void {
+export function footfall(e: Enemy, host: StepHost, moved: number): void {
   e.stepAccum += moved;
   if (e.stepAccum < e.rig.params.strideLength * 0.5) return;
   e.stepAccum = 0;
-  emitEnemyStep(e, ctx);
+  emitEnemyStep(e, host);
   if (e.type === 'behemoth') {
-    const dl = targets.distToLocal(e.position);
-    if (dl < 40) ctx.bus.emit('camera:shake', { intensity: 0.12 * (1 - dl / 40), duration: 0.2 });
+    const dl = host.targets.distToLocal(e.position);
+    if (dl < 40) host.ctx.bus.emit('camera:shake', { intensity: 0.12 * (1 - dl / 40), duration: 0.2 });
   }
 }
 

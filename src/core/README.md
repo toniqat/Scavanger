@@ -43,6 +43,13 @@ atmosphere → `shaders.update()` → `shaders.beforeRender()` → `outline.warm
   so a change recompiles every material in the scene (multi-second stalls). Keep lights in the scene and set
   `intensity` to 0; toggle visibility on a sibling group, not on a parent of the light. Real lights above the budget
   log a warning and fail `smoke-lights`. — `LightBudget.ts`, `fx/FlashPool.ts`, `SCENE_POINT_LIGHT_BUDGET` in `data/constants.csv`
+- **The recount stays exact, and stays every frame.** `countVisiblePointLights` is an explicit stack walk rather
+  than `traverseVisible` because it crosses the whole scene (≈3 978 nodes in a raid) on every frame and the
+  recursive version pays a method call plus a closure call per node. Recounting on a dirty flag or on an interval
+  was considered and **rejected**: point lights really do enter and leave the scene mid-raid (`extraction/Ship`,
+  `player/Hellpod`, `game/parts/Leader`), and one frame with the count wrong is two recompiles — up and back. A
+  cheaper exact recount would need a registry every light is created through, which is 11 call sites across seven
+  folders and a check script; it has never been worth 0.14 ms. (2026-09-20 — `docs/PERF_PLAN.md` finding B3.)
 - **Compile through `ctx.shaders`, never `renderer.compile` mid-update.** The program key's colour space / tone mapping
   comes from the bound render target; compiling while the canvas is bound builds variants that are never used. — `ShaderWarmup.warm`
 - A shader hold freezes simulation exactly like `game:paused {freeze}` (systems run with dt 0, `ctx.time` still flows);
@@ -64,8 +71,8 @@ atmosphere → `shaders.update()` → `shaders.beforeRender()` → `outline.warm
 ## Recent changes
 
 Last 5 only — older: `git log -- src/core`.
+- 2026-09-20 — `countVisiblePointLights` walks an explicit stack instead of `traverseVisible` and skips the padding group it already counts; `x:lightBudget` 0.156–0.157 → 0.132–0.142 ms/frame in S2. The count stays exact and per-frame — see the rule above for why a flag or an interval was rejected (`docs/PERF_PLAN.md` finding B3).
 - 2026-09-15 — `ShaderWarmup.holdFor(ready, timeoutS)` and `compileProgress` for the raid-entry loading gate.
 - 2026-09-12 — `outline.warm` runs even while a shader hold is active.
 - 2026-09-12 — `Outline.ts` / `ctx.outline`: hover/selected screen-space outlines for ship management.
 - 2026-09-11 — Perf guard emits `render:autoAdjusted` once per boot; `debugForcePerfGuard()` hook (C-58).
-- 2026-09-11 — Display toggles act only on changed values and hold for recompile; perf guard revived (C-44).

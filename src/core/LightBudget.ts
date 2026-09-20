@@ -1,10 +1,36 @@
 import * as THREE from 'three';
 import { SCENE_POINT_LIGHT_BUDGET } from '@/shared';
 
-/** Point lights three.js would collect under `root` (`projectObject` skips invisible subtrees, so does this). */
-export function countVisiblePointLights(root: THREE.Object3D): number {
+/**
+ * Scratch stack for `countVisiblePointLights` — module scope so the walk below allocates nothing per frame. Entries
+ * above `top` are stale references overwritten by the next walk, one frame later; nothing reads them.
+ */
+const _stack: THREE.Object3D[] = [];
+
+/**
+ * Point lights three.js would collect under `root` (`projectObject` skips invisible subtrees, so does this).
+ * `skip` drops one subtree from the walk — `LightBudget` passes its own padding group, whose count it already knows.
+ *
+ * 2026-09-20 (`docs/PERF_PLAN.md` Phase C, finding B3): this is an explicit stack rather than `traverseVisible`
+ * because it runs **every frame, over the whole scene** — 3 978 nodes in a raid — and `traverseVisible` pays a
+ * recursive method call plus a closure call per node. Counting is still exact, and it has to be: the count is part
+ * of three.js's shader program key, so a frame that sees one light too many recompiles every lit material in the
+ * scene (twice — once up, once back). Recounting on a flag or on an interval was considered and rejected for that
+ * reason: point lights really do enter and leave the scene mid-raid (`extraction/Ship`, `player/Hellpod`,
+ * `game/parts/Leader`), and a flag missed by one owner is exactly the stall this class exists to prevent.
+ */
+export function countVisiblePointLights(root: THREE.Object3D, skip: THREE.Object3D | null = null): number {
   let n = 0;
-  root.traverseVisible((o) => { if ((o as THREE.PointLight).isPointLight) n++; });
+  const stack = _stack;
+  let top = 0;
+  stack[top++] = root;
+  while (top > 0) {
+    const o = stack[--top];
+    if (o.visible === false || o === skip) continue;
+    if ((o as THREE.PointLight).isPointLight) n++;
+    const kids = o.children;
+    for (let i = 0; i < kids.length; i++) stack[top++] = kids[i];
+  }
   return n;
 }
 
@@ -51,8 +77,8 @@ export class LightBudget {
   /** Padding lights currently counted by three.js. */
   get padsShown(): number { return this.shown; }
 
-  /** Real point lights in the scene right now (everything visible minus the padding). */
-  contentCount(): number { return countVisiblePointLights(this.scene) - this.shown; }
+  /** Real point lights in the scene right now (the padding group is skipped rather than counted and subtracted). */
+  contentCount(): number { return countVisiblePointLights(this.scene, this.group); }
 
   /** Show exactly `n` padding lights (clamped). */
   setShown(n: number): void {

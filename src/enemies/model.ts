@@ -305,7 +305,6 @@ export function humanoidPainSound(type: EnemyType): EnemySoundVoice {
 export const ENEMY_STEP_EMIT_RANGE = 60;
 /** The least gap (s) between one enemy's footsteps — the throttle is **per enemy id** (the old global one let only one of a pack be heard). */
 export const ENEMY_STEP_MIN_GAP = 0.12;
-const _stepCam = new THREE.Vector3();
 const STEP_ID: Readonly<Record<SurfaceMaterial, string>> = {
   dirt: 'footstep_dirt', sand: 'footstep_sand', snow: 'footstep_snow', mud: 'footstep_mud', moss: 'footstep_moss',
   ash: 'footstep_ash', rock: 'footstep_rock', crystal: 'footstep_crystal', organic: 'footstep_organic',
@@ -313,21 +312,31 @@ const STEP_ID: Readonly<Record<SurfaceMaterial, string>> = {
 };
 
 /**
+ * What a footstep needs of its host: the context, the target list and this frame's ear (`EnemyHost.camPos`).
+ * `EnemySystem` is both the authority's `EnemyHost` and the replica's `ReplicaHost`, and a step plays on both sides,
+ * so the signature asks for the three fields rather than for either whole interface.
+ */
+export type StepHost = Pick<EnemyHost, 'ctx' | 'targets' | 'camPos'>;
+
+/**
  * One enemy footstep (C-23 · C-22). The authority's `ai/EnemyAI.integrate` and a replica's `net/Replica.drive` call it
  * **the same way**. Volume falloff is applied once, by audio/'s distance curve (no linear falloff at the emitter — the
  * X-3 double falloff). `gainMul` / `pitchMul` are for variants such as the thud of a charge stopped by a wall. true
  * when a sound played.
  */
-export function emitEnemyStep(e: Enemy, ctx: GameContext, gainMul = 1, pitchMul = 1): boolean {
+export function emitEnemyStep(e: Enemy, host: StepHost, gainMul = 1, pitchMul = 1): boolean {
   const v = stepSound(e.type);
   if (!v) return false;
+  const ctx = host.ctx;
   const now = ctx.time;
   if (now - e.stepAt < ENEMY_STEP_MIN_GAP) return false;
   const p = e.position;
-  ctx.camera.getWorldPosition(_stepCam);
+  // 2026-09-20 (`docs/PERF_PLAN.md` finding B5): the ear is `EnemyHost.camPos`, read once at the top of
+  // `EnemySystem.update`. This used to be a `getWorldPosition` per call — the camera's parent chain walked several
+  // times a frame only for the result to be thrown away by the gate on the next line.
   // 2026-09-16: a bug is gated by its own footstep range — `stepAt` has to mean 「took a step within earshot」 for the crowd count to hold.
   const gate = v.id ? (v.range ?? BUG_STEP_RANGE_M) : ENEMY_STEP_EMIT_RANGE;
-  if (_stepCam.distanceToSquared(p) > gate * gate) return false;
+  if (host.camPos.distanceToSquared(p) > gate * gate) return false;
   e.stepAt = now;
   if (v.id) {
     ctx.bus.emit('audio:play', { id: v.id, position: p, volume: (v.gain * gainMul) / Math.sqrt(bugStepCrowd(ctx, now)), pitch: v.pitch * pitchMul * (0.94 + Math.random() * 0.12) });
