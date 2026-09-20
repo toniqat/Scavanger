@@ -12,7 +12,7 @@ presentation only (`RemoteWeapons`); enemy damage from other clients goes throug
 |---|---|
 | `WeaponSystem.ts` | `GameSystem`: init / bus + net subscriptions, per-frame order (holster → gates → melee → quick key → swap → reload / hand / unique / trigger → pose → remote state → throw arc → aim-block marker → laser), `ctx.weapons`, `applyHit` wrapped in `withLocalGunHit`. One-line delegates to `parts/`. Re-exports `model.ts` |
 | `model.ts` | Folder vocabulary: `WeaponInstance`, `HitInfo`, `QuickHand` / `QuickKind`, non-csv tuning, `useTimeOf(def)` (hold time of a consumable / gadget), `quickKindOf(def)` (grenade vs gadget vs stim), scratch vectors |
-| `WeaponDefaults.ts` | `WEAPON_SLOTS` (`primary`, `primary2`), fallback rifle / pistol defs, `defaultFor`, `statsFromDef`, `kindOf` (silhouette family by class), `shotSoundId`, `shotPitchFor`, `STANCE_ACCURACY` |
+| `WeaponDefaults.ts` | `WEAPON_SLOTS` (`primary`, `primary2`), fallback rifle / pistol defs, `defaultFor`, `statsFromDef`, `shotPitchFor`, `STANCE_ACCURACY`, `isUniqueKind`. `kindOf` (silhouette family) / `shotSoundId` / `WeaponKind` are **delegates to `shared/shotSounds.ts`** — the one table player/ reads for android guns too |
 | `parts/Slots.ts` | Slot state: `onLoadout`, effective stats (`resolveStats`), magazine / reserve / durability persistence, socket changes (returns excess rounds), `autoFeed` (bow), swap |
 | `parts/Firing.ts` | Trigger → shot: durability, spread (stance × bloom × movement), recoil, hitscan or projectile launch, `applyHit` (barrier bill, shell intercept, armour ricochet, destructible cover), reload, bolt cycle, aim zoom + aim sway hand-off, `recoilMulFor` / `reloadSpeedFor`, hitmarker merge |
 | `parts/AimLine.ts` | `ShotResolver` — which line a shot follows (hybrid crosshair / muzzle resolution, below); `updateAimBlock` drives the red marker and `weapon:aimBlocked` |
@@ -92,7 +92,9 @@ shells, barriers / deployables), pellets merged into one hitmarker per pool step
 A slot whose def has `unique` gets a `UniqueHandler`. RMB is alt fire for all six (never ADS); R still reloads (except
 the bow). Uniques get no weapon-class mastery bonus and are not class kills. Numbers: `FLAME_*`, `SHOCK_*`,
 `SHURIKEN_*` / `SLASH_*`, `BOW_*`, `BAZOOKA_*`, `MINIGUN_*` in `data/constants.csv`, defs in `data/weapons_unique.csv`.
-Uniques reuse existing shot SFX ids (`shotSoundId`); there are no dedicated samples. Flame and arc never damage players.
+Uniques reuse existing shot SFX ids (`shared/shotSounds.ts` `shotSoundId`, re-exported here); there are no dedicated
+samples, and an android holding a unique plays the same id (player/ reads that table too). Flame and arc never damage
+players.
 
 | Handler | LMB | RMB | Notes |
 |---|---|---|---|
@@ -143,8 +145,8 @@ Uniques reuse existing shot SFX ids (`shotSoundId`); there are no dedicated samp
 ## Recent changes
 
 Last 5 only — older: `git log -- src/weapons`.
+- 2026-09-20 — One shot-sound table (B-63): `WeaponKind` · `kindOf` · `shotSoundId` moved to `shared/shotSounds.ts` and are delegates here, so player/ plays the same ids for android guns (a legendary no longer sounds like a rifle there).
 - 2026-09-18 — Melee does not hit through walls/roofs/floors (`meleeReachesBody` from the eye to the enemy's 3 body points; deployables `lineClear`); a grenade behind geometry does not hurt the local player (`blastReachesBody`).
 - 2026-09-17 — Player damage cut to 1/3 (data only: `weapons.csv`, unique / melee constants; AR −15 % and range 210 first); shotguns: ADS no longer tightens spread (`adsTightensSpread`; hip spread = old ADS 3.5°).
 - 2026-09-17 — Grenades: the wall push is queried with the body lowered by `PROP_TOP_MARGIN − BODY_R` (the 7 cm top band of walls/fences no longer lets them through) and they bounce off walls (`BOUNCE_RESTITUTION` 0.4, same as the floor).
 - 2026-09-16 — Grenades sub-step by their diameter, surface before walls (no tunnelling through thin walls/floors); `ctx.weapons` gains `activeSlot`, `primaryInHand`, `ammoOf(slot)` (a melee swing still counts as the primary in hand).
-- 2026-09-15 — Hammerhead throw distance ×0.5 (×0.25 grounded); grounded blasts no longer rocket-jump.

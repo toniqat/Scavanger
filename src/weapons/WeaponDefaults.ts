@@ -1,5 +1,6 @@
-import type { WeaponClass, WeaponDef, WeaponSlot, EffectiveWeaponStats, UniqueWeaponKind } from '@/shared';
+import type { WeaponClass, WeaponDef, WeaponSlot, EffectiveWeaponStats, UniqueWeaponKind, WeaponKind } from '@/shared';
 import { SOCKET_SLOTS, WEAPON_ADS_TIME, WEAPON_DEFAULT_DURABILITY, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY } from '@/shared';
+import { shotSoundId, weaponKindOf } from '@/shared';
 import { weaponClassOf, damageFalloff } from '@/items';
 
 export { weaponClassOf, damageFalloff };
@@ -70,42 +71,19 @@ export function statsFromDef(def: WeaponDef): EffectiveWeaponStats {
   };
 }
 
-/**
- * Visual / audio family of a weapon (drives WeaponModel silhouette and shot sound). The six unique kinds
- * (`WeaponDef.unique`) each have their own silhouette.
+/*
+ * Visual / audio family of a weapon (drives the `WeaponModel` silhouette and the shot sound). The kind table and the
+ * shot-sound ids it maps to now live **once**, in `shared/shotSounds.ts` (2026-09-20, `docs/TODO.md` B-63): player/
+ * plays the very same sounds for android squadmates and must not import this folder (CLAUDE.md §4.1), so the copy it
+ * kept drifted — it knew no unique and fired the rifle sample for every legendary. Both folders are call sites now;
+ * a new shot sound is added there, not here. `kindOf` stays as this folder's name for `weaponKindOf`.
  */
-export type WeaponKind = 'rifle' | 'pistol' | 'shotgun' | 'energy' | 'smg' | 'sniper' | UniqueWeaponKind;
+export type { WeaponKind };
+export { shotSoundId };
 
 /** Kind by class → graded ids (`ar_g3`) pick the same procedural model as their family; uniques pick theirs. */
 export function kindOf(def: WeaponDef): WeaponKind {
-  if (def.unique) return def.unique;
-  if (def.pellets && def.pellets > 1) return 'shotgun';
-  if (def.ammoType === 'energy') return 'energy';
-  switch (weaponClassOf(def)) {
-    case 'SR': return 'sniper';
-    case 'SMG': return 'smg';
-    case 'PISTOL': return 'pistol';
-    case 'SG': return 'shotgun';
-    default: return 'rifle';   // AR / DMR
-  }
-}
-
-export function shotSoundId(kind: WeaponKind): string {
-  switch (kind) {
-    case 'pistol': return 'shot_pistol';
-    case 'shotgun': return 'shot_shotgun';
-    case 'energy': return 'shot_energy';
-    case 'smg': return 'shot_smg';
-    case 'sniper': return 'shot_sniper';
-    // uniques reuse existing SFX ids (no dedicated samples yet — see README)
-    case 'flamethrower': return 'shot_energy';
-    case 'shockgun': return 'shot_energy';
-    case 'shuriken': return 'melee_swing';
-    case 'bow': return 'melee_swing';
-    case 'bazooka': return 'shot_shotgun';
-    case 'minigun': return 'shot_rifle';
-    default: return 'shot_rifle';
-  }
+  return weaponKindOf(def);
 }
 
 /** True when `kind` is one of the six unique silhouettes. */

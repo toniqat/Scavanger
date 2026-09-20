@@ -294,7 +294,14 @@ export class RemoteWeapons {
       e.beamDir.copy(_dir); e.beamOrigin.copy(_muzzle);
       if (starting) {
         e.model?.setHeat(1);
-        ctx.bus.emit('audio:play', { id: 'shot_energy', position: _muzzle, volume: 0.35, pitch: u === 'flamethrower' ? 0.5 : 1.3 });
+        /*
+         * The **id** of every unique's shot comes from `shared/shotSounds.shotSoundId`, here as everywhere
+         * (2026-09-20, B-63) — this replay used to write the five ids out by hand, a third copy of the table beside
+         * weapons/ and player/. Only the volume and the pitch are this file's: a remote unique is heard as a
+         * performance (the flamethrower's low loop, the bow's draw-dependent pitch), and that part is not a table.
+         * The shock crackle and the melee swing below stay literal — neither is a *shot*.
+         */
+        ctx.bus.emit('audio:play', { id: shotSoundId(u), position: _muzzle, volume: 0.35, pitch: u === 'flamethrower' ? 0.5 : 1.3 });
         if (u === 'shockgun') this.shockCrackleAt.set(e.id, ctx.time + SHOCK_CRACKLE_INTERVAL);
       }
       return;
@@ -310,7 +317,7 @@ export class RemoteWeapons {
       e.model?.kick(0.5 + 0.7 * draw);
       // 2026-09-15: the string is empty for the same beat the shooter sees, then the next arrow shows nocked
       e.model?.bowLoose(1 / Math.max(0.1, def.fireRate));
-      ctx.bus.emit('audio:play', { id: 'melee_swing', position: _muzzle, volume: 0.5 + 0.3 * draw, pitch: 1.35 - 0.4 * draw });
+      ctx.bus.emit('audio:play', { id: shotSoundId('bow'), position: _muzzle, volume: 0.5 + 0.3 * draw, pitch: 1.35 - 0.4 * draw });
       return;
     }
     if (u === 'shockgun') {
@@ -322,7 +329,7 @@ export class RemoteWeapons {
       if (hit) this.impactFx(_end, _n, _dir, hit.enemy, hit.obstacle, false);
       this.fx.muzzleFlash(_muzzle, _dir, def.tracerColor, 1.6);
       e.model?.kick(2.2);
-      ctx.bus.emit('audio:play', { id: 'shot_energy', position: _muzzle, volume: 0.9, pitch: 0.7 + c * 0.2 });
+      ctx.bus.emit('audio:play', { id: shotSoundId('shockgun'), position: _muzzle, volume: 0.9, pitch: 0.7 + c * 0.2 });
       return;
     }
     if (u === 'shuriken') {
@@ -332,7 +339,7 @@ export class RemoteWeapons {
         this.projectiles.fire(_muzzle, _pd, def.projectileSpeed ?? 65, 0, def.range, def.tracerColor, def.id, true, projectileOptsFor(def));
       }
       e.model?.kick(0.6);
-      ctx.bus.emit('audio:play', { id: 'melee_swing', position: _muzzle, volume: 0.5, pitch: 1.5 });
+      ctx.bus.emit('audio:play', { id: shotSoundId('shuriken'), position: _muzzle, volume: 0.5, pitch: 1.5 });
       return;
     }
     if (u === 'bazooka') {
@@ -340,7 +347,7 @@ export class RemoteWeapons {
       this.projectiles.fire(_muzzle, _dir, def.projectileSpeed ?? 48, 0, def.range, def.tracerColor, def.id, true, opts);
       this.fx.muzzleFlash(_muzzle, _dir, 0xffb060, 2.2);
       e.model?.kick(3);
-      ctx.bus.emit('audio:play', { id: 'shot_shotgun', position: _muzzle, volume: 0.9, pitch: 0.6 });
+      ctx.bus.emit('audio:play', { id: shotSoundId('bazooka'), position: _muzzle, volume: 0.9, pitch: 0.6 });
     }
   }
 
