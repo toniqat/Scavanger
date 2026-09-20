@@ -23,8 +23,8 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /**
  * Chevron glyph as inline SVG (2026-09-12) — `count` overlapping chevrons pointing `dir`. No asset: the trade desk's
- * flow arrows (구매 → 내 쪽 · 판매 → 기업 쪽) and the 거래 후 크레딧 up / down marks. Colour is `currentColor`; each
- * stroke carries `c0 … cN` so CSS can stagger a flow animation along the arrow.
+ * flow arrows (구매 → toward me · 판매 → toward the corp) and the up / down marks on the credit change after the
+ * trade. Colour is `currentColor`; each stroke carries `c0 … cN` so CSS can stagger a flow animation along the arrow.
  */
 export function chevrons(dir: 'left' | 'right' | 'up' | 'down', count = 3, cls = ''): HTMLElement {
   const wrap = document.createElement('span');

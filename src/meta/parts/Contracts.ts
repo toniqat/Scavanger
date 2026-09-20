@@ -1,9 +1,9 @@
 /**
- * src/meta/parts/Contracts.ts — **계약 · 퀘스트**.
+ * src/meta/parts/Contracts.ts — **contracts · quests**.
  *
- * 계약은 하나만 활성이고 목표 카운터가 버스 이벤트(`enemy:killed` / `crate:open` / …)에서 오른다.
- * 분대원의 진척은 `meta contractHit` 로 공유되고, 레이드가 끝나면 `settleMission` 이 `outcome` 에
- * 따라 정산한다. 퀘스트는 가방 + 창고에서 납품받는 사슬이다. **훈련장에서는 아무것도 세지 않는다.**
+ * One contract is active at a time and its goal counter rises from bus events (`enemy:killed` / `crate:open` / …).
+ * A squadmate's progress is shared as `meta contractHit`, and when the raid ends `settleMission` settles it by
+ * `outcome`. A quest is a chain delivered from the bag + stash. **The training range counts nothing.**
  */
 import type {
   ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
@@ -22,11 +22,11 @@ import {
 import { CorpView } from '../ui/CorpView';
 import { CORP_ALIASES, GOAL_IDS, INVENTORY_GOALS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
-/* 2026-09-11 (E-4 ⑦): 크레딧 사유는 계약 문법으로 (`shared/credits.ts`). */
+/* 2026-09-11 (E-4 ⑦): credit reasons are built with the contract grammar (`shared/credits.ts`). */
 import { formatCreditReason } from '@/shared';
-/* 2026-09-12 (§5-2): 아이템 회수 계약은 이번 레이드에서 얻은 것만 센다 (`shared/raidFound.ts`). */
+/* 2026-09-12 (§5-2): an item recovery contract counts only what was found in this raid (`shared/raidFound.ts`). */
 import { isRaidFound, raidFoundSeed } from '@/shared';
-/* 2026-09-13 (서재 시리즈): 신뢰도 책 — 계약 완료 신뢰도 × `1 + trustXp.all + trustXp[corp]` */
+/* 2026-09-13 (library series): the reputation books — a finished contract's rep × `1 + trustXp.all + trustXp[corp]` */
 import { libraryTrustMul } from '@/shared';
 
 /** `MetaRef.getSquadContracts` — other members only, in peer order. */
@@ -98,7 +98,7 @@ export function trackLootValue(sys: MetaSystem, totalValue: number): void {
  * 2026-09-12 (E2): units of `defId` **on the body** — bag grid + quick slots + pouch (`InventoryRef.countWhere`), never the
  * 함선 창고. That is what an `extract_with_items` contract checks at extraction. 0 without an inventory.
  *
- * 2026-09-12 (§5-2, 사용자 결정): **only units found in this raid** count — `ItemInstance.raidFound` equal to `seed`
+ * 2026-09-12 (§5-2, user's decision): **only units found in this raid** count — `ItemInstance.raidFound` equal to `seed`
  * (`shared/raidFound.isRaidFound`). `seed` defaults to the running raid's (`raidFoundSeed`, null outside a real raid → 0).
  * Brought units (from the ship, crafted, bought) never count, so the whole target has to come out of one raid.
  */
@@ -193,7 +193,8 @@ export function reportContractHit(sys: MetaSystem, goal: ContractGoalKind, amoun
   if (local) sys.broadcastContract();
   }
 
-/** 2026-09-13: `libraryTrustMul` over housing's summary — 1 while housing cannot answer (병렬 작업 · 스켈레톤). */
+/** 2026-09-13: `libraryTrustMul` over housing's summary — 1 while housing cannot answer (parallel work · a
+ *  skeleton). */
 export function libraryTrustMulOf(sys: MetaSystem, corp: CorpId): number {
   const h = sys.ctx.housing;
   if (!h || typeof h.getLibraryEffects !== 'function') return 1;
@@ -216,9 +217,11 @@ export function settleMission(sys: MetaSystem, stats: MissionStats): ContractSet
   if (settlement.success) {
     sys.store.data.activeContract = null;
     sys.store.data.stats.contractsDone += 1;
-    /* 2026-09-13 (서재 시리즈): 서재의 신뢰도 책이 계약 완료 신뢰도를 올린다 (퀘스트 보상은 아니다). 정산 객체 자체를 고쳐서
-       결과 화면 · `meta:contractSettled` 가 실제로 받은 양을 말한다. 신뢰도는 크레딧이 아니다 — `addRep` 은 로컬 저장소 +
-       `meta:repChanged` 뿐이고 서버 크레딧 검증(`credits:tx`)을 지나지 않으므로 배율을 얹어도 거절될 일이 없다. */
+    /* 2026-09-13 (library series): the library's reputation books raise the rep a finished contract pays (never a
+       quest reward). The settlement object itself is edited, so the results screen and `meta:contractSettled` say
+       what was really received. Reputation is not credits — `addRep` only writes the local store and emits
+       `meta:repChanged`, it never passes the server's credit check (`credits:tx`), so a multiplier cannot be
+       refused. */
     if (settlement.rep > 0) settlement.rep = Math.max(0, Math.round(settlement.rep * libraryTrustMulOf(sys, def.corp)));
     if (settlement.rep > 0) sys.addRep(def.corp, settlement.rep, `contract:${def.id}`);
     if (settlement.credits > 0) {
@@ -236,9 +239,10 @@ export function settleMission(sys: MetaSystem, stats: MissionStats): ContractSet
   }
 
 /* ── MetaRef: quests ────────────────────────────────────────────────────────
- * 2026-09-14: 기업 퀘스트 폐지 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — 퀘스트는 NPC 가 메신저로 준다 (`parts/NpcQuests.ts`,
- * `ctx.meta.npc`). 옛 API 는 계약이라 남기되 기업 퀘스트 표(`QUEST_DEFS`)가 비어 있으므로 빈 목록 · false 다.
- * `getQuestState` 는 `MetaSystem` 이 NPC 퀘스트로 답한다. */
+ * 2026-09-14: corp quests dropped (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — quests come
+ * from an NPC through the messenger (`parts/NpcQuests.ts`, `ctx.meta.npc`). The old API stays because it is a
+ * contract, but the corp quest table (`QUEST_DEFS`) is empty, so it answers with an empty list · false.
+ * `getQuestState` is answered by `MetaSystem` out of the NPC quests. */
 export function questInfo(sys: MetaSystem, def: typeof QUEST_DEFS[number]): QuestInfo {
   const deliver = def.deliver.map((d) => ({ defId: d.defId, qty: d.qty, have: sys.countAll(d.defId) }));
   return { def, state: 'locked', deliver, blocked: REASON.locked };
@@ -271,7 +275,7 @@ export function commitQuestTx(sys: MetaSystem): void {
   } catch { /* net not ready */ }
   }
 
-/** 2026-09-14: 기업 퀘스트 폐지 — 늘 false. NPC 퀘스트의 보고는 `ctx.meta.npc.report(id)`. */
+/** 2026-09-14: corp quests dropped — always false. An NPC quest is reported with `ctx.meta.npc.report(id)`. */
 export function completeQuest(_sys: MetaSystem, _id: string): boolean {
   return false;
   }

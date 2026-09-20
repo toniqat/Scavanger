@@ -1,7 +1,8 @@
 /**
- * src/meta/parts/Console.ts — 개발자 콘솔 명령 `credits` / `rep` / `contract` / `implant` / `npc` (2026-09-14 — 옛 `quest` 대신).
+ * src/meta/parts/Console.ts — the dev console commands `credits` / `rep` / `contract` / `implant` / `npc`
+ * (2026-09-14 — in place of the old `quest`).
  *
- * dev 클라이언트에서만 등록된다(`src/console` 참고). 게임 규칙은 하나도 갖지 않고 위의 API 만 부른다.
+ * Registered on dev clients only (see `src/console`). It holds no game rule at all and calls the APIs above.
  */
 import type {
   ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
@@ -125,7 +126,8 @@ export function registerConsole(sys: MetaSystem): void {
         return [];
       },
     },
-    /* 2026-09-14: 기업 퀘스트(`quest`) 폐지 → NPC 퀘스트(`npc`). 조건 무시 연락 · 제안, 수락 · 보류 · 납품 · 보고, 진행 치트, 초기화. */
+    /* 2026-09-14: corp quests (`quest`) dropped → NPC quests (`npc`). Forced contact · offer (requirements
+       ignored), accept · defer · deliver · report, a progress cheat, and a reset. */
     {
       name: 'npc', usage: 'npc list|flags [<플래그> <n>]|contact <npc>|offer <quest>|accept <quest>|deliver <quest> <i>|report <quest>|progress <quest> <i> <n>|reset',
       description: 'NPC 연락 · 퀘스트 목록 / 진행 플래그 보기 · 올리기 / 강제 연락 · 제안 / 수락 · 납품 · 완료 보고 / 진행 치트',
@@ -134,8 +136,9 @@ export function registerConsole(sys: MetaSystem): void {
         const sub = (args[0] ?? 'list').toLowerCase();
         if (sub === 'list') {
           for (const c of nq.getContacts()) print(`  ${c.npc.id}  ${c.npc.name} (${c.npc.title}) · 안 읽음 ${c.unread}`, 'info');
-          /* 2026-09-14 3차: `getQuests()` 는 이제 받은 것(active · complete)만 준다 — 콘솔은 `offered` 까지 봐야 하므로
-           * 정의를 돌며 `getQuest(id)` 로 묻는다(상태가 없는 것은 null). */
+          /* 2026-09-14 (3rd pass): `getQuests()` now answers with accepted quests only (active · complete) — the
+           * console has to see `offered` too, so it walks the defs and asks `getQuest(id)` (null when there is no
+           * state). */
           let n = 0;
           for (const def of NPC_QUEST_DEFS) {
             const q = nq.getQuest(def.id);
@@ -146,7 +149,8 @@ export function registerConsole(sys: MetaSystem): void {
           }
           return `연락 ${nq.getContacts().length} · 퀘스트 ${n} (정의 NPC ${NPC_DEFS.length} · 퀘스트 ${NPC_QUEST_DEFS.length})`;
         }
-        /* 2026-09-14 3차: 진행 플래그 — 4기업 NPC 의 첫 연락 조건(`data/npcs.csv` 의 reqFlag). 인자 없이 = 보기. */
+        /* 2026-09-14 (3rd pass): the progress flags — the first-contact requirement of the four corps' NPCs
+           (`reqFlag` in `data/npcs.csv`). With no argument = show them. */
         if (sub === 'flags') {
           const flag = args[1];
           if (flag !== undefined) {
@@ -173,7 +177,8 @@ export function registerConsole(sys: MetaSystem): void {
         if (sub === 'contact') return nq.forceContact(id) ? `연락: ${id}` : { error: `이미 연락했거나 모르는 NPC: ${id}` };
         if (sub === 'offer') return nq.forceOffer(id) ? `제안: ${id}` : { error: `이미 상태가 있거나 모르는 퀘스트: ${id}` };
         if (sub === 'accept') return nq.accept(id) ? `수락: ${id}` : { error: `수락 실패 (${nq.getQuest(id)?.state ?? '제안 없음'}${sys.inShip ? '' : ' · 함선에서만'})` };
-        // 2026-09-14 3차: 「생각해보지」 은퇴 — `defer` 는 늘 false 다. 옛 손가락을 위해 사유만 돌려준다.
+        // 2026-09-14 (3rd pass): 「생각해보지」 is retired — `defer` is always false. Kept for old fingers: it
+        // answers with the reason and nothing else.
         if (sub === 'defer') return { error: '「생각해보지」는 은퇴했습니다 (2026-09-14 3차) — 제안은 수락하거나 그대로 둡니다' };
         if (sub === 'report') return nq.report(id) ? `완료 보고: ${id}` : { error: `보고 실패: ${nq.getQuest(id)?.blocked ?? '진행 중인 퀘스트가 아닙니다'}` };
         const idx = num(args[2]);

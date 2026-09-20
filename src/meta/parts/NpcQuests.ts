@@ -1,21 +1,26 @@
 /**
- * src/meta/parts/NpcQuests.ts — **`ctx.meta.npc`**: NPC 연락 · 대화 · 퀘스트 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * src/meta/parts/NpcQuests.ts — **`ctx.meta.npc`**: NPC contact · conversation · quests
+ * (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
- * 기업 퀘스트를 대신한다. NPC 는 **함선에서만** 연락하고(`evaluate` — 함선 진입 · 프로필 로드 · 레벨 · 신뢰도 · 퀘스트 완료 ·
- * `NPC_OFFER_CHECK_S` 주기), 조건(`npcs.csv` 의 req*)이 맞으면 첫 연락(intro), 그 NPC 에 대기 중인 제안이 없으면 파일 줄
- * 순서대로 다음 퀘스트 하나를 제안한다(offer). 대화 기록은 **사건만** 저장하고(`NpcLogEntry`) 글은 표에서 다시 푼다.
+ * It replaces corp quests. An NPC makes contact **in the ship only** (`evaluate` — ship entry · profile load ·
+ * level · trust · a completed quest · every `NPC_OFFER_CHECK_S`); once the requirements (`npcs.csv`'s req*) are met
+ * it makes first contact (intro), and if that NPC has no offer waiting, the next quest in file row order is offered
+ * (offer). The log saves **events only** (`NpcLogEntry`) and the text is resolved from the csv again.
  *
- *   offered ─[수락]→ active ─(목표 전부)─[완료 보고]→ complete
+ *   offered ─[수락]→ active ─(every objective)─[완료 보고]→ complete
  *
- * 2026-09-14 3차 (사용자 결정, docs/DECISIONS.md 「2026-09-14 — NPC 첫 연락 3단」):
- *   • **첫 연락은 3단이다** — `intro`(인사) → 선택지(`introChoices`) → `introAfter`(본론). `introAfter` 가 있는 NPC 는
- *     **선택지에 답하기 전에는 퀘스트를 제안하지 않는다**(`evaluate`); 답하면 `chooseIntro` 가 그 자리에서 제안을 부른다.
- *   • **「생각해보지」는 없다** — `defer()` 는 늘 false 이고 `decline` 로그를 새로 만들지 않는다. `deferred` 상태와
- *     `decline` · `brief` 대사는 옛 세이브 · 옛 기록을 읽기 위해서만 남는다.
- *   • **퀘스트 목록에는 받은 것만** — `getQuests()` 가 `offered` · `deferred` 를 걸러낸다 (제안은 대화창 카드로만 뜬다).
+ * 2026-09-14 3rd pass (user's decision, docs/DECISIONS.md 「2026-09-14 — NPC 첫 연락 3단」):
+ *   • **First contact has three steps** — `intro` (the greeting) → the choices (`introChoices`) → `introAfter`
+ *     (the main point). An NPC with `introAfter` **offers no quest before the choices are answered**
+ *     (`evaluate`); once they are, `chooseIntro` calls the offer on the spot.
+ *   • **There is no 「생각해보지」** — `defer()` is always false and writes no new `decline` entry. The `deferred`
+ *     state and the `decline` · `brief` lines stay only so old saves and old logs can be read.
+ *   • **The quest list holds only what was taken** — `getQuests()` filters `offered` · `deferred` out (an offer
+ *     shows up as a card in the chat and nowhere else).
  *
- * 포기는 없다(사용자 결정). 납품은 나눠서(`deliver` — 가방 + 창고), 보고는 보상 아이템을 먼저 넣어 보고(`공간 없음` 이면 아무것도
- * 안 바뀐다) 크레딧 `quest:<id>` → 신뢰도(기업 + **그 NPC 개인**) → 경험치 순. 레이드 목표는 `parts/NpcObjectives.ts`.
+ * There is no abandon (user's decision). A delivery may be split (`deliver` — bag + stash); the report places the
+ * reward items first (on `공간 없음` nothing changes), then credits `quest:<id>` → trust (corp + **that NPC's own**)
+ * → XP, in that order. Raid objectives are in `parts/NpcObjectives.ts`.
  */
 import type {
   GameContext, ItemDef, ItemInstance, MissionStats, NpcContactInfo, NpcDef, NpcFlag, NpcLogEntry, NpcLogEvent, NpcMessage, NpcObjectiveDef,
@@ -24,7 +29,7 @@ import type {
 import {
   NPC_DEFS, NPC_DEF_MAP, NPC_LOG_MAX, NPC_OFFER_CHECK_S, NPC_QUEST_DEFS, NPC_QUEST_MAP, NPC_RAID_OBJECTIVE_KINDS, NPC_REPLY_KO,
   formatCreditReason, isRaidFound, raidFoundSeed,
-  /* 2026-09-14: NPC 개인 신뢰도 — 기업과 같은 REP_TABLE 을 쓴다 */
+  /* 2026-09-14: per-NPC trust — it uses the same REP_TABLE as a corporation */
   repLevelOf,
 } from '@/shared';
 import {
@@ -38,13 +43,16 @@ import * as Obj from './NpcObjectives';
 const STATE_RANK: Readonly<Record<NpcQuestState, number>> = { active: 0, deferred: 1, offered: 2, complete: 3 };
 
 export class NpcQuests implements NpcQuestRef {
-  /** 이번 레이드의 확정 전 진행 — 퀘스트 id → 목표별 수. 레이드가 끝나면 비운다 (`NpcObjectives.resetRaid`). */
+  /**
+   * This raid's progress before it is confirmed — quest id → a count per objective. Emptied when the raid ends
+   * (`NpcObjectives.resetRaid`).
+   */
   readonly raidProgress = new Map<string, number[]>();
-  /** 이번 레이드에 이미 센 컨테이너 id (조사 목표). */
+  /** Container ids already counted this raid (the `search` objective). */
   readonly searched = new Set<string>();
-  /** 이번 레이드에 이미 센 구조물 id (발견 목표). */
+  /** Structure ids already counted this raid (the `discover` objective). */
   readonly discovered = new Set<string>();
-  /** 마지막 [완료 보고] 가 공간 부족으로 실패한 퀘스트 → 사유. */
+  /** Quests whose last [완료 보고] failed for lack of room → the reason. */
   readonly reportBlocked = new Map<string, string>();
   private lastStamp = 0;
   private checkT = 0;
@@ -55,35 +63,36 @@ export class NpcQuests implements NpcQuestRef {
 
   get ctx(): GameContext { return this.sys.ctx; }
 
-  /** 지금 저장 (`MetaSave.npc`) — `MetaStorage.replace` 가 데이터 객체를 갈아 끼우므로 매번 읽는다. */
+  /** The current save (`MetaSave.npc`) — read every time: `MetaStorage.replace` swaps the data object out. */
   get save(): NpcSave {
     const d = this.sys.store.data;
     return d.npc ?? (d.npc = freshNpcSave());
   }
 
-  /* ── NPC 개인 신뢰도 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」) ──────────
-   * 기업 신뢰도와 **별개**이고 같은 `REP_TABLE` 을 쓴다 (사용자 결정 — 표를 하나 더 만들 이유가 없다).
-   * 지금은 적립 · 표시까지만이라 이 값으로 잠기는 것은 없다; `NpcRequirement.npcRep` 계약은 이미 있다. */
+  /* ── Per-NPC trust (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」) ──────
+   * **Separate** from corp reputation and uses the same `REP_TABLE` (user's decision — no need for a second table).
+   * It only accrues and displays today, so nothing is locked by it; the `NpcRequirement.npcRep` contract is
+   * already there. */
 
-  /** 누적 신뢰도 점수 (없으면 0). */
+  /** The accumulated trust score (0 when there is none). */
   trustOf(npcId: string): number {
     const t = this.save.trust;
     return Math.max(0, Math.round(t?.[npcId] ?? 0));
   }
 
-  /** 0–5. 기업과 같은 `REP_TABLE`. */
+  /** 0–5. The same `REP_TABLE` as a corporation. */
   trustLevelOf(npcId: string): number { return repLevelOf(this.trustOf(npcId)); }
 
-  /* ── 진행 플래그 (2026-09-14 3차) — `NpcRequirement.flags` 의 유일한 입력 ──────
-   * 세는 곳도 읽는 곳도 여기 하나다. 값이 오르면 그 자리에서 연락 조건을 다시 본다
-   * (`evaluate` 는 함선에서만 붙이므로 레이드 중에 올라간 플래그는 함선에 들어설 때 반영된다). */
+  /* ── Progress flags (2026-09-14 3rd pass) — the only input of `NpcRequirement.flags` ────
+   * Counted here and read here, nowhere else. When a value rises the contact requirements are looked at on the spot
+   * (`evaluate` only attaches in the ship, so a flag raised mid-raid takes effect on entering the ship). */
 
-  /** 그 플래그의 누적 횟수 (없으면 0). */
+  /** That flag's running count (0 when there is none). */
   flagOf(flag: NpcFlag): number {
     return Math.max(0, Math.round(this.save.flags?.[flag] ?? 0));
   }
 
-  /** 누적 횟수를 더한다 (0 이하는 무시). */
+  /** Adds to the running count (0 or less is ignored). */
   bumpFlag(flag: NpcFlag, delta = 1): void {
     const d = Math.round(delta);
     if (!Number.isFinite(d) || d <= 0) return;
@@ -94,7 +103,7 @@ export class NpcQuests implements NpcQuestRef {
     this.evaluate();
   }
 
-  /** 더한다 (0 밑으로는 안 내려간다). 레벨이 오르면 `levelUp` 이 실린다 — 토스트는 받는 쪽이 정한다. */
+  /** Adds (it never goes below 0). A level rise carries `levelUp` — the receiver decides about a toast. */
   addTrust(npcId: string, delta: number, _reason: string): void {
     const d = Math.round(delta);
     if (!npcId || !Number.isFinite(d) || d === 0) return;
@@ -109,7 +118,7 @@ export class NpcQuests implements NpcQuestRef {
     this.ctx.bus.emit('meta:npcTrustChanged', { npc: npcId, trust: after, level, delta: d, levelUp: level > beforeLv });
   }
 
-  /** `MetaSystem.init` 이 부른다 — 반환된 해제 함수들은 시스템의 `unsubs` 에 들어간다. */
+  /** Called by `MetaSystem.init` — the returned unsubscribe functions go into the system's `unsubs`. */
   subscribe(): Array<() => void> {
     const b = this.ctx.bus;
     const evaluate = (): void => { this.evaluate(); };
@@ -120,14 +129,15 @@ export class NpcQuests implements NpcQuestRef {
       b.on('progress:levelUp', evaluate),
       b.on('meta:repChanged', evaluate),
       b.on('game:newMission', () => { Obj.resetRaid(this); this.reportBlocked.clear(); }),
-      /* 2026-09-14 3차: 살아 돌아온 레이드 · 캔 채집물이 NPC 첫 연락 조건이다 (`NpcRequirement.flags`).
-       * **진짜 레이드만 센다** — 튜토리얼 · 훈련장이 `raidReturned` 를 올리면 튜토리얼을 끝내자마자 차유나가 연락해
-       * 「튜토리얼 직후 연락 오는 NPC 는 레이븐 하나」라는 결정이 깨진다. */
+      /* 2026-09-14 3rd pass: a raid returned from alive · something gathered are NPC first-contact requirements
+       * (`NpcRequirement.flags`). **Only a real raid counts** — if the tutorial or the training range raised
+       * `raidReturned`, `차유나` would make contact the moment the tutorial ends and break the decision
+       * 「튜토리얼 직후 연락 오는 NPC 는 레이븐 하나」. */
       b.on('game:complete', () => { Obj.resetRaid(this); if (this.ctx.missionMode === 'raid') this.bumpFlag('raidReturned'); }),
       b.on('gather:collected', () => this.bumpFlag('gathered')),
       b.on('game:over', () => Obj.resetRaid(this)),
       b.on('game:abort', () => Obj.resetRaid(this)),
-      // 내 막타만 (계약과 같은 규칙 — 분대원의 킬은 `enemy:squadKill` 로 따로 온다)
+      // My own last hit only (the contract's rule — a squadmate's kill arrives separately as `enemy:squadKill`)
       b.on('enemy:killed', ({ type, by, weaponClass }) => {
         if (by !== undefined && by !== 'local' && by !== (this.ctx.net?.localId ?? null)) return;
         Obj.onKill(this, type, weaponClass);
@@ -148,9 +158,9 @@ export class NpcQuests implements NpcQuestRef {
     this.emitUnread();
   }
 
-  /* ── 판정 도우미 (NpcObjectives 도 쓴다) ─────────────────────────────────── */
+  /* ── Judgement helpers (`NpcObjectives` uses them too) ────────────────── */
 
-  /** 레이드 목표를 세는 때 — 레이드 중(강하 포함) · 훈련장 아님. */
+  /** When raid objectives count — during a raid (the drop included) · not the training range. */
   counting(): boolean {
     const ctx = this.ctx;
     return !!ctx && ctx.isRaidActive() && !this.sys.inTraining();
@@ -165,14 +175,14 @@ export class NpcQuests implements NpcQuestRef {
     try { return this.ctx.loot?.getWeaponDef(def.weaponId)?.weaponClass ?? null; } catch { return null; }
   };
 
-  /** 몸(가방 · 퀵슬롯 · 주머니)에 지닌, 레이드 `seed` 에서 얻은 `spec` 수. */
+  /** How many `spec` carried on the body (bag · quick slots · pouch) were found in the raid `seed`. */
   carried(spec: string | undefined, seed: number | null): number {
     const inv = this.ctx.inventory;
     if (!spec || seed === null || !inv || typeof inv.countWhere !== 'function') return 0;
     try { return Math.max(0, Math.floor(inv.countWhere((d, inst) => itemMatches(spec, d, this.classOf) && isRaidFound(inst, seed)))); } catch { return 0; }
   }
 
-  /** `spec` 에 해당하는 아이템 def 들 (아이템 id 면 그 하나). */
+  /** The item defs `spec` covers (just the one when it is an item id). */
   private defsFor(spec: string | undefined): ItemDef[] {
     if (!spec) return [];
     if (!weaponSpecClass(spec)) { const d = this.sys.itemDef(spec); return d ? [d] : []; }
@@ -180,7 +190,7 @@ export class NpcQuests implements NpcQuestRef {
     return all.filter((d) => itemMatches(spec, d, this.classOf));
   }
 
-  /** 가방 + 창고 보유 수 (납품). */
+  /** How many are held in bag + stash (delivery). */
   private haveCount(spec: string | undefined): number {
     const inv = this.ctx.inventory;
     if (!inv || typeof inv.countDefAll !== 'function') return 0;
@@ -208,16 +218,16 @@ export class NpcQuests implements NpcQuestRef {
     this.ctx.bus.emit('npc:questReady', { id: def.id, npc: def.npc });
   }
 
-  /* ── 기록 ─────────────────────────────────────────────────────────────── */
+  /* ── The log ──────────────────────────────────────────────────────────── */
 
-  /** 기록 순서가 흐트러지지 않는 시각 (한 번에 여러 사건이 붙어도 오름차순). */
+  /** A timestamp that keeps the log in order (ascending even when several events land at once). */
   private stamp(): number {
     if (this.lastStamp === 0) for (const list of Object.values(this.save.log)) for (const e of list) if (e.at > this.lastStamp) this.lastStamp = e.at;
     this.lastStamp = Math.max(Date.now(), this.lastStamp + 1);
     return this.lastStamp;
   }
 
-  /** `c` 는 `choice` 전용 — 고른 선택지 번호 (2026-09-14). */
+  /** `c` is for `choice` only — the number picked among the choices (2026-09-14). */
   private log(npc: string, e: NpcLogEvent, q?: string, c?: number): void {
     const at = this.stamp();
     const entry: NpcLogEntry = q ? { at, e, q } : c !== undefined ? { at, e, c } : { at, e };
@@ -235,18 +245,22 @@ export class NpcQuests implements NpcQuestRef {
     this.ctx.bus.emit('npc:unreadChanged', { total });
   }
 
-  /* ── 연락 · 제안 ──────────────────────────────────────────────────────── */
+  /* ── Contact · offers ─────────────────────────────────────────────────── */
 
   /**
-   * 튜토리얼이 연락 · 제안을 막는가.
-   *   ① 어느 트랙이든 **돌고 있으면** 막는다 (증축 트랙은 메신저 버튼을 감추므로 그때 온 연락은 볼 수도 없다).
-   *   ② **함선 트랙이 끝나기 전에도** 막는다 (2026-09-15, 사용자 결정 — 예전에는 ship 트랙이 예외라 `messenger` ·
-   *      `ravenQuest` 단계가 레이븐의 첫 연락을 기다렸는데, 그 단계가 순서에서 빠졌다). 「끝났다」는 완주 · 건너뛰기 둘 다다.
-   * 그러니 레이븐이 처음 쓰는 때는 **함선 트랙 뒤, 어느 트랙도 돌지 않는 첫 `evaluate`** 다 — 증축 트랙을 건너뛰면 그 자리에서
-   * (`NPC_OFFER_CHECK_S` 주기), 완주하면 첫 레이드에서 돌아온 `hub:entered` 에서. (그 시점에 조건이 맞는 NPC 는 레이븐
-   * 하나다 — `data/npcs.csv` 의 `reqFlag` · `reqQuests` 참고.)
-   * 튜토리얼이 없던 시절부터 하던 프로필 · 이미 끝낸 프로필은 `isTrackDone('ship')` 이 true 라 예전 그대로 연락이 온다
-   * (저장에 트랙 기록이 없으면 그 답은 「손대지 않은 함선인가」에서 나온다 — `tutorial/TutorialSystem.isTrackDone`).
+   * Does the tutorial block contact and offers?
+   *   ① Any track that is **running** blocks them (the build track hides the messenger button, so a contact that
+   *      arrived then could not even be seen).
+   *   ② **Before the ship track is done** they are blocked too (2026-09-15, user's decision — the ship track used
+   *      to be the exception, so the `messenger` · `ravenQuest` steps waited for Raven's first contact, and those
+   *      steps then dropped out of the order). 「done」 means completed or skipped alike.
+   * So the first time Raven writes is the **first `evaluate` after the ship track with no track running** — on the
+   * spot if the build track is skipped (every `NPC_OFFER_CHECK_S`), at the `hub:entered` back from the first raid
+   * if it is completed. (Raven is the only NPC whose requirements are met by then — see `reqFlag` · `reqQuests` in
+   * `data/npcs.csv`.)
+   * A profile from before the tutorial existed, or one that already finished it, has `isTrackDone('ship')` true and
+   * is contacted exactly as before (with no track record in the save the answer comes from 「is this an untouched
+   * ship?」 — `tutorial/TutorialSystem.isTrackDone`).
    */
   private tutorialBlocks(): boolean {
     const t = this.ctx.tutorial;
@@ -256,14 +270,16 @@ export class NpcQuests implements NpcQuestRef {
   }
 
   /**
-   * 그 NPC 가 아직 첫 연락의 **선택지에 답하지 않았다** (2026-09-14 3차). `introAfter` 가 있는 줄은 본론이 선택지 뒤에
-   * 오므로, 답하기 전에 퀘스트를 제안하면 인사 다음에 곧장 카드가 떨어진다.
+   * That NPC **has not answered the first contact's choices** yet (2026-09-14 3rd pass). On a row with `introAfter`
+   * the main point comes after the choices, so offering a quest before the answer drops the card straight after
+   * the greeting.
    *
-   * ⚠ 막는 것은 그 NPC 의 **첫 제안 하나**뿐이다 — 이미 퀘스트가 하나라도 있으면(상태 무관) 첫 연락의 순간은
-   * 지나간 것이므로 통과시킨다. 그러지 않으면 두 자리에서 **영영 막힌다**:
-   *   ① `introChoices` 가 없던 시절에 연락이 온 옛 세이브 (`intro` 만 있고 `choice` 가 없다) — 그 NPC 의 체인이
-   *      통째로 멈춘다. 지금은 메신저가 선택지를 띄워 주므로 답하면 풀리지만, 답하지 않아도 막히지는 않는다.
-   *   ② 콘솔 · 스모크의 `forceOffer` 처럼 첫 연락을 건너뛰고 심은 퀘스트.
+   * ⚠ What it blocks is that NPC's **first offer alone** — once any quest exists (whatever its state) the moment of
+   * first contact has passed, so it is let through. Otherwise it would block **forever** in two places:
+   *   ① An old save contacted back when `introChoices` did not exist (`intro` only, no `choice`) — that NPC's whole
+   *      chain would stop. The messenger puts the choices up now, so answering releases it, and not answering never
+   *      blocks it either.
+   *   ② A quest planted past first contact, as the console's · a smoke test's `forceOffer` does.
    */
   private introPending(npc: NpcDef): boolean {
     if (!npc.introAfter?.length) return false;
@@ -272,7 +288,10 @@ export class NpcQuests implements NpcQuestRef {
     return !(save.log[npc.id] ?? []).some((e) => e.e === 'choice');
   }
 
-  /** 조건이 맞은 NPC 의 첫 연락 + NPC 마다 다음 제안 하나. 함선에서만(튜토리얼 · 훈련장 제외). 무언가 붙었으면 true. */
+  /**
+   * First contact for every NPC whose requirements are met, plus one next offer per NPC. In the ship only (the
+   * tutorial · the training range excluded). True when anything was added.
+   */
   evaluate(): boolean {
     const ctx = this.ctx;
     if (!ctx || this.evaluating || !this.sys.inShip || this.sys.inTraining() || this.tutorialBlocks()) return false;
@@ -288,7 +307,7 @@ export class NpcQuests implements NpcQuestRef {
           this.log(npc.id, 'intro');
           changed = true;
         }
-        // 2026-09-14 3차: 선택지에 답하기 전에는 본론도 제안도 오지 않는다
+        // 2026-09-14 3rd pass: neither the main point nor an offer arrives before the choices are answered
         if (this.introPending(npc)) continue;
         if (NPC_QUEST_DEFS.some((q) => q.npc === npc.id && save.quests[q.id]?.s === 'offered')) continue;
         const next = NPC_QUEST_DEFS.find((q) => q.npc === npc.id && !save.quests[q.id] && requirementMet(q.requires, rc));
@@ -307,9 +326,9 @@ export class NpcQuests implements NpcQuestRef {
     this.ctx.bus.emit('npc:questChanged', { id: def.id, npc: def.npc, state: 'offered', prev: null });
   }
 
-  /* ── 콘솔 · 스모크 ────────────────────────────────────────────────────── */
+  /* ── Console · smoke tests ────────────────────────────────────────────── */
 
-  /** 조건을 무시하고 첫 연락. 이미 연락했으면 false. */
+  /** First contact, ignoring the requirements. False when contact has already been made. */
   forceContact(npcId: string): boolean {
     if (!NPC_DEF_MAP.has(npcId) || this.save.contacts[npcId]) return false;
     this.save.contacts[npcId] = { at: Date.now(), readAt: 0 };
@@ -318,7 +337,7 @@ export class NpcQuests implements NpcQuestRef {
     return true;
   }
 
-  /** 조건을 무시하고 제안 (연락이 없으면 연락부터). 이미 상태가 있으면 false. */
+  /** An offer, ignoring the requirements (contact first when there is none). False when a state already exists. */
   forceOffer(questId: string): boolean {
     const def = NPC_QUEST_MAP.get(questId);
     if (!def || this.save.quests[questId]) return false;
@@ -329,7 +348,10 @@ export class NpcQuests implements NpcQuestRef {
     return true;
   }
 
-  /** 개발용: 목표 진행을 `n` 으로 — 납품은 확정 진행, 레이드 목표는 이번 레이드 진행 + 확정 시도(회수는 탈출로 본다). */
+  /**
+   * Dev only: sets an objective's progress to `n` — a delivery goes into the confirmed progress, a raid objective
+   * into this raid's progress plus a confirm attempt (`recover` is read as extracted).
+   */
   devProgress(questId: string, index: number, n: number): boolean {
     const def = NPC_QUEST_MAP.get(questId);
     const s = this.save.quests[questId];
@@ -351,7 +373,7 @@ export class NpcQuests implements NpcQuestRef {
     return true;
   }
 
-  /** 전부 지운다 (`resetMeta` · 콘솔). 저장 데이터는 호출자가 이미 새로 만들었다. */
+  /** Clears everything (`resetMeta` · the console). The caller has already made the save data fresh. */
   reset(): void {
     this.raidProgress.clear();
     this.searched.clear();
@@ -361,7 +383,7 @@ export class NpcQuests implements NpcQuestRef {
     this.emitUnread(true);
   }
 
-  /* ── NpcQuestRef: 대화 ────────────────────────────────────────────────── */
+  /* ── NpcQuestRef: the conversation ────────────────────────────────────── */
 
   getContacts(): readonly NpcContactInfo[] {
     const out: NpcContactInfo[] = [];
@@ -394,9 +416,9 @@ export class NpcQuests implements NpcQuestRef {
   }
 
   /**
-   * 2026-09-15 (사용자 결정 — 「확인해야 다음 메시지가 온다」): 마지막으로 읽은 시각. 저장된 사실(`contacts[id].readAt`)을
-   * 그대로 돌려주는 **질의**일 뿐이라 기록 · 저장 · `npc:unreadChanged` 는 한 줄도 바뀌지 않는다 —
-   * 메신저가 「어디까지가 이미 읽은 말풍선인가」를 알아야 그 뒤부터 `...` 로 풀 수 있다.
+   * 2026-09-15 (user's decision — 「확인해야 다음 메시지가 온다」): when it was last read. It is only a **query** that
+   * hands back a saved fact (`contacts[id].readAt`), so not one line of the log, the save or `npc:unreadChanged`
+   * changes — the messenger has to know 「how far the bubbles have already been read」 to type out the rest with `...`.
    */
   readAtOf(npcId: string): number {
     const at = this.save.contacts[npcId]?.readAt ?? 0;
@@ -409,17 +431,18 @@ export class NpcQuests implements NpcQuestRef {
     return n;
   }
 
-  /* ── 대사 선택지 (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ──────────────
-   * 2026-09-14 3차부터 **NPC 10명 전부**가 선택지를 갖는다. 고르기 전까지 대화가 그 자리에서 기다리고
-   * (본론 `introAfter` 도 퀘스트 제안도 오지 않는다), 고르면 사건 하나(`choice`)가 남아 내 대답 · NPC 의 답 ·
-   * 본론이 한꺼번에 붙는다. **분기는 남지 않는다.** */
+  /* ── Dialogue choices (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ────
+   * Since the 2026-09-14 3rd pass **all 10 NPCs** have choices. The conversation waits where it is until one is
+   * picked (neither the main point `introAfter` nor a quest offer arrives), and picking leaves a single event
+   * (`choice`) from which my answer · the NPC's reply · the main point are all resolved at once.
+   * **No branch is kept.** */
 
   getPendingChoices(npcId: string): readonly string[] {
     const npc = NPC_DEF_MAP.get(npcId);
     if (!npc?.introChoices?.length) return [];
     const list = this.save.log[npcId] ?? [];
-    if (!list.some((e) => e.e === 'intro')) return [];          // 아직 첫 연락이 오지 않았다
-    if (list.some((e) => e.e === 'choice')) return [];          // 이미 골랐다
+    if (!list.some((e) => e.e === 'intro')) return [];          // first contact has not arrived yet
+    if (list.some((e) => e.e === 'choice')) return [];          // already picked
     return npc.introChoices;
   }
 
@@ -427,7 +450,8 @@ export class NpcQuests implements NpcQuestRef {
     const choices = this.getPendingChoices(npcId);
     if (index < 0 || index >= choices.length) return false;
     this.log(npcId, 'choice', undefined, index);
-    // 2026-09-14 3차: 본론(`introAfter`)까지 말한 NPC 는 이제 제안할 수 있다 — 답한 자리에서 바로 카드가 온다
+    // 2026-09-14 3rd pass: an NPC that has spoken the main point (`introAfter`) may now offer —
+    // the card arrives right where the answer was given
     this.evaluate();
     this.emitUnread();
     return true;
@@ -438,8 +462,9 @@ export class NpcQuests implements NpcQuestRef {
     const say = (at: number, lines: readonly string[]): void => { for (const text of lines) out.push({ at, from: 'npc', text }); };
     for (const en of entries) {
       if (en.e === 'intro') { say(en.at, npc.intro); continue; }
-      /* 2026-09-14 (대사 선택지): 퀘스트가 없는 사건이라 `q` 검사 앞에서 푼다. 고른 라벨 한 줄 + NPC 의 답 +
-       * 2026-09-14 3차부터 그 뒤의 **본론**(`introAfter`) — 첫 연락은 인사 → 선택지 → 본론 3단이다. */
+      /* 2026-09-14 (dialogue choices): an event with no quest, so it is resolved ahead of the `q` check. One line
+       * for the label picked + the NPC's reply +, since the 2026-09-14 3rd pass, the **main point**
+       * (`introAfter`) after it — first contact has three steps: the greeting → the choices → the main point. */
       if (en.e === 'choice') {
         const i = en.c ?? -1;
         const label = npc.introChoices?.[i];
@@ -475,11 +500,12 @@ export class NpcQuests implements NpcQuestRef {
     return m.from === 'me' ? `나: ${m.text}` : m.text;
   }
 
-  /* ── NpcQuestRef: 퀘스트 ──────────────────────────────────────────────── */
+  /* ── NpcQuestRef: quests ──────────────────────────────────────────────── */
 
   /**
-   * 2026-09-14 3차 (사용자 결정): **받은 퀘스트만** — `offered` · `deferred` 는 빠진다. 제안은 대화창의 퀘스트
-   * 카드로만 뜨고 목록에는 진행 중 · 완료만 남는다. 카드가 읽는 `getQuest(id)` 는 상태와 무관하게 그대로 답한다.
+   * 2026-09-14 3rd pass (user's decision): **quests taken only** — `offered` · `deferred` drop out. An offer shows
+   * up only as a quest card in the chat, and the list keeps the active and the complete ones alone. `getQuest(id)`,
+   * which the card reads, answers regardless of the state.
    */
   getQuests(): readonly NpcQuestInfo[] {
     const out: NpcQuestInfo[] = [];
@@ -497,7 +523,7 @@ export class NpcQuests implements NpcQuestRef {
     return def && s ? this.info(def, s) : null;
   }
 
-  /** `MetaRef.getQuestState` — 정의가 없어도 저장된 상태로 답한다 (스모크 · 옛 문서). */
+  /** `MetaRef.getQuestState` — answers from the saved state even with no def (a smoke test · an old document). */
   questState(id: string): QuestState {
     return legacyQuestState(this.save.quests[id]?.s);
   }
@@ -555,9 +581,10 @@ export class NpcQuests implements NpcQuestRef {
   }
 
   /**
-   * ⚠ **은퇴** (2026-09-14 3차, 사용자 결정 — 「생각해보지」 제거). 아무것도 하지 않고 늘 false 다:
-   * `deferred` 상태로 가는 길도, 새 `decline` 로그도 더는 만들지 않는다. 옛 세이브의 `deferred` 는 그대로 읽히고
-   * (`accept` 가 `brief` 로 받아 준다) 옛 `decline` · `brief` 기록도 그대로 풀린다 — 새로 생기지 않을 뿐이다.
+   * ⚠ **Retired** (2026-09-14 3rd pass, user's decision — 「생각해보지」 removed). It does nothing and is always
+   * false: no path into the `deferred` state and no new `decline` entry is written any more. An old save's
+   * `deferred` still reads (`accept` takes it as `brief`) and old `decline` · `brief` entries still resolve — they
+   * simply never appear again.
    */
   defer(_id: string): boolean { return false; }
 
@@ -593,11 +620,11 @@ export class NpcQuests implements NpcQuestRef {
     if (!def || !s || s.s !== 'active' || !this.sys.inShip) return false;
     if (!def.objectives.every((o, i) => (s.p[i] ?? 0) >= o.target)) return false;
     const loot = this.ctx.loot;
-    // 보상 아이템부터 — 하나라도 안 들어가면 넣은 것을 되돌리고 아무것도 바꾸지 않는다
+    // The reward items first — if any does not fit, the placed ones are taken back and nothing changes
     const placed: ItemInstance[] = [];
     for (const r of def.rewards.items) {
       const rdef = loot?.getItemDef(r.defId);
-      if (!loot || !rdef) continue;   // 모르는 보상 id 는 건너뛴다 (사슬을 막지 않는다 — data:check 가 잡는다)
+      if (!loot || !rdef) continue;   // unknown reward id → skip (must not block the chain — data:check catches it)
       let left = Math.max(1, Math.floor(r.qty));
       while (left > 0) {
         const n = Math.min(Math.max(1, rdef.stackMax), left);
@@ -617,12 +644,14 @@ export class NpcQuests implements NpcQuestRef {
     const data = this.sys.store.data;
     data.stats.questsDone += 1;
     if (def.rewards.credits > 0) {
-      this.sys.addCredits(def.rewards.credits, formatCreditReason({ kind: 'quest', id }));   // 서버 원장: 퀘스트 id 당 한 번
+      // server ledger: once per quest id
+      this.sys.addCredits(def.rewards.credits, formatCreditReason({ kind: 'quest', id }));
       data.stats.creditsEarned += def.rewards.credits;
     }
     for (const r of def.rewards.rep) if (r.amount > 0) this.sys.addRep(r.corp, r.amount, `quest:${id}`);
-    /* 2026-09-14: 기업 신뢰도와 **같은 자리**에서 그 NPC 의 개인 신뢰도도 준다 — 서로를 대신하지 않는다.
-     * 크레딧이 아니라 서버 검증과 무관하고 (`credits:tx` 를 타지 않는다), 무소속 NPC 는 이것만 받는다. */
+    /* 2026-09-14: per-NPC trust is granted **in the same place** as corp reputation — neither replaces the other.
+     * It is not credits, so no server validation applies (it never goes through `credits:tx`), and an unaffiliated
+     * NPC gives only this. */
     if (def.rewards.npcTrust > 0) this.addTrust(def.npc, def.rewards.npcTrust, npcTrustReason(id));
     const prog = this.ctx.progression;
     if (def.rewards.xp > 0 && prog && typeof prog.addXp === 'function') { try { prog.addXp(def.rewards.xp); } catch { /* progression not ready */ } }
@@ -635,6 +664,6 @@ export class NpcQuests implements NpcQuestRef {
     return true;
   }
 
-  /** 레이드 정산 — `MetaSystem.settleMission` 이 계약 정산 전에 부른다. */
+  /** Raid settlement — `MetaSystem.settleMission` calls it before the contract settles. */
   settleRaid(stats: MissionStats | null | undefined): void { Obj.settleRaid(this, stats); }
 }

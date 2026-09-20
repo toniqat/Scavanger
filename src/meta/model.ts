@@ -1,9 +1,9 @@
 /**
- * src/meta/model.ts — 메타 진행 폴더의 공용 어휘.
+ * src/meta/model.ts — the meta-progression folder's shared vocabulary.
  *
- * `MetaSystem` 에서 떼어낸 상수 · 타입(그리고 상태 없는 보조 클래스)만 있다. 클래스를 참조하지 않으므로
- * `parts/*` 모듈이 `MetaSystem.ts` 를 되돌아 import 하지 않고 쓸 수 있다(순환 import 방지).
- * `MetaSystem.ts` 가 `export *` 로 재수출하므로 기존 import 경로는 전부 유지된다.
+ * Only the constants and types (and the stateless helper classes) lifted out of `MetaSystem`. It references no
+ * class, so a `parts/*` module can use it without importing `MetaSystem.ts` back (no import cycle).
+ * `MetaSystem.ts` re-exports it with `export *`, so every existing import path still resolves.
  */
 import type {
   ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
@@ -74,7 +74,7 @@ export interface ImplantRepairInfo {
   cost: readonly { defId: string; qty: number; have: number }[];
   /** Credit fee (`IMPLANT_REPAIR_FEE × grade`). */
   fee: number;
-  /** 한국어 reason `repairImplant` would refuse now, null = ready. */
+  /** Korean reason `repairImplant` would refuse now, null = ready. */
   blocked: string | null;
 }
 

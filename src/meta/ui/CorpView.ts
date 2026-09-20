@@ -7,7 +7,7 @@ import {
   appendCurrencyRewards, buildItemChip, createHoldButtonCap, formatCreditAmount, formatCredits, renderItemCost, repCurrencyId,
 } from '@/shared';
 import type { ImplantRepairInfo, ImplantRepairResult, MetaSystem, PurchaseFailure } from '../MetaSystem';
-/* 2026-09-16: 매대 한 칸이 몇 개인가 (탄약 = 풀 스택) — 규칙은 `Rules.shopQtyOf` 하나다 */
+/* 2026-09-16: how many units one shelf slot gives (ammo = a full stack) — `Rules.shopQtyOf` is the one rule */
 import { shopQtyOf } from '../Rules';
 import { chevrons, el, fmtNum, setText, toggleClass } from './dom';
 import { HoldAsk } from './HoldAsk';
@@ -20,44 +20,51 @@ import { TileGrid, type TileSpec } from './TileGrid';
  * 기업 tab. The ship computer's `E` calls `ctx.inventory.openScreen('corp')`, so there is exactly one 기업 네트워크
  * screen in the game and the window owns the blocker, the cursor and Escape.
  *
- * Screen shape (**2026-09-13, 사용자 결정 — 한 줄로 늘어선 독립 카드들**):
+ * Screen shape (**2026-09-13, user's decision — independent cards standing in one row**):
  *
- *   `.corp-rail`  기업 목록 카드 — 화면 맨 왼쪽, 호스트 격자의 첫 칸(세로 전부). 트리다: 선택한 기업 버튼 **바로 아래**에
- *                 가지(`.corp-branch`)가 열린다 — 신뢰도 Lv · 경험치 게이지, 그 아래 거래 / 계약 / 임플란트 탭.
- *   `.corp-shell` → `.corp-page` → 페이지 루트(`.cv` / `.ci` / `.cc`) — **카드가 가로 한 줄**로 선다:
- *     • 거래     [판매 물품] [거래 테이블(구매 · 판매 트레이 · 크레딧 변화 · 1초 홀드)] [창고 · 가방]
- *     • 임플란트 [망가진 임플란트 + 수리 카드] [창고 · 가방]
- *   **2026-09-14: 퀘스트 탭 삭제** — 기업 퀘스트가 없어졌다. 퀘스트는 NPC 가 메신저로 준다 (`ctx.meta.npc`, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
- *     • 계약     기업 목록만 분리됐고 나머지(계약 목록 | 진행 중인 계약)는 한 카드 그대로.
- *   **2026-09-15 3차 (사용자 결정 — 창고 + 가방은 한 패널이다)**: 둘은 **한 카드**(`.cv-inv`)이고 그 안에서
- *   `TradeGrids` 가 왼쪽 창고 · 오른쪽 내 가방을 **칸마다 자기 정렬 · 자기 필터 · 자기 세로 스크롤**로 그린다 —
- *   `InventoryRef.createTradeGrids(card, { grids: ['stash','bag'], layout: 'split' })` 를 **한 번**만 부른다
- *   (옛 배치는 카드마다 한 번씩 두 번이라 카드가 둘이었다). ⚠ 그래서 `fitLayout` 이 이 카드의 격자 칸 수를
- *   **합**으로 잰다 (`gridColsIn(card, step, 'sum')`) — 두 격자가 나란히 서므로 카드 폭이 둘 다와 함께 자란다.
+ *   `.corp-rail`  the corp rail card — screen far left, the host grid's first cell (the whole height). It is a tree:
+ *                 a branch (`.corp-branch`) opens **right under** the selected corp's button — 신뢰도 Lv · the XP
+ *                 gauge, and under those the 거래 / 계약 / 임플란트 tabs.
+ *   `.corp-shell` → `.corp-page` → the page root (`.cv` / `.ci` / `.cc`) — **the cards stand in one row**:
+ *     • 거래     [판매 물품] [the 거래 테이블 (구매 · 판매 trays · credit change · 1 s hold)] [창고 · 가방]
+ *     • 임플란트 [broken implants + the repair card] [창고 · 가방]
+ *   **2026-09-14: the quest tab was deleted** — corp quests are gone. Quests come from NPCs through the messenger
+ *   (`ctx.meta.npc`, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ *     • 계약     only the corp list moved out; the rest (계약 목록 | 진행 중인 계약) stays one card.
+ *   **2026-09-15 3rd pass (user's decision — 창고 + 가방 are one panel)**: the two are **one card** (`.cv-inv`), and
+ *   inside it `TradeGrids` draws 창고 on the left and my 가방 on the right, **each pane with its own sort · own
+ *   filter · own vertical scroll** — `InventoryRef.createTradeGrids(card, { grids: ['stash','bag'],
+ *   layout: 'split' })` is called **once** (the old layout called it once per card, so there were two cards).
+ *   ⚠ So `fitLayout` measures this card's grid columns as a **sum** (`gridColsIn(card, step, 'sum')`) — the two
+ *   grids stand side by side, so the card's width grows with both.
  *
- * **칸 크기 = 40 px, 창이 좁으면 32 px 까지 스스로 줄어든다 (2026-09-13).** `fitLayout` 이 지금 페이지의 카드들을
- * **실측**한다 — 격자 칸 수에 비례하지 않는 몫(카드 안여백 · 테두리 · 스크롤바 자리 · 간격 · 유동 카드의 최소 폭)을 재서
- * `floor((가용 폭 − 고정 몫) / 칸 수) − 간격` 을 [32, 40] 으로 자른다. 32 px 로도 안 들어가면 그때만 함선 창고 · 가방
- * 카드를 숨기고(`.is-inv-hidden`) 남은 카드로 다시 계산한다. 호스트의 `ResizeObserver`(디바운스)와 페이지 전환이
- * 다시 맞춘다 — 창 리스너는 없다. CSS 는 `--cv-cell` / `--cv-step` 을 읽고, 수치는 CSS 에만 있다(여기서 베끼지 않는다).
+ * **Cell size = 40 px, shrinking by itself down to 32 px when the window is narrow (2026-09-13).** `fitLayout`
+ * **measures** the current page's cards — it measures the fixed share, the part that is not proportional to the grid
+ * column count (card padding · border · scrollbar room · gaps · a fluid card's minimum width), and clamps
+ * `floor((available width − fixed share) / cell count) − gap` to [32, 40]. Only when even 32 px does not fit are the
+ * 함선 창고 · 가방 cards hidden (`.is-inv-hidden`) and the rest re-computed. The host's `ResizeObserver` (debounced)
+ * and a page switch re-fit it — there is no window listener. CSS reads `--cv-cell` / `--cv-step`, and the numbers
+ * live in CSS alone (never copied here).
  *
- * **거래칸의 모든 칸은 인벤토리 타일이다 (2026-09-12).** 기업 판매 물품 · 구매 / 판매 트레이 · 임플란트 데스크가
- * `InventoryRef.buildItemTile` 로 만든 `.inv-tile` 을 `TileGrid` 가 `.inv-cells` 위에 발자국대로 채운다 — 가방 /
- * 창고와 **같은 모양**이고 `data-item-tip` 으로 공용 호버 카드가 뜬다. 클래스 접두사는 `.cv-` 다.
+ * **Every cell of the trade desk is an inventory tile (2026-09-12).** 기업 판매 물품, the 구매 / 판매 trays and the
+ * 임플란트 desk hand `TileGrid` an `.inv-tile` built by `InventoryRef.buildItemTile`, and it packs them over
+ * `.inv-cells` by footprint — the **same shape** as the 가방 / 창고 beside them, and `data-item-tip` raises the shared
+ * hover card. The class prefix is `.cv-`.
  *
- * **거래 성사는 1초 홀드다 (2026-09-12)** (`UI_HOLD_CONFIRM_S`, 제작 · 분해와 같은 게이지). 클릭 · Enter 로는
- * 확정되지 않는다. 구매 트레이 우측 상단의 오른쪽 셰브런 셋은 "이 물건이 내 쪽으로 온다", 판매 트레이 좌측 상단의
- * 왼쪽 셰브런 셋은 "기업 쪽으로 간다" 이고, 가운데 한 줄이 거래 후 크레딧 변화(+ 초록 ▲ 오른쪽 / − 빨강 ▼ 왼쪽)다.
+ * **`거래 성사` is a 1 s hold (2026-09-12)** (`UI_HOLD_CONFIRM_S`, the same gauge as 제작 · 분해). Click and Enter
+ * never confirm. The three right-pointing chevrons at the 구매 tray's top right say "this comes to my side", the
+ * three left-pointing ones at the 판매 tray's top left say "this goes to the corp", and the single line between them
+ * is the credit change after the trade (+ green ▲ right / − red ▼ left).
  *
  * Pages:
  *   • **거래**: items are staged into a tray (click, or drag a stock tile / an inventory tile onto it) and the basket
  *     settles at once;
  *   • **계약**: the corp's contract list and **진행 중인 계약** drawn in **that contract's corp colour** (2026-09-12);
- *   • **임플란트** (세레스 바이오 only): 망가진 임플란트 타일 + 수리 카드, the inventory cards (read-only there).
+ *   • **임플란트** (세레스 바이오 only): broken implant tiles + the repair card, the inventory cards (read-only there).
  *
- * **탭 잠금 (2026-09-08)**: a page the current 신뢰도 cannot use looks locked (`.is-locked`) but stays clickable so
- * the click can say why, and the view opens on the first open page instead (`resolvePage` — 2026-09-14: 퀘스트 탭이 없어져
- * 계약 → 임플란트 순으로 찾는다).
+ * **Tab locking (2026-09-08)**: a page the current 신뢰도 cannot use looks locked (`.is-locked`) but stays clickable
+ * so the click can say why, and the view opens on the first open page instead (`resolvePage` — 2026-09-14: with the
+ * quest tab gone it searches 계약 → 임플란트).
  *
  * Page bodies are built **once** and swapped, not rebuilt per refresh — the embedded grids own bus subscriptions and
  * a pointer drag, so recreating them on every `inventory:changed` would drop a drag mid-flight.
@@ -74,9 +81,9 @@ const PAGES: readonly { id: CorpPage; label: string; corp?: CorpId }[] = [
 const pagesFor = (corp: CorpId): CorpPage[] => PAGES.filter((p) => !p.corp || p.corp === corp).map((p) => p.id);
 
 /**
- * Cell edge of every item grid on this screen, in px (2026-09-13, 사용자 결정): **40**, shrunk to fit the window down to
- * **32** (`fitLayout`). The gap is the Tab 인벤토리's own (`inventory/ui/labels.GAP`). CSS reads the live value from
- * `--cv-cell` / `--cv-step` on the host (`applyCellVars`).
+ * Cell edge of every item grid on this screen, in px (2026-09-13, user's decision): **40**, shrunk to fit the
+ * window down to **32** (`fitLayout`). The gap is the Tab 인벤토리's own (`inventory/ui/labels.GAP`). CSS reads the
+ * live value from `--cv-cell` / `--cv-step` on the host (`applyCellVars`).
  */
 const CV_CELL_MAX = 40;
 const CV_CELL_MIN = 32;
@@ -84,15 +91,17 @@ const CV_GAP = 2;
 /** Columns of a 구매 / 판매 tray — an item is at most five cells wide. */
 const TRAY_COLS = 5;
 /**
- * 2026-09-16 (사용자 결정): **기업 판매 물품 매대는 가로 10 칸 고정**이다. 남는 폭을 전부 먹던 유동 카드(`.is-fluid`)라
- * 창이 넓을수록 매대만 끝없이 넓어지고 타일이 성기게 흩어졌다 — 칸 수를 못 박으면 매대 폭이 창 크기와 무관해지고,
- * 좁은 창에서는 `fitLayout` 이 칸 변(40 → 32 px)을 줄여 맞춘다. CSS 의 `.cv-col.shop` 최소 폭이 같은 10 을 쓴다.
+ * 2026-09-16 (user's decision): **the 기업 판매 물품 shelf is a fixed 10 cells wide**. As a fluid card (`.is-fluid`)
+ * eating every leftover pixel, the wider the window the wider the shelf alone grew and its tiles scattered thinly —
+ * pinning the cell count makes the shelf's width independent of the window size, and in a narrow window `fitLayout`
+ * shrinks the cell edge (40 → 32 px) to fit instead. CSS's `.cv-col.shop` minimum width uses the same 10.
  */
 const SHOP_COLS = 10;
 /**
- * 2026-09-16 (사용자 결정): 기업 거래 화면의 타일은 호버 카드 아래 바에 「가치」 대신 **이 화면에서 오가는 값**을
- * 적는다 — 매대 · 구매칸은 구매가, 판매칸은 판매가. 공용 카드(`ui/hud/ItemTip`)가 `closest` 로 읽는 옵트인 속성이라
- * 여기서는 `dataset` 으로만 찍는다 (폴더 간 import 금지). 값이 없는 타일(가방 · 창고)은 그대로 「가치」다.
+ * 2026-09-16 (user's decision): a tile on the corp trade screen writes **the value that moves on this screen** in
+ * the hover card's bottom bar instead of 「가치」 — 구매가 on the 매대 · 구매칸, 판매가 on the 판매칸. It is an opt-in
+ * attribute the shared card (`ui/hud/ItemTip`) reads with `closest`, so here it is only stamped through `dataset`
+ * (no cross-folder import). A tile with no such value (가방 · 창고) keeps 「가치」.
  */
 const TIP_PRICE_ATTR = 'data-tip-price';
 const TIP_PRICE_LABEL_ATTR = 'data-tip-price-label';
@@ -107,8 +116,8 @@ interface SellLine { uid: string; qty: number }
 
 /**
   * The **one** 창고 + 가방 card and the embedded view inside it.
-  * 2026-09-15 3차 (사용자 결정): 카드가 하나다 — `TradeGrids` 가 그 안에서 왼쪽 창고 · 오른쪽 내 가방을 그린다.
-  * 옛 `id: 'stash' | 'bag'` 은 카드마다 격자 하나였을 때의 것이라 없어졌다.
+  * 2026-09-15 3rd pass (user's decision): there is one card — inside it `TradeGrids` draws 창고 on the left and my
+  * 가방 on the right. The old `id: 'stash' | 'bag'` came from when a card held one grid each, and is gone.
   */
 interface InvCard {
   card: HTMLElement;
@@ -123,9 +132,9 @@ const isTradeGridsView = (v: EmbeddedView): v is TradeGridsView => typeof (v as 
 /**
   * Item-grid width of a card, in cells.
   * - `'max'` (default): the 거래 테이블's two trays are **stacked**, so the card is as wide as the widest one.
-  * - `'sum'` (2026-09-15 3차): the 창고 + 가방 card holds its two grids **side by side** in one `.tg-scroll`, so the
-  *   card grows with both — measuring only the widest would leave the other grid's width inside `chrome`, which
-  *   `fitLayout` treats as a constant, and the fit would over-shoot every time the cell changed.
+  * - `'sum'` (2026-09-15 3rd pass): the 창고 + 가방 card holds its two grids **side by side** in one `.tg-scroll`,
+  *   so the card grows with both — measuring only the widest would leave the other grid's width inside `chrome`,
+  *   which `fitLayout` treats as a constant, and the fit would over-shoot every time the cell changed.
   */
 function gridColsIn(card: HTMLElement, step: number, mode: 'max' | 'sum' = 'max'): number {
   let n = 0;
@@ -152,7 +161,10 @@ export class CorpView {
   private readonly subTabs = new Map<CorpPage, HTMLButtonElement>();
   private readonly page: HTMLElement;
   private readonly msg: HTMLElement;
-  /** 2026-09-12 (E2): 즐겨찾기 아이템을 팔 때의 한 번 더 확인 (1초 홀드 · Escape 취소). Hangs off `ctx.uiRoot`. */
+  /**
+   * 2026-09-12 (E2): the confirm-once-more popup for selling a favorite item (1 s hold · Escape cancels).
+   * Hangs off `ctx.uiRoot`.
+   */
   private readonly ask: HoldAsk;
   /** 귀중품 전부 담기 — under the 판매 tray, so it is built with the 거래 page. */
   private btnStageValuables: HTMLButtonElement | null = null;
@@ -162,7 +174,7 @@ export class CorpView {
   private msgTimer = 0;
   private disposed = false;
 
-  /* ── 2026-09-13: 칸 크기 맞춤 ── */
+  /* ── 2026-09-13: cell size fitting ── */
   /** Cell edge in px right now (`CV_CELL_MIN … CV_CELL_MAX`). */
   private cell = CV_CELL_MAX;
   /** 함선 창고 · 가방 cards hidden because even `CV_CELL_MIN` does not fit. */
@@ -228,9 +240,10 @@ export class CorpView {
     };
 
     /*
-     * 기업 목록은 **독립 카드**다 — 호스트의 직접 자식이고 `.corp-shell` 밖이다 (2026-09-12 2차). 2026-09-13 부터는
-     * 페이지의 카드들과 **한 줄**로 서서 세로를 다 쓴다. 좌 열은 그대로 **트리**다 — 기업 버튼들 사이에, 선택한 기업
-     * 바로 아래로 가지 하나가 옮겨 다닌다. `기업` 제목 줄은 없다 (2026-09-12, 사용자 결정).
+     * The corp rail is an **independent card** — a direct child of the host, outside `.corp-shell` (2026-09-12 2nd
+     * pass). Since 2026-09-13 it stands in **one row** with the page's cards and uses the whole height. The left
+     * column is still a **tree** — one branch travels among the corp buttons, right under the selected corp. There is
+     * no `기업` title row (2026-09-12, user's decision).
      */
     const rail = add(el('div', { cls: 'corp-rail', parent: host }));
     const tabs = el('div', { cls: 'corp-tabs', parent: rail, attrs: { role: 'tree' } });
@@ -246,7 +259,7 @@ export class CorpView {
     }
 
     this.branch = el('div', { cls: 'corp-branch', parent: tabs, attrs: { role: 'group' } });
-    /* 신뢰도 게이지 — `신뢰도` 라벨은 붙이지 않는다: 기업 바로 아래의 눈금이 무엇을 재는지는 설명할 것이 없다. */
+    /* The 신뢰도 gauge — no `신뢰도` label: what the ticks right under the corp measure needs no explaining. */
     const repEl = el('div', { cls: 'corp-rep', parent: this.branch });
     const repRow = el('div', { cls: 'row', parent: repEl });
     const lv = el('span', { cls: 'lv', text: 'Lv.0', parent: repRow });
@@ -290,7 +303,7 @@ export class CorpView {
       b.on('inventory:changed', refresh), b.on('inventory:stashChanged', refresh), b.on('loadout:changed', refresh),
       // 2026-09-12 (E2): the tiles carry the blue ribbon from `buildItemTile` — rebuild them when a favorite flips
       b.on('inventory:favoritesChanged', refresh),
-      // 2026-09-13 (서재 시리즈): `buildItemTile` 은 「아직 꽂지 않은」 책 · 비디오 · 레코드에도 같은 띠를 단다
+      // 2026-09-13 (library series): `buildItemTile` puts the same ribbon on a 「아직 꽂지 않은」 book · video · record
       b.on('housing:libraryChanged', refresh),
       meta.onPurchaseFailure((f: PurchaseFailure) => {
         if (!this.visible || this.settling) return;
@@ -320,7 +333,8 @@ export class CorpView {
 
   setCorp(corp: CorpId): void {
     if (this.corp === corp || !CORP_DEFS[corp]) return;
-    // 2026-09-17 (사용자 결정): 신뢰도가 `CORP_ACCESS_REP_LEVEL` 미만인 기업은 고를 수 없다 — 하위 탭 잠금과 같은 결로 클릭은 받아 이유를 말한다
+    // 2026-09-17 (user's decision): a corp whose 신뢰도 is below `CORP_ACCESS_REP_LEVEL` cannot be selected — like
+    // the sub-tab locking it still takes the click and says why
     const lock = this.corpLock(corp);
     if (lock) {
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
@@ -344,8 +358,9 @@ export class CorpView {
   }
 
   /**
-   * 2026-09-17 (사용자 결정): why `corp` cannot be selected (Korean), or null. A corp opens at `CORP_ACCESS_REP_LEVEL` — the
-   * first level comes from that corp's first NPC quest (`data/npc_quests.csv`), and every contract starts at Lv.1.
+   * 2026-09-17 (user's decision): why `corp` cannot be selected (Korean), or null. A corp opens at
+   * `CORP_ACCESS_REP_LEVEL` — the first level comes from that corp's first NPC quest (`data/npc_quests.csv`), and
+   * every contract starts at Lv.1.
    */
   corpLock(corp: CorpId): string | null {
     return this.meta.getRep(corp).level < CORP_ACCESS_REP_LEVEL ? `신뢰도 Lv.${CORP_ACCESS_REP_LEVEL} 필요` : null;
@@ -388,7 +403,7 @@ export class CorpView {
 
   /**
    * 2026-09-08: a rep-locked sub-tab stays enabled and only *looks* locked (`.is-locked`) — clicking it says why, as a
-   * **토스트** (`ui:notify`) and in the panel's own reserved message slot.
+   * **toast** (`ui:notify`) and in the panel's own reserved message slot.
    */
   setPage(page: CorpPage): void {
     if (!pagesFor(this.corp).includes(page)) return;
@@ -473,7 +488,7 @@ export class CorpView {
     if (this.fittedPage !== this.current) { this.fittedPage = this.current; this.scheduleFit(0); }
   }
 
-  /* ── 2026-09-13: 칸 크기 맞춤 (40 → 32 px, 그래도 모자라면 창고 · 가방 카드 숨김) ─────────────────────────── */
+  /* ── 2026-09-13: cell size fitting (40 → 32 px, and if that still misses, the 창고 · 가방 card hides) ── */
 
   private applyCellVars(): void {
     this.host.style.setProperty('--cv-cell', `${this.cell}px`);
@@ -580,16 +595,17 @@ export class CorpView {
   }
 
   /**
-   * 2026-09-16 (사용자 결정): 이 타일의 호버 카드는 「가치」 대신 `label`(`구매가` · `판매가`)과 `credits` 를 적는다.
-   * 가치는 아이템이 어디에 있든 같은 수라 거래 화면에서는 읽을 값이 아니다 — 여기서 실제로 오가는 돈은 신뢰도
-   * 할인이 든 구매가이거나 `SELL_PRICE_MUL` 이 든 판매가다. 공용 카드가 `closest` 로 읽으므로 타일에 찍으면 된다.
+   * 2026-09-16 (user's decision): this tile's hover card writes `label` (`구매가` · `판매가`) and `credits` instead
+   * of 「가치」. 가치 is the same number wherever the item sits, so it is not the value to read on a trade screen —
+   * the money that really moves here is a 구매가 with the 신뢰도 discount in it, or a 판매가 with `SELL_PRICE_MUL` in
+   * it. The shared card reads it with `closest`, so stamping the tile is enough.
    */
   private tagTipPrice(tile: HTMLElement, label: string, credits: number): void {
     tile.setAttribute(TIP_PRICE_ATTR, String(Math.max(0, Math.round(credits))));
     tile.setAttribute(TIP_PRICE_LABEL_ATTR, label);
   }
 
-  /* ══ 거래 (상점 + 판매) ═══════════════════════════════════════════════════ */
+  /* ══ 거래 — the shop and selling ══════════════════════════════════════ */
 
   private buildTrade(): HTMLElement {
     if (this.tradeEl) return this.tradeEl;
@@ -597,8 +613,9 @@ export class CorpView {
     toggleClass(root, 'is-inv-hidden', this.invHidden);
     const grid = { cell: this.cell, gap: CV_GAP };
 
-    /* 판매 물품 — 2026-09-16 (사용자 결정): 가로 `SHOP_COLS` 칸 **고정**이다. 옛 유동 카드(`.is-fluid`)가 아니라
-       내용 폭 카드라 `fitLayout` 이 다른 카드들처럼 실측한다 (CSS `.cv-col.shop` 의 최소 폭도 같은 칸 수다). */
+    /* 판매 물품 — 2026-09-16 (user's decision): **fixed** at `SHOP_COLS` cells wide. It is a content-sized card, not
+       the old fluid card (`.is-fluid`), so `fitLayout` measures it like every other card (CSS `.cv-col.shop`'s
+       minimum width is the same cell count). */
     const shop = el('div', { cls: 'cv-col shop cv-card', parent: root, attrs: { 'data-cv-cols': String(SHOP_COLS) } });
     el('div', { cls: 'cv-title', text: '기업 판매 물품', parent: shop });
     this.shopGrid = new TileGrid(shop, { ...grid, cols: SHOP_COLS, className: 'cv-shop' });
@@ -609,7 +626,8 @@ export class CorpView {
     const mkTray = (kind: 'buy' | 'sell', label: string): { tray: HTMLElement; grid: TileGrid; total: HTMLElement } => {
       const tray = el('div', { cls: `cv-tray ${kind}`, parent: trays });
       const head = el('div', { cls: 'cv-tray-head', parent: tray });
-      /* 셰브런 셋 = 물건이 흐르는 쪽. 구매는 우측 상단에서 오른쪽(내 가방 · 창고 쪽), 판매는 좌측 상단에서 왼쪽(기업 쪽). */
+      /* The three chevrons = the side things flow to. 구매 points right from the top right (toward my 가방 · 창고),
+         판매 left from the top left (toward the corp). */
       if (kind === 'sell') head.appendChild(chevrons('left', 3, 'flow'));
       el('span', { cls: 'k', text: label, parent: head });
       const total = el('span', { cls: 'v', text: '0', parent: head });
@@ -622,15 +640,17 @@ export class CorpView {
     this.sellGrid = sell.grid; this.sellTotalEl = sell.total;
     this.btnStageValuables = this.button(sell.tray, '귀중품 전부 담기', () => this.stageValuables(), 'cv-stage');
 
-    /* 거래 후 크레딧 변화 — 라벨 없이 가운데 한 줄.
-       2026-09-16 (사용자 결정): 양옆의 셰브런(▲ ▼)을 뺐다 — 부호와 글자색(`.cv-total.plus` / `.minus`)이 이미
-       방향을 말한다. 트레이 머리의 흐름 셰브런은 「물건이 어느 쪽으로 가는가」라 그대로 남는다. */
+    /* The credit change after the trade — one centred line, no label.
+       2026-09-16 (user's decision): the chevrons on either side (▲ ▼) were dropped — the sign and the text colour
+       (`.cv-total.plus` / `.minus`) already say the direction. The flow chevrons in the tray heads stay, because they
+       say 「물건이 어느 쪽으로 가는가」. */
     this.netEl = el('div', { cls: 'cv-total', parent: deal });
     this.netValEl = el('span', { cls: 'v', text: '0', parent: this.netEl });
 
     this.confirmBtn = el('button', { cls: 'ui-btn primary cv-confirm', parent: deal }) as HTMLButtonElement;
     this.confirmFill = el('i', { cls: 'cv-confirm-fill', parent: this.confirmBtn });
-    // 2026-09-15 2차 (사용자 결정): 「어떻게 누르는가」는 라벨 왼쪽의 좌클릭 홀드 키캡이 말한다.
+    // 2026-09-15 2nd pass (user's decision): 「how do I press it」 is told by the left-click hold keycap left of
+    // the label.
     createHoldButtonCap(this.confirmBtn);
     el('span', { cls: 'cv-confirm-label', text: '거래 성사', parent: this.confirmBtn });
     this.bindHold(this.confirmBtn);
@@ -644,8 +664,8 @@ export class CorpView {
   }
 
   /**
-   * 거래 성사 = **1초 홀드** (2026-09-12, `UI_HOLD_CONFIRM_S`). Click and keyboard activation do nothing; a short press
-   * that lets go early says how the button works. The gauge is `.cv-confirm-fill` (scaleX 0 → 1).
+   * `거래 성사` is a **1 s hold** (2026-09-12, `UI_HOLD_CONFIRM_S`). Click and keyboard activation do nothing; a
+   * short press that lets go early says how the button works. The gauge is `.cv-confirm-fill` (scaleX 0 → 1).
    */
   private bindHold(btn: HTMLButtonElement): void {
     btn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });
@@ -697,15 +717,16 @@ export class CorpView {
   }
 
   /**
-   * **창고 + 가방 카드 하나** (2026-09-13 두 카드 → **2026-09-15 3차 한 카드**, 사용자 결정) — 거래 · 임플란트 페이지
-   * 줄 끝에 붙는다. 인벤토리가 2026-09-15 2차부터 한 패널 안에 창고(왼쪽) · 내 가방(오른쪽)을 칸마다 자기 스크롤 ·
-   * 자기 정렬 · 자기 필터로 그리므로, 여기서는 `createTradeGrids` 를 **한 번**만 부른다.
+   * **One 창고 + 가방 card** (2026-09-13 two cards → **2026-09-15 3rd pass one card**, user's decision) — it sits at
+   * the end of the 거래 · 임플란트 page row. Since 2026-09-15 2nd pass the inventory draws 창고 (left) and my 가방
+   * (right) inside one panel, each pane with its own scroll · own sort · own filter, so `createTradeGrids` is called
+   * **once** here.
    * `colCls` keeps each page's column class (`cv-col` / `ci-col` + `inv`) so older selectors still find it.
-   * 돌려주는 배열은 길이 1 이다 — `applyCell` · `refreshInv` 의 모양을 바꾸지 않으려고 배열로 남긴다.
+   * The returned array has length 1 — it stays an array so `applyCell` · `refreshInv` keep their shape.
    */
   private makeInvCards(root: HTMLElement, colCls: string, drop?: string): InvCard[] {
-    // `stash bag` 은 **옛 선택자를 위해** 둘 다 단다 — 이 한 카드가 이제 둘 다 들고 있으므로 거짓말이 아니고,
-    // 어떤 CSS 규칙도 그 두 이름을 읽지 않는다 (2026-09-15 3차).
+    // `stash bag` carries both **for the older selectors** — this one card now holds both, so it is not a lie, and
+    // no CSS rule reads those two names (2026-09-15 3rd pass).
     const card = el('div', { cls: `${colCls} inv cv-card cv-inv stash bag`, parent: root, attrs: { 'data-cv-grid': 'inv' } });
     const view = this.createInv(card, drop);
     if (!view) this.empty(card, '인벤토리를 사용할 수 없습니다');
@@ -713,15 +734,16 @@ export class CorpView {
   }
 
   /**
-   * The embedded 창고 + 가방 view (`createTradeGrids` — **한 번**, 칸마다 자기 머리 · 정렬 · 필터 · 스크롤).
+   * The embedded 창고 + 가방 view (`createTradeGrids` — **once**, each pane with its own header row · sort · filter ·
+   * scroll).
    * With a `drop` selector a tile dropped on it (or double-clicked) is staged for sale; **without one the grids are
    * read-only** — the 임플란트 desk has nothing to drop onto, and handing it `onTake` would make a double-click stage a
-   * sale on a page that has no 거래칸 (2026-09-12 2차).
+   * sale on a page that has no 판매칸 (2026-09-12 2nd pass).
    */
   private createInv(card: HTMLElement, drop?: string): EmbeddedView | null {
     const inv = this.ctx.inventory;
     if (!inv || typeof inv.createTradeGrids !== 'function') return null;
-    // 2026-09-12 (사용자 결정): 창고 왼쪽 · 가방 오른쪽 — 그 순서가 이 배열이다
+    // 2026-09-12 (user's decision): 창고 left · 가방 right — that order is this array
     const opts: TradeGridsViewOptions = { grids: ['stash', 'bag'], layout: 'split', chips: 'block', cell: this.cell, className: 'cv-tg' };
     if (drop) {
       opts.dropSelector = drop;
@@ -736,7 +758,7 @@ export class CorpView {
   }
 
   private renderTrade(): void {
-    /* 좌: 기업 판매 물품 — the grid keeps its shape even when it is locked / empty, with the reason centred over it */
+    /* Left: 기업 판매 물품 — the grid keeps its shape even when it is locked / empty, the reason centred over it */
     const rep = this.meta.getRep(this.corp);
     const shopSpecs: TileSpec[] = [];
     let shopEmpty: string | null = null;
@@ -748,9 +770,10 @@ export class CorpView {
     }
     this.shopGrid.render(shopSpecs, shopEmpty);
 
-    /* 중앙: 거래칸 */
+    /* Middle: the 거래 테이블 */
     const cost = this.buyCost(), revenue = this.sellRevenue();
-    /* 2026-09-16: 구매칸 타일의 호버 카드도 「구매가」다 — 한 번의 구매 값(매대와 같은 수)을 적는다. */
+    /* 2026-09-16: a 구매칸 tile's hover card says 「구매가」 too — it writes what one purchase costs (the same
+       number the 매대 shows). */
     const shopPrices = new Map(this.meta.getShop(this.corp).map((l) => [l.def.id, l.price] as const));
     const buySpecs: TileSpec[] = [];
     for (const line of this.buyLines) {
@@ -758,8 +781,9 @@ export class CorpView {
       const spec = this.makeTile(line.defId, def ? shopQtyOf(def) : 1, 'buy');
       spec.tile.dataset.def = line.defId;
       const buyPrice = shopPrices.get(line.defId) ?? 0;
-      /* 2026-09-16 (사용자 버그 「구매칸에는 가격이 아예 안 뜬다」): 매대 · 판매칸 타일과 **같은 좌하단 배지**다 —
-         한 번의 구매 값(매대에 적힌 수)이고, 담은 개수(`.cv-count`, 우하단)와는 반대 모서리라 겹치지 않는다. */
+      /* 2026-09-16 (user's bug report 「구매칸에는 가격이 아예 안 뜬다」): the **same bottom-left badge** as a 매대 ·
+         판매칸 tile — what one purchase costs (the number written on the 매대), in the opposite corner from the staged
+         count (`.cv-count`, bottom right), so the two never collide. */
       el('div', { cls: 'cv-price', text: formatCreditAmount(buyPrice), parent: spec.tile });
       this.tagTipPrice(spec.tile, '구매가', buyPrice);
       el('div', { cls: 'cv-count', text: `×${line.qty}`, parent: spec.tile });
@@ -795,7 +819,7 @@ export class CorpView {
     this.refreshInv(this.tradeInv);
   }
 
-  /** 한국어 reason the basket cannot settle right now; null = go ahead. */
+  /** Korean reason the basket cannot settle right now; null = go ahead. */
   private tradeBlock(cost: number, revenue: number): string | null {
     if (this.buyLines.length === 0 && this.sellLines.length === 0) return '거래할 항목이 없습니다';
     if (this.meta.credits + revenue < cost) return '크레딧이 부족합니다';
@@ -819,8 +843,9 @@ export class CorpView {
    * One stock **tile** in the 기업 판매 물품 grid: price badge bottom-left, a `×n` badge while the line is staged.
    * Click or drag onto the 구매 tray to stage it; a blocked line is dimmed and its click says why.
    *
-   * 2026-09-16 (사용자 결정): 타일이 들고 있는 개수는 **한 번의 구매가 주는 개수**(`Rules.shopQtyOf` — 탄약은 풀
-   * 스택)이고 `line.price` 도 그 개수의 값이다. 그래서 가방 타일과 똑같이 묶음 수가 찍힌다.
+   * 2026-09-16 (user's decision): the count a tile carries is **how many units one purchase gives**
+   * (`Rules.shopQtyOf` — ammo is a full stack), and `line.price` is the price of that many. So the stack count is
+   * stamped on it exactly as on a 가방 tile.
    */
   private shopTile(line: ShopItem): TileSpec {
     const d = line.def;
@@ -924,9 +949,10 @@ export class CorpView {
   private stageSell(item: ItemInstance): void {
     if (this.sellLines.some((s) => s.uid === item.uid)) return;
     /*
-     * 2026-09-11 (E-9, 사용자 결정): **0 C 도 담긴다.** 가치 1 아이템 한 개는 `floor(0.5) = 0` 이다 — 그것을 여기서
-     * 막으면 무게를 비울 길이 없어지고, 묶어 팔면 제값이 나오므로 분할이 손해라는 것을 플레이어가 스스로 배운다.
-     * 거절하는 것은 `null`(값이 없는 물건 · 장착 중 · 가방에도 창고에도 없음)뿐이다. 가격 칸은 그대로 `0` 을 찍는다.
+     * 2026-09-11 (E-9, user's decision): **0 C stages too.** A single 가치-1 item is `floor(0.5) = 0` — blocking that
+     * here would leave no way to clear the weight, and because selling the stack whole pays its real price the player
+     * learns on their own that splitting it loses money. The only refusal is `null` (a thing with no value ·
+     * equipped · in neither the 가방 nor the 창고). The price badge still stamps `0`.
      */
     const price = this.meta.sellPriceOf(item.uid);
     if (price === null) {
@@ -949,7 +975,8 @@ export class CorpView {
 
   /**
    * Stage every 귀중품 the player holds into the 판매 tray (the old 귀중품 전부 판매, now one click short of it).
-   * 2026-09-12 (E2): **즐겨찾기는 일괄 담기에서 빠진다** — 손으로 담는 것만 된다 (그리고 거래 성사 때 한 번 더 묻는다).
+   * 2026-09-12 (E2): **favorites are left out of the bulk staging** — only hand staging takes them (and `거래 성사`
+   * then asks once more).
    */
   private stageValuables(): void {
     let added = 0;
@@ -958,7 +985,7 @@ export class CorpView {
       const d = this.itemDef(inst.defId);
       if (!d || d.category !== 'valuable') continue;
       if (this.sellLines.some((s) => s.uid === inst.uid)) continue;
-      // 일괄 담기만 0 C 를 건너뛴다 (손으로 담는 `stageSell` 은 E-9 이후 허용한다).
+      // Only the bulk staging skips 0 C (hand staging through `stageSell` has allowed it since E-9).
       if ((this.meta.sellPriceOf(inst.uid) ?? 0) <= 0) continue;
       if (this.isFavorite(inst.defId)) { skippedFav++; continue; }
       this.sellLines.push({ uid: inst.uid, qty: inst.qty });
@@ -970,7 +997,7 @@ export class CorpView {
     this.refresh();
   }
 
-  /* ── 즐겨찾기 (2026-09-12, E2) ─────────────────────────────────────────────────────────────────────────────── */
+  /* ── favorites (2026-09-12, E2) ────────────────────────────────────────────────────────────────────────── */
 
   /** Is `defId` a favorite (`InventoryRef.isFavorite`, E1)? False while inventory cannot answer. */
   private isFavorite(defId: string): boolean {
@@ -992,7 +1019,7 @@ export class CorpView {
   }
 
   /**
-   * 거래 성사 hold finished. A basket that sells a **즐겨찾기** item asks once more (1초 홀드, Escape 취소 —
+   * The `거래 성사` hold finished. A basket that sells a **favorite** item asks once more (1 s hold, Escape cancels —
    * `HoldAsk`); anything else settles right away. Cancelling keeps the basket as it was.
    */
   private requestTrade(): void {
@@ -1093,7 +1120,8 @@ export class CorpView {
       const found = this.meta.getContracts(id).find((c) => c.active);
       if (found) { active = found; break; }
     }
-    // 2026-09-12: 진행 중인 계약 패널은 **그 계약을 맺은 기업**의 색이다 — 지금 고른 기업 탭의 색이 아니다
+    // 2026-09-12: the 진행 중인 계약 panel takes the colour of **the corp that contract was signed with** — not that
+    // of the corp tab currently selected
     const activeColor = active ? CORP_DEFS[active.def.corp]?.color : undefined;
     if (activeColor) this.contractActiveCol.style.setProperty('--cc', activeColor);
     else this.contractActiveCol.style.removeProperty('--cc');
@@ -1118,10 +1146,13 @@ export class CorpView {
     el('div', { cls: 'tag dim', text: `신뢰도 Lv.${d.minRepLevel}`, parent: nl });
     el('div', { cls: 'sub', text: d.desc, parent: mid });
     /*
-     * 2026-09-12 (E2): 특정 아이템 회수 — 그 아이템의 칩(보유/필요)과 이름 한 줄. 보유는 **지금 몸에 지닌 개수**(가방 격자 ·
-     * 퀵슬롯 · 주머니, 창고 제외 — 정산이 세는 것과 같다)이고, 기업 화면은 함선에서만 열리므로 막대 · 수치도 그 값을 쓴다.
-     * 칩은 `buildItemChip` 이라 공용 호버 카드와 즐겨찾기 우클릭 메뉴가 저절로 붙는다.
-     * 2026-09-12 (§5-2): `carriedCount` 는 **진행 중인 레이드에서 얻은 것만** 센다 — 함선에서는 늘 0 이다 (가져간 것은 세지 않는다).
+     * 2026-09-12 (E2): recovering a specific item — one line with that item's chip (have / need) and its name. Have
+     * is **how many are carried on the body right now** (bag grid · quick slots · pouch, the 창고 excluded — the same
+     * thing settlement counts), and since the corp screen only opens in the ship the bar and the number use that
+     * value too. The chip is a `buildItemChip`, so the shared hover card and the favorite right-click menu attach
+     * by themselves.
+     * 2026-09-12 (§5-2): `carriedCount` counts **only what was found in the raid in progress** — in the ship it is
+     * always 0 (what was carried in does not count).
      */
     const itemDefId = d.goal === 'extract_with_items' ? d.itemDefId : undefined;
     const shown = itemDefId ? this.meta.carriedCount(itemDefId) : c.progress;
@@ -1137,7 +1168,7 @@ export class CorpView {
     fill.style.transform = `scaleX(${frac.toFixed(3)})`;
     toggleClass(bar, 'done', c.active && shown >= d.target);
     el('div', { cls: 'goal-text', text: `${CONTRACT_GOAL_LABEL_KO[d.goal]} ${fmtNum(Math.floor(shown))} / ${fmtNum(d.target)}`, parent: mid });
-    // 보상은 재화 칩이다 (2026-09-09). 신뢰도는 **그 계약의 기업** 것이다.
+    // Rewards are currency chips (2026-09-09). The 신뢰도 is **that contract's corp**'s.
     const reward = el('div', { cls: 'reward', parent: r });
     appendCurrencyRewards(reward, [
       { id: repCurrencyId(d.corp), amount: d.repReward },
@@ -1163,14 +1194,15 @@ export class CorpView {
     }
   }
 
-  /* ══ 임플란트 수리 (Phase 12, 세레스 바이오) ══════════════════════════════════════════════════════════════════ */
+  /* ══ the 임플란트 수리 desk (Phase 12, 세레스 바이오) ═════════════════════════════════════════════════════════ */
 
   private buildImplants(): HTMLElement {
     if (this.implantsEl) return this.implantsEl;
     /*
-     * 2026-09-12 (2차, 사용자 결정): 한 카드에 **망가진 임플란트 목록 + 수리 카드**가 쌓이고, 그 오른쪽은 거래와
-     * **똑같은 함선 창고 · 가방** 카드다 (2026-09-13 — 둘이 서로 다른 카드). 수리 대상 수집은
-     * `parts/ImplantDesk.getRepairableImplants()` 그대로 — 그 함수가 이미 가방과 창고 양쪽을 본다.
+     * 2026-09-12 (2nd pass, user's decision): one card stacks **the broken implant list + the repair card**, and to
+     * its right stands **the very same 함선 창고 · 가방** card as 거래 has (2026-09-13 — the two are separate cards).
+     * Collecting the repair candidates is `parts/ImplantDesk.getRepairableImplants()` unchanged — that function
+     * already looks at both the 가방 and the 창고.
      */
     const root = el('div', { cls: 'ci' });
     toggleClass(root, 'is-inv-hidden', this.invHidden);
@@ -1179,7 +1211,7 @@ export class CorpView {
     this.implantGrid = new TileGrid(desk, { cell: this.cell, gap: CV_GAP, minCols: TRAY_COLS, className: 'ci-list' });
     el('div', { cls: 'cv-title', text: '수리', parent: desk });
     this.implantDetailEl = el('div', { cls: 'ci-repair', parent: desk });
-    this.implantInv = this.makeInvCards(root, 'ci-col');      // read-only: this page has no 거래칸 to drop onto
+    this.implantInv = this.makeInvCards(root, 'ci-col');      // read-only: this page has no 판매칸 to drop onto
     this.implantsEl = root;
     this.nodes.push(root);
     return root;
@@ -1219,7 +1251,7 @@ export class CorpView {
     return spec;
   }
 
-  /** The selected broken implant's repair: result chip · material chips · fee · 수리. */
+  /** The selected broken implant's repair: result chip · material chips · fee · `수리`. */
   private implantDetail(r: ImplantRepairInfo): void {
     const host = this.implantDetailEl;
     const head = el('div', { cls: 'ci-head', parent: host });

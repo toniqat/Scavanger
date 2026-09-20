@@ -1,9 +1,9 @@
 /**
- * src/meta/parts/Trade.ts — **기업 상점: 구매 · 판매 · 가격**.
+ * src/meta/parts/Trade.ts — **the corp shop: buying · selling · prices**.
  *
- * 신뢰도가 무엇을 팔지 정하고(`getShop`), 크레딧은 릴레이가 있으면 **서버 트랜잭션**이다:
- * 낙관적으로 차감 → `credits:tx` → `ok` 에서 아이템 지급, 실패하면 전액 되돌림.
- * 오프라인이면 같은 검사를 로컬에서 미리 하고 끝낸다.
+ * Reputation decides what is on sale (`getShop`), and with a relay the credits are a **server transaction**:
+ * an optimistic debit → `credits:tx` → the item is handed over on `ok`, and a failure refunds everything.
+ * Offline the same checks run locally up front and that is the whole of it.
  */
 import type {
   ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
@@ -23,7 +23,8 @@ import {
 import { CorpView } from '../ui/CorpView';
 import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
-/* 2026-09-11 (E-4 ⑦): 크레딧 사유는 계약 문법으로만 만든다 — 릴레이가 해석하고 금액을 검사한다 (`shared/credits.ts`). */
+/* 2026-09-11 (E-4 ⑦): a credit reason is only ever built with the contract grammar — the relay parses it and
+   checks the amount (`shared/credits.ts`). */
 import { formatCreditReason } from '@/shared';
 
 /** Bag / stash pre-check (`InventoryRef.canFit`); a missing helper counts as "fits" (inventory/ built in parallel). */
@@ -94,8 +95,9 @@ export function priceOf(sys: MetaSystem, corp: CorpId, defId: string): number | 
  * an `ok` answer creates + places the item (a placement failure refunds through the server); either way completion
  * is announced by `meta:purchase` and a failure by `onPurchaseFailed` / `lastPurchaseFailure`.
  *
- * 2026-09-16: **한 번의 구매가 주는 개수는 `shopQtyOf`** (탄약은 풀 스택, 나머지는 1) — `priceOf` 가 이미 그 개수의
- * 값을 돌려주므로 여기서 값을 다시 곱하지 않는다. 공간 검사 · 환불도 같은 개수 기준이다.
+ * 2026-09-16: **one purchase hands over `shopQtyOf` units** (a full stack of ammo, 1 of everything else) — `priceOf`
+ * already answers with the price for that many, so it is never multiplied again here. The space check and the refund
+ * go by the same count.
  */
 export function buy(sys: MetaSystem, corp: CorpId, defId: string): boolean {
   const fail = (reason: string, price = 0): false => {
@@ -182,7 +184,7 @@ export function sell(sys: MetaSystem, uid: string, qty?: number): boolean {
    * old price; an oversized legacy stack is split so it is not refused.
    *
    * 2026-09-11 (E-9): `sellPriceOf` **floors**, so a chunk can legitimately be worth **0 C** (가치 1 아이템 한 개).
-   * That sale still happens locally — 0 C is the price, not a refusal (사용자 결정) — but the `price <= 0` skip below is
+   * That sale still happens locally — 0 C is the price, not a refusal (user's decision) — but the `price <= 0` skip below is
    * now load-bearing: `server/Economy.ts` requires `0 < delta` on a `sell:` transaction, so sending it would come back
    * refused and `restoreSold` would put the item back with a 판매 취소 toast ("팔았는데 안 팔림"). A 0 C transaction has
    * nothing to tell the server anyway — the balance does not move.

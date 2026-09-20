@@ -6,13 +6,21 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **14, `src/meta`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
+> **Next session starts here:** queue item **15, `src/audio`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
 > before picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this
 > file originally described**; the old one let a deleted `*/` through, and **§3 step 4b**, which `src/tutorial` added
-> after catching a re-typed Korean label. `src/meta` is 305 lines over 15 files: the four corporations · reputation ·
-> credits · the shop and trade desk · contracts · the implant repair desk · the NPC quest engine · NPC trust · intel
-> purchase. CLAUDE.md §4.7's economy bullets and §4.8's quest bullets settle its wording, and `src/items` (item 10)
-> and `src/inventory` (item 6) already fixed the economy nouns it shares with them.
+> after catching a re-typed Korean label. `src/audio` is 273 lines over **two** files — `AudioSystem.ts` 138 ·
+> `Synth.ts` 135 — so it is a one-person folder, not a split: two files cannot be cut without one agent reading the
+> other's. It is also the first folder whose subject is **sound**, and its nouns are its own (envelope · voice ·
+> oscillator · the distance curve · the per-surface footstep · the voice cap), so expect to extend §7 more than the
+> line count suggests. CLAUDE.md §3.5's `src/audio` row and the folder `README.md` settle the vocabulary; the wire and
+> the `bgm` channel's 「state, not sound」 rule are §4.8's.
+
+> **`src/meta` proved §3's lead check 2 again, and the contract is what settles it.** Two of its three bundles named
+> the same thing differently and neither was wrong on its own terms — an agent wrote *the main message* for `introAfter`
+> where the **contract file** `src/shared/npc.ts:142` already says *the main point*, and the lead's own §7 row had
+> blessed the wrong one. The rule that worked is the one `src/allies` wrote down: **grep the contract, not only the
+> READMEs**, because the conflicting word is nearly always one the contract file already names.
 
 > **The wrap-column check is the lead's, not an agent's.** In `src/game` two of the four agents reported "no comment
 > line over 118 columns" and the lead's own ratchet then found **nine** — five in one bundle. The check is cheap and
@@ -57,16 +65,16 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`, `src/gadgets`, `src/allies`, `src/game`) | 22,060 | 553 |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`, `src/gadgets`, `src/allies`, `src/game`, `src/meta`) | 22,365 | 568 |
 | Done — `.css`, every folder at once (2026-09-20, B-65) | 1,335 | 34 |
-| **Remaining** ([§2](#2-queue)) | **4,564** | **194** |
+| **Remaining** ([§2](#2-queue)) | **4,259** | **179** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 76 lines — and the finished stylesheets 14 more — because a comment whose entire substance is
+**Intended permanent exceptions.** A finished folder still prints 85 lines — and the finished stylesheets 14 more — because a comment whose entire substance is
 a quoted label, a quoted document heading or a verbatim user decision keeps its Korean (§3 rule 2 — the reader has to be
-able to grep it against the real string). So a raw run over everything prints 4,640 / 248, seventy-six more than the
+able to grep it against the real string). So a raw run over everything prints 4,344 / 236, eighty-five more than the
 queue. `src/ui` alone contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice —
 so its rows are grouped into one line instead of listed file by file:
 
@@ -102,6 +110,7 @@ so its rows are grouped into one line instead of listed file by file:
 | `gadgets/GadgetDefs.ts:205` | a `docs/DECISIONS.md` section heading (`2026-09-15 — 땅굴벌레 · 진동 장치`) |
 | `game/parts/Death.ts:191` · `:345` · `:375` | verbatim user decisions: 「부활하면 서 있는 채로 나타나지 않고 쓰러졌다 일어난다」 and, twice, the wipe rule 「사람과 안드로이드가 모두 쓰러지거나 죽어야 레이드 실패」 — the same quote `ui/hud/SpectateOverlay.ts:76` keeps |
 | `*.css` — **14 lines in 7 files** | the same shapes, in the stylesheets (2026-09-20): `inventory.css` ×3 and `base.css` ×2 are English sentences whose letters are mostly a quoted label (`Panel order: ship = 창고 · 장비 · 가방 · 제작`) plus the verbatim user bug report the `.item-tip` text-flow pin was built from; `hub.css` ×2 the five equipment-slot labels and the two launch-warning buttons `[취소] / [그래도 준비]`; `mining.css` ×2 a verbatim 2026-09-17 user decision and a divider that is only the three tab labels; `messenger.css` a `docs/DECISIONS.md` heading; `named.css` ×2 and `social.css` ×2 dividers that are nothing but an on-screen string (`스캔에 노출되고 있음`, `대화 기록`) |
+| `meta/` — **9 lines in 3 files** | `ui/CorpView.ts` ×6: the `계약` page-tab divider, the `docs/DECISIONS.md` heading 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」, the tail of the quote 「물건이 어느 쪽으로 가는가」 that is why the flow chevrons stayed, the tile ribbon's 「아직 꽂지 않은」 state, the verbatim user bug report 「구매칸에는 가격이 아예 안 뜬다」 and the removed hint string 「〈라벨〉 버튼을 1초 동안 …」 that is the only way left to grep `meta.css`'s dead `.cv-ask-hint`; `NpcRules.ts` ×2 are the Korean **program output** `objectiveLabel` / `rewardSummary` build, quoted as worked examples; `parts/NpcQuests.ts` the verbatim user decision 「튜토리얼 직후 연락 오는 NPC 는 레이븐 하나」 |
 | `game/parts/LoadGate.ts:3` | a `docs/DECISIONS.md` section heading (`2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩`), byte-identical to the one `allies/README.md:9` cites |
 | `allies/parts/` — **7 lines in 5 files** | verbatim user decisions, each the *whole* substance of its line: `Loot.ts:3` · `:5` (「먹고 있을 때 PC 가 그 상자를 열면 중단」, 「핑이 먼저고, 혼자 주워 담는 것은 한가할 때뿐」), `Rescue.ts:3-4` (the two-line rescue decision), `Commands.ts:271` (「일반 범위의 2배로 각자 일대를 수색, 일정 시간 뒤 자동 해제」), `Contract.ts:4` (the tail of 「계약에 따라 다르나, …」), `Support.ts:3` (the hand-over conditions). This folder is written almost entirely out of quoted decisions, which is why it keeps more than most |
 
@@ -126,7 +135,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~11~~ | ~~`src/gadgets`~~ | 573 | 22 | **Done 2026-09-19** (lead + 3 agents, one commit). 1 quoted-only line stays (§1). Cut **by subject** and it held: drone bodies (`AirDrone` · `GroundDrone` · `Lifecycle` · `Scan`) · drone core + mounting (`drones/model` · `DroneSystem` · `Control` · `drones/Wire` · `parts/Mount`) · placement (`Preview` · `Deploy` · `Thumper`), lead on the host-authoritative centre (`GadgetDefs` · `GadgetSystem` · `GadgetVisuals` · `Queries` · `Simulate` · `Remote` · `Wire` · `Deployable` · `model` · `ThrownGadget`). Its deployable · placement-test · footprint · arming · detonation · mounting · drone-body vocabulary is now the reference for every deployable- and vehicle-shaped folder after it. |
 | ~~12~~ | ~~`src/allies`~~ | 561 | 22 | **Done 2026-09-19** (lead + 4 agents, one commit, 10 scripts in 1 min 10 s, green first try). 7 quoted-only lines stay (§1) — the most of any folder so far, because the folder *is* a transcription of user decisions. Cut **by subject** and it held: orders · pings · requests · hand-over (`Commands` · `Support` · `Ping` · `Console`) · movement · free search · harness · combat (`Nav` · `Roam` · `Harness` · `Combat`) · bag · looting · objectives · vitals · extraction (`Bag` · `Loot` · `Extract` · `Rescue` · `Contract` · `Vitals`) · roster · ship · raid entry · wire (`Roster` · `Hub` · `Spawn` · `Sync`), lead on the centre (`AllySystem` · `model` · `Body` · `Fsm` · `index`). Its roster · unit · bay · proposal · rank · reaction-delay · harness · free-search · point-of-interest · designation · bound-kit vocabulary is now the reference for every AI-squad- and roster-shaped folder after it. |
 | ~~13~~ | ~~`src/game`~~ | 537 | 14 | **Done 2026-09-20** (lead + 4 agents, one commit, 15 scripts + `e2e-mp` in 4 min 11 s). 4 quoted-only lines stay (§1). Cut **by subject** and it held: death · wipe · payout (`Death`) · corpses and their wire (`Corpses` · `CorpseNet`) · the session save, the title offer and the resume gate (`Session` · `Resume` · `SoloRaid` · `ResumeGate`) · raid entry and the two ends of a raid (`LoadGate` · `Leader` · `RaidReport`), lead on the centre (`GameFlowSystem` · `Phases` · `model` · `Wire`). Its phase · render hold · settlement · corpse-sink · title-offer · voluntary-return vocabulary is now the reference for every flow-shaped folder after it. |
-| 14 | `src/meta` | 305 | 15 | |
+| ~~14~~ | ~~`src/meta`~~ | 305 | 15 | **Done 2026-09-20** (lead + 2 agents, one commit). 9 quoted-only lines stay (§1). Cut **by subject** and it held: the corp network screen (`ui/CorpView` · `HoldAsk` · `TileGrid` · `dom`) · the NPC quest engine (`parts/NpcQuests` · `NpcRules` · `parts/NpcObjectives`), lead on the centre and the economy (`MetaSystem` · `model` · `Rules` · `Storage` · `parts/{Credits,Trade,Contracts,ImplantDesk,Intel,Console}`). Its corp-rail · shelf-slot · offer · delivery · confirmed-objective · held-spec vocabulary is now the reference for every economy- and NPC-shaped folder after it. |
 | 15 | `src/audio` | 273 | 2 | |
 | 16 | `src/weapons` | 204 | 17 | |
 | 17 | `src/net` | 167 | 14 | |
@@ -573,6 +582,10 @@ few hundred, because a Korean **label** inside English prose is correct and stay
   made a whole `parts/Loot` branch and the guard justifying it unreachable — `B-60`. `B-62` is a second one reaching
   outside the folder: one 2 m-separation decision written three different ways across `parts/Nav.ts`,
   `data/constants.csv` and `docs/DECISIONS.md`, so rule 2's grep chain was already broken for it).
+  `B-76` · `B-77` · `B-78` · `B-79` (`src/meta`, 1 + 1 + 3 + 1 — `B-76` is the third label **this project itself**
+  re-typed, and the worst placed of them: `src/shared/npc.ts` writes 「생각해볼게」 three times where the live
+  string is `생각해보지.` in **the same file**, which is exactly why `check-comment-labels --head` stays quiet
+  about it — the misspelling's own file puts the right string in the live set),
   `B-74` · `B-75` (`src/**/*.css`, 1 + 3 — and far fewer than a folder of the same size gives, because a
   stylesheet's comments describe layout, which the rule below it proves or disproves on the spot. `B-74` is the
   richer one: `housing.css` quotes the analyzer rail tab as `해석 도감` where the drawn string is `분석 도감`, and
@@ -944,3 +957,23 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 피격 / 전투불능 / 실드 잔상 | the **damage ghost** · the **downed ghost** · the **shield ghost** |
 | 장비 판 · 가치 합계 · 초상 (매칭) vs 초상 (준비) | the **gear board** · the **value total** · a **face tile** in `MatchTab` vs a **portrait** in `ReadyPanel` |
 | 구간 (`--frac`) | **inside the current level's range** — a seventh sense of 구간 was *not* coined; *band* · *bucket* · *stretch* · *section* · *segment* are all taken |
+| 기업 네트워크 · 기업 목록 카드 · 가지 | the **corp network** · the **corp rail** (`.corp-rail`) · the **branch** (`.corp-branch`) — all three `meta/README.md`'s own words; the rail is a tree, so a 가지 is a branch, never a *sub-panel* | `meta/ui/CorpView.ts` |
+| 매대 한 칸 · 유동 카드 · 고정 몫 | a **shelf slot** (`meta/README.md`: 「One shelf slot = one purchase」) · a **fluid card** (`.is-fluid`) · the **fixed share** — what `fitLayout` measures out of the width before it divides the rest by the cell count | `meta/ui/CorpView.ts` |
+| 거래 성사 | **settling the trade** for the act (`meta/README.md` writes 「settled together with a 1 s hold」); the button labels `거래 성사` · `귀중품 전부 담기` stay Korean, and `.cv-confirm`'s own text is read from `.cv-confirm-label` | `meta/ui/CorpView.ts` |
+| 제안 (meta) | an **offer** / offers it (`offered`, `NPC_OFFER_CHECK_S`) — kept apart from `allies`' 제안 = *a proposal* (`Fsm.propose`), which is an AI state change, not something a person is shown | `meta/parts/NpcQuests.ts` |
+| 납품 · 보고 · 보류 | **delivery** / delivers (the `deliver` objective, partial deliveries included) · the **report** (`report(id)`, what ends a quest) · **deferred** — the retired 「생각해보지」 state, kept only so old saves read; `defer()` always returns false | `meta/parts/NpcQuests.ts` |
+| 회수 목표 (NPC) | the **`recover` objective** — deliberately kept apart from `inventory`'s 회수 계약 = *the recovery contract*. Both count `raidFound` units at extraction and they are two different systems; never let one name the other | `meta/parts/NpcObjectives.ts` |
+| 확정 (목표) | **confirming** / a **confirmed** objective (`tryConfirm` — `meta/README.md`: 「progress is confirmed the moment it fills」). Kept apart from §7's *hold confirm* / *tap confirm*, which are gestures, and from the contract's *settlement* | `meta/parts/NpcObjectives.ts` |
+| 첫 연락 3단 · 인사 · 선택지 · 본론 | the **three-step first contact** (`meta/README.md`'s own heading) · the **greeting** (`intro`) · the **choices** (`introChoices`) · the **main point** (`introAfter`) — `src/shared/npc.ts:142`'s own word, not *the main message* | `meta/parts/NpcQuests.ts` |
+| 대화 기록 · 사건 · 진행 플래그 · 누적 횟수 | the **log** (`NpcLogEntry` — only events are saved, the text is re-rendered from csv) · an **event** · a **progress flag** (`NpcSave.flags`) · its **running count** (`flagOf` / `bumpFlag`) | `meta/parts/NpcQuests.ts`, `NpcRules.ts` |
+| 목표 문구 · 보상 요약 · 표시 이름 | the **objective label** (`objectiveLabel`) · the **reward summary** (`rewardSummary`) · the **display name** (`npcTrustLabel`) — the strings themselves are Korean program output and are never touched | `meta/NpcRules.ts` |
+| 즐겨찾기 (meta) | **favorite** — `meta/README.md`'s own English (「Selling a favorite item asks again」), the US spelling `src/ui` runs. `src/inventory`'s *favourite* stops at that folder; do not sed one into the other | `meta/ui/HoldAsk.ts`, `CorpView.ts` |
+| 보유 정보 · 「행성 정보」 | the **held spec** (`IntelSpec` — `meta/README.md`'s own word, kept apart from §7's *the fixed gimmicks*, which is what the spec buys). The product name `행성 정보` stays Korean | `meta/parts/Intel.ts` |
+| 지갑 | the **wallet** — housing's crypto desk state, the thing `creditsTx` exists to protect (「it changes only when the credits really moved」) | `meta/parts/Credits.ts` |
+| 받침 (한글 조사) | the **final consonant** — the `「으로」` / `「로」` particle choice. It is a fact about Korean grammar, so name it plainly and keep both particles quoted | `meta/NpcRules.ts` |
+| 옛 문서 | an **old document** (a profile document an earlier build wrote) — kept apart from `housing`'s 옛 세이브 = *an old save*, which is the localStorage one. This folder reads both and says which | `meta/NpcRules.ts`, `Storage.ts` |
+| 거래칸 | **three English words, decided from the code** — the **trade desk** when it means the whole page (shelf + trays + desk), the `판매칸` when the code means literally 「a page with no sell tray to drop onto」, and the `거래 테이블` for the middle column. One Korean word, the folder's central noun three times over | `meta/ui/CorpView.ts` |
+| 칸 크기 맞춤 · 한 번 더 확인 · 좌클릭 홀드 키캡 | **cell size fitting** (`fitLayout`) · the **confirm-once-more popup** (`meta/README.md`'s own 「Confirm once more」 popup) · the **left-click hold keycap** — `shared/keycap.ts`'s own English, and 「어떻게 누르는가」 is rendered byte-identically to that file's 「how do I press it」 | `meta/ui/CorpView.ts`, `HoldAsk.ts` |
+| 일괄 담기 vs 손으로 담는 · 셰브런 셋 · 흐름 셰브런 · 경험치 게이지 | the **bulk staging** (`귀중품 전부 담기`) vs **hand staging** (`stageSell`) · the **three chevrons** · the **flow chevrons** · the **XP gauge** (`.rep-bar` on the corp rail's branch, kept apart from the `신뢰도 Lv` number beside it) | `meta/ui/CorpView.ts` |
+| 판정 도우미 · 대화 목록 · 중복 방지 표 · 단위 「마리」 | the **judgement helpers** (`counting` / `planetOk` — `enemies`' *judgement constant* shape) · the **conversation list** (the messenger's `getContacts`, kept apart from §7's *the log* = 대화 기록) · the **duplicate-guard sets** (`searched` / `discovered`) · the **counter word** 「마리」 | `meta/parts/NpcQuests.ts`, `NpcObjectives.ts` |
+| 이름은 바탕 종류와 같다 | **named as its base type** (`ENEMY_TYPE_KO.scavenger_summon` — the artillery's summoned scavenger reads as the plain kind) | `meta/NpcRules.ts` |

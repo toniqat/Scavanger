@@ -1,6 +1,6 @@
 import type { CorpId, MetaSave, ProfileRef } from '@/shared';
 import { CONTRACT_DEFS, CORP_IDS, CREDITS_INITIAL, CREDITS_MAX, META_STORAGE_KEY, slotKey } from '@/shared';
-/* 2026-09-14: 정보상 — 보유 중인 「행성 정보」 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* 2026-09-14: the intel broker — the held 「행성 정보」 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import { sanitizeIntelSpec } from '@/shared';
 import { freshNpcSave, sanitizeNpcSave } from './NpcRules';
 
@@ -13,7 +13,8 @@ import { freshNpcSave, sanitizeNpcSave } from './NpcRules';
  * available; `replace()` swaps the data for the server document without echoing it back.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 2: 2026-09-14 — 기업 퀘스트(`corps[].quests`) 폐지 · NPC 연락/대화/퀘스트(`npc`) 추가. 옛 문서는 `sanitizeMetaSave` 가 그대로 읽는다. */
+/** 2: 2026-09-14 — corp quests (`corps[].quests`) dropped · NPC contact / conversation / quests (`npc`) added. An
+ *  old document still reads through `sanitizeMetaSave` unchanged. */
 export const META_SAVE_VERSION = 2;
 const SAVE_DELAY_MS = 350;
 /** Guard against an absurd progress figure inflating the HUD (loads and live hits are clamped to it). */
@@ -45,7 +46,7 @@ export function freshMetaSave(): MetaSave {
     activeContract: null,
     stats: { contractsDone: 0, questsDone: 0, creditsEarned: 0, creditsSpent: 0 },
     npc: freshNpcSave(),
-    // 2026-09-14: 정보상 — 아무것도 안 샀다
+    // 2026-09-14: the intel broker — nothing bought
     intel: null,
   };
 }
@@ -63,11 +64,13 @@ export function sanitizeMetaSave(raw: unknown): MetaSave {
     if (!c || typeof c !== 'object') continue;
     const cc = c as { rep?: unknown };
     out.corps[id].rep = clampInt(cc.rep, 0, Number.MAX_SAFE_INTEGER, 0);
-    // 2026-09-14: 기업 퀘스트 폐지 — 옛 `quests` 상태는 버린다 (NPC 퀘스트는 `npc` 에 산다, 옛 완료 기록은 이어지지 않는다)
+    // 2026-09-14: corp quests dropped — an old `quests` state is thrown away (NPC quests live in `npc`, and an old
+    // completion record does not carry over)
   }
   out.npc = sanitizeNpcSave(r.npc);
-  /* 2026-09-14: 정보상 — 모양이 아니면 조용히 「안 샀다」. 이 필드가 `snapshot()` 을 타고 서버 프로필로 가므로
-   * (새로고침 · 재접속을 견딘다) **여기서 빠뜨리면 산 정보가 한 번의 새로고침에 사라진다.** */
+  /* 2026-09-14: the intel broker — anything that is not the shape is silently 「nothing bought」. This field rides
+   * `snapshot()` into the server profile (so it survives a reload · a reconnect), which is why **dropping it here
+   * loses a bought spec to a single refresh.** */
   out.intel = sanitizeIntelSpec(r.intel ?? null);
 
   const ac = r.activeContract;

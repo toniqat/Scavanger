@@ -16,17 +16,18 @@ import { CorpView } from './ui/CorpView';
 import './meta.css';
 
 import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from './model';
-/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+/** The folder's shared vocabulary (constants · types · scratch) is `model.ts` — re-exported for the old paths. */
 export * from './model';
 import * as Trade from './parts/Trade';
 import * as Contract from './parts/Contracts';
 import * as Credits from './parts/Credits';
 import * as Desk from './parts/ImplantDesk';
 import * as Cmd from './parts/Console';
-/* 2026-09-14: 메신저 NPC 퀘스트 — `ctx.meta.npc` (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) */
+/* 2026-09-14: the messenger's NPC quests — `ctx.meta.npc`
+   (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) */
 import type { NpcQuestRef } from '@/shared';
 import { NpcQuests } from './parts/NpcQuests';
-/* 2026-09-14: 정보상 — `ctx.meta.intel` (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* 2026-09-14: the intel broker — `ctx.meta.intel` (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelRef } from '@/shared';
 import { Intel } from './parts/Intel';
 
@@ -34,11 +35,13 @@ export class MetaSystem implements GameSystem, MetaRef {
   readonly name = 'meta';
   ctx!: GameContext;
   store!: MetaStorage;
-  /** 2026-09-14: NPC 연락 · 대화 · 퀘스트 — 생성자는 ctx 를 건드리지 않는다 (`subscribe` 는 `init` 에서). */
+  /** 2026-09-14: NPC contact · conversation · quests — the constructor never touches ctx (`subscribe` is in
+   *  `init`). */
   readonly npcQuests: NpcQuests = new NpcQuests(this);
   /** `MetaRef.npc` */
   get npc(): NpcQuestRef { return this.npcQuests; }
-  /** 2026-09-14: 정보상 — 보유 · 구매 · 폐기 · 소모 (생성자는 ctx 를 건드리지 않는다; `subscribe` 는 `init` 에서). */
+  /** 2026-09-14: the intel broker — held · buy · discard · consume (no ctx in the constructor; `subscribe` is in
+   *  `init`). */
   readonly intelPart: Intel = new Intel(this);
   /** `MetaRef.intel` */
   get intel(): IntelRef { return this.intelPart; }
@@ -160,9 +163,11 @@ export class MetaSystem implements GameSystem, MetaRef {
       b.on('inventory:quickSlotsChanged', () => this.trackItemCount()),
       b.on('game:phaseChanged', () => this.trackItemCount()),
     );
-    // 2026-09-14: NPC 퀘스트 — 위의 `net:profileLoaded` 구독 **뒤에** 붙어야 서버 문서를 받은 다음에 제안을 판정한다
+    // 2026-09-14: NPC quests — pushed **after** the `net:profileLoaded` subscription above, so offers are judged
+    // against the server document
     this.unsubs.push(...this.npcQuests.subscribe());
-    // 2026-09-14: 정보상 — `net:profileLoaded` 구독보다 **뒤에** 붙어야 서버 문서를 받아들인 뒤의 보유 정보를 알린다
+    // 2026-09-14: the intel broker — pushed **after** the `net:profileLoaded` subscription too, so it announces
+    // the held spec the server document brought
     this.unsubs.push(...this.intelPart.subscribe());
     this.subscribeNet();
     b.emit('meta:loaded', { credits: this.store.data.credits });
@@ -326,13 +331,14 @@ export class MetaSystem implements GameSystem, MetaRef {
    */
   addCredits(delta: number, reason: string): boolean { return Credits.addCredits(this, delta, reason); }
 
-  /** 2026-09-13 (암호화폐 매매): `addCredits` 처럼 적용하되 릴레이의 답까지 기다린다 (`parts/Credits.creditsTx`). */
+  /** 2026-09-13 (crypto trades): applies like `addCredits` but waits for the relay's answer
+   *  (`parts/Credits.creditsTx`). */
   creditsTx(delta: number, reason: string): Promise<{ ok: boolean; reason?: string }> { return Credits.creditsTx(this, delta, reason); }
 
   addRep(corp: CorpId, delta: number, reason: string): void { return Credits.addRep(this, corp, delta, reason); }
 
-  /* ── MetaRef: NPC 개인 신뢰도 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」) ──
-   * 기업 신뢰도(`getRep`)와 **별개**이고 같은 `REP_TABLE`(0–5)을 쓴다. 저장은 `MetaSave.npc.trust`. */
+  /* ── MetaRef: per-NPC trust (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」) ──
+   * **Separate** from corp reputation (`getRep`) and on the same `REP_TABLE` (0–5). Saved in `MetaSave.npc.trust`. */
   npcTrust(npcId: string): number { return this.npcQuests.trustOf(npcId); }
   npcTrustLevel(npcId: string): number { return this.npcQuests.trustLevelOf(npcId); }
   addNpcTrust(npcId: string, delta: number, reason: string): void { this.npcQuests.addTrust(npcId, delta, reason); }
@@ -371,7 +377,7 @@ export class MetaSystem implements GameSystem, MetaRef {
 
   getSellable(): readonly ItemInstance[] { return Trade.getSellable(this); }
 
-  /* ── 임플란트 수리 desk (Phase 12, 2026-09-08; folder-internal, 세레스 바이오 only) ─────────────────────────
+  /* ── the implant repair desk (Phase 12, 2026-09-08; folder-internal, 세레스 바이오 only) ────────────────────
    * A broken implant (`ItemDef.implant.broken`, raid loot) in the bag or the stash becomes its `repairsTo` for the
    * def's `repairCost` materials (bag + stash, `consumeDefAll`) plus a credit fee (`Rules.implantRepairFee`). The fee
    * goes through the **purchase path**: offline it is a local debit; with a server profile it is an optimistic debit
@@ -430,13 +436,14 @@ export class MetaSystem implements GameSystem, MetaRef {
   reportContractHit(goal: ContractGoalKind, amount: number, local: boolean): void { return Contract.reportContractHit(this, goal, amount, local); }
 
   settleMission(stats: MissionStats): ContractSettlement | null {
-    // 2026-09-14: NPC 퀘스트 회수 목표를 먼저 — 가방이 아직 레이드에서 가져온 그대로다
+    // 2026-09-14: the NPC quests' `recover` objectives settle first — the bag still holds what came out of the raid
     try { this.npcQuests.settleRaid(stats); } catch (e) { console.error('[meta] npc quest settlement failed', e); }
     return Contract.settleMission(this, stats);
   }
 
   /* ── MetaRef: quests ────────────────────────────────────────────────────── */
-  /** 2026-09-14: NPC 퀘스트 상태를 옛 `QuestState` 로 (기업 퀘스트는 없어졌다 — housing 채굴 해금 게이트가 읽는다). */
+  /** 2026-09-14: an NPC quest's state as the old `QuestState` (corp quests are gone — housing's mining unlock gate
+   *  reads this). */
   getQuestState(id: string): QuestState { return this.npcQuests.questState(id); }
 
   questInfo(def: typeof QUEST_DEFS[number]): QuestInfo { return Contract.questInfo(this, def); }
@@ -449,13 +456,13 @@ export class MetaSystem implements GameSystem, MetaRef {
 
   /* ── MetaRef: corp screen ───────────────────────────────────────────────── */
   /**
-   * 기업 네트워크. **2026-09-07**: there is no separate overlay any more — the screen *is* the Tab window's 기업 tab
+   * The corp network. **2026-09-07**: there is no separate overlay any more — the screen *is* the Tab window's 기업 tab
    * (`InventoryRef.openScreen('corp')`), so the ship computer's `E` and Tab → 기업 land on exactly the same DOM,
    * blocker and cursor. `corp` preselects which corporation the tab opens on.
    */
   openCorpMenu(corp?: CorpId): void {
     if (this.ctx.isRaidActive()) return;
-    // 2026-09-17 (사용자 결정): no corp at `CORP_ACCESS_REP_LEVEL` yet → the 기업 tab is hidden, so refuse (the caller —
+    // 2026-09-17 (user's decision): no corp at `CORP_ACCESS_REP_LEVEL` yet → the 기업 tab is hidden, so refuse (the caller —
     // `hub.openCorpMenu` — sees the screen stayed closed and toasts its warning; no second toast here)
     if (!anyCorpAccessible((c) => this.level(c))) return;
     if (corp && CORP_DEFS[corp]) this.preferredCorp = corp;

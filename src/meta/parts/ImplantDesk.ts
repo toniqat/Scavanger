@@ -1,8 +1,9 @@
 /**
- * src/meta/parts/ImplantDesk.ts — **세레스 바이오 임플란트 수리 데스크** (Phase 12).
+ * src/meta/parts/ImplantDesk.ts — **세레스 바이오's implant repair desk** (Phase 12).
  *
- * 레이드에서는 **망가진 임플란트만** 나온다. 여기서 재료 + 수수료를 내고 고치면 쓸 수 있는 물건이 된다.
- * 크레딧 경로는 구매와 완전히 같고(서버 트랜잭션 / 오프라인 분기), 실패하면 재료까지 전액 되돌린다.
+ * A raid drops **broken implants only**. Paying the materials and the fee here turns one into a usable thing.
+ * The credit path is exactly the purchase path (server transaction / offline branch), and a failure refunds the
+ * materials in full as well.
  */
 import type {
   ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
@@ -21,7 +22,8 @@ import {
 import { CorpView } from '../ui/CorpView';
 import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
-/* 2026-09-11 (E-4 ⑦): 사유는 계약 문법으로 — 릴레이가 `repair:` = −수리비, `refund:repair:` = 그 짝을 검사한다. */
+/* 2026-09-11 (E-4 ⑦): the reason is built with the contract grammar — the relay checks `repair:` = −the fee and
+   `refund:repair:` = its pair. */
 import { formatCreditReason } from '@/shared';
 
 /** Every broken implant in the bag + stash (equipped implants live in progression, so they never show up). */

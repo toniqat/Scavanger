@@ -1,12 +1,17 @@
 /**
- * src/meta/parts/NpcObjectives.ts — NPC 퀘스트의 **레이드 목표** (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * src/meta/parts/NpcObjectives.ts — the **raid objectives** of NPC quests
+ * (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
- * 진행 중(`active`) 퀘스트의 레이드 목표(recover · interact · kill · discover · search)만, 진짜 레이드(훈련장 아님)에서만,
- * 행성 조건이 맞을 때만 센다. **채우는 순간 확정**(사용자 결정): 이번 레이드 진행(`NpcQuests.raidProgress`)이 목표치에
- * 닿으면 저장된 확정 진행(`NpcQuestSave.p`)으로 옮겨지고 그 뒤 사망해도 남는다. 확정되지 않은 진행은 레이드가 끝나면 0.
- *   - `chain` 이 같은 목표들은 한 레이드 안에서 모두 닿아야 **함께** 확정된다.
- *   - `recover` 는 탈출 정산(`settleRaid`)에서만 확정된다 — 레이드 중에는 몸에 지닌 수를 보여 줄 뿐이다.
- *   - 분대 공유는 발견뿐이다(전장의 안개가 분대 공유) — 처치 · 상호작용 · 조사는 이 클라이언트의 사건만 들어온다.
+ * Only the raid objectives (recover · interact · kill · discover · search) of an `active` quest count, only in a
+ * real raid (not the training range), and only when the planet requirement matches. **Confirmed the moment it
+ * fills** (user's decision): once this raid's progress (`NpcQuests.raidProgress`) reaches the target it moves into
+ * the saved confirmed progress (`NpcQuestSave.p`) and stays there through a later death. Progress that was never
+ * confirmed is 0 once the raid ends.
+ *   - Objectives with the same `chain` must all be reached within one raid to be confirmed **together**.
+ *   - `recover` is confirmed only at extraction settlement (`settleRaid`) — during the raid it merely shows how
+ *     many are carried on the body.
+ *   - Only discovery is squad-shared (the fog of war is squad-shared) — kills · interactions · searches arrive
+ *     only as this client's own events.
  */
 import type { MissionStats, NpcInteractKind, NpcObjectiveDef, NpcObjectiveKind, NpcQuestDef, NpcQuestSave, WeaponClass } from '@/shared';
 import { NPC_QUEST_MAP, NPC_RAID_OBJECTIVE_KINDS, raidFoundSeed } from '@/shared';
@@ -36,7 +41,7 @@ function raidOf(nq: NpcQuests, def: NpcQuestDef): number[] {
 
 const confirmed = (s: NpcQuestSave, o: NpcObjectiveDef, i: number): boolean => (s.p[i] ?? 0) >= o.target;
 
-/** 이번 레이드 진행을 올리고 확정을 시도한다. */
+/** Raises this raid's progress and tries to confirm. */
 export function advance(nq: NpcQuests, kind: NpcObjectiveKind, match: (o: NpcObjectiveDef) => boolean, amount = 1): void {
   if (!nq.counting()) return;
   for (const [def, s] of actives(nq)) {
@@ -52,7 +57,10 @@ export function advance(nq: NpcQuests, kind: NpcObjectiveKind, match: (o: NpcObj
   }
 }
 
-/** `i` 번 목표(와 그 chain)가 다 찼으면 확정한다. `atExtraction` = 탈출 정산 (회수 목표가 확정될 수 있는 유일한 때). */
+/**
+ * Confirms objective `i` (and its chain) once they are all full. `atExtraction` = extraction settlement, the only
+ * time a `recover` objective can be confirmed.
+ */
 export function tryConfirm(nq: NpcQuests, def: NpcQuestDef, s: NpcQuestSave, i: number, atExtraction: boolean): void {
   const o = def.objectives[i];
   if (!o || !NPC_RAID_OBJECTIVE_KINDS.has(o.kind)) return;
@@ -77,13 +85,16 @@ export function tryConfirm(nq: NpcQuests, def: NpcQuestDef, s: NpcQuestSave, i: 
   nq.checkReady(def, s);
 }
 
-/* ── 사건 ─────────────────────────────────────────────────────────────────── */
+/* ── Events ─────────────────────────────────────────────────────────────── */
 
 export function onKill(nq: NpcQuests, type: string, weaponClass: WeaponClass | null | undefined): void {
   advance(nq, 'kill', (o) => enemyMatches(o.enemy, type) && (!o.weapon || o.weapon === weaponClass));
 }
 
-/** 구조물 발견 (`fog:discovered kind 'structure'` — 안개는 분대 공유라 분대원이 밝혀도 온다). 레이드당 구조물마다 한 번. */
+/**
+ * Structure discovery (`fog:discovered kind 'structure'` — the fog is squad-shared, so it arrives when a squadmate
+ * uncovers it too). Once per structure per raid.
+ */
 export function onDiscover(nq: NpcQuests, structureId: string): void {
   if (!nq.counting() || nq.discovered.has(structureId)) return;
   const kind = nq.ctx.world?.getStructures?.().find((st) => st.id === structureId)?.kind;
@@ -92,7 +103,7 @@ export function onDiscover(nq: NpcQuests, structureId: string): void {
   advance(nq, 'discover', (o) => o.site === kind);
 }
 
-/** 구조물 컨테이너 조사 (이 클라이언트의 `crate:open` — E 를 다시 눌러도 컨테이너당 한 번). */
+/** A structure's container searched (this client's `crate:open` — once per container, E pressed again or not). */
 export function onSearch(nq: NpcQuests, crateId: string, zoneKind: string | undefined): void {
   if (!zoneKind || !STRUCTURE_SITES.includes(zoneKind) || !nq.counting() || nq.searched.has(crateId)) return;
   nq.searched.add(crateId);
@@ -103,7 +114,10 @@ export function onInteract(nq: NpcQuests, kind: NpcInteractKind): void {
   advance(nq, 'interact', (o) => o.interact === kind);
 }
 
-/** 회수 목표의 표시 진행 = 지금 몸에 지닌, 이 레이드에서 얻은 수 (확정은 탈출 정산에서). */
+/**
+ * A `recover` objective's shown progress = how many of this raid's finds are carried on the body right now
+ * (confirmed at extraction settlement).
+ */
 export function trackRecover(nq: NpcQuests): void {
   if (!nq.counting()) return;
   const seed = raidFoundSeed(nq.ctx);
@@ -121,8 +135,10 @@ export function trackRecover(nq: NpcQuests): void {
 }
 
 /**
- * 레이드 정산 (`MetaRef.settleMission` 이 계약 정산 **전에** 부른다 — 가방이 아직 레이드에서 가져온 그대로다).
- * 탈출했으면 회수 목표를 몸에서 세고, 모든 레이드 목표의 확정을 한 번 더 시도한다(회수가 낀 chain 포함). 훈련장 · 실패는 아무것도.
+ * Raid settlement (`MetaRef.settleMission` calls it **before** the contract settles — the bag is still exactly what
+ * came back from the raid).
+ * On extraction the `recover` objectives are counted off the body and every raid objective is tried for
+ * confirmation once more (a chain holding a `recover` included). The training range · a failure do nothing.
  */
 export function settleRaid(nq: NpcQuests, stats: MissionStats | null | undefined): void {
   if (!stats || stats.mode === 'training' || !stats.extracted) return;
@@ -136,7 +152,10 @@ export function settleRaid(nq: NpcQuests, stats: MissionStats | null | undefined
   }
 }
 
-/** 레이드가 끝났다 — 확정되지 않은 진행을 0 으로 (`npc:objectiveProgress` 음수 delta) + 중복 방지 표를 비운다. */
+/**
+ * The raid is over — unconfirmed progress goes to 0 (`npc:objectiveProgress` with a negative delta) and the
+ * duplicate-guard sets are emptied.
+ */
 export function resetRaid(nq: NpcQuests): void {
   for (const [id, rp] of nq.raidProgress) {
     const def = NPC_QUEST_MAP.get(id);

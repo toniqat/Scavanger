@@ -1,18 +1,22 @@
 /**
- * src/meta/parts/Intel.ts — **정보상**(레이븐이 파는 「행성 정보」 = 그 레이드의 기믹 고정).
+ * src/meta/parts/Intel.ts — **the intel broker** (the 「행성 정보」 Raven sells = that raid's fixed gimmicks).
  *
- * 계약은 `src/shared/intel.ts`(선택 · 해석 · 가격 식) + `shared/meta.ts` 의 `IntelRef` 이고, 결정은
- * `docs/DECISIONS.md` 「2026-09-14 — 정보상」 이다. 여기는 **보유 · 구매 · 폐기 · 소모**만 한다 — 월드에 닿는 길은
- * `ctx.missionIntel` 하나이고 그것을 세팅하는 곳은 출격(`hub/parts/Pods.launch`)과 수신(`net/parts/Lobby.beginSession`),
- * 솔로 이어하기(`game/parts/Session`)다.
+ * The contract is `src/shared/intel.ts` (picks · resolving · the price formula) plus `IntelRef` in `shared/meta.ts`,
+ * and the decision is `docs/DECISIONS.md` 「2026-09-14 — 정보상」. This file only **holds · buys · discards ·
+ * consumes** — the one road to the world is `ctx.missionIntel`, and the places that set it are the launch
+ * (`hub/parts/Pods.launch`), the receiving side (`net/parts/Lobby.beginSession`) and the solo resume
+ * (`game/parts/Session`).
  *
- * 규약 넷 —
- *  ① **한 번에 하나만** 갖는다. 이미 있는데 또 사면 환불 없이 덮어쓴다 (사용자 결정).
- *  ② **멀티에서는 분대장만** 사고 버린다 (탐사 차량 요금의 「결제자 한 명」 규약). 분대원은 `lobby.intel` 을 읽기만 한다.
- *  ③ 크레딧은 **릴레이의 답을 기다린다** (`MetaRef.creditsTx` — 암호화폐 매매와 같은 길). 거절되면 보유 정보를
- *     **바꾸지 않는다** — 산 것처럼 보였다가 서버에서 튕기면 그 시드로 출격해 놓고 기믹만 없는 맵이 된다.
- *  ④ 프로필에 산다 (`MetaSave.intel`). 새로고침 · 재접속을 견뎌야 한다 (「재접속으로 돌아온 사람이 조용히 무언가를
- *     잃으면 안 된다」) — `MetaStorage.snapshot()` 이 `data` 를 통째로 올리므로 `sanitizeMetaSave` 만 알면 된다.
+ * Four rules —
+ *  ① **one at a time**. Buying again over a held spec overwrites it with no refund (user's decision).
+ *  ② **in multiplayer only the squad leader** buys and discards (the rover fare's 「one payer」 rule). A member only
+ *     reads `lobby.intel`.
+ *  ③ credits **wait for the relay's answer** (`MetaRef.creditsTx` — the same road as the crypto trades). On a refusal
+ *     the held spec **does not change** — looking bought and then being bounced by the server would mean launching on
+ *     that seed with the gimmicks missing.
+ *  ④ it lives in the profile (`MetaSave.intel`) and has to survive a reload · a reconnect (「someone who came back
+ *     through a reconnect must not silently lose something」) — `MetaStorage.snapshot()` uploads `data` whole, so
+ *     `sanitizeMetaSave` is all that has to know about it.
  */
 import type { GameContext, IntelGimmick, IntelPick, IntelRef, IntelSpec, IntelWire, PlanetId } from '@/shared';
 import {
@@ -21,7 +25,7 @@ import {
 } from '@/shared';
 import type { MetaSystem } from '../MetaSystem';
 
-/** 화면이 그대로 찍는 거절 사유. */
+/** The refusal reasons the screen prints verbatim. */
 export const INTEL_REASON = {
   notHost: '분대장만 정보를 살 수 있습니다',
   inRaid: '레이드 중에는 정보를 살 수 없습니다',
@@ -31,28 +35,30 @@ export const INTEL_REASON = {
 } as const;
 
 export class Intel implements IntelRef {
-  /** 결제가 릴레이에 나가 있는 동안 (이중 구매 방지 · 화면 딤드). */
+  /** While the payment is out at the relay (no double purchase · the screen is dimmed). */
   private pending = false;
-  /** 이번 레이드가 보유 정보를 **실제로 쓰고** 출발했는가 (`game:newMission` 에서 판정 → 끝나면 소모). */
+  /** Did this raid launch **actually using** the held spec (judged on `game:newMission` → consumed when it ends). */
   private armed = false;
-  /** 마지막 거절 사유 (화면의 한 줄). */
+  /** The last refusal reason (the screen's one line). */
   lastRefusal: string | null = null;
 
   constructor(private readonly sys: MetaSystem) {}
 
   private get ctx(): GameContext { return this.sys.ctx; }
 
-  /* ── 구독 ────────────────────────────────────────────────────────────── */
+  /* ── subscriptions ───────────────────────────────────────────────────── */
   subscribe(): Array<() => void> {
     const b = this.ctx.bus;
     return [
-      // 서버 문서가 로컬 저장을 갈아 끼운 뒤 (Credits.onProfileLoaded 가 `store.replace` 한다) 화면을 다시 그린다
+      // redraw the screen once the server document has swapped the local store out (`Credits.onProfileLoaded`
+      // calls `store.replace`)
       b.on('net:profileLoaded', () => b.emit('intel:changed', { spec: this.get() })),
       b.on('game:newMission', ({ mode }) => { this.armed = mode !== 'training' && this.matchesMission(); }),
       b.on('game:complete', () => this.consumeIfArmed()),
       b.on('game:over', () => this.consumeIfArmed()),
       b.on('game:abort', () => this.consumeIfArmed()),
-      // 함선에 들어오거나 로비가 바뀌면(합류 · 분대장 이관) 분대장이 자기 정보를 다시 올린다
+      // on ship entry, or when the lobby changes (a join · a host transfer), the squad leader pushes its held spec
+      // again
       b.on('hub:entered', () => this.syncLobby()),
       b.on('net:lobbyUpdated', () => this.syncLobby()),
     ];
@@ -73,8 +79,9 @@ export class Intel implements IntelRef {
   maxTierOf(g: IntelGimmick, planet: PlanetId): number { return intelMaxTier(g, planet); }
 
   /**
-   * 구매. **동기 답은 「요청이 받아들여졌는가」** 다 (상점 구매 · 임플란트 수리와 같은 규약) — 실제 확정은 릴레이의
-   * 답을 받은 뒤 `intel:purchased` + `intel:changed` 로 온다. 거절이면 보유 정보가 그대로이고 `ui:notify` 가 사유를 띄운다.
+   * Buy. **The synchronous answer is 「was the request accepted」** (the same contract as a shop purchase and an
+   * implant repair) — the real commit arrives after the relay's answer, as `intel:purchased` + `intel:changed`. On a
+   * refusal the held spec stays as it is and `ui:notify` shows the reason.
    */
   buy(planet: PlanetId, seed: number, picks: readonly IntelPick[]): IntelSpec | null {
     this.lastRefusal = null;
@@ -103,28 +110,29 @@ export class Intel implements IntelRef {
     return spec;
   }
 
-  /** 「지역 재배치」 — 보유 정보를 버린다. **환불 없음** (사용자 결정). */
+  /** 「지역 재배치」 — throws the held spec away. **No refund** (user's decision). */
   discard(): void {
     if (!this.canEdit()) { this.refuse(INTEL_REASON.notHost); return; }
     this.clear();
   }
 
-  /** 레이드가 이 정보를 썼다 (`game:complete` · `game:over` · `game:abort` 정산 뒤). */
+  /** The raid used this spec (after the `game:complete` · `game:over` · `game:abort` settlement). */
   consume(): void { this.armed = false; this.clear(); }
 
-  /** 결제가 아직 릴레이에 나가 있는가 (화면이 확정 버튼을 잠근다). */
+  /** Is the payment still out at the relay (the screen locks its confirm button). */
   get isPending(): boolean { return this.pending; }
 
-  /** 지금 이 클라이언트가 사고 버릴 수 있는가 (싱글이거나 분대장). */
+  /** Can this client buy and discard right now (single player, or the squad leader). */
   canEdit(): boolean {
     const net = this.ctx.net;
-    if (!net || !net.lobby) return true;          // 싱글 · 로비 밖
+    if (!net || !net.lobby) return true;          // single player · outside a lobby
     return net.isHost === true && net.lobby.started !== true;
   }
 
-  /* ── 내부 ────────────────────────────────────────────────────────────── */
+  /* ── internals ───────────────────────────────────────────────────────── */
 
-  /** 이 행성에서 살 수 없는 줄을 버리고 단계를 상한으로 자른다 (화면이 잘못 넘겨도 값이 새지 않는다). */
+  /** Drops the lines this planet cannot sell and clamps the tier to its cap (a screen that passes the wrong thing
+   *  still cannot leak a value through). */
   private clamp(planet: PlanetId, picks: readonly IntelPick[]): IntelPick[] {
     const out: IntelPick[] = [];
     for (const p of sanitizeIntelPicks(picks)) {
@@ -143,7 +151,7 @@ export class Intel implements IntelRef {
   private apply(spec: IntelSpec, cost: number): void {
     this.sys.store.data.intel = spec;
     this.sys.store.markDirty();
-    this.sys.store.flush();            // 새로고침을 견뎌야 한다 — 산 즉시 프로필로 올린다
+    this.sys.store.flush();            // it has to survive a reload — uploaded to the profile the moment it is bought
     const b = this.ctx.bus;
     b.emit('intel:purchased', { spec, cost });
     b.emit('intel:changed', { spec });
@@ -164,14 +172,15 @@ export class Intel implements IntelRef {
     this.consume();
   }
 
-  /** 이 레이드가 보유 정보의 행성 · 시드로 떠났는가 (출격이 그렇게 실어 보낸다). */
+  /** Did this raid leave on the held spec's planet · seed (the launch is what carries it that way). */
   private matchesMission(): boolean {
     const spec = this.get();
     if (!spec) return false;
     return spec.planet === this.ctx.missionPlanet;
   }
 
-  /** 분대장이면 `lobby.intel` 을 내 보유 정보와 맞춘다 (달라질 때만 보낸다 — `net:lobbyUpdated` 마다 불린다). */
+  /** As the squad leader, matches `lobby.intel` to the held spec (sent only when it differs — this is called on
+   *  every `net:lobbyUpdated`). */
   private syncLobby(): void {
     const net = this.ctx.net;
     if (!net || !net.lobby || net.lobby.started || net.isHost !== true) return;

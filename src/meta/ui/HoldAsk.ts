@@ -14,18 +14,21 @@ export interface HoldAskSpec {
 const ESCAPE_KEY = 'meta:holdAsk';
 
 /**
- * 기업 화면의 **한 번 더 확인** 팝업 (2026-09-12, E2 — 즐겨찾기 아이템 판매).
+ * The corp screen's **confirm-once-more** popup (2026-09-12, E2 — selling a favorite item).
  *
- * `ui/menus/askPopup` 의 경고 팝업과 같은 규약이지만 폴더끼리 import 하지 않으므로 meta 가 따로 갖는다:
- *  - 확인은 **`UI_HOLD_CONFIRM_S` 홀드**다 (게이지는 rAF, 확정은 타이머 — 프레임이 멈춘 탭에서도 멎지 않는다).
- *    클릭 · Enter 로는 확정되지 않는다. **2026-09-15 2차 (사용자 결정)**: 「〈라벨〉 버튼을 1초 동안 …」 안내 줄
- *    (`.cv-ask-hint` — 일찍 떼면 번쩍이던 그 줄)은 없어졌고, 대신 확인 버튼 **안, 라벨 왼쪽**에 좌클릭 홀드 키캡
- *    (`shared/keycap.createHoldButtonCap`)이 선다. `meta.css` 의 `.cv-ask-hint` 규칙은 이제 쓰이지 않는다.
- *  - **Escape = 취소** — `ctx.escape` 맨 위에 올라가 Tab 창보다 먼저 닫힌다. Enter 는 삼킨다. 최초 포커스는 `취소`.
- *  - 뒤판 빈 곳을 누르면 취소다 (취소는 언제나 안전하다).
+ * Same contract as `ui/menus/askPopup`'s warning popup, but folders do not import one another, so meta keeps its own:
+ *  - Confirming is a **`UI_HOLD_CONFIRM_S` hold** (the gauge rides rAF, the confirm a timer — so it never stalls in a
+ *    tab whose frames have stopped). Click and Enter never confirm. **2026-09-15 2nd pass (user's decision)**: the
+ *    hint row 「〈라벨〉 버튼을 1초 동안 …」 (`.cv-ask-hint` — the row that flashed on an early release) is gone, and
+ *    instead a left-click hold keycap (`shared/keycap.createHoldButtonCap`) stands **inside the confirm button, left
+ *    of the label**. `meta.css`'s `.cv-ask-hint` rule is unused from now on.
+ *  - **Escape = cancel** — it goes on top of `ctx.escape` and closes before the Tab window. Enter is swallowed. The
+ *    initial focus is `취소`.
+ *  - Pressing an empty spot on the backdrop cancels (cancelling is always safe).
  *
- * `ctx.uiRoot` 바로 아래에 붙는다 — Tab 창 안의 호스트에 붙이면 창의 transform 이 `position: fixed` 를 가둔다.
- * blocker 토큰 · 커서 소유는 없다 (그건 이 팝업을 띄운 Tab 창이 쥐고 있다). 클래스 접두사는 이 폴더의 `.cv-`.
+ * It hangs directly under `ctx.uiRoot` — attached to a host inside the Tab window, the window's transform would trap
+ * `position: fixed`. It owns no blocker token and no cursor (the Tab window that raised this popup holds those). The
+ * class prefix is this folder's `.cv-`.
  */
 export class HoldAsk {
   readonly root: HTMLElement;
@@ -56,7 +59,8 @@ export class HoldAsk {
     const foot = el('div', { cls: 'cv-ask-foot', parent: card });
     this.cancelBtn = el('button', { cls: 'ui-btn cv-ask-cancel', text: '취소', parent: foot }) as HTMLButtonElement;
     this.okBtn = el('button', { cls: 'ui-btn danger cv-ask-ok', parent: foot }) as HTMLButtonElement;
-    // 2026-09-15 2차: 라벨 왼쪽의 좌클릭 홀드 키캡 — 채움 바보다 앞이라 flex 순서로 맨 왼쪽에 선다.
+    // 2026-09-15 2nd pass: the left-click hold keycap left of the label — it comes before the fill bar, so flex
+    // order stands it furthest left.
     createHoldButtonCap(this.okBtn);
     this.fill = el('i', { cls: 'cv-ask-fill', parent: this.okBtn });
     this.okLabel = el('span', { cls: 'cv-ask-label', parent: this.okBtn });
@@ -120,7 +124,10 @@ export class HoldAsk {
     this.okBtn.classList.add('is-holding');
   }
 
-  /** 일찍 뗐다 = 아무 일도 없다 (2026-09-15 2차부터 안내 줄이 없으므로 게이지를 0 으로 되돌리는 것이 전부다). */
+  /**
+   * Released early = nothing happens (with no hint row since 2026-09-15 2nd pass, returning the gauge to 0 is all
+   * there is to do).
+   */
   private release(): void {
     if (this.hold) this.cancelHold();
   }

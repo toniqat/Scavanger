@@ -1,8 +1,8 @@
 /**
- * src/meta/parts/Credits.ts — **크레딧 · 신뢰도 · 서버 프로필**.
+ * src/meta/parts/Credits.ts — **credits · reputation · the server profile**.
  *
- * 크레딧 잔액의 유일한 소유자. 릴레이가 있으면 서버가 진실이고(`serverTx`), 없으면 localStorage 다.
- * `net:profileLoaded` 에서 서버 값을 받아들이는 규칙(`adoptServerCredits`)도 여기 있다.
+ * The one owner of the credit balance. With a relay the server is the truth (`serverTx`); without one, localStorage
+ * is. The rule for adopting the server's figure on `net:profileLoaded` (`adoptServerCredits`) lives here too.
  */
 import type {
   ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
@@ -22,7 +22,7 @@ import {
 import { CorpView } from '../ui/CorpView';
 import { CORP_ALIASES, GOAL_IDS, INVENTORY_GOALS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
-/* 2026-09-11 (E-4 ⑦): 크레딧 사유는 계약 문법으로 (`shared/credits.ts`). */
+/* 2026-09-11 (E-4 ⑦): credit reasons are built with the contract grammar (`shared/credits.ts`). */
 import { formatCreditReason } from '@/shared';
 
 export function subscribeNet(sys: MetaSystem): void {
@@ -222,11 +222,14 @@ export function addCredits(sys: MetaSystem, delta: number, reason: string): bool
   }
 
 /**
- * 2026-09-13 (암호화폐 매매, `MetaRef.creditsTx`): `addCredits` 와 같은 낙관적 적용인데 **릴레이의 답까지 기다린다** — meta 밖 폴더(housing 의
- * 거래소)가 크레딧이 정말 움직였을 때만 자기 상태(지갑)를 바꾸기 위해서다. 로컬 검사(0 아래)에서 막히면 곧바로 `{ok:false}`,
- * 오프라인이면 로컬 적용이 곧 성공이다. 서버가 거절하면 `serverTx` 가 잔액을 되돌린 뒤 `{ok:false, reason}`. 소켓이 끊겨 답이 없으면
- * (`serverTx` → null) **실패로 보고 로컬 적용을 되돌린다** — 지갑이 「성공했을 때만 바뀐다」 는 약속이 먼저이고, 서버가 사실은 처리했더라도
- * 다음 `net:profileLoaded` 가 잔액을 서버 값으로 맞춘다 (`addCredits` 의 「끊기면 로컬 값 유지」 와 다른 이유다).
+ * 2026-09-13 (crypto trades, `MetaRef.creditsTx`): the same optimistic apply as `addCredits`, except that it
+ * **waits for the relay's answer** — a folder outside meta (housing's trade desk) changes its own state (the wallet)
+ * only once the credits really moved. Blocked by the local check (below 0) it answers `{ok:false}` at once; offline
+ * the local apply is the success. A server refusal makes `serverTx` restore the balance and answer
+ * `{ok:false, reason}`. When the socket dropped and no answer comes (`serverTx` → null) it **reports failure and
+ * reverts the local apply** — the wallet's promise that it 「changes only on success」 comes first, and even if the
+ * server did process it, the next `net:profileLoaded` puts the balance back to the server's figure (which is why
+ * this differs from `addCredits`' 「keep the local value when the link drops」).
  */
 export function creditsTx(sys: MetaSystem, delta: number, reason: string): Promise<{ ok: boolean; reason?: string }> {
   const d = Math.round(Number(delta) || 0);

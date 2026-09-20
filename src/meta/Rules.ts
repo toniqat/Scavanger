@@ -6,7 +6,7 @@ import {
   CONTRACT_MAX_ACTIVE, CONTRACT_SQUAD_SHARE, RARITY_ORDER, REP_LEVEL_MAX, REP_TABLE, SHOP_BAG_RARITY_BONUS, SHOP_RARITY_CAP_BY_REP,
   SHOP_UNLOCK_REP_LEVEL, buyPriceOf, repLevelOf, rarityRank as sharedRarityRank,
 } from '@/shared';
-/* 임플란트 수리 수수료는 `data/tuning.csv` 에 있다. */
+/* The implant repair fee lives in `data/tuning.csv`. */
 import { csvRows, keyTable } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ import { csvRows, keyTable } from '@/shared';
 export const rarityRank = (r: Rarity): number => Math.max(0, sharedRarityRank(r));
 export { RARITY_ORDER };
 
-/** 한국어 reason strings (also what the corp screen prints). */
+/** Korean reason strings (also what the corp screen prints). */
 export const REASON = {
   repLow: '신뢰도 부족',
   credits: '크레딧 부족',
@@ -29,7 +29,7 @@ export const REASON = {
   missing: '납품 아이템 부족',
   locked: '잠김',
   done: '완료됨',
-  /* Phase 12: 임플란트 수리 desk */
+  /* Phase 12: the implant repair desk */
   notBroken: '수리할 수 없는 아이템',
   noTarget: '수리 결과를 알 수 없음',
   materials: '재료 부족',
@@ -48,8 +48,9 @@ export type WeaponDefLookup = (weaponId: string) => WeaponDef | undefined;
 export function shopRarityCap(level: number, def: ItemDef): number {
   const idx = Math.max(0, Math.min(SHOP_RARITY_CAP_BY_REP.length - 1, level));
   let cap = rarityRank(SHOP_RARITY_CAP_BY_REP[idx]);
-  // 상점은 **전설까지**만 판다. 2026-09-16 에 `Rarity` 가 신화로 한 칸 늘어나면서 `RARITY_ORDER.length - 1` 로 두면
-  // 가방 보너스가 신화 가방을 진열에 올리는 상한이 된다 — 신화는 상점 물건이 아니므로 전설에 멈춘다.
+  // The shop sells **up to legendary** only. When `Rarity` gained a step (mythic) on 2026-09-16, leaving the cap at
+  // `RARITY_ORDER.length - 1` would let the bag bonus put a mythic bag on the shelf — mythic is not shop stock, so it
+  // stops at legendary.
   if (def.category === 'bag') cap = Math.min(rarityRank('legendary'), cap + SHOP_BAG_RARITY_BONUS);
   return cap;
 }
@@ -107,12 +108,13 @@ const CATEGORY_SORT: readonly ItemDef['category'][] = [
 export type FitLookup = (defId: string, qty: number) => boolean;
 
 /**
- * 2026-09-16 (사용자 결정): **탄약은 한 묶음 통째로 판다.** 한 발씩 파는 매대는 한 탄창을 채우려고 같은 칸을 수십 번
- * 눌러야 했고, 가격표도 「1 C」 처럼 읽혀 아무 뜻이 없었다. 그래서 매대 한 칸 = `stackMax` 발이고 값도 그만큼이다
- * (구매 한 번 = 풀 스택 하나). 다른 분류는 지금까지대로 1 개다 — 총 · 방탄복 · 임플란트는 묶음이 없다.
+ * 2026-09-16 (user's decision): **ammo is sold a whole stack at a time.** A shelf that sold single rounds meant
+ * pressing the same slot dozens of times to fill one magazine, and its price tag read `1 C`, which said nothing. So
+ * one shelf slot = `stackMax` rounds and the price is for that many (one purchase = one full stack). Every other
+ * category is still 1 — guns, armor and implants do not stack.
  *
- * 릴레이의 사유 검증(`shared/credits.ts` `buy:<defId>`)은 **하한**만 본다(`|delta| ≥ 최저 신뢰도 할인가`), 그래서
- * 금액이 커지는 쪽은 그대로 통과한다. `qty ≤ stackMax` 는 정의상 만족한다.
+ * The relay's reason check (`shared/credits.ts` `buy:<defId>`) is a **lower** bound (`|delta| ≥ the best-discount
+ * price`), so the bigger amount passes as it is. `qty ≤ stackMax` holds by construction.
  */
 export function shopQtyOf(def: Pick<ItemDef, 'category' | 'stackMax'>): number {
   if (def.category !== 'ammo') return 1;
@@ -153,7 +155,7 @@ export function buildShop(
   return out;
 }
 
-/* ── 임플란트 수리 (Phase 12, 2026-09-08) ─────────────────────────────────────
+/* ── implant repair (Phase 12, 2026-09-08) ───────────────────────────────────
  * 세레스 바이오 turns a broken implant (`ItemDef.implant.broken`) into `repairsTo` for `repairCost` materials plus a
  * credit fee of `IMPLANT_REPAIR_FEE × grade` (grade = rarity of the **repaired** implant, 1 common … 5 legendary).
  * Everything below is pure; `MetaSystem.repairImplant` feeds it the live numbers and the desk prints `canRepairImplant`.
@@ -196,7 +198,7 @@ export interface ImplantRepairCheck {
   fits: boolean;
 }
 
-/** 한국어 reason the repair cannot run now; null = go ahead. Order: 아이템 → 함선 → 크레딧 → 재료 → 공간. */
+/** Korean reason the repair cannot run now; null = go ahead. Order: 아이템 → 함선 → 크레딧 → 재료 → 공간. */
 export function canRepairImplant(c: ImplantRepairCheck): string | null {
   if (!isRepairableImplantDef(c.broken)) return REASON.notBroken;
   if (!c.target) return REASON.noTarget;
@@ -209,9 +211,11 @@ export function canRepairImplant(c: ImplantRepairCheck): string | null {
 
 /* ── contracts ── */
 /**
- * 2026-09-13: `kill_rogues` 는 **인간형 적 전부**를 센다 — 로그 · 로그 그룹장 · 안드로이드 · 레이더 · 네임드(로든 · 타길라 · 헤비).
- * 예전에는 `rogue` · `rogue_boss` 만 셌고 네임드는 벌레(`kill_bugs`)로 잘못 들어갔다. 팩션의 원본은 `data/enemies.csv` 의
- * `faction` 열이고(벌레가 아니면 인간형), 스캔 드론은 팩션이 레이더여도 사람이 아니라 뺀다. 타입 검증은 enemies/ 의 로더가 한다.
+ * 2026-09-13: `kill_rogues` counts **every humanoid enemy** — rogue · rogue boss · android · raider · the named ones
+ * (로든 · 타길라 · 헤비). It used to count `rogue` · `rogue_boss` alone and the named ones fell into the bugs
+ * (`kill_bugs`) by mistake. The source of a faction is `data/enemies.csv`'s `faction` column (not a bug = humanoid);
+ * the scan drone is left out although its faction is raider, because it is not a person. The type check is the
+ * loader's job in enemies/.
  */
 const NON_HUMANOID_KILL_TYPES: ReadonlySet<string> = new Set(['rogue_scan_drone']);
 const HUMANOID_KILL_TYPES: ReadonlySet<string> = new Set(
