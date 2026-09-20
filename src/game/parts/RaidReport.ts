@@ -1,31 +1,36 @@
 /**
- * src/game/parts/RaidReport.ts — **결과 창의 재료** (2026-09-15, 결과 창 개편 — 사용자 결정).
+ * src/game/parts/RaidReport.ts — **what fills the results screen** (2026-09-15, the results screen rework —
+ * user's decision).
  *
- * 사망 결과 창은 「잃은 전리품 가치」(그 레이드에서 가장 높았던 소지품 가치) · 「사망 원인」(막타 — 적이면 그 개체,
- * 아니면 원인 종류)과 그 원인에게서 받은 피해를 보여 준다. 셋 다 레이드가 끝나는 순간에는 이미 알 수 없다 —
- * 소지품은 `stripForCorpse` 가 시체로 비웠고, 피해는 흘러간 이벤트다. 그래서 레이드 동안 여기서 모은다.
+ * The death results screen shows 「잃은 전리품 가치」 (the highest value carried in that raid) · 「사망 원인」 (the
+ * last hit — the body itself if it was an enemy, otherwise the kind of cause) and the damage that cause dealt. None
+ * of the three can still be known the moment the raid ends — `stripForCorpse` has stripped the belongings into the
+ * corpse, and damage is an event that has gone by. So they are collected here, during the raid.
  *
- * - **최고 소지품 가치** — `InventoryRef.getTotalValue()`(가방 · 퀵슬롯 · 주머니) + 장착 로드아웃(무기 · 가방 · 방탄복 ·
- *   주머니 아이템 자체 · 무기 소켓 부착물)의 `def.value × qty`. 인벤토리 변화 이벤트마다 + `POLL_S` 마다 한 번 재고
- *   `ctx.stats.peakLootValue` 에 **최댓값으로만** 쓴다. 사망 순간에는 **시체로 비우기 전에** 한 번 더 잰다
- *   (`GameFlowSystem.init` 이 이 구독을 `onLocalDied` 보다 먼저 건다). 값이 `MissionStats` 에 사므로 레이드 세션
- *   저장 · 복귀를 그대로 따라간다.
- * - **원인별 받은 피해** — `player:damaged.source` 를 열쇠로 합산한다: 적은 개체(`enemyId`, 없으면 `enemyType`),
- *   나머지는 `kind` (+ `hazard`). 출처가 없는 피해는 세지 않는다 (모르는 것을 지어내지 않는다 — 원인 줄이 숨는다).
- * - **막타** — `player:died.source`, 없으면 마지막으로 받은 피해의 출처. 자발적 귀환(`returnPending`)으로 죽은
- *   몸에는 원인이 없다.
+ * - **Peak carried value** — `InventoryRef.getTotalValue()` (bag · quick slots · pouch) + `def.value × qty` of the
+ *   equipped loadout (weapon · bag · armor · the pouch item itself · weapon socket attachments). Measured on every
+ *   inventory change event and once every `POLL_S`, and written to `ctx.stats.peakLootValue` **only as a maximum**.
+ *   At the moment of death it is measured once more **before the strip into the corpse** (`GameFlowSystem.init`
+ *   raises this subscription earlier than `onLocalDied`). The value lives in `MissionStats`, so it follows the raid
+ *   session save · resume as it is.
+ * - **Damage tallies per source** — summed with `player:damaged.source` as the key: an enemy by body (`enemyId`, or
+ *   `enemyType` when there is none), everything else by `kind` (+ `hazard`). Damage with no source is not counted
+ *   (nothing unknown is invented — the death cause row hides instead).
+ * - **The last hit** — `player:died.source`, else the source of the last damage taken. A body that died of the
+ *   voluntary return (`returnPending`) has no cause.
  *
- * `fill()` 은 `GameFlowSystem.complete()` · `gameOver()` 가 결산 **앞에서** 부른다 — 결과 화면이 읽는 `ctx.stats` 에
- * `peakLootValue` · `death` 가 이미 들어 있게. 레이드가 새로 시작하거나(`game:newMission`) 끝나고 함선에 들어서면 비운다.
+ * `fill()` is called by `GameFlowSystem.complete()` · `gameOver()` **before** the settlement — so `ctx.stats`, which
+ * the results screen reads, already holds `peakLootValue` · `death`. It is cleared when a raid starts anew
+ * (`game:newMission`), or when one ends and the ship is entered.
  */
 import type { DamageCauseKind, GameContext, InventoryRef, ItemInstance, MissionDeathCause, PlayerDamageSource } from '@/shared';
 import { HAZARD_LABEL_KO, HAZARD_KINDS, type HazardKind } from '@/shared';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
-/** 소지품 가치를 다시 재는 간격 (초) — 이벤트를 놓친 변화의 안전망이라 촘촘할 필요가 없다. */
+/** The interval for re-measuring the carried value (s) — a safety net for missed events, so it need not be tight. */
 const POLL_S = 1;
 
-/** 적 · 재해가 아닌 원인의 이름 (결과 창 표시). */
+/** The names of causes that are neither an enemy nor a hazard (shown on the results screen). */
 const CAUSE_LABEL_KO: Readonly<Record<Exclude<DamageCauseKind, 'enemy' | 'hazard'>, string>> = {
   fall: '낙하',
   env: '행성 환경',
@@ -63,15 +68,15 @@ function itemValue(inv: InventoryRef, it: ItemInstance | null | undefined): numb
   return v;
 }
 
-/** 지금 몸에 지닌 모든 것의 가치 — 가방 · 퀵슬롯 · 주머니 + 장착한 장비. */
+/** The value of everything the body carries right now — bag · quick slots · pouch + the equipped gear. */
 export function carriedValue(inv: InventoryRef | null | undefined): number {
   if (!inv) return 0;
   let v = 0;
-  try { v += inv.getTotalValue(); } catch { /* 인벤토리가 아직 없다 */ }
+  try { v += inv.getTotalValue(); } catch { /* the inventory is not there yet */ }
   try {
     const l = inv.getLoadout();
     for (const it of [l.primary, l.primary2, l.secondary, l.bag, l.armor ?? null, l.pouch ?? null]) v += itemValue(inv, it);
-  } catch { /* 로드아웃이 아직 없다 */ }
+  } catch { /* the loadout is not there yet */ }
   return Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0;
 }
 
@@ -79,7 +84,7 @@ export class RaidReport {
   private readonly tallies = new Map<string, Tally>();
   private last: PlayerDamageSource | null = null;
   private lethal: PlayerDamageSource | null = null;
-  /** 막타 시점에 자발적 귀환 중이었다 — 원인 줄을 비운다. */
+  /** The voluntary return was under way at the last hit — the death cause row is left empty. */
   private diedByReturn = false;
   private poll = 0;
   private readonly unsubs: Array<() => void> = [];
@@ -88,7 +93,10 @@ export class RaidReport {
 
   private get ctx(): GameContext { return this.sys.ctx; }
 
-  /** `GameFlowSystem.init` 에서 **`player:died` → `onLocalDied` 구독보다 먼저** 부른다 (시체로 비우기 전에 잰다). */
+  /**
+   * Called from `GameFlowSystem.init` **earlier than the `player:died` → `onLocalDied` subscription** (it measures
+   * before the strip into the corpse).
+   */
   bind(): void {
     const b = this.ctx.bus;
     this.unsubs.push(
@@ -117,7 +125,7 @@ export class RaidReport {
     this.poll = 0;
   }
 
-  /** `GameFlowSystem.update` — 저율 폴링. */
+  /** `GameFlowSystem.update` — low-rate polling. */
   update(dt: number): void {
     this.poll -= dt;
     if (this.poll > 0) return;
@@ -125,7 +133,10 @@ export class RaidReport {
     this.sample();
   }
 
-  /** 레이드 중이고 몸이 살아 있을 때만 잰다 (시체로 비워진 뒤 · 함선 · 훈련장은 최고값을 건드리지 않는다). */
+  /**
+   * Measures only in a raid with the body alive (after the strip into the corpse · the ship · the training range
+   * never touch the peak).
+   */
   private sample(): void {
     const ctx = this.ctx;
     if (!this.inRaid()) return;
@@ -162,15 +173,16 @@ export class RaidReport {
 
   private onDied(source: PlayerDamageSource | undefined): void {
     if (!this.inRaid()) return;
-    // 시체로 비우기 전 — 이 구독은 `onLocalDied` 보다 먼저 돈다. 죽음 판정이 이미 켜졌어도 가방은 아직 그대로다.
+    // before the strip into the corpse — this subscription runs earlier than `onLocalDied`. The death check may
+    // already be on, but the bag is still as it was.
     this.bump(carriedValue(this.ctx.inventory));
     this.lethal = source && typeof source.kind === 'string' ? source : this.last;
     this.diedByReturn = this.sys.returnPending;
   }
 
   /**
-   * 결산 직전: `ctx.stats.peakLootValue` 를 마지막으로 올리고, 몸이 쓰러져 있으면 `ctx.stats.death` 를 확정한다.
-   * 멱등이다 (같은 상태에서 몇 번 불러도 같은 값).
+   * Just before the settlement: raises `ctx.stats.peakLootValue` one last time and, if the body is down, settles
+   * `ctx.stats.death`. It is idempotent (the same value however many times it is called in the same state).
    */
   fill(): void {
     const ctx = this.ctx;
@@ -207,7 +219,7 @@ export class RaidReport {
   }
 
   /* ── debug ── */
-  /** 원인별 합계 (디버그 · 스모크). */
+  /** The tallies per source (debug · smokes). */
   debugTallies(): Array<{ key: string } & Tally> {
     return [...this.tallies.entries()].map(([key, t]) => ({ key, ...t }));
   }

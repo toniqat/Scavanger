@@ -1,20 +1,21 @@
 /**
- * src/game/parts/CorpseNet.ts — **시체의 생성과 동기화** (`pcorpse` / `pcorpseq`, 2026-09-09).
+ * src/game/parts/CorpseNet.ts — **player corpse creation and sync** (`pcorpse` / `pcorpseq`, 2026-09-09).
  *
- * 이 파일이 답하는 질문: *누가 시체를 만들고, 늦게 합류한 사람은 그것을 어떻게 알게 되는가.*
+ * The question this file answers: *who makes a corpse, and how somebody who joined late learns about it.*
  *
- * - `spawn` 은 **죽은 본인**이 `'all'` 로 보낸다 — 자기 인벤토리만이 진실이라 아무도 대신 말할 수 없다.
- *   `'all'` 은 보낸 사람에게도 되돌아오지만 시체 id 로 중복 제거되므로 두 번 서지 않는다.
- * - 호스트는 **남의 시체도 `items` 채로** 들고 있다가 `pcorpseq sync` / `flow rejoined` 에 `pcorpse sync` 로 답한다
- *   (`stratagems/parts/Wire` 의 late-join 패턴과 같은 모양).
- * - 시체 안의 아이템을 **가져가는** 것은 이 파일과 무관하다 — 상자와 똑같이 `cont` / `contq` 를 탄다.
+ * - `spawn` is sent to `'all'` by **the dead player themselves** — only their own inventory is the truth, so nobody
+ *   can speak for them. `'all'` echoes back to the sender too, but the corpse id dedupes it, so it spawns only once.
+ * - The host holds **other people's corpses with their `items` too** and answers a `pcorpseq sync` / `flow rejoined`
+ *   with `pcorpse sync` (the same shape as the late-join pattern in `stratagems/parts/Wire`).
+ * - **Taking** the items inside a corpse has nothing to do with this file — it rides `cont` / `contq` exactly as a
+ *   crate does.
  */
 import * as THREE from 'three';
 import type { CorpseMessage, ItemInstance, PeerId, PlayerCorpseWire } from '@/shared';
 import { normalizeMealQuality } from '@/shared';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
-/** 싱글 플레이의 `PeerId` 대역 (계약: 솔로는 `'sp'`). */
+/** The stand-in `PeerId` for single player (the contract: solo is `'sp'`). */
 export const SOLO_PEER = 'sp';
 
 export function localPeerId(sys: GameFlowSystem): string {
@@ -34,7 +35,7 @@ function slotOf(sys: GameFlowSystem, peerId: string): number {
   return net.getLobbyPlayer?.(peerId)?.slot ?? 0;
 }
 
-/** `net.onMessage('pcorpse' | 'pcorpseq')` + `flow rejoined`. `ensureNetHooks` 에서 한 번만 건다. */
+/** `net.onMessage('pcorpse' | 'pcorpseq')` + `flow rejoined`. Raised exactly once, in `ensureNetHooks`. */
 export function hookCorpseNet(sys: GameFlowSystem): void {
   const net = sys.ctx.net;
   if (!net || sys.corpseUnsubs.length > 0) return;
@@ -51,11 +52,12 @@ export function unhookCorpseNet(sys: GameFlowSystem): void {
 }
 
 /**
- * `from` (2026-09-16): `emptied` 는 이제 시체를 **치우는** 사실이라 로비 호스트가 보낸 것만 받는다 (`ee` 와 같은 규칙).
- * 호스트는 모든 `pcorpse` 와이어로 컨테이너를 미리 만들어 두므로(`inventory/parts/CorpseLoot.primeCorpseContainer` — `'all'` 은
- * 보낸 사람에게도 되돌아온다) 누가 마지막 아이템을 가져가든 호스트의 `crate:looted` 가 먼저 안다. 로비가 없으면(스모크) 비교하지 않는다.
- * 2026-09-16 (2차): 호스트는 그 시체를 **아무도 들여다보지 않게 된 뒤에** 보낸다 (`Corpses.update`) — 받는 쪽은 받은 순간부터
- * 가라앉기 시계를 센다 (`releaseEmptied`).
+ * `from` (2026-09-16): `emptied` is now the fact that **clears a corpse away**, so only one sent by the lobby host
+ * is accepted (the same rule as `ee`). The host builds the container ahead of time from every `pcorpse` wire
+ * (`inventory/parts/CorpseLoot.primeCorpseContainer` — `'all'` echoes back to the sender too), so whoever takes the
+ * last item, the host's `crate:looted` knows it first. With no lobby (a smoke) nothing is compared.
+ * 2026-09-16 (2nd pass): the host sends it **once nobody looks into that corpse any more** (`Corpses.update`) — the
+ * receiver counts the sink clock from the moment it arrives (`releaseEmptied`).
  */
 export function onCorpseMessage(sys: GameFlowSystem, msg: CorpseMessage, from?: PeerId): void {
   if (msg.ev === 'spawn') applyCorpseWire(sys, msg.corpse);
@@ -67,14 +69,15 @@ export function onCorpseMessage(sys: GameFlowSystem, msg: CorpseMessage, from?: 
   }
 }
 
-/** 와이어 한 구를 월드에 세운다 (이미 아는 id 는 무시된다). */
+/** Spawns one wire body in the world (an id already known is ignored). */
 export function applyCorpseWire(sys: GameFlowSystem, w: PlayerCorpseWire): void {
   const mgr = sys.corpses;
   if (!mgr || !w || typeof w.id !== 'string') return;
   if (mgr.get(w.id)) return;
   const pos = new THREE.Vector3(w.p?.[0] ?? 0, w.p?.[1] ?? 0, w.p?.[2] ?? 0);
   const world = sys.ctx.world;
-  // 2026-09-11 (C-18): 지형이 아니라 **밟을 수 있는 표면** — 전차 데크 · 2층 바닥에서 죽은 시체가 땅으로 떨어지지 않게
+  // 2026-09-11 (C-18): the **walkable surface**, not the terrain — so a corpse that died on a tram deck · an
+  // upper floor does not fall to the ground
   if (world?.ready) pos.y = world.getSurfaceY(pos.x, pos.z, pos.y);
   const items = itemsFromWire(sys, w.items ?? []);
   mgr.add(w.id, w.owner, w.name || '분대원', pos, Number.isFinite(w.yaw) ? w.yaw : 0,
@@ -88,8 +91,9 @@ function itemsFromWire(sys: GameFlowSystem, wire: PlayerCorpseWire['items']): It
   for (const w of wire) {
     if (!w || typeof w.defId !== 'string') continue;
     const item = loot.createItem(w.defId, Math.max(1, Math.floor(w.qty || 1)), w.ex);
-    if (item && typeof w.rf === 'number' && Number.isFinite(w.rf)) item.raidFound = w.rf >>> 0;   // 2026-09-12: 생략 = 표식 없음
-    const q = normalizeMealQuality(w.q);   // 2026-09-13: 요리 품질 (생략 = 0)
+    // 2026-09-12: omitted = no mark
+    if (item && typeof w.rf === 'number' && Number.isFinite(w.rf)) item.raidFound = w.rf >>> 0;
+    const q = normalizeMealQuality(w.q);   // 2026-09-13: meal quality (omitted = 0)
     if (item && q > 0) item.quality = q;
     if (item) out.push(item);
   }
@@ -97,8 +101,8 @@ function itemsFromWire(sys: GameFlowSystem, wire: PlayerCorpseWire['items']): It
 }
 
 /**
- * 로컬 플레이어가 완전히 사망했다: 인벤토리를 통째로 뽑아 그 자리에 시체를 세우고, 멀티면 `'all'` 로 알린다.
- * `game/parts/Death.onLocalDied` 에서 **정확히 한 번** 불린다.
+ * The local player has died fully: the whole inventory is stripped out, a corpse is spawned on the spot, and in
+ * multiplayer it is announced to `'all'`. Called **exactly once**, from `game/parts/Death.onLocalDied`.
  */
 export function spawnLocalCorpse(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
@@ -109,15 +113,17 @@ export function spawnLocalCorpse(sys: GameFlowSystem): void {
     ? ctx.inventory.stripForCorpse() : [];
   const owner = localPeerId(sys);
   const pos = player.position.clone();
-  // 2026-09-11 (C-18): 발 높이에서 올라설 수 있는 표면 (전차 데크 · 2층 바닥) — 지형만 보면 그 밑으로 떨어진다
+  // 2026-09-11 (C-18): the surface that can be stepped onto at foot height (a tram deck · an upper floor) —
+  // looking at the terrain alone drops it below them
   if (ctx.world?.ready) pos.y = ctx.world.getSurfaceY(pos.x, pos.z, pos.y);
   const id = mgr.nextId(owner);
   const corpse = mgr.add(id, owner, localName(sys), pos, player.yaw, ctx.missionTime, items, slotOf(sys, owner));
-  // 빈손이면 `add` 가 곧바로 빈 시체로 표시한다 — 받는 쪽도 같은 `items` 를 보므로 따로 알릴 것이 없다 (2026-09-16)
+  // with empty hands `add` marks it an empty corpse at once — the receivers see the same `items`, so there is
+  // nothing to announce (2026-09-16)
   if (corpse && ctx.isMultiplayer) ctx.net?.send({ t: 'pcorpse', ev: 'spawn', corpse: corpse.toWire() }, 'all');
 }
 
-/** 클라이언트: 지금 서 있는 시체 목록을 호스트에게 청한다 (`world:ready` 이후 · 재합류 · 호스트 이관). */
+/** Client: asks the host for the list of corpses standing (after `world:ready` · rejoin · host transfer). */
 export function requestCorpseSync(sys: GameFlowSystem): void {
   const net = sys.ctx.net;
   if (!net || !sys.ctx.isMultiplayer || net.isHost) return;
@@ -131,12 +137,15 @@ export function sendCorpseSync(sys: GameFlowSystem, to: PeerId): void {
 }
 
 /**
- * `crate:looted` — 컨테이너가 비었다. 시체면 빈 시체로 표시한다 (프롬프트 `비어 있음` → 잠시 뒤 가라앉아 사라진다).
+ * `crate:looted` — a container went empty. If it is a corpse it is marked an empty corpse (the prompt `비어 있음` →
+ * a moment later it sinks and disappears).
  *
- * 2026-09-16: 분대에 `pcorpse emptied` 를 알리는 것은 **호스트뿐**이다. 클라이언트 쪽 `crate:looted` 는 호스트가 확인한
- * `cont taken` / `cont sync` 에서만 나오므로(클라이언트는 컨테이너에서 낙관적으로 빼지 않는다) 자기 사본을 표시하는 것은 맞고,
- * 같은 순간 호스트의 사본도 비어 호스트가 방송한다. 빈손으로 선 시체는 `add` 가 모든 클라이언트에서 따로 표시한다.
- * 2026-09-16 (2차): 방송은 관리자(`Corpses.markEmptied` / `update`)가 한다 — 들여다보는 사람이 모두 창을 닫은 뒤에.
+ * 2026-09-16: **only the host** tells the squad `pcorpse emptied`. A client's `crate:looted` comes only out of a
+ * `cont taken` / `cont sync` the host confirmed (a client never takes out of a container optimistically), so marking
+ * its own copy is right, and at the same moment the host's copy is empty too and the host broadcasts. A corpse that
+ * stood empty-handed is marked by `add` on every client separately.
+ * 2026-09-16 (2nd pass): the broadcast is the manager's (`Corpses.markEmptied` / `update`) — once every viewer has
+ * closed their window.
  */
 export function onContainerLooted(sys: GameFlowSystem, containerId: string): void {
   if (!containerId.startsWith('pcorpse:')) return;

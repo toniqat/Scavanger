@@ -248,8 +248,8 @@ A remaining raid never drops the boot straight into it: the title shows `이어�
 ## Recent changes
 
 Last 5 only — older: `git log -- src/game`.
+- 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, `docs/DECISIONS.md` headings and verbatim user decisions kept in backticks / 「」, no string literal touched.
 - 2026-09-16 — Empty player/android corpses start their removal delay only after the last viewer closes the loot window (`PlayerCorpseManager.viewers`, `releaseEmptied`, host sends `pcorpse emptied` at release); 레이드 실패 auto return emits `ui:shipReturn`.
 - 2026-09-16 — Wipe check counts androids: `checkAllDead` fails the raid only when every human and every android is down or dead (`ctx.allies.getBodies()`); `isRemoteAlive` keeps its bot filter.
 - 2026-09-16 — Empty corpses: a player / android corpse with no items (spawned empty or looted empty) sinks after `CORPSE_EMPTY_REMOVE_DELAY_S` and is removed; host-only `pcorpse emptied`; `CorpsesRef.ownerHadCorpse`.
 - 2026-09-16 — Raid-end XP = kill XP only (`stats.killXp` from `enemies.csv` `raidXp`, × `XP_DEATH_MUL` from csv when not extracted); loot / extraction / time XP and the `XP_*` constants in `model.ts` removed.
-- 2026-09-15 — `parts/Resume.ts` (`ctx.raidResume`): boot stops at the title for a remaining solo / tutorial / squad raid; `이어하기` / `레이드 포기` (death settlement · tutorial restart · squad drift + corpse); `consumeStoredSoloRaid` removed; squad blob carries `pose`.

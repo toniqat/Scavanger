@@ -1,28 +1,29 @@
 /**
- * src/game/parts/LoadGate.ts — **레이드 진입 로딩 게이트** (2026-09-15,
+ * src/game/parts/LoadGate.ts — **the raid-entry loading gate** (2026-09-15,
  * docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」).
  *
- * 이 파일이 답하는 질문: *발사 카운트다운이 끝난 뒤, 분대 전원이 준비될 때까지 무엇이 화면을 붙잡고 있는가.*
+ * The question this file answers: *once the launch countdown ends, what holds the screen until the squad is ready.*
  *
- * ## 왜 hold 인가
- * 게이트는 **렌더 hold** 다 (`ShaderWarmupRef.holdFor`). hold 중에는 `Engine` 이 시뮬레이션 dt 를 0 으로 주고 아무것도
- * 그리지 않으므로 **임무 시계 · 적 · 강하 포드 · 페이즈 흐름이 통째로 멈춘다** — 「아직 시작하면 안 된다」를 시스템마다
- * 따로 막을 필요가 없다. 그 대신 여기서 **dt 를 쓰면 안 된다**: 게이트의 모든 시간은 `ctx.time`(실시간)이다.
+ * ## Why a hold
+ * The gate is a **render hold** (`ShaderWarmupRef.holdFor`). Under the hold `Engine` gives a simulation dt of 0 and
+ * draws nothing, so **the mission clock · the enemies · the drop pod · the phase flow stop as one** — 「it must not
+ * start yet」 does not have to be blocked system by system. In exchange **dt must not be read here**: every time in
+ * the gate is `ctx.time` (real time).
  *
- * ## 순서
- * 1. 발사 카운트다운 끝 → hub 가 `ui:screenFade {1, RAID_LOAD_FADE_OUT_S, hold:true}` + `raid:loadBegin`,
- *    `RAID_LOAD_FADE_OUT_S` 뒤 권위가 실제로 발사한다.
- * 2. `game:newMission` → 여기서 `begin()`. 월드는 이미 동기로 생성돼 있고(`WorldSystem` 이 자기 핸들러 안에서 만든다)
- *    `core/Engine` 이 `holdForScene()` 을 걸어 둔 상태다 — 같은 프레임의 `holdForScene()` 호출은 **합쳐지므로**
- *    우리 것도 같은 컴파일을 기다린다.
- * 3. 진행도 = `RAID_LOAD_WORLD_SHARE`(월드 생성) + 나머지 × `ctx.shaders.compileProgress`. 멀티면 `RAID_LOAD_REPORT_S`
- *    마다 `load p` 로 알리고, 호스트가 **사람만** 세어(봇은 로딩하지 않는다) 전원 완료 또는 `RAID_LOAD_TIMEOUT_S` 에
- *    `load go` 를 보낸다.
- * 4. 풀리면 hold 해제 → `ui:screenFade {0, RAID_LOAD_FADE_IN_S}` → 강하 시퀀스가 그제서야 흐른다.
+ * ## Order
+ * 1. Launch countdown ends → hub emits `ui:screenFade {1, RAID_LOAD_FADE_OUT_S, hold:true}` + `raid:loadBegin`,
+ *    and the authority actually launches `RAID_LOAD_FADE_OUT_S` later.
+ * 2. `game:newMission` → `begin()` here. The world is already generated synchronously (`WorldSystem` builds it inside
+ *    its own handler) and `core/Engine` has a `holdForScene()` up — a `holdForScene()` call in the same frame
+ *    **coalesces**, so ours waits on that same compilation.
+ * 3. Local progress = `RAID_LOAD_WORLD_SHARE` (world generated) + the rest × `ctx.shaders.compileProgress`. In
+ *    multiplayer it reports `load p` every `RAID_LOAD_REPORT_S`, and the host counts **humans only** (bots do not
+ *    load) and sends `load go` on everyone done or at `RAID_LOAD_TIMEOUT_S`.
+ * 4. On release the hold is let go → `ui:screenFade {0, RAID_LOAD_FADE_IN_S}` → only then does the drop sequence run.
  *
- * ## 안 타는 길
- * 훈련장 · 튜토리얼 · 재접속(`ctx.rejoinPending`)은 게이트가 없다 — 앞의 둘은 발사 포드를 거치지 않고, 재접속은
- * 이미 굴러가는 레이드에 끼어드는 것이라 아무도 기다려 주지 않는다.
+ * ## What never takes the gate
+ * The training range · the tutorial · a reconnect (`ctx.rejoinPending`) have no gate — the first two never go through
+ * a launch pod, and a reconnect steps into a raid that is already running, so nobody waits for it.
  */
 import type { GameContext, LoadMessage, PeerId } from '@/shared';
 import {
@@ -32,7 +33,7 @@ import {
 } from '@/shared';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
-/** 진행도 한 사람 몫. */
+/** One person's share of the progress. */
 function clamp01(v: number): number {
   return Number.isFinite(v) ? (v < 0 ? 0 : v > 1 ? 1 : v) : 0;
 }
@@ -42,41 +43,41 @@ export class LoadGate {
   private unsubs: Array<() => void> = [];
   private netUnsub: (() => void) | null = null;
 
-  /** 게이트가 걸려 있다 (hold 중). */
+  /** The gate is up (a hold is in place). */
   private on = false;
   private seed = 0;
-  /** hold 를 푸는 손잡이 — `holdFor` 에 넘긴 약속의 resolve. */
+  /** The handle that releases the hold — the resolve of the promise handed to `holdFor`. */
   private letGo: (() => void) | null = null;
-  /** `ctx.time` 기준 시작 시각. dt 는 hold 중 0 이라 쓸 수 없다. */
+  /** The start time on `ctx.time`. dt is 0 under the hold, so it cannot be used. */
   private startedAt = 0;
   private worldReady = false;
-  /** 씬 컴파일(`holdForScene`)이 끝났다. */
+  /** The scene warm-up (`holdForScene`) has finished. */
   private compiled = false;
-  /** 이미 `holdForScene()` 을 걸었다 (두 번 걸면 새 컴파일이 예약된다). */
+  /** A `holdForScene()` is already up (raising it twice schedules a new compilation). */
   private awaitedScene = false;
-  /** hub 가 `raid:loadBegin` 을 냈다 = 암전은 이미 오고 있다. */
+  /** hub emitted `raid:loadBegin` = the fade to black is already on its way. */
   private sawBegin = false;
   private lastReportAt = -1;
   private lastEmitAt = -1;
   private sentDone = false;
-  /** 호스트의 `load go` 가 이 시드로 도착했다. */
+  /** The host's `load go` arrived for this seed. */
   private goSeen = false;
   private goTimedOut = false;
-  /** 다른 사람들이 알려 온 진행도 (`PeerId` → 0..1). */
+  /** The progress the others reported (`PeerId` → 0..1). */
   private readonly reports = new Map<PeerId, number>();
   /**
-   * 스모크 전용 주입 (`debugAddMember`): 릴레이 없이도 「분대원 하나가 아직 로딩 중」을 만들 수 있다.
-   * 비어 있지 않으면 솔로여도 **호스트처럼** 기다린다.
+   * Smoke-only injection (`debugAddMember`): it can build 「one squadmate is still loading」 with no relay.
+   * While it is not empty even a solo run waits **like a host**.
    */
   private readonly debugMembers = new Map<PeerId, number>();
-  /** `members()` 의 재사용 배열 (hold 중에도 프레임마다 돈다 — 매 프레임 할당하지 않는다). */
+  /** The reused array behind `members()` (it runs every frame even under the hold — no per-frame allocation). */
   private readonly _members: PeerId[] = [];
-  /** 스모크 전용 대기 상한 덮어쓰기 (초). null = csv 값. */
+  /** Smoke-only override of the wait cap (seconds). null = the csv value. */
   private debugTimeoutS: number | null = null;
 
   constructor(private readonly sys: GameFlowSystem) {}
 
-  /** `GameFlowSystem.init` 에서 한 번. */
+  /** Once, from `GameFlowSystem.init`. */
   bind(ctx: GameContext): void {
     this.ctx = ctx;
     const b = ctx.bus;
@@ -95,18 +96,18 @@ export class LoadGate {
     this.cancel();
   }
 
-  /* ── 상태 (ui · 스모크) ─────────────────────────────────────────────── */
+  /* ── State (ui · smokes) ────────────────────────────────────────────── */
   get active(): boolean { return this.on; }
   get localProgress(): number { return this.on ? this.localValue() : 1; }
   get squadProgress(): number { return this.on ? this.squadValue() : 1; }
-  /** 아직 끝내지 못한 사람 수 (나 포함). */
+  /** How many people have not finished yet (the local player included). */
   get waiting(): number { return this.on ? this.waitingCount() : 0; }
 
-  /* ── 시작 · 취소 ──────────────────────────────────────────────────── */
+  /* ── Begin · cancel ───────────────────────────────────────────────── */
   private begin(seed: number): void {
     const ctx = this.ctx;
     if (!ctx) return;
-    if (this.on) this.cancel();          // 새 미션이 게이트 도중에 왔다 — 조용히 접고 다시 건다
+    if (this.on) this.cancel();          // a new mission arrived mid-gate — fold it quietly and raise it again
     if (!this.shouldGate()) return;
     this.on = true;
     this.seed = seed;
@@ -121,11 +122,13 @@ export class LoadGate {
     this.goTimedOut = false;
     this.reports.clear();
     /*
-     * hub 가 이미 암전을 시작했으면(`raid:loadBegin`) 그 판을 그대로 쓴다. 아니면(치트 발사 · 예전 경로) 여기서
-     * 즉시 검게 만든다 — `hold: true` 라 페이즈가 'deploying' 으로 바뀌어도 ui 가 걷지 않는다.
+     * If hub already started the fade to black (`raid:loadBegin`) that plate is used as it is. Otherwise (a cheat
+     * launch · a legacy path) the screen is blacked here at once — with `hold: true` ui does not clear it even when
+     * the phase turns to 'deploying'.
      */
     if (!this.sawBegin) ctx.bus.emit('ui:screenFade', { opacity: 1, durationS: 0, hold: true });
-    // 한 발사에 한 번만 쓴다 — hub 가 암전만 걸고 발사가 오지 않으면(유예 뒤 다시 밝아진다) 다음 발사는 스스로 검게 만들어야 한다
+    // used once per launch — if hub only raised the fade and no launch came (it brightens again after the grace),
+    // the next launch has to black the screen itself
     this.sawBegin = false;
     const ready = new Promise<void>((resolve) => { this.letGo = resolve; });
     const cap = this.timeoutS() + RAID_LOAD_HOLD_MARGIN_S;
@@ -136,11 +139,12 @@ export class LoadGate {
     this.emitProgress();
   }
 
-  /** 게이트를 태울 미션인가 — 레이드만, 재접속은 빼고. */
+  /** Is this a mission that takes the gate — raids only, reconnects left out. */
   private shouldGate(): boolean {
     const ctx = this.ctx;
-    if (ctx.missionMode !== 'raid') return false;          // 훈련장 · 튜토리얼은 발사 포드를 거치지 않는다
-    if (ctx.rejoinPending || this.sys.rejoining) return false;   // 이미 도는 레이드에 끼어드는 길
+    // the training range and the tutorial do not go through a launch pod
+    if (ctx.missionMode !== 'raid') return false;
+    if (ctx.rejoinPending || this.sys.rejoining) return false;   // the path that steps into a raid already running
     return true;
   }
 
@@ -151,8 +155,9 @@ export class LoadGate {
   }
 
   /**
-   * 씬 컴파일이 끝나기를 기다린다. `core/Engine` 이 `world:ready` 에 이미 걸어 둔 것과 **같은 프레임**이면 합쳐지므로
-   * 새 컴파일이 예약되지 않는다 (`ShaderWarmup.holdForScene` — 대기자만 늘어난다).
+   * Waits for the scene warm-up to finish. In the **same frame** as the one `core/Engine` already raised on
+   * `world:ready` the two coalesce, so no new compilation is scheduled (`ShaderWarmup.holdForScene` — only the
+   * number of waiters grows).
    */
   private awaitScene(): void {
     if (this.awaitedScene || !this.worldReady) return;
@@ -163,7 +168,7 @@ export class LoadGate {
     void shaders.holdForScene().then(() => { if (this.on && this.seed === seed) this.compiled = true; });
   }
 
-  /** 미션이 접혔다 (`game:abort` · 새 미션) — 페이드인도 이벤트도 없이 hold 만 푼다. */
+  /** The mission folded (`game:abort` · a new mission) — releases the hold alone, with no fade-in and no event. */
   private cancel(): void {
     if (!this.on) return;
     this.on = false;
@@ -173,7 +178,7 @@ export class LoadGate {
     go?.();
   }
 
-  /* ── 매 프레임 (`GameFlowSystem.update`) ──────────────────────────── */
+  /* ── Every frame (`GameFlowSystem.update`) ────────────────────────── */
   update(): void {
     if (!this.ctx) return;
     this.hookNet();
@@ -184,7 +189,7 @@ export class LoadGate {
     const local = this.localValue();
     const done = this.localDone(elapsed);
 
-    // 진행도 알림 — 주기마다, 그리고 1 에 닿는 순간 한 번 더 (마지막 한 번을 놓치면 아무도 풀지 못한다)
+    // progress reports — every period, and once more the moment it reaches 1 (miss that last one and nobody releases)
     if (this.lastReportAt < 0 || now - this.lastReportAt >= RAID_LOAD_REPORT_S || (done && !this.sentDone)) {
       this.lastReportAt = now;
       if (done) this.sentDone = true;
@@ -202,9 +207,9 @@ export class LoadGate {
       return;
     }
     if (this.inSquad()) {
-      // 클라이언트: 호스트의 `go` 와 내 로딩이 **둘 다** 끝나야 푼다 (늦은 사람은 자기가 끝나는 순간).
+      // client: releases when the host's `go` **and** its own done both land (a late one the moment it finishes).
       if (this.goSeen && done) { this.release(this.goTimedOut); return; }
-      // 안전망: 호스트의 `go` 가 끝내 오지 않았다 (호스트가 죽었다 · 메시지를 잃었다) — 혼자 나간다.
+      // safety net: the host's `go` never arrived (the host died · the message was lost) — it leaves on its own.
       if (elapsed >= limit + RAID_LOAD_HOLD_MARGIN_S) { this.release(true); return; }
       return;
     }
@@ -212,7 +217,7 @@ export class LoadGate {
     else if (elapsed >= limit) this.release(true);
   }
 
-  /* ── 진행도 ─────────────────────────────────────────────────────── */
+  /* ── Progress ───────────────────────────────────────────────────── */
   private localValue(): number {
     if (!this.worldReady) return 0;
     const compile = this.ctx.shaders?.compileProgress;
@@ -220,14 +225,15 @@ export class LoadGate {
     return clamp01(RAID_LOAD_WORLD_SHARE + (1 - RAID_LOAD_WORLD_SHARE) * c);
   }
 
-  /** 내 준비 끝 — 씬 컴파일이 끝났고, 게이지가 깜빡이지 않을 만큼 검은 화면을 보여 줬다. */
+  /** Local done — the scene warm-up finished and enough black has shown that the gauge does not flicker. */
   private localDone(elapsed: number): boolean {
     return this.compiled && this.worldReady && elapsed >= RAID_LOAD_MIN_BLACK_S;
   }
 
   /**
-   * 이 레이드를 같이 로딩하는 **사람들** (봇 제외 · 연결 · 미션 안). 나는 빠져 있다.
-   * 재사용 배열이다 — 읽고 바로 쓰고 보관하지 않는다 (게이트가 걸린 동안 매 프레임 불린다).
+   * The **humans** loading this raid alongside the local player (bots excluded · connected · in the mission), who is
+   * left out of it. A reused array — read it, use it at once, never keep it (it is called every frame while the gate
+   * is up).
    */
   private members(): PeerId[] {
     const out = this._members;
@@ -247,7 +253,7 @@ export class LoadGate {
     return this.debugMembers.size > 0 || (this.ctx.isMultiplayer && this.members().length > 0);
   }
 
-  /** 내가 `go` 를 보낼 쪽인가 (로비 호스트 · 스모크 주입). */
+  /** Is this the side that sends `go` (the lobby host · a smoke injection). */
   private isWaitingHost(): boolean {
     if (this.debugMembers.size > 0) return true;
     return this.ctx.isMultiplayer && (this.ctx.net?.isHost ?? false) && this.members().length > 0;
@@ -287,7 +293,7 @@ export class LoadGate {
     });
   }
 
-  /* ── 와이어 ─────────────────────────────────────────────────────── */
+  /* ── Wire ───────────────────────────────────────────────────────── */
   private hookNet(): void {
     const net = this.ctx?.net;
     if (this.netUnsub || !net || typeof net.onMessage !== 'function') return;
@@ -300,7 +306,7 @@ export class LoadGate {
       this.reports.set(from, clamp01(msg.v));
       return;
     }
-    // `go` 는 **로비 호스트만** 낸다 (E-4 권한 규약). 호스트를 모르면 받지 않는다.
+    // only the **lobby host** emits `go` (the E-4 authority contract). With no known host it is not accepted.
     const hostId = this.ctx.net?.lobby?.hostId;
     if (!hostId || from !== hostId) return;
     this.goSeen = true;
@@ -319,7 +325,7 @@ export class LoadGate {
     net.send(timedOut ? { t: 'load', ev: 'go', seed: this.seed, to: 1 } : { t: 'load', ev: 'go', seed: this.seed }, 'others');
   }
 
-  /* ── 해제 ───────────────────────────────────────────────────────── */
+  /* ── Release ────────────────────────────────────────────────────── */
   private release(timedOut: boolean): void {
     if (!this.on) return;
     this.on = false;
@@ -327,17 +333,17 @@ export class LoadGate {
     this.reports.clear();
     const go = this.letGo; this.letGo = null;
     go?.();
-    // 마지막 진행도 한 번 (게이지가 1 에서 사라지도록), 그 다음 페이드인.
+    // one last progress report (so the gauge disappears at 1), then the fade-in.
     this.ctx.bus.emit('raid:loadProgress', { local: 1, squad: 1, waiting: 0, remainingS: 0 });
     this.ctx.bus.emit('ui:screenFade', { opacity: 0, durationS: RAID_LOAD_FADE_IN_S });
     this.ctx.bus.emit('raid:loadReleased', { timedOut });
   }
 
-  /* ── 디버그 훅 (`__game.getSystem('gameflow').loadGate`) ───────────── */
-  /** 스모크: 가짜 분대원 하나의 진행도를 주입한다 (릴레이 없이 「호스트가 기다린다」를 만든다). */
+  /* ── Debug hooks (`__game.getSystem('gameflow').loadGate`) ─────────── */
+  /** Smoke: injects the progress of one fake squadmate (builds 「the host is waiting」 with no relay). */
   debugAddMember(id: PeerId, v: number): void { this.debugMembers.set(id, clamp01(v)); }
-  /** 스모크: 주입한 분대원을 전부 지운다 (주입은 레이드가 끝나도 저절로 사라지지 않는다). */
+  /** Smoke: clears every injected squadmate (an injection does not vanish on its own when the raid ends). */
   debugClearMembers(): void { this.debugMembers.clear(); }
-  /** 스모크: 대기 상한을 짧게 (null = csv 값으로 되돌린다). 60 초를 실제로 기다리지 않기 위한 것이다. */
+  /** Smoke: shortens the wait cap (null = back to the csv value) — so 60 seconds are not actually waited out. */
   debugSetTimeout(seconds: number | null): void { this.debugTimeoutS = seconds; }
 }

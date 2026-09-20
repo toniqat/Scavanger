@@ -1,9 +1,9 @@
 /**
- * src/game/model.ts — 게임 흐름 폴더의 공용 어휘.
+ * src/game/model.ts — the mission-flow folder's shared vocabulary.
  *
- * `GameFlowSystem` 에서 떼어낸 상수 · 타입(그리고 상태 없는 보조 클래스)만 있다. 클래스를 참조하지 않으므로
- * `parts/*` 모듈이 `GameFlowSystem.ts` 를 되돌아 import 하지 않고 쓸 수 있다(순환 import 방지).
- * `GameFlowSystem.ts` 가 `export *` 로 재수출하므로 기존 import 경로는 전부 유지된다.
+ * Holds only the constants · types (and the stateless helper classes) split out of `GameFlowSystem`. It
+ * references no class, so a `parts/*` module can use it without importing `GameFlowSystem.ts` back (no import
+ * cycle). `GameFlowSystem.ts` re-exports it with `export *`, so every existing import path still works.
  */
 import * as THREE from 'three';
 import type {
@@ -19,10 +19,10 @@ import { RESUME_GATE_BLOCKER } from '@/shared';
 import { EXTRACTION_LIFTOFF_TO_COMPLETE_S } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from './ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from './SoloRaid';
-/* appended (Phase 11): 목표 행성 */
-/* appended (2026-09-07, 커서 rework): Alt 커서 blocker token */
-/* appended (Phase 12): 브라우저 재개 게이트 + 데스크톱 셸 커서 */
-/* appended (2026-09-07): 솔로 레이드 로컬 세션 저장 — the single-player counterpart of the relay's raid store */
+/* appended (Phase 11): the target planet */
+/* appended (2026-09-07, cursor rework): the Alt cursor's blocker token */
+/* appended (Phase 12): the browser resume gate + the desktop-shell cursor */
+/* appended (2026-09-07): the solo raid's local session save — the single-player counterpart of the raid store */
 
 /**
  * Seconds after `extraction:liftoff` (for someone who left aboard, or everyone when the squad is done) until the result
@@ -65,7 +65,8 @@ export const DISCONNECT_ABORT_DELAY = 2;
  *   - `hub:enter` while a mission / result phase is active → HubSystem emits `game:abort` first (we go to 'menu'),
  *     then it builds the ship and sets 'hub'. A mission may start from 'hub' (`game:newMission` from the launch pod,
  *     `ctx.net.startGame` or `ctx.net.rejoinMission`).
- *   - After an abort that ends a *lobby* mission (host `flow abort`, 로비로, 임무 포기) we emit `hub:enter shared` one
+ *   - After an abort that ends a *lobby* mission (host `flow abort`, `로비로`, `임무 포기`) we emit
+ *     `hub:enter shared` one
  *     microtask later so the squad regroups in the shared ship. Solo aborts keep the legacy title-menu behaviour.
  *   - Reconnection: `net:reconnecting` never aborts (toast only); `net:resumed {seamless:false}` aborts → shared ship;
  *     `net:lobbyLeft` (party gone) aborts after 2 s → personal ship.
@@ -73,7 +74,7 @@ export const DISCONNECT_ABORT_DELAY = 2;
  * Phase 7 (known follow-ups):
  *   - Squad wipe = raid failure (`game:raidFailed` + `game:over`, auto return to the ship after RAID_FAILED_AUTO_RETURN_S).
  *   - Raid session blob (`ctx.net.saveRaid`) every RAID_SAVE_INTERVAL_S / on loot; rejoin restores it + the host's ghost.
- *   - 시뮬레이션 훈련장 (`ctx.missionMode === 'training'`): no XP / settlement / threat, death = instant respawn,
+ *   - `시뮬레이션 훈련장` (`ctx.missionMode === 'training'`): no XP / settlement / threat, death = instant respawn,
  *     `training:exitRequested` → abort + inventory snapshot restored + back to the ship.
  *   - Host takeover (`net:hostChanged {isLocalHost:true}`): the new host runs the wipe check and sends `flow`.
  */

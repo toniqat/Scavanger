@@ -1,5 +1,5 @@
 /**
- * src/game/parts/Wire.ts — **`flow` 메시지**와 호스트 이관 · 로비 이탈의 흐름 처리.
+ * src/game/parts/Wire.ts — the **`flow` messages**, plus host transfer and the party going away.
  */
 import * as THREE from 'three';
 import type {
@@ -34,7 +34,7 @@ export function onFlowMessage(sys: GameFlowSystem, msg: FlowMessage, from: PeerI
   if (hostId && from !== hostId) return;
   switch (msg.ev) {
     case 'over':
-      // the host decided the squad is wiped → 레이드 실패 for everyone
+      // the host decided the squad is wiped → a raid failure for everyone
       if (sys.inLiveMission()) sys.gameOver();
       break;
     case 'complete':
@@ -72,8 +72,9 @@ export function onLobbyLeft(sys: GameFlowSystem, reason: 'left' | 'disconnected'
   if (!sys.inLiveMission()) return;
   if (sys.disconnectAbortTimer >= 0) return;
   /*
-   * C-59 (2026-09-11): `kicked` 는 두 갈래다 — 서버 콘솔 `kick` (운영자 추방) 과 같은 캐릭터의 다른 창(`duplicate`). net 이
-   * `net:lobbyLeft` **전에** `ctx.net.link.refused` 를 세우므로 그것으로 가른다. `server_full` 은 `'disconnected'` 로 온다.
+   * C-59 (2026-09-11): `kicked` splits two ways — the server console's `kick` (an operator kick) and the same
+   * character in another window (`duplicate`). `net` sets `ctx.net.link.refused` **before** `net:lobbyLeft`, so
+   * that is what tells them apart. `server_full` arrives as `'disconnected'`.
    */
   const refused = ctx.net?.link.state === 'refused' ? ctx.net.link.refused : undefined;
   const text = reason === 'hostLeft' ? '호스트가 나갔습니다 — 함선으로 복귀'

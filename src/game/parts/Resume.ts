@@ -1,18 +1,21 @@
 /**
- * src/game/parts/Resume.ts — **타이틀의 이어하기 · 레이드 포기** (`ctx.raidResume`, 2026-09-15).
+ * src/game/parts/Resume.ts — **the title's `이어하기` · `레이드 포기`** (`ctx.raidResume`, 2026-09-15).
  *
- * docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 (사용자 결정):
- *  - 레이드가 남아 있는 채로 게임을 켜면 **곧장 레이드로 떨어지지 않고 타이틀부터** 시작한다. 예전에는 첫 `update()` 가
- *    솔로 세이브를 보자마자 `resumeSoloRaid` 를 불렀다 — 이제 그 결정은 타이틀의 `이어하기` 한 번이다.
- *  - 포기 = 그 레이드에서 사망. 솔로는 사망과 같은 정산(장비 · 가방 · 임플란트 손실, 사망 XP, 계약 실패), 분대는 거기에
- *    **표류**가 붙는다(구조선 불가 · 재투입 불가 — 릴레이의 `LobbyPlayer.drifted`), 튜토리얼은 진행만 지우고 처음부터.
- *  - 솔로 유예(`SOLO_RAID_GRACE_MS`)는 **누르는 순간** 본다 — 타이틀에 머무는 동안 넘으면 `이어하기` 가 사라지고 실패로 정산된다.
+ * docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 (user's decision):
+ *  - Starting the game with a raid left over begins **at the title, not straight in the raid**. The first `update()`
+ *    used to call `resumeSoloRaid` the moment it saw the solo save — now that decision is one press of `이어하기`.
+ *  - Abandon = death in that raid. Solo settles exactly like a death (equipment · bag · implants lost, death XP,
+ *    failed contracts), a squad adds **drifting** on top (no rescue drop · no re-entry — the relay's
+ *    `LobbyPlayer.drifted`), the tutorial clears the progress only and starts from the beginning.
+ *  - The solo grace (`SOLO_RAID_GRACE_MS`) is read **at the moment of the press** — crossing it while sitting on the
+ *    title makes `이어하기` disappear and settles the raid as a loss.
  *
- * 세이브 파일은 부팅 때 **지우지 않는다** (예전에는 지웠다가 이어하기에서 다시 썼다) — 타이틀에서 아무것도 고르지 않고 창을
- * 닫아도 다음 부팅이 같은 레이드를 내민다.
+ * The save file is **not deleted at boot** (it used to be deleted and written back on resume) — closing the window
+ * without choosing anything on the title still leaves the next boot offering the same raid.
  *
- * 분대 레이드는 릴레이에 붙어야 보인다. 그래서 분대 레이드가 시작될 때 `SQUAD_RAID_MARK_KEY` 표식을 남기고, 부팅 때 표식이
- * 있을 때만 타이틀에서 접속한다 — 표식이 없는 사람(대부분의 솔로 · 오프라인 플레이어)은 타이틀에서 아무것도 기다리지 않는다.
+ * A squad raid is only visible once connected to the relay. So a `SQUAD_RAID_MARK_KEY` mark is left when a squad raid
+ * starts, and the title connects only when the boot found that mark — someone without one (most solo · offline
+ * players) waits for nothing on the title.
  */
 import type {
   GameContext, ItemInstance, LobbyPlayer, LobbyState, MissionStats, PlayerCorpseWire, RaidResumeMember, RaidResumeOffer,
@@ -24,21 +27,27 @@ import { itemsToWire } from '../Corpses';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
 const LATE_TEXT = '복귀가 너무 늦었습니다 — 레이드 실패';
-/** 타이틀에 머무는 동안 솔로 유예가 넘어가는 순간을 잡는 주기 (ms). 판정은 매번 시계를 읽으므로 반응 속도일 뿐이다. */
+/**
+ * Poll period (ms) that catches the moment the solo grace runs out while sitting on the title. The judgement reads
+ * the clock every time, so this is only how fast it reacts.
+ */
 const EXPIRY_POLL_MS = 1000;
 
 interface SquadMark { code: string; seed: number }
 
 export class RaidResume implements RaidResumeRef {
-  /** 유예 안에 있던 솔로 · 튜토리얼 세이브 (파일은 디스크에 그대로 있다). */
+  /** The solo · tutorial save that was inside the grace (the file itself stays on disk). */
   private solo: SoloRaidSave | null = null;
-  /** 부팅 때 이미 늦었다 — 첫 프레임에 실패로 정산한다 (`save` null = 세이브 없이 킷의 레이드 표식만 남았다, E-5 ③). */
+  /**
+   * Already too late at boot — settled as a loss on the first frame (`save` null = no save, only the kit's raid
+   * marker was left behind, E-5 ③).
+   */
   private staleAtBoot: { save: SoloRaidSave | null } | null = null;
   private mark: SquadMark | null = null;
   private check: Promise<void> | null = null;
   private _checking = false;
   private nextPollAt = 0;
-  /** 마지막으로 방송한 제안의 모양 — 같으면 `raid:resumeChanged` 를 다시 내지 않는다. */
+  /** The shape of the last offer broadcast — an unchanged shape emits no second `raid:resumeChanged`. */
   private lastKey = '';
   private readonly unsubs: Array<() => void> = [];
 
@@ -46,7 +55,7 @@ export class RaidResume implements RaidResumeRef {
 
   private get ctx(): GameContext { return this.sys.ctx; }
 
-  /** `GameFlowSystem.init` 에서 한 번. 인벤토리가 먼저 init 된 뒤라 킷의 레이드 표식을 읽을 수 있다. */
+  /** Once from `GameFlowSystem.init`. Inventory was init'd first, so the kit's raid marker can be read. */
   bind(): void {
     const ctx = this.ctx;
     ctx.raidResume = this;
@@ -62,10 +71,10 @@ export class RaidResume implements RaidResumeRef {
 
     const b = ctx.bus;
     this.unsubs.push(
-      // 분대 레이드에 들어섰다 (출격 · 재투입 · 이어하기) — 새로고침으로 끊겨도 다음 부팅의 타이틀이 물어볼 수 있게
-      // 로비 없는 발행(스모크 · 옛 경로)은 되찾을 분대 레이드가 아니다
+      // Entered a squad raid (launch · re-entry · resume) — so the next boot's title can ask after a reload cut it
+      // An emit with no lobby (a smoke test · an older path) is no squad raid to get back into
       b.on('net:gameStarting', ({ seed, lobby, mode }) => { if ((mode ?? 'raid') === 'raid' && lobby?.code) this.writeMark({ code: lobby.code, seed }); }),
-      // 이 사람의 레이드가 끝났다 — 탈출 · 실패 · 포기 · 귀환(`hub:enter` 의 abort) · 타이틀로
+      // This person's raid ended — extraction · failure · abandon · return (`hub:enter`'s abort) · to the title
       b.on('game:complete', () => this.dropMark()),
       b.on('game:over', () => this.dropMark()),
       b.on('game:abort', () => this.dropMark()),
@@ -74,7 +83,7 @@ export class RaidResume implements RaidResumeRef {
       b.on('net:resumed', () => this.emitChanged()),
       b.on('game:phaseChanged', () => this.emitChanged()),
     );
-    // 타이틀 · 자동 시작이 첫 마이크로태스크에서 `checking` 을 읽는다 — 그래서 첫 `update()` 가 아니라 여기서 시작한다
+    // The title · auto start reads `checking` in the first microtask — so it starts here, not in the first `update()`
     this.startSquadCheck();
     this.emitChanged();
   }
@@ -85,13 +94,13 @@ export class RaidResume implements RaidResumeRef {
     if (this.ctx?.raidResume === this) this.ctx.raidResume = null;
   }
 
-  /** `GameFlowSystem.update` 에서 매 프레임 (할 일이 없으면 곧장 돌아온다). */
+  /** Every frame from `GameFlowSystem.update` (returns at once when there is nothing to do). */
   update(): void {
     const ctx = this.ctx;
     if (this.staleAtBoot) {
       const { save } = this.staleAtBoot;
       this.staleAtBoot = null;
-      if (ctx.phase === 'menu') this.failSolo(save, LATE_TEXT);   // 이미 다른 곳이면 (분대 재접속이 앞질렀다) 건드리지 않는다
+      if (ctx.phase === 'menu') this.failSolo(save, LATE_TEXT);   // already elsewhere (a squad rejoin got in first)
       return;
     }
     const solo = this.solo;
@@ -125,16 +134,17 @@ export class RaidResume implements RaidResumeRef {
     if (ctx.phase !== 'menu') return false;
     const solo = this.solo;
     if (solo) {
-      // 「누르는 순간 판정」 (사용자 결정) — 폴링 사이에 넘었을 수도 있다
+      // 「judged at the moment of the press」 (user's decision) — it may have crossed between two polls
       if (expired(solo)) { this.failSolo(solo, LATE_TEXT); return false; }
       this.solo = null;
-      this.sys.resumeSoloRaid(solo);   // 파일은 그대로다 — 이어진 레이드의 첫 주기 저장이 덮어쓴다
+      this.sys.resumeSoloRaid(solo);   // the file stays — the resumed raid's first periodic save overwrites it
       this.emitChanged();
       return true;
     }
     const net = ctx.net;
     if (!net || !this.squadLobby()) return false;
-    net.rejoinMission();              // → net:gameStarting {rejoin} + game:newMission (월드 · blob · 호스트의 ghost restore)
+    // → net:gameStarting {rejoin} + game:newMission (world · blob · the host's ghost restore)
+    net.rejoinMission();
     this.emitChanged();
     return net.inSession;
   }
@@ -151,24 +161,25 @@ export class RaidResume implements RaidResumeRef {
     if (lobby) this.abandonSquad(lobby);
   }
 
-  /* ── 분대 레이드 확인 ───────────────────────────────────────────────── */
+  /* ── The squad raid check ───────────────────────────────────────────── */
 
   private startSquadCheck(): void {
     const net = this.ctx.net;
     if (!this.mark || !net || typeof net.ensureConnected !== 'function') return;
-    // 추방 · 인원 초과 · 다른 창 접속으로 거절당한 링크는 스스로 다시 붙지 않는다 (`shared/net` 규칙)
+    // A link refused (kicked · lobby full · another window) never reconnects on its own (`shared/net` rule)
     if (net.link?.state === 'refused') return;
     this._checking = true;
     this.check = net.ensureConnected().catch(() => false).then((ok) => {
       this._checking = false;
       this.check = null;
-      // 붙었는데 그 레이드가 없다 (끝났다 · 로비가 없다 · 이미 표류) — 표식은 할 일을 다했다. 못 붙었으면 모르는 것이니 남긴다.
+      // Connected but that raid is gone (ended · no lobby · already drifted) — the mark has done its job. A failed
+      // connection knows nothing, so the mark is kept.
       if (ok && !this.squadLobby()) this.dropMark();
       this.emitChanged();
     });
   }
 
-  /** 표식의 레이드가 아직 달리고 내가 거기서 빠져나와 있는가 (표류 전). */
+  /** Whether the marked raid is still running with me dropped out of it (not yet drifted). */
   private squadLobby(): LobbyState | null {
     const mark = this.mark;
     const net = this.ctx.net;
@@ -179,7 +190,7 @@ export class RaidResume implements RaidResumeRef {
     return me && !me.drifted ? lobby : null;
   }
 
-  /* ── 초상 명단 (매칭 탭과 같은 순서 · 같은 원본) ───────────────────── */
+  /* ── Portrait roster (same order · same source as the 매칭 tab) ────── */
 
   private localMember(lp: LobbyPlayer | null): RaidResumeMember {
     let card: ReturnType<typeof readSlotCard> | null = null;
@@ -188,7 +199,7 @@ export class RaidResume implements RaidResumeRef {
     return {
       id: lp?.id ?? 'me', name: card?.name || lp?.name || this.ctx.net?.playerName || '나',
       level: typeof lvl === 'number' && lvl > 0 ? lvl : card?.level ?? null,
-      // 나는 내 캐릭터의 악센트 (세이브) — 로비에 실린 값은 그 메아리다
+      // My accent comes from my own character (the save) — the value carried in the lobby is its echo
       accent: sanitizeAccent(card?.accent) ?? sanitizeAccent(lp?.accent) ?? null,
       slot: lp?.slot ?? 0, isHost: !!lp?.isHost, me: true, bot: false, bay: 0, connected: true, drifted: false,
     };
@@ -210,12 +221,13 @@ export class RaidResume implements RaidResumeRef {
     return out;
   }
 
-  /* ── 포기 · 실패 ────────────────────────────────────────────────────── */
+  /* ── Abandon · failure ──────────────────────────────────────────────── */
 
   /**
-   * 솔로 레이드의 끝 = **사망**과 같은 손실 (`parts/Death.onLocalDied` 솔로 갈래, 사용자 결정 「솔로도 완전히 잃는다」):
-   * 장착 임플란트는 짝도 없이, 가방 · 장비 · 퀵슬롯 · 주머니는 `game:abort` → `inventory/parts/Lifecycle.onAbort` 의 `loseKit`
-   * (킷의 레이드 표식도 거기서 지워진다). 유예 초과 · 부팅 때 이미 늦은 세이브 · 포기가 모두 이 길이다.
+   * The end of a solo raid = the same loss as **death** (`parts/Death.onLocalDied`'s solo branch, user's decision
+   * 「솔로도 완전히 잃는다」): equipped implants with no pair at all, and bag · equipment · quick slots · pouches
+   * through `game:abort` → `inventory/parts/Lifecycle.onAbort`'s `loseKit` (which clears the kit's raid marker there
+   * too). The grace running out · a save already too late at boot · an abandon all take this path.
    */
   private failSolo(save: SoloRaidSave | null, text: string): void {
     const ctx = this.ctx;
@@ -224,7 +236,8 @@ export class RaidResume implements RaidResumeRef {
     try { ctx.progression?.stripImplantsForCorpse?.(); } catch (e) { console.error('[gameflow] implant strip on a lost solo raid failed', e); }
     if (save) {
       this.settle(save.stats, save.missionTime);
-      // 정보상 기믹 고정은 레이드가 끝나야 소모된다 (`meta/parts/Intel`) — 이 레이드가 싣고 나간 것이면 여기서 끝났다
+      // The intel broker's fixed gimmicks are consumed only once the raid ends (`meta/parts/Intel`) — if this
+      // raid carried them out, they ended here
       if (save.intel?.length) { try { ctx.meta?.intel?.consume(); } catch (e) { console.error('[gameflow] intel consume failed', e); } }
     }
     ctx.bus.emit('game:abort', {});
@@ -233,9 +246,10 @@ export class RaidResume implements RaidResumeRef {
   }
 
   /**
-   * 튜토리얼 포기 (사용자 결정 — 「처음부터 다시, 캐릭터 세이브는 남긴다」): 레이드 트랙의 진행만 지우면 다음 `게임 시작` 이
-   * 튜토리얼 레이드를 처음부터 연다. 튜토리얼에서 주운 것은 그 판의 것이라 킷도 비운다 (`game:abort` → `loseKit`) —
-   * 남기면 다시 하는 튜토리얼이 같은 무기를 한 번 더 쥐여 준다. 레벨 · 크레딧 · 창고는 그대로다.
+   * Tutorial abandon (user's decision — 「처음부터 다시, 캐릭터 세이브는 남긴다」): clearing the raid track's progress alone
+   * makes the next `게임 시작` open the tutorial raid from the beginning. What was picked up in the tutorial
+   * belongs to that run, so the kit is emptied too (`game:abort` → `loseKit`) — keeping it would hand the replayed
+   * tutorial the same weapon a second time. Level · credits · stash are left alone.
    */
   private restartTutorial(): void {
     const ctx = this.ctx;
@@ -248,14 +262,16 @@ export class RaidResume implements RaidResumeRef {
   }
 
   /**
-   * 분대 레이드 포기 = 그 자리에서 사망 + **표류**. 순서가 요점이다:
-   *  ① 릴레이가 돌려준 blob 으로 그 레이드의 소지품을 되살린 뒤 사망과 같은 길로 뽑는다 (`InventoryRef.stripForCorpse` —
-   *     장착 임플란트는 망가진 짝으로 · 빈 킷을 곧장 저장). blob 이 없으면(저장 전에 끊겼다) 지금 킷을 뽑는다.
-   *  ② 그 소지품으로 **내가** 시체를 세운다 — `pcorpse` 규약(「죽은 본인이 보낸다」) 그대로, 몸이 서 있던 자리
-   *     (`RaidSessionBlob.pose`)에. 이미 죽어 있었으면(`state` 2) 시체는 그때 섰고 뽑힌 것도 없다.
-   *     id 끝이 숫자가 아니어서 받는 쪽 시퀀스(`PlayerCorpseManager.add`)와 겹치지 않는다.
-   *  ③ 정산 — 자발적 귀환의 분대 갈래(`parts/Death.finishReturnToShip`)와 같다.
-   *  ④ `lobby:abandon` — 릴레이가 표류로 적고 방송한다. 구조선 후보 · 재투입이 그것을 본다.
+   * Abandoning a squad raid = death on the spot + **drifting**. The order is the point:
+   *  ① restore that raid's belongings from the blob the relay handed back, then strip them the way a death does
+   *     (`InventoryRef.stripForCorpse` — equipped implants into broken pairs · the emptied kit saved at once). With
+   *     no blob (the link died before the first save) the kit as it stands now is stripped.
+   *  ② **I** spawn the corpse with those belongings — exactly the `pcorpse` convention (「the person who died sends
+   *     it」), at the spot the body stood on (`RaidSessionBlob.pose`). Already dead (`state` 2) means the corpse
+   *     stood back then and nothing was stripped.
+   *     The id does not end in a number, so it never collides with a receiver's sequence (`PlayerCorpseManager.add`).
+   *  ③ settlement — the same as the squad branch of a voluntary return (`parts/Death.finishReturnToShip`).
+   *  ④ `lobby:abandon` — the relay records the drift and broadcasts it. Rescue candidates · re-entry read that.
    */
   private abandonSquad(lobby: LobbyState): void {
     const ctx = this.ctx;
@@ -283,8 +299,9 @@ export class RaidResume implements RaidResumeRef {
   }
 
   /**
-   * 사망으로 끝난 레이드의 정산 (`parts/Death.awardMissionXp` — 처치 경험치 `killXp` × 사망 배율, 계약 정산, 레이드 횟수). 결과 화면은
-   * 없다 (여기는 타이틀이다). 준비물도 레이드의 끝에 비운다 (A-13).
+   * Settlement of a raid that ended in death (`parts/Death.awardMissionXp` — kill XP `killXp` × the death multiplier,
+   * contract settlement, the raid count). There is no results screen (this is the title). Preparations are cleared at
+   * the end of the raid too (A-13).
    */
   private settle(stats: MissionStats | null | undefined, missionTime: number): void {
     const ctx = this.ctx;
@@ -296,7 +313,7 @@ export class RaidResume implements RaidResumeRef {
     ctx.progression?.clearActivePreps();
   }
 
-  /* ── 표식 · 방송 ────────────────────────────────────────────────────── */
+  /* ── The mark · broadcasting ────────────────────────────────────────── */
 
   private writeMark(mark: SquadMark): void {
     this.mark = mark;
@@ -321,7 +338,7 @@ export class RaidResume implements RaidResumeRef {
   }
 }
 
-/** 유예가 지났는가 — 튜토리얼은 시간 제한이 없다 (`soloRaidStatus` 첫 줄). */
+/** Whether the grace has passed — the tutorial has no time limit (`soloRaidStatus`'s first line). */
 function expired(save: SoloRaidSave): boolean {
   return save.mode !== 'tutorial' && soloRaidStatus(save, Date.now(), readClockHigh()) === 'stale';
 }

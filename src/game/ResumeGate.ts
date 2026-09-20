@@ -3,21 +3,21 @@ import { Keys, RESUME_GATE_BLOCKER, isDesktopShell, paintKeycap } from '@/shared
 import './resume-gate.css';
 
 /**
- * 브라우저 재개 게이트 — `좌측 클릭으로 게임 재개` (Phase 12, browser only).
+ * The browser resume gate — `좌측 클릭으로 게임 재개` (Phase 12, browser only).
  *
  * Every cursor screen releases the pointer lock and `main.ts` re-requests it when the last owner leaves. Outside
  * fullscreen that request is **refused whenever the screen was closed with Escape**: Chrome grants Escape no user
  * activation, so the player is left with a running game, a visible OS cursor and no hint of what to do. `Input` keeps
  * the intent (`awaitingLockGesture`) and retries from the next click or key; this overlay makes that state visible —
  * the world stays blurred (the window that just closed took its own blur with it), gameplay input stays off through
- * `RESUME_GATE_BLOCKER`, the world keeps running exactly like the 일시정지 메뉴, and the one thing on screen is the
+ * `RESUME_GATE_BLOCKER`, the world keeps running exactly like the pause menu, and the one thing on screen is the
  * click that is the gesture Chrome wants.
  *
  * Polled from `GameFlowSystem.update` (the refusal is asynchronous — a rejected promise or a 250 ms silence — so an
  * event at the moment cursor mode ends is too early to know). Shown when: browser (never the Electron shell), a
  * gameplay or hub phase, alive, no cursor owner, lock missing and `awaitingLockGesture`. Hidden the moment the lock
  * is back (from our click or any other gesture — WASD, a canvas click), when a screen takes the cursor (Escape on the
- * gate opens the 일시정지 메뉴 normally: `GameFlowSystem` treats the gate's token as transparent), or when the phase
+ * gate opens the pause menu normally: `GameFlowSystem` treats the gate's token as transparent), or when the phase
  * stops qualifying. Once shown it survives the retry window running out — the click still works after it.
  *
  * A screen closed with its **own** key (Tab) re-locks at once (a real key press carries activation), so the gate
@@ -54,7 +54,7 @@ export class ResumeGate {
    * The gate only ever makes sense for a session that **had** the lock and lost it (the Escape case). A session that
    * never got one — a browser that refuses pointer lock outright, a headless harness that stubs the request without
    * ever locking — would otherwise sit behind an overlay whose only exit is a request that browser keeps refusing.
-   * Same rule the old lost-lock watchdog used before the 2026-09-07 커서 rework removed it.
+   * Same rule the old lost-lock watchdog used before the 2026-09-07 cursor rework removed it.
    */
   private everLocked = false;
 
@@ -70,8 +70,8 @@ export class ResumeGate {
     if (!this.everLocked) return;
     if (isDesktopShell()) return;
     if (!this.phaseOk() || input.isCursorMode || input.isPointerLocked) return;
-    // 2026-09-10: 타이밍 때문에 거부된 요청은 `Input` 이 스스로 다시 보낸다 — 그 사이에 게이트를 띄우면
-    // 1초쯤 떴다가 저절로 사라진다. 클릭이 정말 필요한 거부(제스처 요구)만 여기로 온다.
+    // 2026-09-10: a request refused over timing is re-sent by `Input` itself — showing the gate in between makes it
+    // appear for a second and vanish on its own. Only a refusal that needs a click (a gesture demand) comes here.
     if (input.relockScheduled) return;
     if (!input.awaitingLockGesture) return;
     this.show();
@@ -103,7 +103,7 @@ export class ResumeGate {
     this.ctx.bus.emit('ui:resumeGate', { shown: false });
   }
 
-  /** 2026-09-15: 공용 키캡 (`shared/keycap.paintKeycap`) — 모든 키캡이 한 경로로 그려진다. */
+  /** 2026-09-15: the shared keycap (`shared/keycap.paintKeycap`) — every keycap is drawn through one path. */
   private refreshLabel(): void { paintKeycap(this.hintKey, Keys.MENU); }
 
   /** The click **is** the user gesture: ask for the lock right here. `update()` hides the gate once it arrives. */
@@ -120,7 +120,7 @@ export class ResumeGate {
   }
 }
 
-/* ── 데스크톱 셸 커서 (Phase 12) ──────────────────────────────────────────────────────────────────────────────────
+/* ── The desktop shell cursor (Phase 12) ──────────────────────────────────────────────────────────────────────────
  * The Electron shell never shows the gate: the lock is retaken by the shell's own Escape handling, and while no screen
  * owns the cursor the OS cursor is simply hidden (`body.desktop-nocursor`), whether or not the lock is held right now.
  * A screen taking cursor mode shows it again; result / title screens are

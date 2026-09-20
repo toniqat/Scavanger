@@ -1,15 +1,16 @@
 /**
- * src/game/parts/Leader.ts — **분대장 기기** (2026-09-09).
+ * src/game/parts/Leader.ts — **the squad-leader device** (2026-09-09).
  *
- * 이 파일이 답하는 질문: *호스트가 죽으면 분대장 자리는 어떻게 넘어가는가.*
+ * The question this file answers: *when the host dies, how does the squad-leader seat pass on.*
  *
- * 멀티에서 호스트가 **완전히 사망**하면 시체 옆에 절차 생성 오브젝트(아이템이 아니다)가 떨어진다.
- * 죽은 호스트 본인이 `ctx.net.reportHostDown(true)` 로 서버에 표시를 남기고 — 서버는 그 표시가 있을 때만
- * 남의 `transferHost({claim:true})` 를 받아 준다 — 아무나 `LEADER_DEVICE_HOLD_S` 동안 꾹 눌러 회수하면
- * `transferHost(me, true)` 로 분대장이 넘어간다. 오브젝트 자체는 `lead taken` 이 치운다.
+ * In multiplayer a **full death** of the host drops a procedurally generated object (not an item) beside the corpse.
+ * The dead host itself leaves a mark on the server with `ctx.net.reportHostDown(true)` — the server accepts someone
+ * else's `transferHost({claim:true})` only while that mark is there — and once anyone holds for
+ * `LEADER_DEVICE_HOLD_S` to collect it, `transferHost(me, true)` passes the squad leader over. The object itself is
+ * cleared by `lead taken`.
  *
- * 토스트(`분대장이 되었습니다`)의 주인은 여기다 — 커뮤니티 우클릭 이관이든 함선 안 상호작용이든
- * **모든 경로**가 `net:hostChanged` 로 모이므로 그 이벤트 하나만 구독한다.
+ * The toast (`분대장이 되었습니다`) is owned here — a community right-click transfer or an interaction inside the
+ * ship, **every path** gathers at `net:hostChanged`, so that one event is the only subscription.
  */
 import * as THREE from 'three';
 import { LEADER_DEVICE_HOLD_S, LEADER_DEVICE_RANGE, type Interactable, type LeaderMessage, type PeerId } from '@/shared';
@@ -18,15 +19,16 @@ import type { GameFlowSystem } from '../GameFlowSystem';
 const DEVICE_ID = 'leader_device';
 
 /**
- * 기기의 점광원은 **기기 안에 살지 않는다** (2026-09-10). three.js 는 보이지 않는/씬에 없는 광원을 세지
- * 않으므로, 기기를 씬에 넣고 빼는 것만으로 `numPointLights` 가 오르내리고 그때마다 **씬의 모든 머티리얼이
- * 셰이더를 다시 컴파일한다** — 하필 호스트가 죽어 분대가 제일 급한 순간에 두 번. 그래서 광원 하나를
- * `init` 때 씬에 심어 두고(`installLeaderLight`) 기기는 **자리와 밝기만** 준다. `core/fx/FlashPool` 과
- * `extraction/Ship` 과 같은 규칙이다.
+ * The device's point light **does not live inside the device** (2026-09-10). three.js does not count a light that is
+ * invisible or not in the scene, so adding the device to the scene and taking it out alone makes `numPointLights`
+ * rise and fall, and **every material in the scene recompiles its shader** each time — twice, at exactly the moment
+ * the host died and the squad is most pressed. So one light is planted in the scene at `init`
+ * (`installLeaderLight`) and the device gives it **only a position and an intensity**. The same rule as
+ * `core/fx/FlashPool` and `extraction/Ship`.
  */
 let deviceLight: THREE.PointLight | null = null;
 
-/** `GameFlowSystem.init` 에서 한 번. 광원은 레이드 내내 씬에 남고 기기가 없을 때는 `intensity` 가 0 이다. */
+/** Once, from `GameFlowSystem.init`. The light stays in the scene all raid; with no device `intensity` is 0. */
 export function installLeaderLight(sys: GameFlowSystem): void {
   if (deviceLight) return;
   deviceLight = new THREE.PointLight(0xffc23a, 0, 9, 2);
@@ -34,7 +36,7 @@ export function installLeaderLight(sys: GameFlowSystem): void {
   sys.ctx.scene.add(deviceLight);
 }
 
-/** 바닥에 떨어진 분대장 기기 — 각진 신호기 하나. 아이템이 아니라 오브젝트다 (인벤토리에 들어가지 않는다). */
+/** The squad-leader device on the ground — one angular beacon. An object, not an item (never in the inventory). */
 export class LeaderDeviceObject implements Interactable {
   readonly id = DEVICE_ID;
   readonly radius = LEADER_DEVICE_RANGE;
@@ -77,7 +79,7 @@ export class LeaderDeviceObject implements Interactable {
   private mat<T extends THREE.Material>(m: T): T { this.mats.push(m); return m; }
   private geo<T extends THREE.BufferGeometry>(g: T): T { this.geos.push(g); return g; }
 
-  /** 느린 맥동 — 멀리서도 눈에 띄어야 한다. 프레임마다 도는 유일한 부분이다. */
+  /** A slow pulse — it has to stand out from far away. The only part that runs every frame. */
   update(dt: number): void {
     this.t += dt;
     const k = 0.55 + Math.sin(this.t * 3.4) * 0.45;
@@ -105,7 +107,7 @@ export class LeaderDeviceObject implements Interactable {
     for (const g of this.geos) g.dispose();
     for (const m of this.mats) m.dispose();
     this.group.removeFromParent();
-    if (deviceLight) deviceLight.intensity = 0;   // 광원은 씬에 남는다 — 밝기만 끈다
+    if (deviceLight) deviceLight.intensity = 0;   // the light stays in the scene — only the intensity is turned off
   }
 }
 
@@ -137,7 +139,7 @@ export function onLeaderMessage(sys: GameFlowSystem, msg: LeaderMessage): void {
   }
 }
 
-/** 클라이언트: 지금 바닥에 기기가 있나 (`world:ready` 이후 · 재합류 · 호스트 이관). */
+/** Client: is there a device on the ground right now (after `world:ready` · a rejoin · a host transfer). */
 export function requestLeaderSync(sys: GameFlowSystem): void {
   const net = sys.ctx.net;
   if (!net || !sys.ctx.isMultiplayer || net.isHost) return;
@@ -158,8 +160,8 @@ export function sendLeaderSync(sys: GameFlowSystem, to: PeerId): void {
 /* ─────────────────────────── flow ─────────────────────────── */
 
 /**
- * 로컬 플레이어가 완전히 사망했다. 그가 **호스트였다면** 시체 옆에 기기를 떨어뜨리고
- * 서버에 `hostDown` 표시를 남긴다 (그 표시가 있어야 남의 claim 이 통과한다).
+ * The local player died fully. **If it was the host**, the device is dropped beside the corpse and a `hostDown` mark
+ * is left on the server (only with that mark does someone else's claim pass).
  */
 export function onHostDied(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
@@ -167,19 +169,19 @@ export function onHostDied(sys: GameFlowSystem): void {
   if (!ctx.isMultiplayer || !net || !net.isHost || !net.localId) return;
   const p = ctx.player?.position;
   const pos = new THREE.Vector3(p?.x ?? 0, p?.y ?? 0, p?.z ?? 0);
-  // 시체 바로 옆 — 시체와 기기를 한 화면에서 같이 보게
+  // right beside the corpse — so the corpse and the device are seen together on one screen
   pos.x += 1.1;
   if (ctx.world?.ready) pos.y = ctx.world.getHeightAt(pos.x, pos.z);
   placeDevice(sys, pos, net.localId, true);
   try { net.reportHostDown?.(true); } catch (e) { console.error('[gameflow] reportHostDown failed', e); }
 }
 
-/** 호스트가 되살아났다 (구조선) → 표시를 내리고 기기를 치운다. */
+/** The host came back alive (a rescue drop) → drops the mark and clears the device. */
 export function onHostRevived(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
   const net = ctx.net;
   if (!ctx.isMultiplayer || !net) return;
-  if (net.isHost) { try { net.reportHostDown?.(false); } catch { /* 서버가 옛 버전 */ } }
+  if (net.isHost) { try { net.reportHostDown?.(false); } catch { /* an older server build */ } }
   if (sys.leaderDevice && net.isHost) {
     clearDevice(sys);
     net.send({ t: 'lead', ev: 'taken', by: net.localId ?? '' }, 'others');
@@ -210,7 +212,7 @@ export function clearDevice(sys: GameFlowSystem): void {
   d.dispose();
 }
 
-/** 3초 홀드 완료: 서버에 분대장을 청구하고 오브젝트를 치운다 (`lead taken`). */
+/** The 3-second hold completed: claims the squad leader from the server and clears the object (`lead taken`). */
 export function takeDevice(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
   const net = ctx.net;
@@ -223,12 +225,13 @@ export function takeDevice(sys: GameFlowSystem): void {
 }
 
 /**
- * **분대장이 바뀌었다** — 어떤 경로로든. 오른쪽 토스트는 이 한 곳에서만 뜬다
- * (커뮤니티 우클릭 이관 · 함선 안 상호작용 이관도 전부 `net:hostChanged` 로 들어온다).
+ * **The squad leader changed** — by whatever path. The right-side toast is raised in this one place only
+ * (a community right-click transfer · a transfer by interaction inside the ship all arrive as `net:hostChanged`).
  */
 export function onHostChangedToast(sys: GameFlowSystem, hostId: string, isLocalHost: boolean): void {
   const ctx = sys.ctx;
-  // 함선(로비만 있고 미션은 없음)에서의 이관도 알려야 하므로 `isMultiplayer`(= inSession) 가 아니라 로비 유무로 본다
+  // a transfer in the ship (a lobby but no mission) has to be announced too, so it looks at whether there is a
+  // lobby, not at `isMultiplayer` (= inSession)
   if (!ctx.net?.lobby) return;
   if (isLocalHost) {
     ctx.bus.emit('ui:notify', { text: '분대장이 되었습니다', kind: 'success', duration: 3.5 });
@@ -236,7 +239,7 @@ export function onHostChangedToast(sys: GameFlowSystem, hostId: string, isLocalH
     const name = ctx.net?.getLobbyPlayer?.(hostId)?.name ?? '분대원';
     ctx.bus.emit('ui:notify', { text: `${name} 님이 분대장이 되었습니다`, kind: 'info', duration: 3.5 });
   }
-  // 새 분대장이 살아 있다면 기기는 의미를 잃는다
+  // with a new squad leader alive the device has lost its meaning
   clearDevice(sys);
 }
 

@@ -1,31 +1,31 @@
 /**
- * src/game/Corpses.ts — **사망한 플레이어의 시체** (`ctx.corpses`, 2026-09-09).
+ * src/game/Corpses.ts — **the corpse of a dead player** (`ctx.corpses`, 2026-09-09).
  *
- * 이 파일이 답하는 질문: *플레이어가 완전히 죽었을 때 월드에 무엇이 남고, 그것을 어떻게 뒤지는가.*
+ * The question this file answers: *what is left in the world when a player dies fully, and how it is searched.*
  *
- * - 자동 부활이 사라졌으므로 죽은 자리에 **시체**가 선다. **레이드가 끝날 때까지 사라지지 않는다** —
- *   수명도, 거리 컬링도 없다 (사용자 결정: 최적화 대상에서 제외).
- * - 시체는 컨테이너 하나다: `Interactable` `pcorpse:<ownerId>:<n>` → `openContainerItemsSized(...)`.
- *   **가져가기**는 상자와 똑같이 기존 `cont` / `contq` 호스트 권한 경로를 탄다 (새 경로 없음).
- * - 메시는 절차 생성이다 — `SoldierModel` 을 죽은 자세로 한 번 굳혀 두고 다시는 갱신하지 않는다.
- *   (`@/player` 의 `SoldierModel` 은 game/ 이 쓰는 유일한 외부 폴더 심볼이다. 병사 모델을 두 번
- *   만들지 않기 위한 의도적인 예외 — 폴더 README 의 `Notes` 참고.)
+ * - Automatic revival is gone, so a **corpse** stands where the player died. **It does not disappear before the
+ *   raid ends** — no lifetime, no distance culling (user's decision: kept out of the optimisation targets).
+ * - A corpse is one container: `Interactable` `pcorpse:<ownerId>:<n>` → `openContainerItemsSized(...)`.
+ *   **Taking** rides the existing `cont` / `contq` host-authority path exactly as a crate does (no new path).
+ * - The mesh is procedural — `SoldierModel` is frozen once into the dead pose and never updated again.
+ *   (`SoldierModel` from `@/player` is the only symbol of another feature folder that game/ uses. A deliberate
+ *   exception so the soldier model is not built twice — see the folder README's `Notes`.)
  */
 import * as THREE from 'three';
 import {
   NET_SLOT_COLORS, PLAYER_CORPSE_COLS, PLAYER_CORPSE_LOOT_RANGE, PLAYER_CORPSE_ROWS,
   recordRideLocal, restoreRideLocal, normalizeMealQuality,
-  /* appended (2026-09-15): 안드로이드 분대원 — 시체의 외형 · 문구를 id 하나로 가른다 */
+  /* appended (2026-09-15): android squadmates — one id decides the corpse's look · prompt */
   isAndroidId,
-  /* appended (2026-09-16): 빈 시체 제거 */
+  /* appended (2026-09-16): empty-corpse removal */
   CORPSE_EMPTY_REMOVE_DELAY_S, CORPSE_EMPTY_SINK_DEPTH_M, CORPSE_EMPTY_SINK_S,
-  /* appended (2026-09-16): 빈 시체는 루팅 창이 모두 닫힌 뒤에 가라앉는다 */
+  /* appended (2026-09-16): an empty corpse sinks only after every loot window has closed */
   CorpseViewTracker,
   type CorpseItemWire, type CorpsesRef, type GameContext, type Interactable, type ItemInstance, type Obstacle,
   type PlayerCorpse, type PlayerCorpseWire, type TramDef, type WorldRef,
 } from '@/shared';
 
-/** `PlayerCorpseWire.ride` (C-63) — 전차에 실린 시체의 차량 로컬 좌표. */
+/** `PlayerCorpseWire.ride` (C-63) — the vehicle-local coordinates of a corpse riding a tram. */
 type CorpseRideWire = NonNullable<PlayerCorpseWire['ride']>;
 
 const _rideScratch = new THREE.Vector3();
@@ -33,8 +33,9 @@ const _shipQ = new THREE.Quaternion();
 const _shipE = new THREE.Euler(0, 0, 0, 'YXZ');
 
 /**
- * C-63: 탑승 중인 발판(`Obstacle`)이 어느 전차의 부품인가. 전차 부품은 전부 `TramDef.yaw` 와 **같은 값**을
- * `box.yaw` 로 받는다(`world/rails/parts/Tram.placeTram` 이 한 프레임에 같은 변수로 쓴다) — 그 가운데 가장 가까운 전차.
+ * C-63: which tram the ridden platform (`Obstacle`) is a part of. Every tram part gets **the same value** as
+ * `TramDef.yaw` for its `box.yaw` (`world/rails/parts/Tram.placeTram` writes both from one variable in one frame)
+ * — of those, the nearest tram.
  */
 function tramOfCarrier(world: WorldRef, c: Obstacle): TramDef | null {
   if (!c.box) return null;
@@ -50,43 +51,49 @@ function tramOfCarrier(world: WorldRef, c: Obstacle): TramDef | null {
 }
 import { SoldierModel, SOLDIER_DEFAULT_ACCENT, type SoldierPose } from '@/player';
 
-/** 굳어 있는 죽은 자세 (한 번 damp 를 몰아 돌린 뒤 다시는 건드리지 않는다). */
+/** The frozen dead pose (the damping is run through in one go, then it is never touched again). */
 const DEAD_POSE: SoldierPose = {
   moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
   verticalVel: 0, flinch: 0, hasWeapon: false, twoHanded: false, reloading: false, recoil: 0, dead: 1,
   prone: 1, throw: 0, holdItem: 0, roll: 0, rollPhase: 0, melee: 0, hover: 0, downed: 0,
 };
-/** 죽은 자세를 수렴시키기 위해 생성 시 한 번만 돌리는 큰 스텝 (프레임마다 도는 애니메이션이 아니다). */
+/** The big step run just once at creation so the dead pose converges (not an animation that runs per frame). */
 const SETTLE_STEPS = 6;
 const SETTLE_DT = 0.5;
 
 /**
- * 한 구의 시체. `Interactable` 이자 `PlayerCorpse` 다. 아이템 목록은 첫 상호작용에서 컨테이너로 넘어가고,
- * 그 뒤로는 컨테이너 캐시가 진실이다 (`crate:looted` 로 비었음을 통보받는다).
+ * One corpse. It is both an `Interactable` and a `PlayerCorpse`. The item list passes to the container on the first
+ * interaction, and from then on the container cache is the truth (`crate:looted` tells it that it went empty).
  */
 export class PlayerCorpseObject implements Interactable, PlayerCorpse {
   readonly radius = PLAYER_CORPSE_LOOT_RANGE;
-  /** 2026-09-11 (C-4): 빛기둥 · 정찰 분류가 id 접두어 대신 이것을 먼저 본다. */
+  /** 2026-09-11 (C-4): the light pillar · recon classification reads this first instead of the id prefix. */
   readonly kind = 'playerCorpse' as const;
   readonly position = new THREE.Vector3();
   readonly group = new THREE.Group();
   emptied = false;
   private readonly model: SoldierModel;
-  /* ── 2026-09-11 (C-18): 달리는 전차 위의 시체는 전차에 실려 간다 ─────────────────────────────────────
-   * 플레이어 · 적과 같은 식(`@/shared` 의 `ride.ts`)이다. 생성 직후 발밑의 **움직이는 발판**(`Obstacle.velocity`)을
-   * 한 번 찾아(`boardCarrier`) 차량 로컬 좌표로 적어 두고, 매 프레임 차량의 **지금** 변환으로 다시 푼다
-   * (`followCarrier`). `carrier` 는 `SpatialHash` 안의 살아 있는 `Obstacle` 이라 전차가 움직이면 같이 바뀐다.
-   * 시체는 스스로 움직이지 않으므로 유지 판정(`rideContains`)도 하차 관성도 없다 — 레이드가 끝날 때까지 탄다. */
+  /* ── 2026-09-11 (C-18): a corpse on a running tram is carried along by it ─────────────────────────────────────────
+   * The same formula as the player · enemies (`ride.ts` in `@/shared`). Right after creation the **moving
+   * platform** under its feet (`Obstacle.velocity`) is found once (`boardCarrier`) and written down in
+   * vehicle-local coordinates, then resolved again every frame with the vehicle's **current** transform
+   * (`followCarrier`). `carrier` is a live `Obstacle` inside the `SpatialHash`, so it changes with the moving tram.
+   * A corpse never moves by itself, so there is no stay test (`rideContains`) and no exit inertia — it rides until
+   * the raid ends. */
   private carrier: Obstacle | null = null;
   private readonly rideLocal = new THREE.Vector3();
-  /** 탄 순간의 차량 `box.yaw`(수학 규약)와 시체 yaw(three.js 규약) — 곡선 구간에서 몸도 같이 돈다. */
+  /**
+   * The vehicle's `box.yaw` (math convention) and the corpse yaw (three.js convention) at the moment of boarding —
+   * on a curve the body turns with the car.
+   */
   private rideCarrierYaw0 = 0;
   private rideYaw0 = 0;
   private yawNow: number;
   /**
-   * 2026-09-13 (탈출 개편): 탈출 함선 데크에 실린 시체 — 메시 그룹이 함선 `root` 의 **자식**이라 기울기까지 같이 움직이고,
-   * 매 프레임 그 월드 자리가 곧 상호작용 위치다. 전차(`carrier`)와 달리 발판 질의가 없다(함선 데크는 월드 발판이 아니다).
-   * 함선과 함께 떠나면 extraction 이 `removeCorpse` 로 치운다.
+   * 2026-09-13 (the extraction rework): a corpse carried on the extraction ship's deck — the mesh group is a
+   * **child** of the ship `root`, so it moves with the tilt too, and its world place each frame is the interaction
+   * position. Unlike a tram (`carrier`) there is no platform query (a ship deck is not a world platform).
+   * Once it leaves with the ship, extraction clears it away with `removeCorpse`.
    */
   private shipParent: THREE.Object3D | null = null;
 
@@ -98,7 +105,7 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     position: THREE.Vector3,
     yaw: number,
     readonly diedAt: number,
-    /** 사망 시점의 전부. 컨테이너를 처음 만들 때만 쓰인다. */
+    /** Everything carried at the moment of death. Used only when the container is first built. */
     readonly items: ItemInstance[],
     slot: number,
   ) {
@@ -109,55 +116,59 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     this.group.rotation.y = yaw;
     this.model = new SoldierModel(NET_SLOT_COLORS[slot] ?? SOLDIER_DEFAULT_ACCENT);
     /*
-     * 2026-09-15 (안드로이드 분대원): 안드로이드의 잔해는 **id 로** 알아본다 (`pcorpse:android:<scope>:<bay>:<n>`).
-     * 와이어에 칸을 늘리지 않는 이유가 이것이다 — 받는 쪽도 같은 id 를 보므로 같은 외형을 만든다.
-     * `setAndroidLook` 은 player/ 가 붙이는 메서드라 있으면 쓴다 (없으면 평범한 병사 모습으로 남는다).
+     * 2026-09-15 (android squadmates): an android's `잔해` is known **by id** (`pcorpse:android:<scope>:<bay>:<n>`).
+     * That is why no field is added to the wire — a receiver sees the same id and so builds the same look.
+     * `setAndroidLook` is a method player/ attaches, so it is used when present (else it stays a plain soldier).
      */
     if (isAndroidId(ownerId)) {
       (this.model as { setAndroidLook?: (on: boolean) => void }).setAndroidLook?.(true);
     }
-    // 시체는 어둡게 — 살아 있는 분대원과 한눈에 구분된다
+    // corpses are greyed — told apart from a living squadmate at a glance
     this.model.setGreyed(true);
     for (let i = 0; i < SETTLE_STEPS; i++) this.model.update(SETTLE_DT, 0, DEAD_POSE);
-    // 2026-09-16: 가라앉기는 한 층 안쪽 그룹이 맡는다 — `group` 은 전차 · 함선을 따라가며 매 프레임 자리를 다시 쓴다
+    // 2026-09-16: the sinking is owned by a group one level in — `group` follows the tram · ship and
+    // rewrites its place every frame
     this.sinkRoot.name = 'PlayerCorpseSink';
     this.sinkRoot.add(this.model.root);
     this.group.add(this.sinkRoot);
   }
 
-  /* ── 2026-09-16: 빈 시체 제거 ─────────────────────────────────────────────────────────────────────────────
-   * 아이템이 하나도 없는 시체는 `emptiedAt`(`ctx.missionTime`)부터 `CORPSE_EMPTY_REMOVE_DELAY_S` 기다렸다가
-   * `CORPSE_EMPTY_SINK_S` 동안 `CORPSE_EMPTY_SINK_DEPTH_M` 만큼 땅으로 가라앉는다 (페이드가 아니다 — 사용자 결정).
-   * 미션 시계를 쓰므로 로딩 게이트 hold(sim dt 0) 동안은 멈춘다. 다 가라앉으면 관리자가 `removeCorpse` 로 치운다.
-   * 2026-09-16 (2차): `emptiedAt` 은 「비었고 **아무도 들여다보지 않게 된**」 시각이다 — 루팅 창이 열려 있는 동안은 세지 않는다
-   * (`PlayerCorpseManager.update`, `shared/corpseViewers`). `emptied` 만 참이고 `emptiedAt` 이 -1 이면 아직 누가 보고 있다. */
-  /** 가라앉는 몸 (`group` 의 자식, `model.root` 의 부모). */
+  /* ── 2026-09-16: empty-corpse removal ─────────────────────────────────────────────────────────────────────────────
+   * A corpse with no items at all waits `CORPSE_EMPTY_REMOVE_DELAY_S` from `emptiedAt` (`ctx.missionTime`) and then
+   * sinks `CORPSE_EMPTY_SINK_DEPTH_M` into the ground over `CORPSE_EMPTY_SINK_S` (not a fade — user's decision).
+   * It runs on the mission clock, so it stops while the loading gate holds (sim dt 0). Once fully sunk the manager
+   * clears it away with `removeCorpse`.
+   * 2026-09-16 (2nd pass): `emptiedAt` is the moment it became 「empty **and no longer looked into by anybody**」 —
+   * it does not count while a loot window is open (`PlayerCorpseManager.update`, `shared/corpseViewers`). `emptied`
+   * true with `emptiedAt` still -1 means somebody is still looking. */
+  /** The sinking body (a child of `group`, the parent of `model.root`). */
   private readonly sinkRoot = new THREE.Group();
-  /** 비었고 아무도 보지 않게 된 `ctx.missionTime` (-1 = 아직 — 비지 않았거나, 누가 창을 열어 두고 있다). */
+  /** The `ctx.missionTime` it went empty with nobody looking (-1 = not yet — not empty, or a window is open). */
   emptiedAt = -1;
 
-  /** 지금 가라앉은 깊이(m, 0 = 아직). 스모크 · 디버그용. */
+  /** How deep it has sunk right now (m, 0 = not yet). For smokes · debugging. */
   get sinkDepth(): number { return -this.sinkRoot.position.y; }
 
-  /** `now`(미션 시계)의 가라앉기를 그린다. true = 다 가라앉았다 (치울 때다). */
+  /** Draws the sinking at `now` (the mission clock). true = fully sunk (time to clear it away). */
   stepSink(now: number): boolean {
     if (this.emptiedAt < 0) return false;
     const elapsed = now - this.emptiedAt - CORPSE_EMPTY_REMOVE_DELAY_S;
     if (elapsed < 0) return false;
     const k = CORPSE_EMPTY_SINK_S > 0 ? Math.min(1, elapsed / CORPSE_EMPTY_SINK_S) : 1;
-    this.sinkRoot.position.y = -CORPSE_EMPTY_SINK_DEPTH_M * k * k;   // ease-in: 천천히 꺼지다가 빨라진다
+    this.sinkRoot.position.y = -CORPSE_EMPTY_SINK_DEPTH_M * k * k;   // ease-in: it settles slowly, then speeds up
     return k >= 1;
   }
 
-  /** 지금 몸이 향한 방향 (three.js `rotation.y` 규약). 전차에 실린 시체는 곡선에서 바뀐다. */
+  /** The direction the body faces now (three.js `rotation.y` convention). A corpse on a tram changes on curves. */
   get yaw(): number { return this.yawNow; }
 
-  /** true = 움직이는 발판에 실려 가는 중 (스모크 · 디버그용). */
+  /** true = being carried by a moving platform (for smokes · debugging). */
   get riding(): boolean { return this.carrier !== null; }
 
   /**
-   * 발밑에 움직이는 발판(`velocity` 가 있는 장애물 — 전차 데크)이 있으면 탄다. 생성 직후 한 번만 부른다.
-   * 발판 동점은 `getStandingObstacle` 이 움직이는 쪽을 먼저 고른다(C-38).
+   * Boards the moving platform under its feet if there is one (an obstacle with `velocity` — a tram deck). Called
+   * just once, right after creation. A tie between platforms is settled by `getStandingObstacle`, which picks the
+   * moving one first (C-38).
    */
   boardCarrier(world: WorldRef | null): void {
     if (this.carrier || !world?.ready) return;
@@ -170,10 +181,12 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
   }
 
   /**
-   * C-63: 와이어의 `ride`(보낸 쪽에서 탄 전차 · 차량 로컬 좌표 · 차량 기준 yaw)로 탄다. `p` 대신 **내 전차의 지금
-   * 변환**으로 로컬 좌표를 풀어 자리를 잡는다 — 보간 지연 때문에 후미 끝의 시체가 `p` 로는 전차 밖에 떨어지던 틈.
-   * 모르는 전차 id · 풀린 자리에 그 전차의 발판이 없으면 아무것도 안 하고 false (호출부가 예전 `boardCarrier` 로).
-   * 이미 서 있는 시체에 다시 불러도 된다: 같은 전차의 같은 로컬 좌표면 결과가 `followCarrier` 와 같다.
+   * C-63: boards from the wire's `ride` (the tram the sender rode · vehicle-local coordinates · the yaw against the
+   * vehicle). The spot is taken by resolving those local coordinates with **this client's current transform of that
+   * tram** instead of `p` — the gap where interpolation lag dropped a corpse at the tail end outside the tram when
+   * `p` was used. An unknown tram id, or no platform of that tram at the resolved spot, does nothing and returns
+   * false (the caller falls back to the old `boardCarrier`). It may be called again on a corpse already standing:
+   * the same local coordinates on the same tram give the same result as `followCarrier`.
    */
   boardFromWire(world: WorldRef | null, ride: CorpseRideWire | undefined): boolean {
     if (!world?.ready || !ride || typeof ride.tram !== 'string' || !Array.isArray(ride.local)) return false;
@@ -182,7 +195,8 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     let tram: TramDef | null = null;
     for (const t of world.getTrams()) if (t.id === ride.tram) { tram = t; break; }
     if (!tram) return false;
-    // TramDef 틀: position = 차체 중심(y = 데크 윗면), yaw = 로컬 +X → 월드 (cos, sin) — `shared/ride` 와 같은 규약
+    // TramDef frame: position = the car's centre (y = the deck's top face), yaw = local +X → world (cos, sin)
+    // — the same convention as `shared/ride`
     const cs = Math.cos(tram.yaw), sn = Math.sin(tram.yaw);
     const p = _rideScratch.set(
       tram.position.x + lx * cs - lz * sn,
@@ -203,8 +217,9 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
   }
 
   /**
-   * C-63: 지금 탄 전차가 있으면 `PlayerCorpseWire.ride` 로 (사망 본인의 `spawn` · 호스트의 `sync` — 둘 다 **지금**
-   * 탑승 상태에서 계산한다). 차량 기준 yaw = 시체 yaw(three.js) + 전차 yaw(수학 규약) — 탑승 중에는 불변이다.
+   * C-63: the tram it rides right now, as `PlayerCorpseWire.ride` (the dead player's own `spawn` · the host's
+   * `sync` — both compute it from the **current** ride state). The yaw against the vehicle = the corpse yaw
+   * (three.js) + the tram yaw (math convention) — it does not change while riding.
    */
   rideWire(): CorpseRideWire | undefined {
     const c = this.carrier, world = this.ctx.world;
@@ -220,12 +235,13 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     };
   }
 
-  /** 2026-09-13: true = 탈출 함선 데크에 실려 있다 (스모크 · 디버그용). */
+  /** 2026-09-13: true = it is carried on the extraction ship's deck (for smokes · debugging). */
   get onShip(): boolean { return this.shipParent !== null; }
 
   /**
-   * 2026-09-13 (`CorpsesRef.attachCorpse`): `parent` 로컬 `local`(생략 = 지금 월드 자리)에 눕히고 그 변환을 따라간다.
-   * null = 지금 월드 자리에 내려놓는다. 전차 탑승은 풀린다 (한 번에 한 탈것).
+   * 2026-09-13 (`CorpsesRef.attachCorpse`): lays it at `parent`-local `local` (omitted = its current world place)
+   * and makes it follow that transform. null = puts it down at its current world place. A tram ride is released
+   * (one vehicle at a time).
    */
   attachToParent(parent: THREE.Object3D | null, local?: THREE.Vector3): void {
     if (parent) {
@@ -245,7 +261,10 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     this.group.getWorldPosition(this.position);
   }
 
-  /** 매 프레임: 탄 차량의 **지금** 변환으로 자리(= 상호작용 위치)와 방향을 다시 푼다. 안 탔으면 아무것도 안 한다. */
+  /**
+   * Every frame: resolves the spot (= the interaction position) and the direction again with the ridden vehicle's
+   * **current** transform. Riding nothing, it does nothing.
+   */
   followCarrier(): void {
     if (this.shipParent) {
       // 2026-09-13: the mesh hangs off the ship — read back where that put it
@@ -258,17 +277,18 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     if (!c) return;
     restoreRideLocal(c, this.rideLocal, this.position);
     this.group.position.copy(this.position);
-    // box.yaw 는 로컬 +X → 월드 (cos, sin) 규약이고 메시 rotation.y 는 그 부호가 반대다 (`world/rails` 의 `rotation.y = −yaw`)
+    // box.yaw follows the local +X → world (cos, sin) convention and a mesh's rotation.y has the opposite sign
+    // (`rotation.y = −yaw` in `world/rails`)
     this.yawNow = this.rideYaw0 - ((c.box ? c.box.yaw : 0) - this.rideCarrierYaw0);
     this.group.rotation.y = this.yawNow;
   }
 
-  /** 2026-09-15: 안드로이드의 것인가 (외형 · 문구). */
+  /** 2026-09-15: is it an android's (the look · the prompt). */
   get isAndroid(): boolean { return isAndroidId(this.ownerId); }
 
   getPrompt(): string | null {
     if (this.emptied) return '비어 있음';
-    // 2026-09-15: 사람은 「유해」, 안드로이드는 「잔해」다 (같은 컨테이너, 다른 물건)
+    // 2026-09-15: a person leaves 「유해」, an android 「잔해」 (the same container, a different thing)
     return this.isAndroid ? `${this.ownerName}의 잔해 뒤지기` : `${this.ownerName}의 유해 뒤지기`;
   }
 
@@ -287,14 +307,14 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
       PLAYER_CORPSE_COLS, PLAYER_CORPSE_ROWS, `${this.ownerName}의 ${this.isAndroid ? '잔해' : '유해'}`);
   }
 
-  /** `PlayerCorpseWire` 로 (호스트의 `pcorpse sync` · 사망 본인의 `spawn`). */
+  /** To `PlayerCorpseWire` (the host's `pcorpse sync` · the dead player's own `spawn`). */
   toWire(): PlayerCorpseWire {
     const wire: PlayerCorpseWire = {
       id: this.id, owner: this.ownerId, name: this.ownerName,
       p: [this.position.x, this.position.y, this.position.z], yaw: this.yaw, at: this.diedAt,
       items: itemsToWire(this.items),
     };
-    const ride = this.rideWire();   // C-63: 생략 = 탑승 없음
+    const ride = this.rideWire();   // C-63: omitted = not riding
     if (ride) wire.ride = ride;
     return wire;
   }
@@ -305,7 +325,7 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
   }
 }
 
-/** `ItemInstance[]` → 와이어 (내구도 · 장전 · 소켓은 `ex` 로 실린다 — 굴림이 아니라 실측이다). */
+/** `ItemInstance[]` → the wire (durability · loaded ammo · sockets ride in `ex` — measured, not rolled). */
 export function itemsToWire(items: readonly ItemInstance[]): CorpseItemWire[] {
   const out: CorpseItemWire[] = [];
   for (const it of items) {
@@ -314,8 +334,8 @@ export function itemsToWire(items: readonly ItemInstance[]): CorpseItemWire[] {
       ? { durability: it.durability, ammoInMag: it.ammoInMag, sockets: it.sockets }
       : undefined;
     const w: CorpseItemWire = ex ? { defId: it.defId, qty: it.qty, ex } : { defId: it.defId, qty: it.qty };
-    if (typeof it.raidFound === 'number') w.rf = it.raidFound;   // 2026-09-12: 아이템 회수 계약 표식은 아이템과 함께 간다
-    const q = normalizeMealQuality(it.quality);   // 2026-09-13: 요리 품질도 (0 = 생략)
+    if (typeof it.raidFound === 'number') w.rf = it.raidFound;   // 2026-09-12: the recovery contract mark goes along
+    const q = normalizeMealQuality(it.quality);   // 2026-09-13: the meal quality too (0 = omitted)
     if (q > 0) w.q = q;
     out.push(w);
   }
@@ -323,32 +343,37 @@ export function itemsToWire(items: readonly ItemInstance[]): CorpseItemWire[] {
 }
 
 /**
- * 레이드에 서 있는 모든 시체. `ctx.corpses` 로 게시된다 (`GameFlowSystem` 이 만들고 소유한다).
- * 호스트는 **남의 시체도 `items` 채로** 들고 있어야 늦게 합류한 사람에게 `pcorpse sync` 로 답할 수 있다.
+ * Every corpse standing in the raid. Published as `ctx.corpses` (`GameFlowSystem` builds and owns it).
+ * The host has to hold **other people's corpses with their `items` too**, or it cannot answer a late joiner's
+ * `pcorpse sync`.
  */
 export class PlayerCorpseManager implements CorpsesRef {
   private readonly corpses = new Map<string, PlayerCorpseObject>();
-  /** 주인별 시체 번호 (`pcorpse:<owner>:<n>`) — 같은 사람이 여러 번 죽으면 시체도 여러 구다. */
+  /** The corpse number per owner (`pcorpse:<owner>:<n>`) — one person dying several times leaves several corpses. */
   private readonly seq = new Map<string, number>();
   /**
-   * C-63: 와이어로 들어온 `ride` 를 시체 id 별로 잠깐 들고 있다가 `add` 가 소비한다. 시체를 세우는 호출부
-   * (`parts/CorpseNet.applyCorpseWire`)는 위치 · yaw 만 넘기므로, 이 관리자가 같은 `pcorpse` 메시지를 **따로 구독해**
-   * `ride` 만 받아 둔다 (인벤토리의 `CorpseLoot` 도 같은 메시지를 따로 듣는다). 핸들러 순서와 무관하게 맞는다:
-   * 먼저 들으면 여기 적어 두고 `add` 가 쓰며, `add` 가 먼저 돌았으면 이미 선 시체를 그 자리에서 다시 태운다.
+   * C-63: a `ride` that arrived on the wire is held per corpse id for a moment and consumed by `add`. The caller
+   * that spawns the corpse (`parts/CorpseNet.applyCorpseWire`) passes only the position · yaw, so this manager
+   * **subscribes separately** to the same `pcorpse` message and takes just the `ride` (inventory's `CorpseLoot`
+   * listens to the same message separately too). It comes out right whatever the handler order: heard first, it is
+   * written down here for `add` to use; with `add` first, the corpse already standing is boarded again on the spot.
    */
   private readonly pendingRide = new Map<string, CorpseRideWire>();
   private netUnsub: (() => void) | null = null;
   /**
-   * 2026-09-16 (빈 시체 제거): 이번 레이드에 치운 시체 id. 늦게 도착한 `pcorpse spawn`(`'all'` 의 되돌아옴) · 치우기 전에 보낸
-   * 호스트의 `sync` 가 **이미 비워 치운 시체**를 아이템째 다시 세우지 못하게 `add` 가 거른다 (인벤토리의 컨테이너 캐시는 이미
-   * 비었고 `crate:looted` 도 한 번 나갔으므로, 다시 서면 영원히 「뒤지기」 프롬프트만 남는다). 미션 리셋에서 비워진다.
+   * 2026-09-16 (empty-corpse removal): the corpse ids cleared away in this raid. `add` filters them so that a late
+   * `pcorpse spawn` (the `'all'` echo) · a host `sync` sent before the removal cannot spawn **a corpse already
+   * emptied and cleared away** again with its items (inventory's container cache is empty already and
+   * `crate:looted` has gone out once, so a corpse spawned again is left with a 「뒤지기」 prompt forever). Cleared
+   * on a mission reset.
    */
   private readonly removed = new Set<string>();
-  /** 2026-09-16: 이번 레이드에 시체가 한 번이라도 선 주인 (`ownerHadCorpse` — 원격 아바타 숨김). */
+  /** 2026-09-16: owners whose corpse stood at least once this raid (`ownerHadCorpse` — hides the remote avatar). */
   private readonly owners = new Set<string>();
   /**
-   * 2026-09-16 (2차, 사용자 결정): 누가 시체 창을 열어 두고 있나 (`shared/corpseViewers`). 빈 시체는 마지막 사람이 창을 닫을 때까지
-   * 가라앉기 시계를 세지 않는다. 맡는 id 는 `pcorpse:` 뿐이다 (적 시체 `corpse:<id>` 는 enemies 의 추적기가 맡는다).
+   * 2026-09-16 (2nd pass, user's decision): who is holding a corpse window open (`shared/corpseViewers`). An empty
+   * corpse does not count its sink clock until the last person closes their window. The ids it owns are `pcorpse:`
+   * only (an enemy corpse `corpse:<id>` belongs to the tracker in enemies).
    */
   readonly viewers: CorpseViewTracker;
 
@@ -360,7 +385,7 @@ export class PlayerCorpseManager implements CorpsesRef {
     this.hookNet();
   }
 
-  /** `pcorpse` 의 `ride` 만 따로 듣는다 (한 번). `ctx.net` 이 늦게 생기면 `update` 가 다시 부른다. */
+  /** Listens separately for the `ride` of `pcorpse` alone (once). `update` calls it again for a late `ctx.net`. */
   private hookNet(): void {
     const net = this.ctx.net;
     if (this.netUnsub || !net || typeof net.onMessage !== 'function') return;
@@ -370,12 +395,12 @@ export class PlayerCorpseManager implements CorpsesRef {
     });
   }
 
-  /** C-63: 와이어 한 구의 `ride` — 이미 선 시체면 곧바로 다시 태우고, 아니면 `add` 가 쓰게 적어 둔다. */
+  /** C-63: one wire body's `ride` — a corpse already standing boards again at once, else it is noted for `add`. */
   noteWireRide(w: PlayerCorpseWire): void {
     if (!w || typeof w.id !== 'string' || !w.ride || this.removed.has(w.id)) return;
     const known = this.corpses.get(w.id);
     if (known) { known.boardFromWire(this.ctx.world, w.ride); return; }
-    if (this.pendingRide.size > 64) this.pendingRide.clear();   // 세워지지 않은 와이어가 쌓이지 않게
+    if (this.pendingRide.size > 64) this.pendingRide.clear();   // so wires that never stood a corpse do not pile up
     this.pendingRide.set(w.id, w.ride);
   }
 
@@ -392,7 +417,7 @@ export class PlayerCorpseManager implements CorpsesRef {
     return best;
   }
 
-  /** 다음 시체 id. */
+  /** The next corpse id. */
   nextId(ownerId: string): string {
     const n = (this.seq.get(ownerId) ?? 0) + 1;
     this.seq.set(ownerId, n);
@@ -400,9 +425,10 @@ export class PlayerCorpseManager implements CorpsesRef {
   }
 
   /**
-   * 이미 아는 id 면 무시하고 기존 것을 돌려준다 (`'all'` 로 보낸 자기 메시지의 되돌아옴 방지).
-   * 2026-09-16: 이번 레이드에 이미 비워 치운 id 면 null (다시 세우지 않는다). **아이템이 하나도 없으면** 선 순간 빈 시체로
-   * 표시된다(`markEmptied`) — 사망 본인 · 호스트 · 받는 쪽이 모두 같은 `items` 를 보므로 와이어 없이 같은 결론이다.
+   * An id already known is ignored and the existing one returned (so a message sent to `'all'` does not echo back).
+   * 2026-09-16: an id already emptied and cleared away this raid returns null (it is not spawned again). **With no
+   * items at all** it is marked an empty corpse the moment it stands (`markEmptied`) — the dead player · the host ·
+   * the receivers all see the same `items`, so they reach the same conclusion with no wire.
    */
   add(id: string, ownerId: string, ownerName: string, position: THREE.Vector3, yaw: number,
     diedAt: number, items: ItemInstance[], slot: number): PlayerCorpseObject | null {
@@ -410,12 +436,12 @@ export class PlayerCorpseManager implements CorpsesRef {
     if (known) return known;
     if (this.removed.has(id)) return null;
     this.owners.add(ownerId);
-    // 밖에서 온 id 도 시퀀스에 반영해 두어야 우리 쪽 번호가 겹치지 않는다
+    // an id from outside has to go into the sequence too, or our own numbers collide
     const n = Number(id.slice(id.lastIndexOf(':') + 1));
     if (Number.isFinite(n)) this.seq.set(ownerId, Math.max(this.seq.get(ownerId) ?? 0, n));
     const c = new PlayerCorpseObject(this.ctx, id, ownerId, ownerName, position, yaw, diedAt, items, slot);
-    // 2026-09-11 (C-63): 와이어가 탄 전차를 알려 줬으면 그 전차의 지금 변환으로 태우고, 아니면(모르는 id 포함) 예전처럼
-    // 발밑 발판을 찾는다 (C-18: 전차 위에서 죽었으면 전차에 실린다)
+    // 2026-09-11 (C-63): when the wire named the tram it rode, board with that tram's current transform; otherwise
+    // (an unknown id included) look for the platform under its feet as before (C-18: dying on a tram rides it)
     const ride = this.pendingRide.get(id);
     if (ride) this.pendingRide.delete(id);
     if (!c.boardFromWire(this.ctx.world, ride)) c.boardCarrier(this.ctx.world);
@@ -425,28 +451,30 @@ export class PlayerCorpseManager implements CorpsesRef {
     this.ctx.bus.emit('corpse:playerSpawned', {
       id, ownerId, ownerName, position: c.position.clone(), yaw,
     });
-    // 2026-09-16: 빈손으로 선 시체 (아무것도 없이 죽었다) — 선 순간 비었고 아무도 연 적이 없으니 곧바로 센다.
-    // 모든 클라이언트가 같은 `items` 를 보므로 방송하지 않는다.
+    // 2026-09-16: a corpse that stood empty-handed (it died with nothing) — empty the moment it stood and never
+    // opened by anybody, so the clock starts at once. Every client sees the same `items`, so nothing is broadcast.
     if (c.items.length === 0) this.releaseEmptied(id);
     return c;
   }
 
   /**
-   * 2026-09-15 (`CorpsesRef.spawnAllyCorpse`, caller: allies/): 죽은 안드로이드의 잔해를 남긴다.
+   * 2026-09-15 (`CorpsesRef.spawnAllyCorpse`, caller: allies/): leaves a dead android's `잔해`.
    *
-   * 사람의 시체(`parts/CorpseNet.spawnLocalCorpse`)와 **같은 길**이다 — 컨테이너 id `pcorpse:<allyId>:<n>`,
-   * 같은 `pcorpse spawn` 방송, 가져가기는 기존 `cont` / `contq`. 다른 점은 셋뿐이다:
-   *  ① **권위만** 만든다 (안드로이드는 호스트가 굴린다 — 죽은 본인이 말할 수 없다),
-   *  ② `items` 는 부르는 쪽이 고른 **레이드에서 주운 것**뿐이다 (기본 킷은 묶인 물건이라 잔해에 남지 않는다),
-   *  ③ 몸이 안드로이드 외형이다 — 그것은 id 로 갈린다 (`PlayerCorpseObject` 생성자).
-   * 만든 시체 id, 못 만들었으면 null.
+   * It is **the same path** as a person's corpse (`parts/CorpseNet.spawnLocalCorpse`) — the container id
+   * `pcorpse:<allyId>:<n>`, the same `pcorpse spawn` broadcast, taking through the existing `cont` / `contq`.
+   * Only three things differ:
+   *  ① **the authority alone** makes it (the host simulates androids — the dead one cannot speak for itself),
+   *  ② `items` is only what the caller picked, the **things found in the raid** (the base kit is a bound thing, so
+   *     it is not left behind),
+   *  ③ the body wears the android look — that is decided by the id (the `PlayerCorpseObject` constructor).
+   * The id of the corpse made, or null when none was.
    */
   spawnAllyCorpse(allyId: string, name: string, slot: number, position: THREE.Vector3, yaw: number,
     items: readonly ItemInstance[]): string | null {
     const ctx = this.ctx;
     if (!ctx.isAuthority || typeof allyId !== 'string' || !allyId) return null;
     const pos = position.clone();
-    // 사람과 같은 규칙 — 지형이 아니라 밟을 수 있는 표면 (전차 데크 · 2층 바닥)
+    // the same rule as for a person — the walkable surface, not the terrain (a tram deck · an upper floor)
     if (ctx.world?.ready) pos.y = ctx.world.getSurfaceY(pos.x, pos.z, pos.y);
     const id = this.nextId(allyId);
     const corpse = this.add(id, allyId, name || '안드로이드', pos, Number.isFinite(yaw) ? yaw : 0,
@@ -457,9 +485,10 @@ export class PlayerCorpseManager implements CorpsesRef {
   }
 
   /**
-   * `crate:looted` (모든 클라이언트): 프롬프트가 `비어 있음` 이 된다. 2026-09-16 (2차): 가라앉기 시계는 **아무도 창을 열어 두지
-   * 않게 된 뒤에** 시작한다 — 권위(싱글 · 호스트)는 지금 아무도 안 보면 곧바로, 아니면 `update` 가 마지막 사람이 닫는 순간
-   * 풀고 (세션이면) `pcorpse emptied` 를 방송한다. 비호스트는 호스트의 그 방송(`releaseEmptied`)을 기다린다.
+   * `crate:looted` (every client): the prompt becomes `비어 있음`. 2026-09-16 (2nd pass): the sink clock starts only
+   * **once nobody holds a window open any more** — the authority (single player · host) at once when nobody is
+   * looking right now, otherwise `update` releases it the moment the last person closes and (in a session)
+   * broadcasts `pcorpse emptied`. A non-host waits for that broadcast of the host's (`releaseEmptied`).
    */
   markEmptied(id: string): boolean {
     const c = this.corpses.get(id);
@@ -471,8 +500,9 @@ export class PlayerCorpseManager implements CorpsesRef {
   }
 
   /**
-   * 2026-09-16 (2차): 빈 시체의 가라앉기 시계를 지금부터 센다 — 빈손으로 선 시체(`add`) · 호스트의 `pcorpse emptied`
-   * (`parts/CorpseNet`). 아직 비었다고 몰랐으면 함께 표시한다. 이미 세는 중이면 아무것도 안 한다. 모르는 id 면 false.
+   * 2026-09-16 (2nd pass): starts an empty corpse's sink clock from now — a corpse that stood empty-handed (`add`) ·
+   * the host's `pcorpse emptied` (`parts/CorpseNet`). It also marks it when it was not known to be empty yet.
+   * Already counting, it does nothing. An unknown id returns false.
    */
   releaseEmptied(id: string): boolean {
     const c = this.corpses.get(id);
@@ -485,17 +515,20 @@ export class PlayerCorpseManager implements CorpsesRef {
     return true;
   }
 
-  /** 권위: 아무도 보지 않는 빈 시체의 시계를 풀고, 세션이면 분대에 알린다 (호스트만 보낸다 — 받는 쪽은 호스트 것만 받는다). */
+  /**
+   * The authority: releases the clock of an empty corpse nobody is looking at and, in a session, tells the squad
+   * (only the host sends — receivers accept it from the host alone).
+   */
   private releaseByAuthority(c: PlayerCorpseObject): void {
     if (c.emptiedAt >= 0) return;
     c.emptiedAt = this.ctx.missionTime;
     if (this.ctx.isMultiplayer) this.ctx.net?.send({ t: 'pcorpse', ev: 'emptied', id: c.id }, 'others');
   }
 
-  /** 2026-09-16 (`CorpsesRef.ownerHadCorpse`, caller: player/RemoteAvatar): 이번 레이드에 이 주인의 시체가 선 적이 있는가. */
+  /** 2026-09-16 (`CorpsesRef.ownerHadCorpse`, caller: player/RemoteAvatar): has this owner had a corpse this raid? */
   ownerHadCorpse(ownerId: string): boolean { return this.owners.has(ownerId); }
 
-  /** 2026-09-13 (`CorpsesRef.attachCorpse`, caller: extraction): 시체를 탈출 함선에 싣는다 / 내린다. */
+  /** 2026-09-13 (`CorpsesRef.attachCorpse`, caller: extraction): loads a corpse onto the extraction ship / off it. */
   attachCorpse(id: string, parent: THREE.Object3D | null, local?: THREE.Vector3): boolean {
     const c = this.corpses.get(id);
     if (!c) return false;
@@ -504,25 +537,30 @@ export class PlayerCorpseManager implements CorpsesRef {
   }
 
   /**
-   * 2026-09-13 (`CorpsesRef.removeCorpse`, caller: extraction): 함선과 함께 떠난 시체를 레이드에서 치운다. 안의 아이템도
-   * 사라진다 — 인벤토리의 컨테이너 캐시에 남은 같은 id 는 더 이상 열 길이 없다(상호작용이 사라졌다).
+   * 2026-09-13 (`CorpsesRef.removeCorpse`, caller: extraction): clears a corpse that left with the ship out of the
+   * raid. The items inside go too — the same id left in inventory's container cache has no way left to be opened
+   * (the interactable is gone).
    */
   removeCorpse(id: string): boolean {
     const c = this.corpses.get(id);
     if (!c) return false;
-    this.ctx.interactables.unregister(id);   // 빛기둥도 이것으로 사라진다 (`ui/hud/Detection` 은 등록물만 본다)
-    c.dispose();                               // 함선 · 전차에 실린 몸도 부모에서 떨어진다 (`group.removeFromParent`)
+    // the light pillar goes with it too (`ui/hud/Detection` only looks at what is registered)
+    this.ctx.interactables.unregister(id);
+    // a body carried on a ship · tram is detached from its parent too (`group.removeFromParent`)
+    c.dispose();
     this.corpses.delete(id);
     this.pendingRide.delete(id);
-    this.removed.add(id);   // 2026-09-16: 늦은 `spawn` · `sync` 가 다시 세우지 못하게
+    this.removed.add(id);   // 2026-09-16: so a late `spawn` · `sync` cannot spawn it again
     return true;
   }
 
   /**
-   * 매 프레임 (`GameFlowSystem.update`): 전차에 실린 시체를 차량의 지금 자리로. 타지 않은 시체는 비용이 없다.
-   * 2026-09-16: 빈 시체를 가라앉히고, 다 가라앉은 것을 치운다 (시계 = `ctx.missionTime`).
-   * 2026-09-16 (2차): 누가 창을 열어 두고 있는 빈 시체는 세지 않는다 — 권위는 마지막 사람이 닫는 순간 풀어 방송하고, 이미 세는
-   * 시체라도 **내** 창이 그것을 보여 주는 동안은 시계를 붙잡는다 (방송과 내 닫기가 엇갈린 경우 — 닫은 뒤 1초가 지켜진다).
+   * Every frame (`GameFlowSystem.update`): moves a corpse riding a tram to the vehicle's current place. A corpse
+   * riding nothing costs nothing.
+   * 2026-09-16: sinks empty corpses and clears away the ones fully sunk (the clock = `ctx.missionTime`).
+   * 2026-09-16 (2nd pass): an empty corpse somebody holds a window open on is not counted — the authority releases
+   * and broadcasts it the moment the last person closes, and even a corpse already counting has its clock held
+   * while **my** window shows it (a broadcast and my own close that crossed — the 1 s after the close is kept).
    */
   update(): void {
     if (!this.netUnsub) this.hookNet();
@@ -545,8 +583,9 @@ export class PlayerCorpseManager implements CorpsesRef {
   }
 
   /**
-   * `pcorpse sync` 로 내보낼 전체 목록 (호스트만 보낸다). 2026-09-16: 빈 시체는 곧 사라지므로 보내지 않는다 — 받는 쪽에서는
-   * 원래 `items` 채로 섰다가 `cont sync` 가 올 때까지 「뒤지기」가 떠 있게 된다.
+   * The whole list to send as `pcorpse sync` (the host alone sends it). 2026-09-16: empty corpses are left out
+   * because they are about to disappear — on the receiving side one would stand with its original `items` and show
+   * 「뒤지기」 until a `cont sync` arrived.
    */
   syncWire(): PlayerCorpseWire[] {
     const out: PlayerCorpseWire[] = [];
@@ -554,7 +593,7 @@ export class PlayerCorpseManager implements CorpsesRef {
     return out;
   }
 
-  /** 미션 리셋: interactable 해제 + 지오메트리 · 머티리얼 dispose. */
+  /** Mission reset: unregisters the interactables + disposes geometries · materials. */
   clear(): void {
     for (const c of this.corpses.values()) {
       this.ctx.interactables.unregister(c.id);
@@ -565,6 +604,6 @@ export class PlayerCorpseManager implements CorpsesRef {
     this.pendingRide.clear();
     this.removed.clear();   // 2026-09-16
     this.owners.clear();
-    this.viewers.reset();   // 2026-09-16 (2차)
+    this.viewers.reset();   // 2026-09-16 (2nd pass)
   }
 }

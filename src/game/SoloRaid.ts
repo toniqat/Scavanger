@@ -1,13 +1,13 @@
 import type { IntelPick, MissionStats, PlanetId } from '@/shared';
-/* 2026-09-14: 튜토리얼도 같은 파일로 이어 한다 — 어떤 미션이었나 · 어디까지 갔나 */
+/* 2026-09-14: the tutorial resumes from this same file — which mission it was · how far it got */
 import { TUTORIAL_CHECKPOINTS, type TutorialCheckpointId } from '@/shared';
 import { slotKey } from '@/shared';
-/* 2026-09-14: 정보상 — 이어하기가 **행성과 똑같이** 기믹 고정을 되살려야 같은 맵이 나온다 */
+/* 2026-09-14: the intel broker — a resume restores fixed gimmicks **exactly like the planet**, or the map differs */
 import { sanitizeIntelPicks } from '@/shared';
 import { SOLO_CLOCK_BACK_TOLERANCE_MS, SOLO_CLOCK_HIGH_KEY } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 솔로 레이드 세션 저장 (2026-09-07).
+ * The solo raid session save (2026-09-07).
  *
  * A multiplayer raid already survives a dropped socket: the relay holds the lobby slot, the host parks the body and
  * `welcome.raid` hands the mid-raid inventory back. A **solo** raid had none of that — closing the tab (or a crash)
@@ -18,7 +18,7 @@ import { SOLO_CLOCK_BACK_TOLERANCE_MS, SOLO_CLOCK_HIGH_KEY } from '@/shared';
  *   - `GameFlowSystem` writes a snapshot every `RAID_SAVE_INTERVAL_S` and on loot while a solo raid is live;
  *   - reopening the game **within `SOLO_RAID_GRACE_MS`** resumes that raid — same seed, planet, mission clock, stats,
  *     inventory and body pose (no hellpod);
- *   - reopening **after** the window counts as 레이드 실패: the save is dropped and the kit resets like any other
+ *   - reopening **after** the window counts as a raid failure: the save is dropped and the kit resets like any other
  *     failed raid, so there is no reload-to-undo.
  *
  * It owns nothing else: the world is regenerated from the seed (procedural + deterministic), and enemies / containers
@@ -31,8 +31,8 @@ import { SOLO_CLOCK_BACK_TOLERANCE_MS, SOLO_CLOCK_HIGH_KEY } from '@/shared';
 export const SOLO_RAID_STORAGE_KEY = 'scav.soloraid';
 export const SOLO_RAID_SAVE_VERSION = 1;
 /**
- * How long a closed solo raid may be resumed. Past this the run is lost (레이드 실패).
- * 2026-09-15: **튜토리얼에는 걸리지 않는다** — `soloRaidStatus` 의 첫 줄을 본다.
+ * How long a closed solo raid may be resumed. Past this the run is lost (a raid failure).
+ * 2026-09-15: **the tutorial is not held to it** — see the first line of `soloRaidStatus`.
  */
 export const SOLO_RAID_GRACE_MS = 5 * 60 * 1000;
 
@@ -47,8 +47,8 @@ export interface SoloRaidPose {
   /** 0 alive · 1 downed · 2 dead. */
   state: 0 | 1 | 2;
   /**
-   * appended (2026-09-10): 실드. **v1 세이브에는 없다** — 생략은 0 이 아니라 "모른다"이고,
-   * `PlayerRef.restoreState` 가 방탄복 최대치로 복구한다 (`PlayerRestoreState.shield` 규약과 같다).
+   * appended (2026-09-10): the shield. **A v1 save has none** — an omission is not 0 but "unknown", and
+   * `PlayerRef.restoreState` restores it to the armor maximum (the same contract as `PlayerRestoreState.shield`).
    */
   shield?: number;
 }
@@ -69,20 +69,21 @@ export interface SoloRaidSave {
   inventory: unknown;
   pose: SoloRaidPose;
   /**
-   * appended (2026-09-14, 정보상): 이 레이드가 쓰고 있는 **기믹 고정**(`IntelSpec.picks`). 옛 세이브에는 없다 —
-   * 생략 = 아무것도 안 샀다. `planet` 과 똑같이 복원해야 한다: 안 하면 이어한 사람만 기믹이 빠진 맵을 만든다
-   * (시드는 같으니 지형은 같고 탈출구 · 지하실 · 둥지만 사라져 더 나쁘다).
+   * appended (2026-09-14, the intel broker): the **fixed gimmicks** this raid is running on (`IntelSpec.picks`). An
+   * old save has none — omitted = nothing was bought. It has to be restored exactly like `planet`: without that, only
+   * the player who resumed builds a map with no gimmicks (the seed is the same, so the terrain matches and only the
+   * extraction pads · the basements · the nests disappear, which is worse).
    */
   intel?: IntelPick[];
   /**
-   * appended (2026-09-14, 튜토리얼 개편): 이 세션이 **어떤 미션**이었나. 옛 세이브에는 없다 = `'raid'`.
-   * `resumeSoloRaid` 가 이 값으로 `game:newMission {mode}` 를 낸다 — 안 실으면 튜토리얼을 이어할 때
-   * 같은 시드로 **절차 생성 행성**이 만들어진다 (손으로 지은 맵이 통째로 사라진다).
+   * appended (2026-09-14, the tutorial rework): **which mission** this session was. An old save has none = `'raid'`.
+   * `resumeSoloRaid` emits `game:newMission {mode}` from this value — without it, resuming the tutorial builds
+   * a **procedural planet** from the same seed (the hand-built map disappears entirely).
    */
   mode?: 'raid' | 'tutorial';
   /**
-   * appended (2026-09-14, 튜토리얼 개편): 마지막으로 지난 체크포인트. 월드는 새로 지어지면서 `'wake'` 로
-   * 돌아가므로, 이 값이 없으면 이어한 사람은 **다음에 죽을 때 맨 처음으로** 밀려난다.
+   * appended (2026-09-14, the tutorial rework): the last checkpoint passed. The world is rebuilt and goes back to
+   * `'wake'`, so without this value the player who resumed is pushed **all the way back on their next death**.
    */
   checkpoint?: TutorialCheckpointId;
 }
@@ -146,18 +147,20 @@ export function loadSoloRaid(): SoloRaidSave | null {
 /**
  * `fresh` = inside the grace window (resumable); `stale` = the run is lost.
  *
- * 2026-09-11 (E-5 — 오프라인 방어, 사용자 결정 1–3): the grace used to be `now − savedAt ≤ 5 min` on the local clock and a
- * save from the future was always fresh, so "play with the clock ahead, close, set it back" kept a run resumable forever.
+ * 2026-09-11 (E-5 — the offline defence, user's decisions 1–3): the grace used to be `now − savedAt ≤ 5 min` on the
+ * local clock and a save from the future was always fresh, so "play with the clock ahead, close, set it back" kept a
+ * run resumable forever.
  *   ① `clockHigh` (the latest `Date.now()` this slot has seen, `readClockHigh`): booting more than
  *      `SOLO_CLOCK_BACK_TOLERANCE_MS` before it means the clock went back → `stale`.
  *   ② a save more than that tolerance in the future → `stale`; a few seconds (NTP correction) still resume.
  * (③, the loadout's `raidSeed` marker, is checked by the caller — it needs `InventoryRef`.)
  * What stays open (accepted): close → set the clock back → reopen inside 5 min without having booted in between.
  *
- * **2026-09-15 (사용자 결정 — 튜토리얼은 언제 껐다 켜도 이어서 한다)**: `save.mode === 'tutorial'` 이면 위의 셋을
- * 하나도 보지 않는다. 유예도 시계 방어도 **되돌릴 진행이 있을 때**의 장치다 — 「닫고 시계를 되돌려 손실을 무르는
- * 것」을 막으려고 있는 것인데, 튜토리얼에는 잃을 전리품도 실패도 없고 요점은 「중간부터 이어서」 하나다.
- * 일주일 뒤에 켜도 `fresh` 다.
+ * **2026-09-15 (user's decision — the tutorial resumes whenever it is closed and reopened)**: with
+ * `save.mode === 'tutorial'` none of the three above is read. Both the grace and the clock defence are devices for
+ * **when there is progress to undo** — they are there to stop 「closing, putting the clock back and undoing a loss」,
+ * and the tutorial has neither loot to lose nor a failure; its one point is 「carry on from the middle」. Opened a
+ * week later it is still `fresh`.
  */
 export function soloRaidStatus(save: SoloRaidSave | null, now: number = Date.now(), clockHigh = 0): SoloRaidStatus {
   if (!save) return 'none';
@@ -173,10 +176,10 @@ export function soloRaidStatus(save: SoloRaidSave | null, now: number = Date.now
  * E-5 ③: how the boot reads the stored raid together with the loadout's solo raid marker (`InventoryRef.soloRaidSeed`).
  * A marker whose save is gone (the key was deleted) or belongs to another seed is a lost run exactly like a stale save.
  *
- * 2026-09-15: 튜토리얼에는 그 표식이 애초에 없다 — `inventory/parts/Lifecycle.onWorldReady` 가 `missionMode === 'raid'`
- * 일 때만 `markRaid` 를 부른다. 그래서 튜토리얼 세이브가 있으면 `raidSeed` 는 null 이고 이 검사는 그대로 지나간다.
- * 검사를 그대로 두는 이유: 표식이 **남아 있다면** 그것은 이어하다 만 진짜 레이드의 흔적이고, 그때는 튜토리얼
- * 세이브가 있어도 그 레이드가 잃은 것이 맞다 (`stale` = 그 레이드의 실패).
+ * 2026-09-15: the tutorial never has that marker in the first place — `inventory/parts/Lifecycle.onWorldReady` calls
+ * `markRaid` only while `missionMode === 'raid'`. So with a tutorial save `raidSeed` is null and this check passes
+ * straight through. Why the check is kept: a marker that **is** still there is the trace of a real raid left
+ * half-resumed, and then, tutorial save or not, that raid is the one that was lost (`stale` = its failure).
  */
 export function soloRaidBootStatus(save: SoloRaidSave | null, raidSeed: number | null, now: number = Date.now(), clockHigh = 0): SoloRaidStatus {
   const status = soloRaidStatus(save, now, clockHigh);

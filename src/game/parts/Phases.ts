@@ -1,9 +1,10 @@
 /**
- * src/game/parts/Phases.ts — **페이즈 전환과 일시정지**.
+ * src/game/parts/Phases.ts — **phase transitions and pause**.
  *
- * menu → hub → deploying → playing → extracting → complete / dead → hub. 일시정지는 **월드를 멈추지
- * 않고**(2026-09-07) 창 포커스를 잃었을 때만 뜬다. 일시정지 메뉴는 항상 단 하나의 화면이라
- * 다른 창이 열려 있으면 즉시 양보한다(Phase 12 — 겹쳐서 둘 다 못 끄던 상태의 수정).
+ * menu → hub → deploying → playing → extracting → complete / dead → hub. The pause **never freezes the
+ * world** (2026-09-07) and comes up only when the window loses focus. The pause menu is always the one and only
+ * screen, so it yields at once while another screen is open (Phase 12 — the fix for the two overlapping and
+ * neither being closable).
  */
 import * as THREE from 'three';
 import type {
@@ -15,7 +16,7 @@ import {
   NET_GHOST_RESTORE_TIMEOUT_S,
 } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
-/* 2026-09-15: 분대 · 도킹 매칭 — 공용 함선은 도킹된 분대에만 있다 */
+/* 2026-09-15: squads · docking matchmaking — only a docked squad has a shared ship */
 import { isDockedLobby } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
@@ -40,9 +41,10 @@ export function isTraining(sys: GameFlowSystem): boolean {
   }
 
 /**
- * 2026-09-14 (튜토리얼 개편): 손으로 지은 튜토리얼 행성을 도는 중인가. **`isTraining()` 을 넓히지 않는다** —
- * 훈련장은 보상 · 결과 화면 · 계약 정산이 통째로 없는 반면 튜토리얼은 평범한 레이드처럼 끝나고 정산한다.
- * 여기서 갈리는 것은 「사망이 실패가 아니다」 하나뿐이다 (`parts/Death` 의 체크포인트 갈래).
+ * 2026-09-14 (tutorial rework): is the hand-built tutorial planet the one being played. **Do not widen
+ * `isTraining()`** — the training range has no rewards, no results screen and no contract settlement at all,
+ * while the tutorial ends and settles like a normal raid. The one thing that splits here is 「사망이 실패가
+ * 아니다」 (the checkpoint branch in `parts/Death`).
  */
 export function isTutorial(sys: GameFlowSystem): boolean {
   return sys.ctx.missionMode === 'tutorial';
@@ -58,8 +60,8 @@ export function inShip(sys: GameFlowSystem): boolean {
   }
 
 /**
- * Phase 12: no UI blocker besides the 재개 게이트's own token. The gate is an overlay over a running game, not a
- * screen — Escape on it must open the 일시정지 메뉴 and a window blur behind it must still pause.
+ * Phase 12: no UI blocker besides the resume gate's own token. The gate is an overlay over a running game, not
+ * a screen — Escape on it must open the pause menu and a window blur behind it must still pause.
  */
 export function noScreenOpen(sys: GameFlowSystem): boolean {
   for (const t of sys.ctx.uiBlockers) if (t !== RESUME_GATE_BLOCKER) return false;
@@ -69,8 +71,8 @@ export function noScreenOpen(sys: GameFlowSystem): boolean {
 /* ── Pause / focus ───────────────────────────────────────────────────── */
 /**
  * The player left the window (alt-tab, another app, a hidden tab). This is the **only** pause trigger besides
- * Escape since the 2026-09-07 커서 rework: a missing pointer lock means the mouse is being used as a cursor, which
- * is a normal in-game state now, while a missing window really is someone walking away.
+ * Escape since the 2026-09-07 cursor rework: a missing pointer lock means the mouse is being used as a cursor,
+ * which is a normal in-game state now, while a missing window really is someone walking away.
  */
 export function onFocusLost(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
@@ -81,40 +83,43 @@ export function onFocusLost(sys: GameFlowSystem): void {
 
 /* ── Escape (2026-09-08 → 2026-09-09) ─────────────────
  *
- * **Escape 한 번은 열려 있는 화면 중 맨 위 하나를 닫는다. 닫을 화면이 없을 때만 일시정지 메뉴가 열린다.**
+ * **One Escape closes the topmost open screen. The pause menu opens only when there is no screen to close.**
  *
- * 들어오는 길은 둘이다. 포인터 락이 걸려 있는 동안 Escape 는 keydown 이 되지 않고 커서만 풀리므로
- * `Input.onUserUnlock` 이 `input:pointerLockLost` 로 알려 주고, 화면이 이미 커서를 쓰고 있으면 진짜
- * `Keys.MENU` keydown 이 들어온다. 앞의 경우는 닫을 화면이 없는 상황이므로 곧장 `escapePause` 로 가고,
- * 뒤의 경우만 `escapeKey` 를 지난다.
+ * There are two ways in. While the pointer is locked, Escape never becomes a keydown — it only frees the
+ * cursor — so `Input.onUserUnlock` reports it as `input:pointerLockLost`; once a screen is already using the
+ * cursor, a real `Keys.MENU` keydown arrives instead. The first case is by definition one with no screen to
+ * close, so it goes straight to `escapePause`; only the second passes through `escapeKey`.
  *
- * 2026-09-08 에는 화면의 ESC 닫기를 모두 없애고 Escape 를 메뉴를 여는 키 하나로 두었다. Escape 에는
- * user activation 이 없어서 그 키로 화면을 닫으면 재락이 거부되고 커서가 남는다는 이유였다. 2026-09-09 에
- * 되돌렸다 — 사람은 커서가 보이면 그 창을 ESC 로 닫으려 하고, 닫은 뒤의 처리는 이제 두 환경 모두 답이 있다.
- * 데스크톱 셸은 ESC key-up 마다 메인 프로세스가 activation 을 만들어 자동으로 락을 되찾고
- * (`electron/main.ts` → `__scavShellRelock`), 브라우저는 `좌측 클릭으로 게임 재개` 게이트
- * (`game/ResumeGate`)가 그 한 클릭을 받는다 — 원래 이 상황을 위해 만든 UI 다.
+ * 2026-09-08 removed every screen's Escape-to-close and left Escape as the single key that opens the menu. The
+ * reason was that Escape carries no user activation, so closing a screen with it got the re-lock refused and
+ * left the cursor on screen. 2026-09-09 reverted it — a person who sees a cursor tries to close that window
+ * with ESC, and what happens after the close now has an answer in both environments. The desktop shell has the
+ * main process make an activation on every ESC key-up and takes the lock back by itself (`electron/main.ts` →
+ * `__scavShellRelock`), and in the browser the `좌측 클릭으로 게임 재개` gate (`game/ResumeGate`) takes that one
+ * click — the UI that was built for exactly this situation.
  *
- * 닫히는 순서는 **열린 순서의 역순**(`ctx.escape`, `shared/escape`)이고 시스템 등록 순서가 아니다. Tab 공용
- * 닫기는 각 화면이 자기 `update()` 에서 키를 읽는 방식이라 순서가 `main.ts` 의 등록 순서로 정해지는데,
- * ESC 는 맨 위 하나만 닫아야 하므로 열린 순서를 아는 곳이 필요하다.
+ * The closing order is **the reverse of the opening order** (`ctx.escape`, `shared/escape`), not the system
+ * registration order. The universal Tab close has each screen read the key in its own `update()`, so its order
+ * is decided by the registration order in `main.ts`; ESC must close only the topmost one, which needs somewhere
+ * that knows the opening order.
  *
- * 가장 안쪽 팝업(수량 지정 · 우클릭 메뉴 · 경고 팝업 · 설정 · 키 바꾸기)은 지금도 자기가 window capture
- * 핸들러에서 Escape 를 삼켜 `Input` 이 기록조차 못 하게 한다. 그래서 이 스택이 다루는 것은 그 아래층인
- * **화면** 뿐이다.
+ * The innermost popups (the amount picker · the right-click menu · the warning popup · settings · rebinding)
+ * still swallow Escape in their own window capture handler, so `Input` never even records it. What this stack
+ * handles is therefore only the layer below them, the **screens**.
  *
- * 일시정지 메뉴 자신을 ESC 로 닫는 것은 데스크톱 셸 전용이다 (`isDesktopShell()`). 메뉴는 스택을 쓰지 않고
- * 자기 window capture 핸들러에서 Escape 를 Tab 과 똑같이 처리한다 (`ui/menus/PauseMenu`) — 어차피 늘 맨 위이고,
- * 그 핸들러는 이미 경고 팝업의 Escape 예외를 들고 있다. 브라우저에서는 `게임으로 돌아가기` 클릭이 그대로
- * 남는다. 그 클릭이 브라우저가 재락 전에 요구하는 제스처이기도 하다.
+ * Closing the pause menu itself with ESC is desktop-shell only (`isDesktopShell()`). The menu does not use the
+ * stack: its own window capture handler treats Escape exactly like Tab (`ui/menus/PauseMenu`) — it is always
+ * the topmost one anyway, and that handler already carries the warning popup's Escape exception. In the browser
+ * the `게임으로 돌아가기` click stays as it is; that click is also the gesture the browser demands before a
+ * re-lock.
  */
-/** Escape 한 번: 맨 위 화면 하나를 닫고, 스택이 비어 있으면 일시정지 메뉴를 연다. */
+/** One Escape: close the topmost screen, or open the pause menu when the stack is empty. */
 export function escapeKey(sys: GameFlowSystem): void {
   if (sys.ctx.escape.closeTop()) return;
   escapePause(sys);
   }
 
-/** 닫을 화면이 없을 때의 Escape — 일시정지 메뉴를 **열기만** 한다 (닫는 것은 `게임으로 돌아가기`). */
+/** Escape with no screen to close — it **only opens** the pause menu (closing is `게임으로 돌아가기`). */
 export function escapePause(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
   if (sys.paused) return;
@@ -138,21 +143,24 @@ export function onNewMission(sys: GameFlowSystem, seed: number, mode: MissionMod
   // The emitter (hub / net) sets `ctx.missionMode` before emitting; re-confirm from the event, else from the generated world.
   ctx.missionMode = mode ?? ctx.world?.mode ?? 'raid';
   /*
-   * Phase 11: same contract for the 목표 행성 — the emitter sets `ctx.missionPlanet` first, this only re-confirms it.
+   * Phase 11: same contract for the target planet — the emitter sets `ctx.missionPlanet` first, this only
+   * re-confirms it.
    * A training has no planet; an emit without the field (an older path) keeps whatever the ship last flew to rather
-   * than silently rerolling. (2026-09-15: `MissionComplete`'s 다시 배치 — the one emitter that re-used a seed — is gone.)
+   * than silently rerolling. (2026-09-15: `MissionComplete`'s `다시 배치` — the one emitter that re-used a seed
+   * — is gone.)
    */
   ctx.missionPlanet = sys.isTraining() ? null : (planet ?? ctx.missionPlanet);
-  // 2026-09-14 (정보상): 같은 규약 — 훈련장은 기믹 고정이 없다. 레이드의 값은 emitter 가 이미 세팅했다 (여기서 덮지 않는다).
+  // 2026-09-14 (the intel broker): same contract — the training range has no fixed gimmicks. A raid's value was
+  // already set by the emitter (it is not overwritten here).
   if (sys.isTraining()) ctx.missionIntel = null;
   sys.setPaused(false);
   sys.completeTimer = -1;
   sys.deathTimer = -1; sys.respawnTimer = -1; sys.respawnLastSec = -1;
   sys.tutorialRespawnTimer = -1;   // 2026-09-14
-  sys.lastTutorialStep = null;     // 2026-09-15: 새 미션 — 단계별 자동저장의 중복 제거 기준을 비운다
+  sys.lastTutorialStep = null;     // 2026-09-15: new mission — clear the dedupe key of the per-step autosave
   sys.lastThreat = -1;
   sys.boarded = false;
-  sys.aboardAtLiftoff = false; sys.squadExtraction = false;   // 2026-09-13 탈출 개편
+  sys.aboardAtLiftoff = false; sys.squadExtraction = false;   // 2026-09-13 extraction rework
   sys.allDeadCheckTimer = -1;
   sys.disconnectAbortTimer = -1;
   sys.autoReturnTimer = -1;
@@ -163,17 +171,18 @@ export function onNewMission(sys: GameFlowSystem, seed: number, mode: MissionMod
   ctx.missionTime = 0;
   ctx.uiBlockers.delete('menu');
   if (!sys.rejoining) ctx.rejoinPending = false;
-  // 훈련장: remember the inventory so ammo / durability spent on the range are refunded on exit.
+  // Training range: remember the inventory so ammo / durability spent on the range are refunded on exit.
   sys.trainingSnapshot = sys.isTraining() ? (ctx.inventory?.captureRaidState() ?? null) : null;
   sys.raidSaveTimer = (sys.isRaidSession() || sys.isSoloRaid()) ? RAID_SAVE_INTERVAL_S : -1;
   // 2026-09-11 (E-5 ①): a **new** solo raid restarts the clock record at "now" — a clock that once ran far ahead must not
   // fail every later resume. A stored run was already judged at boot, so nothing pending can slip through here.
   if (sys.isSoloRaid() && !sys.rejoining) bumpClockHigh(Date.now(), true);
   /*
-   * A-13 (2026-09-11): 출격 — 함선에서 쓴 준비물(`PlayerProfile.prep`)을 이번 레이드분(`prepActive`)으로 옮긴다.
-   * 훈련장은 제외다 (환경이 없는 데다, 나갈 때 `game:abort` 가 `clearActivePreps` 를 부르므로 그냥 태워 버린다).
-   * 재접속 · 솔로 이어하기도 이 경로를 지나지만 그때 대기분은 비어 있으므로 `armPreps` 는 아무것도 하지 않고
-   * 이미 실려 있는 `prepActive` 를 그대로 둔다 — 돌아온 사람이 준비물을 조용히 잃지 않는 자리다.
+   * A-13 (2026-09-11): launch — move the preparations bought in the ship (`PlayerProfile.prep`) into this
+   * raid's (`prepActive`). The training range is excluded (it has no environment, and `game:abort` calls
+   * `clearActivePreps` on the way out, so they would simply burn). A reconnect and a solo resume pass through
+   * here too, but the pending ones are empty by then, so `armPreps` does nothing and leaves the `prepActive`
+   * already loaded alone — this is the spot where someone who came back does not silently lose their preps.
    */
   if (!sys.isTraining()) ctx.progression?.armPreps();
   sys.awaitingWorld = true;
@@ -191,16 +200,17 @@ export function onNewMission(sys: GameFlowSystem, seed: number, mode: MissionMod
 export function onWorldReady(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
   /*
-   * 2026-09-08: 시뮬레이션 훈련장은 강하가 없다 (`player/` 도 헬포드를 건너뛴다) — 'deploying' 을 거치면
-   * `player:landed` 가 영영 오지 않아 화면이 강하 오버레이에 갇힌다.
-   * 2026-09-14: 튜토리얼도 같다 — 함선이 없는 사람이 그 행성에서 깨어난다 (`player/parts/Spawn.usesHellpod`).
+   * 2026-09-08: the `시뮬레이션 훈련장` has no drop (`player/` skips the hellpod too) — going through
+   * 'deploying' means `player:landed` never arrives and the screen stays stuck on the drop overlay.
+   * 2026-09-14: the tutorial is the same — someone with no ship wakes up on that planet
+   * (`player/parts/Spawn.usesHellpod`).
    */
   sys.setPhase(sys.isTraining() || sys.isTutorial() ? 'playing' : 'deploying');
   if (!sys.rejoining) {
     /*
      * 2026-09-11 (E-5 ③): inventory has just marked the kit as out on this solo raid (`raidSeed`). Write the resumable
      * snapshot now — standing at the spawn — so a reload during the hellpod drop resumes the run instead of reading as
-     * "marker without a save" (= 레이드 실패). `player:landed` overwrites it with the real pose.
+     * "marker without a save" (= raid failure). `player:landed` overwrites it with the real pose.
      */
     if (sys.isSoloRaid()) {
       const spawn = ctx.world?.getPlayerSpawn();
@@ -229,9 +239,10 @@ export function onWorldReady(sys: GameFlowSystem): void {
     sys.soloRestore = null;
     sys.onGhostRestore(solo);
     /*
-     * 2026-09-14 (튜토리얼): 새로 지어진 월드의 체크포인트는 `'wake'` 다 — 저장해 둔 곳으로 되돌린다.
-     * `gotoCheckpoint` 은 그 자리로 몸을 옮기기도 하므로, 이어한 사람은 **마지막 체크포인트에서** 다시 시작한다
-     * (「새로고침하면 체크포인트부터 이어 한다」). 모르는 id · 튜토리얼 월드가 아니면 아무 일도 없다.
+     * 2026-09-14 (tutorial): a freshly built world's checkpoint is `'wake'` — put it back to the saved one.
+     * `gotoCheckpoint` also moves the body to that spot, so whoever resumed starts again **from the last
+     * checkpoint** (「새로고침하면 체크포인트부터 이어 한다」). An unknown id, or a world that is not the
+     * tutorial's, does nothing.
      */
     const cp = sys.soloCheckpoint;
     sys.soloCheckpoint = null;
@@ -242,7 +253,7 @@ export function onWorldReady(sys: GameFlowSystem): void {
   sys.restoreTimer = NET_GHOST_RESTORE_TIMEOUT_S;
   }
 
-/* ── 훈련장 ─────────────────────────────────────────────────────────── */
+/* ── Training range ─────────────────────────────────────────────── */
 /** The arena's exit console: leave the training, refund the inventory snapshot, back to the ship. */
 export function exitTraining(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
@@ -267,8 +278,9 @@ export function onAbort(sys: GameFlowSystem): void {
   // itself; leaving a result screen (complete / dead) is always local — the mission is already over for everyone.
   // A training is personal: leaving it never aborts the others.
   const live = sys.inLiveMission();
-  // 2026-09-13: 자발적 귀환(`parts/Death.finishReturnToShip`)은 이 사람만 나간다 — 호스트였어도 분대를 끌고 가지 않는다
-  // (이미 `leaveMission` 이 `lobby:mission false` 를 보냈고 서버가 살아 있는 대원에게 분대장을 넘긴다).
+  // 2026-09-13: the voluntary return (`parts/Death.finishReturnToShip`) takes only this player out — even as
+  // host it never drags the squad with it (`leaveMission` has already sent `lobby:mission false`, and the
+  // server hands the squad leader to a living member).
   if (ctx.net && live && !sys.isTraining() && !sys.returnPending && (sys.wasMultiplayerHost || (ctx.isMultiplayer && ctx.net.isHost))) {
     ctx.net.send({ t: 'flow', ev: 'abort' }, 'others');
   }
@@ -277,7 +289,8 @@ export function onAbort(sys: GameFlowSystem): void {
   sys.wasMultiplayerHost = false;
   // Lobby mission ended by an abort → regroup in the shared ship. Deferred one microtask: if the abort came from
   // HubSystem's own `hub:enter` the ship is already being built (phase 'hub') and this is a no-op.
-  // 2026-09-15 (분대 · 도킹 매칭): only a **docked** squad has a shared ship to regroup in (an undocked one never starts a mission).
+  // 2026-09-15 (squads · docking matchmaking): only a **docked** squad has a shared ship to regroup in (an
+  // undocked one never starts a mission).
   if (fromMission && isDockedLobby(ctx.net?.lobby)) {
     queueMicrotask(() => { if (ctx.phase === 'menu' && isDockedLobby(ctx.net?.lobby)) ctx.bus.emit('hub:enter', { ship: 'shared' }); });
   }
@@ -286,7 +299,7 @@ export function onAbort(sys: GameFlowSystem): void {
   sys.deathTimer = -1; sys.respawnTimer = -1; sys.respawnLastSec = -1;
   sys.tutorialRespawnTimer = -1;   // 2026-09-14
   sys.boarded = false;
-  sys.aboardAtLiftoff = false; sys.squadExtraction = false;   // 2026-09-13 탈출 개편
+  sys.aboardAtLiftoff = false; sys.squadExtraction = false;   // 2026-09-13 extraction rework
   sys.allDeadCheckTimer = -1;
   sys.disconnectAbortTimer = -1;
   sys.autoReturnTimer = -1;
@@ -297,7 +310,7 @@ export function onAbort(sys: GameFlowSystem): void {
   sys.soloRestore = null;
   sys.soloCheckpoint = null;   // 2026-09-14
   clearSoloRaid();          // quitting to the ship / title ends the solo session (the kit resets below)
-  ctx.progression?.clearActivePreps();   // A-13: 레이드가 끝났다 — 이번 레이드분은 마신 것으로 친다
+  ctx.progression?.clearActivePreps();   // A-13: the raid is over — this raid's preps count as consumed
   ctx.rejoinPending = false;
   sys.rewarded = false;
   sys.awaitingWorld = false;
@@ -319,7 +332,7 @@ export function setPaused(sys: GameFlowSystem, paused: boolean, emit = true): vo
    * stopping the clock, the enemies and the extraction countdown with a keypress made it a save-scum button, and it
    * also fought the new rule below (a lost pointer lock puts this menu up, which must not stall the mission).
    * `freeze` stays on the wire because `Engine` and the HUD still read it; it is simply always false now.
-   * 2026-09-07 (커서 rework): the pointer lock is not touched here any more — `ui/menus/MenuBase` takes the
+   * 2026-09-07 (cursor rework): the pointer lock is not touched here any more — `ui/menus/MenuBase` takes the
    * `'menu'` cursor-mode token when the pause menu shows and drops it when it hides, and `main.ts` does the single
    * re-lock once the last cursor owner is gone. One owner of the lock, no per-system relock races.
    */

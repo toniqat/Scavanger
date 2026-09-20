@@ -6,13 +6,20 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **13, `src/game`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
+> **Next session starts here:** queue item **14, `src/meta`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
 > before picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this
 > file originally described**; the old one let a deleted `*/` through, and **§3 step 4b**, which `src/tutorial` added
-> after catching a re-typed Korean label. `src/game` is 537 lines over 14 files, and it is the folder every other one
-> ends in: the phase state machine · death / corpses · the raid session save and resume · the ESC policy · result-screen
-> data. CLAUDE.md §4.3's save / resume bullets and §4.6's death and leader bullets are what settle its wording, and
-> `src/allies` (item 12) already fixed the wipe-decision nouns it shares with `game/parts/Death`.
+> after catching a re-typed Korean label. `src/meta` is 305 lines over 15 files: the four corporations · reputation ·
+> credits · the shop and trade desk · contracts · the implant repair desk · the NPC quest engine · NPC trust · intel
+> purchase. CLAUDE.md §4.7's economy bullets and §4.8's quest bullets settle its wording, and `src/items` (item 10)
+> and `src/inventory` (item 6) already fixed the economy nouns it shares with them.
+
+> **The wrap-column check is the lead's, not an agent's.** In `src/game` two of the four agents reported "no comment
+> line over 118 columns" and the lead's own ratchet then found **nine** — five in one bundle. The check is cheap and
+> it is the one thing an agent consistently gets wrong, because English runs longer than the Korean it replaces and a
+> trailing comment on a long code line crosses the column without looking any different. Run it per file **against
+> HEAD** (that file's own widest comment line and its own count of lines over 118), never as a tree-wide maximum: this
+> folder legitimately holds 13 comment lines over 118 that were already there.
 
 > **§3 step 4b earns its place again.** In `src/items` an agent re-typed the csv item name `강화합금 잉곳` as
 > `강화합금 잉고` in **two** `Salvage.ts` comments, and its own report said the audit was clean — it had run the
@@ -42,15 +49,15 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`, `src/gadgets`, `src/allies`) | 21,523 | 539 |
-| **Remaining** ([§2](#2-queue)) | **5,093** | **208** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`, `src/gadgets`, `src/allies`, `src/game`) | 22,060 | 553 |
+| **Remaining** ([§2](#2-queue)) | **4,564** | **194** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 71 lines, because a comment whose entire substance is
+**Intended permanent exceptions.** A finished folder still prints 76 lines, because a comment whose entire substance is
 a quoted label, a quoted document heading or a verbatim user decision keeps its Korean (§3 rule 2 — the reader has to be
-able to grep it against the real string). So a raw run over everything prints 5,164 / 259, seventy-one more than the
+able to grep it against the real string). So a raw run over everything prints 4,640 / 248, seventy-six more than the
 queue. `src/ui` alone contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice —
 so its rows are grouped into one line instead of listed file by file:
 
@@ -84,6 +91,8 @@ so its rows are grouped into one line instead of listed file by file:
 | `player/RemoteAvatar.ts:611` | a verbatim user decision (`마지막 함선을 탔을 때 PC 가 함선 내부에 실루엣으로 보이지 않도록`) |
 | `items/Loot.ts:552` | a verbatim user decision (`잠긴 방은 지금 그대로, 나머지는 서사 이상 절반`) |
 | `gadgets/GadgetDefs.ts:205` | a `docs/DECISIONS.md` section heading (`2026-09-15 — 땅굴벌레 · 진동 장치`) |
+| `game/parts/Death.ts:191` · `:345` · `:375` | verbatim user decisions: 「부활하면 서 있는 채로 나타나지 않고 쓰러졌다 일어난다」 and, twice, the wipe rule 「사람과 안드로이드가 모두 쓰러지거나 죽어야 레이드 실패」 — the same quote `ui/hud/SpectateOverlay.ts:76` keeps |
+| `game/parts/LoadGate.ts:3` | a `docs/DECISIONS.md` section heading (`2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩`), byte-identical to the one `allies/README.md:9` cites |
 | `allies/parts/` — **7 lines in 5 files** | verbatim user decisions, each the *whole* substance of its line: `Loot.ts:3` · `:5` (「먹고 있을 때 PC 가 그 상자를 열면 중단」, 「핑이 먼저고, 혼자 주워 담는 것은 한가할 때뿐」), `Rescue.ts:3-4` (the two-line rescue decision), `Commands.ts:271` (「일반 범위의 2배로 각자 일대를 수색, 일정 시간 뒤 자동 해제」), `Contract.ts:4` (the tail of 「계약에 따라 다르나, …」), `Support.ts:3` (the hand-over conditions). This folder is written almost entirely out of quoted decisions, which is why it keeps more than most |
 
 ---
@@ -106,7 +115,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~10~~ | ~~`src/items`~~ | 612 | 12 | **Done 2026-09-19** (lead + 3 agents, one commit). 1 quoted-only line stays (§1). Cut **by subject** and it held: the roll engine (`Loot`) · the csv→table loaders (`LootTables` · `Recipes`) · the craft economy and spec rows (`Salvage` · `ItemSpec` · `WeaponStats`), lead on the item defs (`ItemDefs` · `WeaponDefs` · `ArmorDefs` · `ImplantDefs` · `ItemText` · `index`). Its roll · draw · pick · candidate pool · epic+ gate · bucket · craft-inputs vocabulary is now the reference for every data- and economy-shaped folder after it. |
 | ~~11~~ | ~~`src/gadgets`~~ | 573 | 22 | **Done 2026-09-19** (lead + 3 agents, one commit). 1 quoted-only line stays (§1). Cut **by subject** and it held: drone bodies (`AirDrone` · `GroundDrone` · `Lifecycle` · `Scan`) · drone core + mounting (`drones/model` · `DroneSystem` · `Control` · `drones/Wire` · `parts/Mount`) · placement (`Preview` · `Deploy` · `Thumper`), lead on the host-authoritative centre (`GadgetDefs` · `GadgetSystem` · `GadgetVisuals` · `Queries` · `Simulate` · `Remote` · `Wire` · `Deployable` · `model` · `ThrownGadget`). Its deployable · placement-test · footprint · arming · detonation · mounting · drone-body vocabulary is now the reference for every deployable- and vehicle-shaped folder after it. |
 | ~~12~~ | ~~`src/allies`~~ | 561 | 22 | **Done 2026-09-19** (lead + 4 agents, one commit, 10 scripts in 1 min 10 s, green first try). 7 quoted-only lines stay (§1) — the most of any folder so far, because the folder *is* a transcription of user decisions. Cut **by subject** and it held: orders · pings · requests · hand-over (`Commands` · `Support` · `Ping` · `Console`) · movement · free search · harness · combat (`Nav` · `Roam` · `Harness` · `Combat`) · bag · looting · objectives · vitals · extraction (`Bag` · `Loot` · `Extract` · `Rescue` · `Contract` · `Vitals`) · roster · ship · raid entry · wire (`Roster` · `Hub` · `Spawn` · `Sync`), lead on the centre (`AllySystem` · `model` · `Body` · `Fsm` · `index`). Its roster · unit · bay · proposal · rank · reaction-delay · harness · free-search · point-of-interest · designation · bound-kit vocabulary is now the reference for every AI-squad- and roster-shaped folder after it. |
-| 13 | `src/game` | 537 | 14 | |
+| ~~13~~ | ~~`src/game`~~ | 537 | 14 | **Done 2026-09-20** (lead + 4 agents, one commit, 15 scripts + `e2e-mp` in 4 min 11 s). 4 quoted-only lines stay (§1). Cut **by subject** and it held: death · wipe · payout (`Death`) · corpses and their wire (`Corpses` · `CorpseNet`) · the session save, the title offer and the resume gate (`Session` · `Resume` · `SoloRaid` · `ResumeGate`) · raid entry and the two ends of a raid (`LoadGate` · `Leader` · `RaidReport`), lead on the centre (`GameFlowSystem` · `Phases` · `model` · `Wire`). Its phase · render hold · settlement · corpse-sink · title-offer · voluntary-return vocabulary is now the reference for every flow-shaped folder after it. |
 | 14 | `src/meta` | 305 | 15 | |
 | 15 | `src/audio` | 273 | 2 | |
 | 16 | `src/weapons` | 204 | 17 | |
@@ -119,7 +128,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~23~~ | ~~`src/main.ts`~~ | 7 | 1 | **Done 2026-09-18**, folded into the `src/shared` commit as planned. |
 | 24 | `server/` | 267 | 9 | `RelayServer.ts` 66 · `Lobby.ts` 55 · `selftest.ts` 53 · `Store.ts` 22 · `CryptoMarket.ts` 19 · `Economy.ts` 15 · `Rooms.ts` 14 · `Console.ts` 13 · `index.ts` 10. Verified by `npm run typecheck:server` + `net:selftest`, not by folder smokes. |
 | 25 | `electron/` | 52 | 2 | `main.ts` 50 · `wsProxy.ts` 2. Touching `electron/` makes `verify` run `smoke-desktop`. |
-| 26 | `scripts/` | 2,962 | 102 | Last on purpose — these are the verification harness. Changing a runner's comments cannot break the game, but a bad edit hides a real failure, so do this only once the game code is done and green. Biggest: `verify.mjs` 199 · `smoke-tutorial.mjs` 185 · `smoke-housing.mjs` 123 · `smoke-inventory-p6.mjs` 121 · `smoke-cooking.mjs` 95. |
+| 26 | `scripts/` | 2,970 | 102 | Last on purpose — these are the verification harness. Changing a runner's comments cannot break the game, but a bad edit hides a real failure, so do this only once the game code is done and green. Biggest: `verify.mjs` 203 · `smoke-tutorial.mjs` 185 · `smoke-housing.mjs` 123 · `smoke-inventory-p6.mjs` 121 · `smoke-cooking.mjs` 95. |
 
 `data/*.csv` is **out of scope** — its Korean columns are in-game display text.
 
@@ -880,3 +889,18 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 연출 동기값 · 질의 창 · 저수지 표본 | a **cutscene sync value** (`Spawn.POD_LAND_S`, which tracks `player/Hellpod.ts`'s cutscene length) · a **query window** (`Nav.OBS_QUERY_M`) · the **reservoir sample** (`Roam.consider`) | `allies/parts` |
 | 대체값 · 크루 카드 · 조작된 id | a **stand-in** (`shared/allies.ts` already writes "Stand-in PeerId") · the **crew card** (`NetRef.getCrewCard`) · a **tampered id** | `allies/parts` |
 | 한 마디 · 한 줄 말한다 | **says a line** / **one line** — a *spoken* chat line (`Ping.say`), never a comms-wheel entry, which is an **order** | `allies` (folder-wide) |
+| 훈련장 · 레이드 실패 (개념 vs 화면) | **the training range** · **raid failure** for the concept; the Korean stays when the prose names the on-screen thing — `시뮬레이션 훈련장` the button (`hub/ui/HubMenu`'s precedent) and `레이드 실패` the death-screen title or its mode (`ui/menus/DeathScreen`, `ui/HudSystem:856`). The same split `housing` runs for `가구 창고`; do not sed one into the other | `game` (folder-wide) |
+| 분대 전멸 · 전멸 판정 · 자발적 귀환 | the **squad wipe** · the **all-dead check** (`checkAllDead`) · the **voluntary return** — all three `game/README.md`'s own words. The menu entry stays `함선으로 귀환` | `game/parts/Death.ts` |
+| 사망 연출 | the **death animation** — `player/PlayerSystem.ts:1233`'s own words for what runs during the `DEATH_TO_SCREEN` wait. Never a *cutscene* (§7's `ui` row reserves that for a timed sequence that owns the screen) | `game` (folder-wide) |
+| 결산 · 정산 · 보상 | **settlement** / settles (`settleMission`) · the **payout** (README's section title) — one word for 결산 and 정산 both | `game` (folder-wide) |
+| 결과 화면 · 보상 창 | the **results screen** — **one name**, including inside a quoted user decision that said 보상 창 (`Death.ts:204`, where the next line already said *results screen*). Kept apart from `ui`'s own screens | `game/parts/Death.ts`, `RaidReport.ts` |
+| 결과 창의 재료 | **what fills the results screen** — never *the results screen's material*; §7 binds 재료 to the crafting sense and `GameFlowSystem.ts:62` already says *fills* | `game/parts/RaidReport.ts` |
+| 원인 줄 | the **death cause row** — `ui/menus/ResultReport.ts` · `results.css` already name it, so never the shorter *cause row* | `game/parts/RaidReport.ts` |
+| 게이트 · hold · 원형 게이지 | the **raid-entry loading gate** · a **render hold** (`ctx.shaders.holdFor`) · the **radial gauge** — README's words; the promise's resolve is the **handle** that releases the hold | `game/parts/LoadGate.ts` |
+| 타이틀 이어하기 · 레이드 포기 · 내민다 | **title resume** · **abandon** (`abandon()`) · **offers** (`offer`) for the concepts; the buttons `이어하기` / `레이드 포기` / `게임 시작` stay Korean | `game/parts/Resume.ts` |
+| 솔로 유예 · 시계 방어 · 오프라인 방어 · 상했다 | the **solo grace** · the **clock defence** (the mechanism, README's word) · the **offline defence** (E-5's *name*, `SoloRaid.ts:150`) · **stale** (`soloRaidBootStatus`) | `game/SoloRaid.ts` |
+| 표 vs 표식 (레이드) | **the mark** for `SQUAD_RAID_MARK_KEY` (`shared/raidResume.ts`'s word) vs **the marker** for the loadout's `raidSeed` kit flag (`SoloRaid.ts`'s pre-existing English) — both appear in `parts/Resume.ts`, never merged | `game/parts/Resume.ts` |
+| 호스트 이관 | the **host transfer** (CLAUDE.md §4.6) — a third sense, kept apart from `housing`'s 이관 = *migration* and `allies`' 이관 = *the deposit* | `game/parts/Wire.ts`, `Leader.ts` |
+| 재개 게이트 · 가라앉기 시계 · 복제 경로 | the **resume gate** (`ResumeGate`; its overlay text `좌측 클릭으로 게임 재개` stays Korean) · the **sink clock** (`emptiedAt` + the mission clock — deliberately not `enemies`' *lifetime*, a different mechanism) · the **duplication path** (the corpse-plus-bag dupe README calls "reload duplicates gear") | `game` (folder-wide) |
+| 밟을 수 있는 표면 | the **walkable surface** — already the repo's word (`world/tutorial`, `WorldSystem`, `gadgets/parts/Queries`), kept apart from §7's 발판 = *floor plate / platform* | `game/Corpses.ts`, `parts/CorpseNet.ts` |
+| 킬 자리 · 주인 없는 물건 · 계약 스텁 | the **kill site** (where `enemies/` adds `raidXp` into `stats.killXp`) · an **ownerless thing** (the squad-leader device left behind) · a **contract stub** (README's Rules) | `game/parts/Death.ts`, `Leader.ts` |
