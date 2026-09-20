@@ -10,11 +10,14 @@ import type { UniqueHandler, UniqueInput, UniquePose, UniqueServices, UniqueWeap
 
 const _muzzle = new THREE.Vector3(), _launch = new THREE.Vector3(), _d = new THREE.Vector3(), _centre = new THREE.Vector3();
 const _away = new THREE.Vector3(), _imp = new THREE.Vector3(), _blast = new THREE.Vector3(), _hvel = new THREE.Vector3();
-/** Blast damage falloff floor for destructible cover at the edge of the radius (얹히는 하한 — 감쇠 자체는 `shared/explosion`). */
+/**
+ * Blast damage falloff floor for destructible cover at the edge of the radius (a floor laid on top — the falloff
+ * itself is `shared/explosion`).
+ */
 const COVER_MIN = 0.3;
 
 /**
- * 「해머헤드」 바주카. LMB = impact rocket (`Projectile` style `rocket`, tag 0): `applyExplosion(BAZOOKA_RADIUS,
+ * The 「해머헤드」 bazooka. LMB = impact rocket (`Projectile` style `rocket`, tag 0): `applyExplosion(BAZOOKA_RADIUS,
  * BAZOOKA_DAMAGE)` + destructible cover in the radius. RMB = air-burst rocket (tag 1, fuse `BAZOOKA_ALT_FUSE`,
  * `BAZOOKA_ALT_RADIUS` / `BAZOOKA_ALT_DAMAGE`). **No self damage** (2026-09-14, user decision): inside the blast the
  * player only gets `applyKnockback` away from it; **airborne** (read before the knockback) with the blast below the feet
@@ -99,7 +102,7 @@ export class Bazooka implements UniqueHandler {
         if (!o.destructible) continue;
         const d = Math.max(0, o.position.distanceTo(pos) - o.radius);
         if (d > radius) continue;
-        // 2026-09-15 (사용자 결정): 공용 2단 계단 위에 기존 하한을 그대로 얹는다
+        // 2026-09-15 (user's decision): the existing floor is laid on top of the shared two-step stair unchanged
         o.destructible.onDamage(damage * Math.max(COVER_MIN, explosionFalloff(d, radius)), o.position);
       }
     }
@@ -110,21 +113,24 @@ export class Bazooka implements UniqueHandler {
       const d = _centre.distanceTo(pos);
       if (d < radius) {
         /*
-         * 2026-09-14 (사용자 결정): **자해 피해가 없다** — `takeDamage(BAZOOKA_SELF_DAMAGE)` 를 걷어냈다(상수는 계약이라
-         * 남는다). 넉백 · 로켓 점프는 그대로다. 수평 이동 방향은 넉백 **전에** 읽는다: 발밑보다 앞에서 터진 로켓의
-         * 넉백은 몸을 뒤로 밀어, 그 뒤에 읽으면 달리던 방향이 줄거나 뒤집힌다.
+         * 2026-09-14 (user's decision): **there is no self damage** — `takeDamage(BAZOOKA_SELF_DAMAGE)` was taken
+         * out (the constant stays, it is a contract). The knockback · rocket jump are unchanged. The horizontal
+         * movement direction is read **before** the knockback: a rocket that went off in front of the feet knocks
+         * the body backwards, so reading it after shrinks or flips the direction of travel.
          */
         _hvel.set(host.velocity.x, 0, host.velocity.z);
         /*
-         * 2026-09-15 (사용자 결정): 땅에 서 있었나를 넉백 **전에** 읽는다. `applyKnockback` 은 늘 `KNOCKBACK_MIN_LIFT`
-         * 이상 띄워 `grounded` 를 먼저 꺼 버리므로, 뒤에서 `isGrounded` 를 읽으면 발밑에 쏜 지상 사격도 로켓 점프가 됐다.
+         * 2026-09-15 (user's decision): whether the shooter stood on the ground is read **before** the knockback.
+         * `applyKnockback` always lifts by at least `KNOCKBACK_MIN_LIFT` and so clears `grounded` first, so
+         * reading `isGrounded` after it turned even a shot at one's own feet on the ground into a rocket jump.
          */
         const wasGrounded = host.isGrounded;
         _away.subVectors(_centre, pos);
         if (_away.lengthSq() < 1e-4) _away.set(0, 1, 0); else _away.normalize();
         /*
-         * 2026-09-15 (사용자 결정): 날아가는 거리 ×`BAZOOKA_KNOCKBACK_DIST_MUL`, 지상이면 ×`BAZOOKA_GROUNDED_DIST_MUL` 한 번 더.
-         * 비행 거리는 속도의 제곱에 비례하므로 속도에는 제곱근을 곱한다 (`docs/DECISIONS.md`).
+         * 2026-09-15 (user's decision): throw distance ×`BAZOOKA_KNOCKBACK_DIST_MUL`, and once more
+         * ×`BAZOOKA_GROUNDED_DIST_MUL` when grounded. Flight distance is proportional to the square of the speed,
+         * so the speeds are multiplied by the square root (`docs/DECISIONS.md`).
          */
         const distSpeed = Math.sqrt(BAZOOKA_KNOCKBACK_DIST_MUL);
         const knock = BAZOOKA_KNOCKBACK * distSpeed * (wasGrounded ? Math.sqrt(BAZOOKA_GROUNDED_DIST_MUL) : 1);

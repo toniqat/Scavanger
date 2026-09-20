@@ -1,16 +1,17 @@
 /**
- * src/weapons/AimSway.ts — **무기 계열별 조준 흔들림 크기** (2026-09-12, `data/aim_sway.csv`).
+ * src/weapons/AimSway.ts — **aim sway amplitude per weapon class** (2026-09-12, `data/aim_sway.csv`).
  *
- * weapons 는 손에 든 무기의 계열에서 진폭 · 빈도를 골라 `PlayerWeaponHost.setAimSway` 로 넘기기만 한다 (`parts/Firing.applyAimZoom`).
- * 흔들림 자체(8자 · 정조준 정도 · 자세 · 이동 · `aimSwayMul`)는 player 의 `CameraRig` 가 돌린다 — 사격 판정은 크로스헤어 선
- * (`parts/AimLine`)이라 카메라가 흔들린 만큼 탄도 같이 움직인다.
+ * weapons only picks the amplitude · frequency from the class of the weapon in hand and hands them to
+ * `PlayerWeaponHost.setAimSway` (`parts/Firing.applyAimZoom`). The sway itself (the figure of eight · how far
+ * into ADS · stance · movement · `aimSwayMul`) is run by player's `CameraRig` — a shot is judged on the crosshair
+ * line (`parts/AimLine`), so the round moves exactly as much as the camera swayed.
  */
 import { csvRows, type EffectiveWeaponStats, type WeaponClass } from '@/shared';
 
 export interface AimSwayProfile {
-  /** 좌우 최대 각도(도). */
+  /** Maximum left-right angle (degrees). */
   readonly amplitudeDeg: number;
-  /** 좌우 왕복 빈도(Hz). */
+  /** Left-right round-trip frequency (Hz). */
   readonly frequencyHz: number;
 }
 
@@ -27,12 +28,12 @@ const TABLE: ReadonlyMap<WeaponClass, AimSwayProfile> = (() => {
   return m;
 })();
 
-/** 계열 하나의 흔들림 (표에 없는 계열 = 흔들림 없음). */
+/** The sway of one class (a class missing from the table = no sway). */
 export function aimSwayOfClass(cls: WeaponClass | undefined): AimSwayProfile {
   return (cls && TABLE.get(cls)) || NONE;
 }
 
-/** `applyAimZoom` 이 받는 실효 스탯에서 (null = 조준할 무기가 손에 없다 → 흔들림 없음). */
+/** From the effective stats `applyAimZoom` is given (null = nothing aimable in hand → no sway). */
 export function aimSwayFor(stats: EffectiveWeaponStats | null): AimSwayProfile {
   return stats ? aimSwayOfClass(stats.weaponClass) : NONE;
 }

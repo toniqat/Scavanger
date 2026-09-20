@@ -145,8 +145,8 @@ players.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/weapons`.
+- 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-20 — One shot-sound table (B-63): `WeaponKind` · `kindOf` · `shotSoundId` moved to `shared/shotSounds.ts` and are delegates here, so player/ plays the same ids for android guns (a legendary no longer sounds like a rifle there).
 - 2026-09-18 — Melee does not hit through walls/roofs/floors (`meleeReachesBody` from the eye to the enemy's 3 body points; deployables `lineClear`); a grenade behind geometry does not hurt the local player (`blastReachesBody`).
 - 2026-09-17 — Player damage cut to 1/3 (data only: `weapons.csv`, unique / melee constants; AR −15 % and range 210 first); shotguns: ADS no longer tightens spread (`adsTightensSpread`; hip spread = old ADS 3.5°).
 - 2026-09-17 — Grenades: the wall push is queried with the body lowered by `PROP_TOP_MARGIN − BODY_R` (the 7 cm top band of walls/fences no longer lets them through) and they bounce off walls (`BOUNCE_RESTITUTION` 0.4, same as the floor).
-- 2026-09-16 — Grenades sub-step by their diameter, surface before walls (no tunnelling through thin walls/floors); `ctx.weapons` gains `activeSlot`, `primaryInHand`, `ammoOf(slot)` (a melee swing still counts as the primary in hand).

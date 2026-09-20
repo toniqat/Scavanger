@@ -1,9 +1,10 @@
 /**
- * src/weapons/parts/Firing.ts — **격발 · 명중 · 재장전**.
+ * src/weapons/parts/Firing.ts — **the trigger · the hit · the reload**.
  *
- * 트리거를 당긴 순간부터 피해가 들어갈 때까지: 실효 스탯으로 탄을 뽑고, 내구도를 깎고,
- * 히트스캔/발사체를 쏘고(`raycastAll` — 배리어 · 돔 · 파괴 가능 엄폐물이 여기서 탄을 멈춘다),
- * 명중을 적 · 원격 플레이어에게 전달한다. 정밀 사격 정렬(예측 카메라 원점)이 걸린 곳이기도 하다.
+ * From the moment the trigger is pulled to the moment damage lands: a round is drawn with the effective stats,
+ * durability is chewed, a hitscan / projectile is fired (`raycastAll` — barriers · domes · destructible cover
+ * stop the round here) and the hit is handed to enemies · remote players. The precision-fire alignment (the
+ * predicted camera origin) hangs here too.
  */
 import * as THREE from 'three';
 import {
@@ -61,10 +62,10 @@ export function applyAimZoom(sys: WeaponSystem, stats: EffectiveWeaponStats | nu
     sys.adsTimeSent = adsTime;
     if (host && typeof host.setAdsTime === 'function') host.setAdsTime(adsTime);
   }
-  // 2026-09-12 조준 흔들림 (A2): the class sway travels with the zoom (null stats = nothing aimable in hand → 0). Two numbers,
-  // no de-dup cache needed; the rig damps a change so a swap never jumps the view.
+  // 2026-09-12 aim sway (A2): the class sway travels with the zoom (null stats = nothing aimable in hand → 0). Two
+  // numbers, no de-dup cache needed; the rig damps a change so a swap never jumps the view.
   const sway = aimSwayFor(stats);
-  // 2026-09-14 총기 밸런스: the class amplitude × the weapon's handling (`stats.swayMul` — grade × stock / grip)
+  // 2026-09-14 gun balance: the class amplitude × the weapon's handling (`stats.swayMul` — grade × stock / grip)
   const swayMul = stats && Number.isFinite(stats.swayMul) && stats.swayMul >= 0 ? stats.swayMul : 1;
   if (host && typeof host.setAimSway === 'function') host.setAimSway(sway.amplitudeDeg * swayMul, sway.frequencyHz);
   if (sys.zoomSent.zoom === zoom && sys.zoomSent.scope === scope) return;
@@ -85,7 +86,7 @@ export function tryReload(sys: WeaponSystem, w: WeaponInstance): void {
   }
   sys.phase = 'reloading';
   sys.reloadTimer = 0;
-  // 사격 스킬 (tactical kit): reload gets faster with the class skill (`derived.reloadSpeedMul`)
+  // The shooting skill (tactical kit): reload gets faster with the class skill (`derived.reloadSpeedMul`)
   sys.reloadDuration = Math.max(0.2, w.stats.reloadTime / sys.reloadSpeedFor(w.stats.weaponClass, !!w.def.unique));
   sys.boltTimer = 0; sys.boltSoundTimer = 0;
   w.model.setBolt(-1);
@@ -166,13 +167,15 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
   const stance = STANCE_ACCURACY[host.stance ?? 'stand'] ?? STANCE_ACCURACY.stand;
   const stanceMul = stance[aim];
   const moveMul = host.isSprinting ? SPRINT_SPREAD_MUL : moving ? MOVING_SPREAD_MUL : 1;
-  // 2026-09-14 총기 밸런스: sustained-fire bloom per weapon (`stats.bloomPerShot` / `bloomSpread`; old constants as the fallback)
+  // 2026-09-14 gun balance: sustained-fire bloom per weapon (`stats.bloomPerShot` / `bloomSpread`; the old
+  //   constants as the fallback)
   const bloomSpread = Number.isFinite(st.bloomSpread) ? st.bloomSpread : 1.6;
   const bloomPerShot = Number.isFinite(st.bloomPerShot) ? st.bloomPerShot : BLOOM_PER_SHOT;
-  // 2026-09-17 (사용자 결정): 산탄총은 정조준이 퍼짐을 조이지 않는다 — 정조준은 카메라 확대뿐이다.
-  //   지향 사격 퍼짐(weapons.csv spreadDeg)을 옛 정조준 값(adsSpreadDeg)과 같게 내렸고, 여기서는 정조준이어도 지향 쪽 퍼짐과
-  //   자세 배수의 지향 칸(STANCE_ACCURACY[..][0])을 쓴다. 그래서 레이저사이트(hipSpread) · 초크(spread) 도 정조준에서 그대로 먹고,
-  //   반동의 자세 배수(stanceMul)는 바꾸지 않는다. 판단은 계열로 한다 (`adsTightensSpread`).
+  // 2026-09-17 (user's decision): ADS does not tighten a shotgun's spread — ADS is camera zoom only.
+  //   The hip spread (weapons.csv spreadDeg) was dropped to the old ADS value (adsSpreadDeg), and even while
+  //   aiming this uses the hip spread and the hip column of the stance multiplier (STANCE_ACCURACY[..][0]). So a
+  //   `레이저사이트` (hipSpread) · a `초크` (spread) still bite while aiming, and recoil's stance multiplier
+  //   (stanceMul) is left alone. Decided by class (`adsTightensSpread`).
   const spreadAim = adsTightensSpread(cls) ? aim : 0;
   const spread = THREE.MathUtils.lerp(st.spread, st.adsSpread, spreadAim) * stance[spreadAim] * (1 + sys.bloom * bloomSpread) * moveMul;
   sys.bloom = Math.min(1, Math.max(0, sys.bloom + bloomPerShot));
@@ -189,11 +192,12 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
   w.model.muzzle.updateWorldMatrix(true, false);
   _muzzle.setFromMatrixPosition(w.model.muzzle.matrixWorld);
   /*
-   * 2026-09-12 — **하이브리드 판정** (`parts/AimLine`, 사용자 결정). The shot is judged on the **crosshair line**
-   * (starting at the muzzle's depth, so nothing between the camera and the body counts) and the gun only gets a say in
-   * its first `WEAPON_MUZZLE_BLOCK_RANGE` m: a wall / window frame / cover there stops the bullet — the red marker has
-   * already shown that spot (`updateAimBlock` runs the very same resolver). This replaced the muzzle → camera-hit
-   * convergence that drifted ~0.3 m left of the crosshair whenever the camera ray met nothing, and the 2026-09-08
+   * 2026-09-12 — **hybrid shot resolution** (`parts/AimLine`, user's decision). The shot is judged on the
+   * **crosshair line** (starting at the muzzle's depth, so nothing between the camera and the body counts) and the
+   * gun only gets a say in its first `WEAPON_MUZZLE_BLOCK_RANGE` m: a wall / window frame / cover there stops the
+   * bullet — the red marker has already shown that spot (`updateAimBlock` runs the very same resolver). This
+   * replaced the muzzle → camera-hit convergence that drifted ~0.3 m left of the crosshair whenever the camera
+   * ray met nothing, and the 2026-09-08
    * scoped-only "shoot from the aim ray" special case, which is now simply the general rule.
    * Muzzle flash, the shot sound and the replicated `fire` message stay on the real muzzle (what other players see);
    * the tracer too, except while scoped (the gun is hidden, so the tracer rides the line it is judged on).
@@ -209,10 +213,11 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
   _netDir.copy(_d);
   _md.copy(_d);
   /*
-   * 2026-09-14 — **모든 총알을 발사체로** (사용자 결정). `stats.projectileSpeed > 0` → each round (every shotgun pellet too)
-   * is a swept projectile in `ProjectilePool` with `stats.bulletGravity` m/s² of drop. It leaves from where the hybrid
-   * resolver says (`shot.origin`) toward the resolved aim point with **no drop compensation and no target lead** — that is
-   * the player's job. Damage falloff is measured along the distance actually flown, from the effective stats.
+   * 2026-09-14 — **every bullet a projectile** (user's decision). `stats.projectileSpeed > 0` → each round (every
+   * shotgun pellet too) is a swept projectile in `ProjectilePool` with `stats.bulletGravity` m/s² of drop. It
+   * leaves from where the hybrid resolver says (`shot.origin`) toward the resolved aim point with **no drop
+   * compensation and no target lead** — that is the player's job. Damage falloff is measured along the distance
+   * actually flown, from the effective stats.
    * Two things stay instant: a `near` result (the barrel / the first `WEAPON_MUZZLE_BLOCK_RANGE` m) lands on the spot the
    * red marker shows the same frame — a round would cover it inside one step anyway, and this keeps the preview exact —
    * and a weapon with speed 0 keeps the old hitscan line.
@@ -232,7 +237,7 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
     _md.copy(shot.dir);
     if (pellets === 1 && _tmp.subVectors(shot.end, _muzzle).lengthSq() > 1e-6) _netDir.copy(_tmp).normalize();
     const hit = shot.hit;
-    // the impact the enemies' 총알 추적 hears about: the resolved line's end (a projectile lands a hair below it)
+    // the impact the enemies' shot tracking hears about: the resolved line's end (a projectile lands a hair below it)
     if (hit) reportHit = _rep.copy(hit.point);
 
     if (speed > 0 && !(shot.mode === 'near' && hit)) {
@@ -256,10 +261,10 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
     }
   }
 
-  // Phase 12 (총알 추적): every local shot is reported **once per trigger pull** along the aim ray — an enemy near the
-  // bullet path / impact that could not see us turns toward the origin (enemies/). 2026-09-14: projectile rounds too
-  // (`report: false` on the pool), with the resolved line's end as the impact — eight pellets are still one report and a
-  // joined client still sends one `shotq`.
+  // Phase 12 (shot tracking): every local shot is reported **once per trigger pull** along the aim ray — an enemy
+  // near the bullet path / impact that could not see us turns toward the origin (enemies/). 2026-09-14: projectile
+  // rounds too (`report: false` on the pool), with the resolved line's end as the impact — eight pellets are still
+  // one report and a joined client still sends one `shotq`.
   ctx.enemies?.reportShot(_o, _d, def.range, reportHit);
 
   // ── FX & feedback
@@ -270,7 +275,7 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
   _right.set(1, 0, 0).applyQuaternion(_mq);
   if (kindOf(def) !== 'energy' && (!def.unique || def.unique === 'minigun')) sys.fx.casing(_tmp, _right, host.position.y);
   w.model.kick(pellets > 1 ? 2.2 : cls === 'SR' ? 2.6 : 1);
-  // 사격 스킬 (tactical kit): recoil shrinks as the class skill rises (`derived.recoilMul`)
+  // The shooting skill (tactical kit): recoil shrinks as the class skill rises (`derived.recoilMul`)
   const recoilMul = sys.recoilMulFor(cls, !!def.unique);   // 2026-09-15: none for legendaries (minigun takes this path)
   const kick = st.recoilV * (0.85 + Math.random() * 0.3) * stanceMul * recoilMul;
   // horizontal: same ± random as before (items' recoilH = recoil × 0.7, the old constant)
@@ -315,15 +320,16 @@ export function raycastAll(sys: WeaponSystem, origin: THREE.Vector3, dir: THREE.
   }
 
 /* ───────────────── tactical kit: progression / implant modifiers (all optional, default 1) ───────────────── */
-/** 재주 (Phase 5): consumable / gadget use speed — divides the quick-use cooldown. */
+/** Dexterity (Phase 5): consumable / gadget use speed — divides the quick-use cooldown. */
 export function useSpeedMul(sys: WeaponSystem): number {
   const v = sys.ctx.progression?.derived.useSpeedMul;
   return typeof v === 'number' && v > 0 ? Math.max(0.25, v) : 1;
   }
 
 /**
- * 사격 스킬 recoil multiplier for a class (1 when progression is not registered yet).
- * 2026-09-15 (사용자 결정): legendary uniques sit **outside** the shooting-skill system — `unique` true → always 1.
+ * Shooting-skill recoil multiplier for a class (1 when progression is not registered yet).
+ * 2026-09-15 (user's decision): legendary uniques sit **outside** the shooting-skill system — `unique` true →
+ * always 1.
  */
 export function recoilMulFor(sys: WeaponSystem, cls: WeaponClass, unique = false): number {
   if (unique) return 1;
@@ -332,9 +338,10 @@ export function recoilMulFor(sys: WeaponSystem, cls: WeaponClass, unique = false
   }
 
 /**
- * 사격 스킬 reload speed multiplier for a class (>1 = faster). 2026-09-12: × the player's boost multiplier
- * (`PlayerRef.boostReloadSpeedMul` — 각성제), read at each reload start.
- * 2026-09-15 (사용자 결정): `unique` true → no skill part (legendaries take no shooting-skill bonus); the 각성제 boost still applies.
+ * Shooting-skill reload speed multiplier for a class (>1 = faster). 2026-09-12: × the player's boost multiplier
+ * (`PlayerRef.boostReloadSpeedMul` — `각성제`), read at each reload start.
+ * 2026-09-15 (user's decision): `unique` true → no skill part (legendaries take no shooting-skill bonus); the
+ * `각성제` boost still applies.
  */
 export function reloadSpeedFor(sys: WeaponSystem, cls: WeaponClass, unique = false): number {
   const v = unique ? undefined : sys.ctx.progression?.derived.reloadSpeedMul[cls];
@@ -389,8 +396,8 @@ export function applyHit(sys: WeaponSystem, h: HitInfo, damage: number, dir: THR
   }
 
 export function onProjectileHit(sys: WeaponSystem, h: ProjectileHit, damage: number, weaponId: string): void {
-  // Phase 12 총알 추적: a launch the pool reported (uniques / direct calls) is completed by its impact. Gun rounds are
-  // reported once per trigger pull by `fire()` instead (`reported` false).
+  // Phase 12 shot tracking: a launch the pool reported (uniques / direct calls) is completed by its impact. Gun
+  // rounds are reported once per trigger pull by `fire()` instead (`reported` false).
   if (h.reported && h.distance > 0.05) sys.ctx.enemies?.reportShot(_rep.copy(h.point).addScaledVector(h.dir, -h.distance), h.dir, h.distance, h.point);
   sys.gunHit.point.copy(h.point); sys.gunHit.normal.copy(h.normal); sys.gunHit.distance = h.distance;
   sys.gunHit.enemy = h.enemy; sys.gunHit.obstacle = h.obstacle; sys.gunHit.obstacleRef = h.obstacleRef ?? null; sys.gunHit.valid = true; sys.gunHit.headshot = h.part === 'head';

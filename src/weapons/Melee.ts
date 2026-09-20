@@ -32,7 +32,7 @@ function toTuple(v: THREE.Vector3): Vec3Tuple {
  * read F itself — the bus path keeps exactly one resolution either way).
  *
  * Damage = `MELEE_DAMAGE × (WeaponDef.meleeMul ?? MELEE_STOCK_MUL_DEFAULT) × derived.meleeDamageMul`
- * — every weapon hits equally hard except the ones whose stock (개머리판) carries a multiplier.
+ * — every weapon hits equally hard except the ones whose stock carries a multiplier.
  *
  * Multiplayer: the swing is replicated with a `melee` message (FX/audio only); enemy damage travels the
  * normal client → host `hit` request path inside `EnemyRef.takeDamage`.
@@ -129,7 +129,8 @@ export class MeleeController {
         const e = list[i];
         if (!e || e.isDead) continue;
         if (!this.inConeEnemy(e, _origin, _dir, _point)) continue;
-        // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머는 치지 못한다 — 눈에서 적의 몸 3점 중 하나라도 보여야 한다 (적의 근접과 같은 판정)
+        // 2026-09-18 (user's decision): no hitting through walls · roofs · floors — at least one of the enemy's 3
+        //   body points must be visible from the eye (the same test as an enemy's melee)
         if (!meleeReachesBody(ctx.world, _origin, e.position.x, e.position.y, e.position.z, e.height)) continue;
         const wasDead = e.isDead;
         try { e.takeDamage(dmg, _point, _dir); } catch { continue; }
@@ -151,7 +152,8 @@ export class MeleeController {
         const d = list[i];
         if (!d || d.maxHp <= 0 || d.hp <= 0) continue;
         if (!this.inCone(d.position, d.radius, d.radius * 2, _origin, _dir, _point)) continue;
-        // 2026-09-18: 벽 차폐 — 설치물 자신이 콜라이더라 끝점 앞 제 반지름만큼은 막힘으로 치지 않는다
+        // 2026-09-18: wall occlusion — the deployable is a collider itself, so its own radius in front of the end
+        //   point does not count as blocked
         if (!lineClear(ctx.world, _origin, _point, d.radius + MELEE_LOS_SLACK_M)) continue;
         try { d.takeDamage(dmg, _origin); } catch { continue; }
         hits++; anyHit = true;

@@ -1,8 +1,8 @@
 /**
- * src/weapons/parts/Throwing.ts — **손에 든 것을 던지기** (수류탄 · 투척 가젯).
+ * src/weapons/parts/Throwing.ts — **throwing what is in the hand** (grenades · throwable gadgets).
  *
- * 좌클릭 홀드로 들고, R 로 핀을 뽑아 쿠킹하고(`grenade:holdChanged` + 퓨즈가 와이어로 나간다),
- * 놓으면 오버핸드 / 우클릭이면 언더핸드로 나간다. 손 안에서 터지는 경우(`explodeInHand`)도 여기.
+ * LMB holds it, R pulls the pin and cooks it (`grenade:holdChanged` + the fuse goes out on the wire),
+ * releasing throws it overhand / RMB underhand. The in-hand explosion (`explodeInHand`) is here too.
  */
 import * as THREE from 'three';
 import {
@@ -71,7 +71,7 @@ export function throwHeld(sys: WeaponSystem, host: Host, q: QuickHand, dropAtFee
     _md.set(0, 0.5, 0);
   } else {
     host.getAimRay(_o, _d);
-    // 근력 (Phase 5): range ∝ speed², so the speed scales by √throwRangeMul
+    // `근력` strength (Phase 5): range ∝ speed², so the speed scales by √throwRangeMul
     const throwMul = Math.sqrt(Math.max(0.25, sys.ctx.progression?.derived.throwRangeMul ?? 1));
     if (sys.underhand) {
       _md.copy(_d).multiplyScalar(GRENADE_THROW_SPEED * GRENADE_UNDERHAND_SPEED_MUL * throwMul).addScaledVector(host.velocity, 0.5);
@@ -81,7 +81,8 @@ export function throwHeld(sys: WeaponSystem, host: Host, q: QuickHand, dropAtFee
       _md.y += GRENADE_THROW_LIFT;
     }
   }
-  // 2026-09-15 (B-16): `ItemDef.grenadeFire` (G-10 소이 수류탄) = 작은 폭발 + 화염 지대 — 고폭과 같은 비행 · 신관
+  // 2026-09-15 (B-16): `ItemDef.grenadeFire` (the G-10 incendiary grenade) = a small blast + a fire zone — the
+  //   same flight · fuse as the high-explosive one
   sys.grenades.throw(_tmp, _md, false, fuse, !!q.def.grenadeFire);
   if (sys.ctx.isMultiplayer && sys.ctx.net) sys.ctx.net.send({ t: 'grenade', p: toTuple(_tmp), v: toTuple(_md), fuse: Math.round(fuse * 100) / 100, ...(q.def.grenadeFire ? { fire: 1 as const } : {}) });
   sys.firingTimer = FIRING_POSE_HOLD;
@@ -106,7 +107,7 @@ export function explodeInHand(sys: WeaponSystem, host: Host, q: QuickHand): void
 
 /** Hold interrupted (swap / holster / death / abort / other item): no throw — unless the pin is pulled, then it drops at the feet. */
 export function cancelHold(sys: WeaponSystem, host: Host): void {
-  sys.cancelHeal();   // Phase 10: the same interruptions throw away a 회복약 hold
+  sys.cancelHeal();   // Phase 10: the same interruptions throw away a heal hold
   if (!sys.holding) return;
   if (sys.cooking && sys.quick) sys.throwHeld(host, sys.quick, true);
   else sys.endHold(true);

@@ -1,30 +1,41 @@
 /**
- * src/weapons/parts/AimLine.ts — **총알은 어느 선을 따라 나가나** (하이브리드 판정, 2026-09-12 사용자 결정).
+ * src/weapons/parts/AimLine.ts — **the line a bullet follows** (hybrid shot resolution, 2026-09-12 user's decision).
  *
- * 3인칭 카메라는 어깨 뒤에 있고 총구는 그보다 옆 · 아래에 있다. 예전에는 모든 사격이 총구에서 나가 카메라 레이가 맞춘
- * 점으로 수렴했는데, 그래서 두 가지가 틀어졌다.
- *  1. 크로스헤어가 빈 공간(하늘 · 사거리 밖)을 가리키면 수렴점이 사거리 끝이라, 중간 거리에서 총알이 크로스헤어 선보다
- *     ~0.3 m 왼쪽을 지나 조준하지 않은 것을 맞혔다 ("거리에 따라 가끔 왼쪽으로 날아간다").
- *  2. 크로스헤어 선은 비켜 가는데 총구 선만 걸리는 가장자리(창틀 · 엄폐물 · 바위 모서리)에 맞았고, 쏘기 전에는 알 길이 없었다.
+ * The third-person camera sits behind the shoulder and the muzzle is to its side · below it. Every shot used to
+ * leave the muzzle and converge on the point the camera ray hit, and that put two things out of step.
+ *  1. With the crosshair on empty space (the sky · beyond range) the convergence point is the end of the range,
+ *     so at mid distance the bullet passed ~0.3 m left of the crosshair line and hit something never aimed at
+ *     ("거리에 따라 가끔 왼쪽으로 날아간다").
+ *  2. It hit edges the crosshair line clears but the muzzle line does not (window frames · cover · rock corners),
+ *     and there was no way to know before firing.
  *
- * 다른 3인칭 슈터들이 쓰는 해법(카메라 선으로 판정 + 총구 앞 짧은 구간만 막힘 검사 + 막힌 자리 표시)을 따른다:
- *  - **판정선** = 크로스헤어 선. 카메라와 몸 사이는 보지 않도록 **총구 깊이의 점 `P0`** 에서 시작한다.
- *  - **총열 검사** = 몸 축(총구 높이) → 총구. 벽에 붙어 총열이 벽을 뚫고 나가 있으면 여기서 걸린다.
- *  - **막힘 검사** = 총구 → 크로스헤어 점의 앞 `WEAPON_MUZZLE_BLOCK_RANGE` m. 여기서 걸리면 총알은 거기에 맞는다.
- *    그 자리가 크로스헤어가 가리키는 곳이 아니면 `obstructed` — 벽의 빨간 원(`fx/AimBlockMarker`)과 크로스헤어
- *    경고색(`weapon:aimBlocked` → ui)이 이 값 하나를 본다.
- *  - **`P0` 가 총구에서 안 보이면**(옆 벽에 붙어 카메라 선의 시작점이 벽 너머) 예전 수렴 방식으로 돌아간다 — 그때
- *    크로스헤어 선을 믿으면 벽을 뚫는다.
- * 그 너머의 장애물은 크로스헤어 선이 판정하므로 멀리 있는 바위 모서리는 카메라에 보이면 넘겨 쏠 수 있다 — 사용자가 고른 대가다.
+ * It follows the solution other third-person shooters use (judge on the camera line + check for a block only in
+ * the short stretch in front of the muzzle + show the blocked spot):
+ *  - **The judged line** = the crosshair line. It starts at **`P0`, the point at the muzzle's depth**, so nothing
+ *    between the camera and the body counts.
+ *  - **The barrel check** = the body axis (at muzzle height) → the muzzle. A barrel poking through a wall the
+ *    player is pressed against is caught here.
+ *  - **The near check** = the muzzle → the first `WEAPON_MUZZLE_BLOCK_RANGE` m toward the crosshair point.
+ *    Whatever is caught here is what the bullet hits. When that spot is not where the crosshair points it is
+ *    `obstructed` — the red ring on the wall (`fx/AimBlockMarker`) and the crosshair's warning colour
+ *    (`weapon:aimBlocked` → ui) both read this one value.
+ *  - **When `P0` is not visible from the muzzle** (pressed against a side wall, so the camera line starts beyond
+ *    it) it falls back to the old convergence — trusting the crosshair line there shoots through the wall.
+ * Obstacles past that are judged by the crosshair line, so a distant rock corner can be shot over as long as the
+ * camera sees it — the price the user chose.
  *
- * **미리보기와 실제 사격이 같은 함수다** (`begin` + `resolve`): `fire()` · 유니크 `hitscan` / `aimShot` · 빨간 원이 전부 이것을 부른다.
+ * **The preview and the real shot are the same function** (`begin` + `resolve`): `fire()` · a unique's `hitscan` /
+ * `aimShot` · the red ring all call it.
  */
 import * as THREE from 'three';
 import { WEAPON_MUZZLE_BLOCK_RANGE, type GameContext, type UniqueWeaponKind } from '@/shared';
 import { AIM_BLOCK_SAME_EPS, makeHit, type HitInfo, type Host, type WeaponInstance } from '../model';
 import type { WeaponSystem } from '../WeaponSystem';
 
-/** `line` = 크로스헤어 선 · `near` = 총열 / 총구 앞에서 걸림 · `converge` = `P0` 가 가려져 총구 → 크로스헤어 점으로 수렴. */
+/**
+ * `line` = the crosshair line · `near` = caught by the barrel / in front of the muzzle · `converge` = `P0` is
+ * hidden, so the shot converges from the muzzle onto the crosshair point.
+ */
 export type ShotMode = 'line' | 'near' | 'converge';
 
 /** One resolved shot. The vectors belong to this object; `hit` is the resolver's scratch — use it before the next `resolve`. */
@@ -176,8 +187,9 @@ export class ShotResolver {
 }
 
 /**
- * 총구 막힘 표시 (every frame, after the trigger logic). Runs the very resolver `fire()` uses with the unspread aim, puts
- * the red marker on the obstruction and emits `weapon:aimBlocked` on change. Off while no line weapon is ready in hand.
+ * The blocked-muzzle marker (every frame, after the trigger logic). Runs the very resolver `fire()` uses with the
+ * unspread aim, puts the red marker on the obstruction and emits `weapon:aimBlocked` on change. Off while no line
+ * weapon is ready in hand.
  */
 export function updateAimBlock(sys: WeaponSystem, host: Host, weapon: WeaponInstance | null, armedAndFree: boolean): void {
   const w = weapon;

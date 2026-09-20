@@ -1,9 +1,9 @@
 /**
- * src/weapons/parts/Services.ts — `WeaponHost` **서비스 객체**.
+ * src/weapons/parts/Services.ts — the `WeaponHost` **service object**.
  *
- * `fx/` · `unique/` · `Melee` · `Grenade` 는 `WeaponSystem` 을 직접 알지 않고 이 객체를 통해서만
- * 월드에 접근한다(레이캐스트 · 피해 적용 · 오디오 · 카메라 흔들림 · 인벤토리 소모 …).
- * 즉 이 파일이 무기 내부 모듈과 나머지 게임 사이의 **유일한 접점**이다.
+ * `fx/` · `unique/` · `Melee` · `Grenade` never know `WeaponSystem` directly; they reach the world only through
+ * this object (raycasts · applying damage · audio · camera shake · consuming from the inventory …).
+ * So this file is the **one point of contact** between the weapon-internal modules and the rest of the game.
  */
 import * as THREE from 'three';
 import {
@@ -132,7 +132,7 @@ export function buildServices(sys: WeaponSystem): UniqueServices {
       const shot = sys.aim.resolve(_pd, range, sys.uniqueShot);
       const hit = shot.hit;
       out.end.copy(shot.end);
-      ctx.enemies?.reportShot(_o, _d, range, hit ? hit.point : null);   // Phase 12 총알 추적
+      ctx.enemies?.reportShot(_o, _d, range, hit ? hit.point : null);   // Phase 12 shot tracking
       const fxm = FxManager.get();
       if (fxm) fxm.tracers.add(_muzzle, out.end, wi.def.tracerColor, tracerWidth, _muzzle.distanceTo(out.end) / 600 + 0.06, 600);
       if (!hit) return;

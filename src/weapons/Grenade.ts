@@ -7,23 +7,28 @@ import {
 import type { WeaponFx } from './fx/WeaponFx';
 import type { PlayerDamageSource } from '@/shared';
 
-/** 2026-09-15 (결과 창 개편): 수류탄 폭발이 로컬 플레이어에게 준 피해의 출처 — 내 것 / 분대원 것. */
+/**
+ * 2026-09-15 (the results screen rework): where a grenade blast's damage to the local player came from —
+ * mine / a squadmate's.
+ */
 const SELF_GRENADE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'self' });
 const ALLY_GRENADE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'ally' });
 
 /** Alias of the shared contract value (3 s); kept for the barrel export. */
 export const GRENADE_FUSE = SHARED_GRENADE_FUSE;
 /**
- * 2026-09-15 (사용자 결정): 세 수치가 `data/constants.csv` 로 갔다 (반경 6 → **7.2**, ×1.2).
- * 이름은 배럴(`@/weapons`)이 내보내는 계약이라 shared 값의 별칭으로 남긴다 — 호출부는 한 줄도 안 바뀐다.
+ * 2026-09-15 (user's decision): the three numbers moved to `data/constants.csv` (radius 6 → **7.2**, ×1.2).
+ * The names are a contract the barrel (`@/weapons`) exports, so they stay as aliases of the shared values —
+ * not one call site changes.
  */
 export const GRENADE_RADIUS = SHARED_GRENADE_RADIUS;
 export const GRENADE_DAMAGE = SHARED_GRENADE_DAMAGE;
 const BODY_R = 0.08;
 const MAX_GRENADES = 8;
 /**
- * 한 프레임을 쪼개는 최대 걸음 수 (`update` 의 2026-09-16 주석). 걸음 = 몸 지름 0.16 m 라 50 ms 프레임(`dt` 상한)에서
- * 근력 최대 투척(34 × 1.5 = 51 m/s)이 2.55 m → 16 걸음이다. 그 두 배를 상한으로 둔다 — 넘으면 걸음이 길어질 뿐 멈추지 않는다.
+ * The cap on how many steps one frame is cut into (`update`'s 2026-09-16 comment). A step is the body diameter
+ * 0.16 m, so in a 50 ms frame (the `dt` cap) a full `근력` strength throw (34 × 1.5 = 51 m/s) covers 2.55 m →
+ * 16 steps. The cap is twice that — past it the steps only grow longer, nothing stops.
  */
 const MAX_SUBSTEPS = 32;
 /** Share of the blast damage a player takes (own grenade and, since Phase 7, squadmates' replicas alike). */
@@ -43,16 +48,23 @@ interface GrenadeBody {
   /** Last LED blink state (rising edge → one pooled light pulse). */
   blinkOn: boolean;
   /**
-   * 2026-09-15 (B-16): G-10 소이 수류탄 (`ItemDef.grenadeFire`) — the blast is the small `GRENADE_INCENDIARY_BLAST_*` one and a
-   * **local** explosion lights a fire zone through `ctx.gadgets.igniteGrenadeFire`. A visual-only replica only takes the small blast.
+   * 2026-09-15 (B-16): the G-10 incendiary grenade (`ItemDef.grenadeFire`) — the blast is the small
+   * `GRENADE_INCENDIARY_BLAST_*` one and a **local** explosion lights a fire zone through
+   * `ctx.gadgets.igniteGrenadeFire`. A visual-only replica only takes the small blast.
    */
   fire: boolean;
 }
 
 const _n = new THREE.Vector3(), _tmp = new THREE.Vector3(), _prev = new THREE.Vector3(), _probe = new THREE.Vector3();
-/** 바닥 · 벽 튕김의 반발 계수 (법선 속도의 이 비율로 되튄다). 예전 바닥 식 `−vn × 1.4` 의 0.4 그대로다. */
+/**
+ * Restitution of a floor · wall bounce (it comes back at this fraction of the normal speed).
+ * The 0.4 of the old floor formula `−vn × 1.4`, unchanged.
+ */
 const BOUNCE_RESTITUTION = 0.4;
-/** 밀어내기 질의에서 몸을 내리는 높이 — 「위에 있다」의 경계를 몸 윗면으로 맞춘다 (`update` 의 2026-09-17 주석). */
+/**
+ * How far the body is lowered for the push-out query — it puts the 「on top」 boundary at the body's top
+ * (`update`'s 2026-09-17 comment).
+ */
 const PROBE_DROP = PROP_TOP_MARGIN - BODY_R;
 
 /**
@@ -100,7 +112,8 @@ export class GrenadeManager {
    *   (enemy damage is the thrower's) and no `grenade:*` events.
    *   Prefers to evict another visual-only replica when the pool is full so a live local grenade never pops early.
    * @param fuse seconds until the explosion (`GRENADE_FUSE` − cook time for a cooked grenade; 0 → explodes on the next update).
-   * @param fire 2026-09-15 (B-16): G-10 소이 수류탄 (`ItemDef.grenadeFire`) — small blast + (local only) a fire zone on explosion.
+   * @param fire 2026-09-15 (B-16): the G-10 incendiary grenade (`ItemDef.grenadeFire`) — small blast +
+   *   (local only) a fire zone on explosion.
    */
   throw(origin: THREE.Vector3, velocity: THREE.Vector3, visualOnly = false, fuse = GRENADE_FUSE, fire = false): boolean {
     let g = this.pool.find((x) => !x.active);
@@ -128,15 +141,19 @@ export class GrenadeManager {
       if (g.fuse <= 0) { this.explode(g); continue; }
       if (world && world.ready) {
         /*
-         * 2026-09-16 — **쪼개 걷는다** (튜토리얼 마지막 웅덩이에서 수류탄이 벽 · 바닥을 뚫고 절벽으로 떨어졌다).
-         * 한 프레임에 통째로 옮기면 두 가지가 샌다:
-         *   ① 얇은 벽 — `boxPushOut` 은 **가까운 면**으로 밀어내므로 한 걸음에 반두께 + 몸(웅덩이 벽 0.3 + 0.08 = 0.38 m)을
-         *      넘게 나아가면 반대편으로 빠져나간다. 34 m/s × 1/60 s = 0.57 m 라 60 fps 에서도 정면 투척이 뚫었다.
-         *   ② 바닥 — 떨어지는 몸이 한 걸음에 윗면 밑으로 `PROP_TOP_MARGIN`(0.15)보다 깊이 들어가면 `getSurfaceY` 의
-         *      천장(몸 윗면)이 그 바닥을 놓치고, `resolveCollision` 은 그 바닥 상자를 **벽**으로 보고 옆면으로 밀어낸다 —
-         *      사람은 발 + 0.9 천장이라 같은 자리에서 멀쩡히 서 있다. 철조망을 넘긴 궤적은 웅덩이 바닥에 11 m/s 로 닿는다.
-         * 그래서 한 걸음을 몸 지름(`2 × BODY_R`) 이하로 쪼갠다 — 벽을 넘지 못하고, 바닥 밑으로 몸 반지름 이상 들어가지 않는다.
-         * 튕김의 감쇠 · 소리 · 멈춤 · 회전 감쇠는 **프레임당 한 번**이다 (걸음마다 곱하면 쪼갠 수만큼 빨리 멈춘다).
+         * 2026-09-16 — **it walks in sub-steps** (in the tutorial's last pit a grenade went through the walls ·
+         * the floor and fell down the cliff). Moving a whole frame at once leaks in two places:
+         *   ① a thin wall — `boxPushOut` pushes out through the **nearest face**, so a step that covers more than
+         *      half the thickness + the body (pit wall 0.3 + 0.08 = 0.38 m) comes out the other side. 34 m/s ×
+         *      1/60 s = 0.57 m, so a throw straight at it went through even at 60 fps.
+         *   ② the floor — when a falling body sinks more than `PROP_TOP_MARGIN` (0.15) below the top face in one
+         *      step, `getSurfaceY`'s ceiling (the body's top) misses that floor and `resolveCollision` reads that
+         *      floor box as a **wall** and pushes it out sideways — a person, with a feet + 0.9 ceiling, stands
+         *      there perfectly well. An arc thrown over the wire fence reaches the pit floor at 11 m/s.
+         * So one step is cut to at most the body diameter (`2 × BODY_R`) — it cannot cross a wall, and it never
+         * sinks more than a body radius below a floor.
+         * The bounce damping · sound · stop · spin damping are **once per frame** (multiplied per step they would
+         * stop it as many times sooner as there are steps).
          */
         const dist = g.vel.length() * dt + GRAVITY * dt * dt;
         const steps = Math.min(MAX_SUBSTEPS, Math.max(1, Math.ceil(dist / (2 * BODY_R))));
@@ -146,11 +163,14 @@ export class GrenadeManager {
           g.vel.y -= GRAVITY * h;
           _prev.copy(g.pos);
           g.pos.addScaledVector(g.vel, h);
-          // 2026-09-11: 창문 유리는 튕기지 않고 깨고 지나간다 (깨진 창틀은 `resolveCollision` 이 작은 몸을 밀지 않는다)
+          // 2026-09-11: window glass is broken through, not bounced off (`resolveCollision` does not push a
+          //   small body out of a broken frame)
           breakFragileAlong(world, _prev, g.pos);
-          // 2026-09-11: 바닥은 지형이 아니라 **그 자리의 표면**이다 — 건물 2층 · 옥상 · 계단에 떨어진다.
-          // 2026-09-16: 표면 **먼저**, 밀어내기 나중 (`CLAUDE.md` §4.4). 천장은 이 걸음의 **더 높은 쪽** 몸 윗면이다 —
-          // 이번 걸음에 지나친 바닥을 잡고, 머리 위 천장판으로는 여전히 튀어 오르지 않는다.
+          // 2026-09-11: the floor is not the terrain but **the surface at that spot** — it lands on a building's
+          // second floor · a roof · stairs.
+          // 2026-09-16: the surface **first**, the push-out after (`CLAUDE.md` §4.4). The ceiling is the body's
+          // top at the **higher** of this step's two ends — it catches a floor this step passed, and it still
+          // does not bounce up off a ceiling plate overhead.
           const terrain = world.getHeightAt(g.pos.x, g.pos.z);
           const surface = world.getSurfaceY(g.pos.x, g.pos.z, Math.max(_prev.y, g.pos.y) + BODY_R - PROP_STEP_UP_MAX);
           const ground = surface + BODY_R;
@@ -163,12 +183,16 @@ export class GrenadeManager {
             if (vn < 0) { g.vel.addScaledVector(_n, -vn * (1 + BOUNCE_RESTITUTION)); impact = Math.max(impact, -vn); }
           }
           /*
-           * 2026-09-17 — **윗면 여유 띠로 벽을 뚫었다** (튜토리얼: 철조망 · 웅덩이 벽을 뚫고 절벽으로 떨어졌다).
-           * `resolveCollision` 은 몸 가운데가 윗면 − `PROP_TOP_MARGIN`(0.15) 위면 「위에 있다」고 보고 밀지 않는데, 표면 질의의
-           * 천장은 몸 윗면(가운데 + `BODY_R`)이라 가운데가 [윗면 − 0.15, 윗면 − 0.08) 인 7 cm 띠에서는 **올려 주지도 밀지도 않아**
-           * 수평으로 날아가는 수류탄이 벽 · 철조망의 윗부분을 그대로 지나갔다 (실측: 철조망을 수평에 가깝게 넘기면 윗면 바로 밑을 뚫었다).
-           * 그래서 밀어내기 질의에는 몸을 `PROP_TOP_MARGIN − BODY_R` 만큼 **내려서** 묻는다 — 「위에 있다」의 경계가 몸 윗면 = 윗면이 되어
-           * 표면 질의의 천장과 정확히 맞물린다 (그보다 높으면 위에서 이미 윗면에 올려졌다). 결과는 x · z 만 되받는다.
+           * 2026-09-17 — **the top face's margin band let them through a wall** (tutorial: they went through the
+           * wire fence · the pit walls and fell down the cliff). `resolveCollision` reads a body whose centre is
+           * above the top face − `PROP_TOP_MARGIN` (0.15) as 「on top」 and does not push it, while the surface
+           * query's ceiling is the body's top (centre + `BODY_R`) — so in the 7 cm band where the centre lies in
+           * [top − 0.15, top − 0.08) it is **neither lifted nor pushed**, and a grenade flying horizontally went
+           * straight through the upper part of a wall · the wire fence (measured: thrown over the fence close to
+           * horizontal it passed just under the top face).
+           * So the push-out query asks with the body **lowered** by `PROP_TOP_MARGIN − BODY_R` — the 「on top」
+           * boundary becomes body top = top face, and that meshes exactly with the surface query's ceiling (any
+           * higher and it was already lifted onto the top face above). Only x · z are taken back from the result.
            */
           _probe.set(g.pos.x, g.pos.y - PROBE_DROP, g.pos.z);
           world.resolveCollision(_probe, BODY_R);
@@ -177,8 +201,10 @@ export class GrenadeManager {
           if (push2 > 1e-10) {
             g.pos.x = _probe.x; g.pos.z = _probe.z;
             /*
-             * 2026-09-17 — **벽에서 튕긴다.** 전에는 밀어내기만 하고 속도는 그대로라 벽에 붙어 미끄러져 내려갔다(벽을 향한 속도가
-             * 남아 매 걸음 다시 파고든다). 밀려난 방향을 벽의 법선으로 보고 그 성분을 바닥 튕김과 같은 반발(`BOUNCE_RESTITUTION`)로 뒤집는다.
+             * 2026-09-17 — **they bounce off walls.** Before, only the push-out ran and the velocity stayed, so a
+             * grenade clung to the wall and slid down it (the velocity into the wall was still there and bit in
+             * again every step). The push-out direction is read as the wall's normal and that component is
+             * flipped with the same restitution as a floor bounce (`BOUNCE_RESTITUTION`).
              */
             const inv = 1 / Math.sqrt(push2);
             const nx = px * inv, nz = pz * inv;
@@ -225,7 +251,8 @@ export class GrenadeManager {
     const pos = g.pos;
     const visualOnly = g.visualOnly;
     g.visualOnly = false;
-    // 2026-09-15 (B-16): a G-10 소이 수류탄 is not a frag — a small blast lights the fire, the zone does the real damage
+    // 2026-09-15 (B-16): a G-10 incendiary grenade is not a frag — a small blast lights the fire, the zone
+    //   does the real damage
     const fire = g.fire;
     g.fire = false;
     const radius = fire ? GRENADE_INCENDIARY_BLAST_RADIUS : GRENADE_RADIUS;
@@ -237,11 +264,14 @@ export class GrenadeManager {
     if (ctx.player && !ctx.player.isDead) {
       _tmp.copy(ctx.player.position); _tmp.y += 0.9;
       const d = _tmp.distanceTo(pos);
-      // 2026-09-15 (사용자 결정): 자해 · 아군 피해도 공용 2단 계단 (`shared/explosion`) — 안쪽 절반 100 % · 바깥 띠 60 %
-      // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머에서 터진 수류탄은 맞지 않는다 (몸 3점)
+      // 2026-09-15 (user's decision): self damage · friendly fire take the shared two-step stair too
+      //   (`shared/explosion`) — the inner half 100 % · the outer band 60 %
+      // 2026-09-18 (user's decision): a grenade that went off beyond a wall · roof · floor does not hit (3 body
+      //   points)
       if (d < radius && blastReachesBody(ctx.world, pos, ctx.player.position.x, ctx.player.position.y, ctx.player.position.z, PLAYER_HEIGHT)) {
         const dmg = explosionDamage(damage, d, radius) * PLAYER_DAMAGE_MUL;
-        // 2026-09-15 (결과 창 개편): 내 수류탄(손에서 터진 것 포함) = `self`, 분대원 수류탄의 복제 = `ally`
+        // 2026-09-15 (the results screen rework): my own grenade (one that went off in the hand included) =
+        //   `self`, a replica of a squadmate's grenade = `ally`
         if (dmg > 1) ctx.player.takeDamage(dmg, pos.clone(), visualOnly ? ALLY_GRENADE_SOURCE : SELF_GRENADE_SOURCE);
       }
       const shake = THREE.MathUtils.clamp(1 - d / 28, 0, 1) * (fire ? 0.5 : 1);

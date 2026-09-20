@@ -1,9 +1,9 @@
 /**
- * src/weapons/parts/Healing.ts — **회복 소모품의 홀드 사용**.
+ * src/weapons/parts/Healing.ts — **hold-to-use healing consumables**.
  *
- * 붕대 · 약초 붕대 · 회복주사 · 제세동기는 좌클릭을 아이템별 시간만큼 **누르고 있어야** 하고
- * (`heal:holdChanged.dur`, 그 동안 이동 50 %), 회복 스프레이는 게이지를 깎으며 자신과 반경 안 아군을
- * 계속 회복한다. 게이지가 0 이 되어도 캔은 사라지지 않고 함선에서 충전한다.
+ * `붕대` · `약초 붕대` · `회복주사` · `제세동기` need the left button **held** for their own per-item time
+ * (`heal:holdChanged.dur`, movement 50 % meanwhile), while the heal spray burns its gauge and keeps healing the
+ * user and every ally inside the radius. At gauge 0 the can does not disappear — it is repaired in the ship.
  */
 import * as THREE from 'three';
 import {
@@ -32,10 +32,10 @@ import { createUniqueHandler, UniqueFx, type UniqueHandler, type UniqueInput, ty
 import { BLOOM_DECAY, BLOOM_PER_SHOT, BOLT_SOUND_DELAY, BROKEN_NOTIFY_INTERVAL, CHANNEL_EMIT_HZ, FIRING_POSE_HOLD, GRENADE_MIN_FUSE, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, GRENADE_UNDERHAND_LIFT, type HitInfo, type Host, LOADOUT_FALLBACK_DELAY, MOVING_SPREAD_MUL, QUICK_HOLSTER_TIME, QUICK_USE_COOLDOWN, type QuickHand, type QuickKind, SPRAY_SEND_INTERVAL, SPRINT_SPREAD_MUL, type WeaponInstance, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _tA, _tB, _target, _tmp, gaugeOf, makeHit, toTuple, useTimeOf } from '../model';
 import type { WeaponSystem } from '../WeaponSystem';
 
-/* ── 소모품 사용 (Phase 10 회복약 → 2026-09-07 모든 회복 소모품 + 제세동기) ─── */
+/* ── Consumable use (Phase 10 heals → 2026-09-07 every healing consumable + the defibrillator) ─── */
 /**
- * `heal:holdChanged` at ≤ 30 Hz. `t` = 0..1 of the item's own use time while holding (remaining gauge for a
- * 스프레이), `-1` on a cancel. `force` bypasses the throttle (start / finish / cancel must always land).
+ * `heal:holdChanged` at ≤ 30 Hz. `t` = 0..1 of the item's own use time while holding (the remaining gauge for
+ * the spray), `-1` on a cancel. `force` bypasses the throttle (start / finish / cancel must always land).
  */
 export function emitHeal(sys: WeaponSystem, t: number, force: boolean, dur = HEAL_HOLD_S): void {
   if (!force && sys.ctx.time - sys.healEmitAt < 1 / 30) return;
@@ -44,8 +44,9 @@ export function emitHeal(sys: WeaponSystem, t: number, force: boolean, dur = HEA
   }
 
 /**
- * Phase 12 perk `quick_heal` (가속 대사): every hold-to-use time (회복 소모품 and the 제세동기's `DEFIB_USE_TIME_S`)
- * is halved while the perk is active. The HUD ring reads the halved value from `heal:holdChanged.dur`.
+ * Phase 12 perk `quick_heal` (`가속 대사`): every hold-to-use time (a healing consumable and the defibrillator's
+ * `DEFIB_USE_TIME_S`) is halved while the perk is active. The HUD ring reads the halved value from
+ * `heal:holdChanged.dur`.
  */
 export function holdTimeOf(sys: WeaponSystem, def: ItemDef): number {
   const base = useTimeOf(def);
@@ -53,7 +54,7 @@ export function holdTimeOf(sys: WeaponSystem, def: ItemDef): number {
   }
 
 /**
- * `item:channelChanged` for the 스프레이 channel: `active:true` when it starts, ≤ `CHANNEL_EMIT_HZ` while it runs
+ * `item:channelChanged` for the spray channel: `active:true` when it starts, ≤ `CHANNEL_EMIT_HZ` while it runs
  * (`gauge` 0..1), `active:false` when it stops for any reason. `force` bypasses the throttle (start / stop).
  */
 export function emitChannel(sys: WeaponSystem, active: boolean, gauge01: number, force: boolean): void {
@@ -85,8 +86,9 @@ export function setConsumableSlow(sys: WeaponSystem, on: boolean): void {
   }
 
 /**
- * 2026-09-10 — 실드 충전기: 지금 채울 실드가 남아 있는가. 방탄복이 없거나(최대치 0) 이미 가득이면 false 이고,
- * 그때는 홀드를 시작조차 하지 않는다 — **아이템이 소모되면 안 되기 때문**이다 (`PlayerRef.chargeShield` 의 계약).
+ * 2026-09-10 — the shield charger: is there shield left to fill right now. With no armor (max 0) or already full
+ * it is false, and then the hold does not even start — **because the item must not be consumed**
+ * (`PlayerRef.chargeShield`'s contract).
  */
 export function canChargeShield(sys: WeaponSystem): boolean {
   const p = sys.ctx.player;
@@ -95,13 +97,13 @@ export function canChargeShield(sys: WeaponSystem): boolean {
   }
 
 /**
- * LMB pressed with a 회복 소모품 / 실드 충전기 / 제세동기 in hand. A plain heal is refused at full hp (the old
- * instant-use rule); a 실드 충전기 is refused with no armor / a full shield; the 스프레이 is refused only when its
- * gauge is empty (it also heals squadmates), the 제세동기 never checks hp. 2026-09-12: the 전투 소모품 3종
- * (`boostItemOf` — 아드레날린 · 각성제 · 안정제) are never refused either.
+ * LMB pressed with a healing consumable / shield charger / defibrillator in hand. A plain heal is refused at full
+ * hp (the old instant-use rule); a shield charger is refused with no armor / a full shield; the spray is refused
+ * only when its gauge is empty (it also heals squadmates), the defibrillator never checks hp. 2026-09-12: the
+ * three combat boosts (`boostItemOf` — `아드레날린` · `각성제` · `안정제`) are never refused either.
  */
 export function beginHeal(sys: WeaponSystem, host: Host, q: QuickHand): void {
-  // 2026-09-10 실드 충전기 — 회복 소모품과 같은 홀드 · 이동 감속을 쓰고, 끝나면 chargeShield 로 간다
+  // 2026-09-10 the shield charger — the same hold · movement slow as a healing consumable, ending in chargeShield
   if (shieldChargeOf(q.defId)) {
     if (!sys.canChargeShield()) { sys.deny(); return; }
     sys.healSpray = false;
@@ -125,7 +127,8 @@ export function beginHeal(sys: WeaponSystem, host: Host, q: QuickHand): void {
     sys.emitHeal(gauge / max, true, 0);
     return;
   }
-  // 2026-09-12 전투 소모품 3종: 체력 · 임플란트 상태와 상관없이 홀드를 시작한다 (안정제는 가득이어도 소모 — 사용자 결정)
+  // 2026-09-12 the three combat boosts: the hold starts whatever the hp · implant state is (`안정제` is
+  //   consumed even when full — user's decision)
   if (q.kind === 'stim' && !boostItemOf(q.defId) && host.hp >= host.maxHp) { sys.deny(); return; }
   sys.healSpray = false;
   sys.healHeld = true;
@@ -148,7 +151,7 @@ export function updateHeal(sys: WeaponSystem, dt: number, host: Host, q: QuickHa
   }
 
 /**
- * 회복 스프레이: every `spray.tick` seconds one gauge unit is spent and `healPerTick` hp goes to the user and to
+ * The heal spray: every `spray.tick` seconds one gauge unit is spent and `healPerTick` hp goes to the user and to
  * every squadmate inside `spray.radius` (remote ones as a batched `buff heal`, the same wire the overcharge beam
  * uses). The gauge lives on the instance (`durability`), so a half-used can keeps its charge in the stash.
  */
@@ -179,7 +182,7 @@ export function updateSpray(sys: WeaponSystem, dt: number, host: Host, q: QuickH
   }
 
 /**
- * Phase 12: the 스프레이 channel ends (gauge empty, button released, swap, death, screen). The can is **never**
+ * Phase 12: the spray channel ends (gauge empty, button released, swap, death, screen). The can is **never**
  * consumed — at 0 it stays in the slot with `durability` 0 until the ship repairs it. Closes both the HUD ring
  * (`heal:holdChanged -1`) and the ticker (`item:channelChanged active:false`).
  */
@@ -229,10 +232,10 @@ export function flushSprayHeals(sys: WeaponSystem): void {
   sys.sprayOwed.clear();
   }
 
-/** Hold completed: consume the item and apply its effect (a 제세동기 hands off to the gadget path). */
+/** Hold completed: consume the item and apply its effect (the defibrillator hands off to the gadget path). */
 export function finishHeal(sys: WeaponSystem, host: Host, q: QuickHand): void {
   const spray = q.def.heal?.spray;
-  // a 스프레이 never "finishes" into a consume (Phase 12): its only end is `stopSpray`
+  // the spray never "finishes" into a consume (Phase 12): its only end is `stopSpray`
   if (spray || sys.healSpray) { sys.stopSpray(); return; }
   sys.healHeld = false; sys.healT = 0; sys.healSpray = false;
   sys.setConsumableSlow(false);
@@ -251,7 +254,8 @@ export function finishHeal(sys: WeaponSystem, host: Host, q: QuickHand): void {
     const boost = boostItemOf(q.defId);
     const p = sys.ctx.player as (PlayerRef & { applyHeal?: (a: number, s: number, quiet?: boolean) => boolean }) | null;
     if (boost) {
-      // 2026-09-12 전투 소모품: 시간제 효과는 player 가 들고, 안정제는 implants 가 채운다 (둘 다 선택 메서드 — 없으면 조용히 소모만)
+      // 2026-09-12 combat boosts: player holds the timed effects and implants refills for `안정제` (both are
+      //   optional methods — with neither, the item is silently consumed and nothing else happens)
       if (boost.effect === 'implant_refill') {
         (sys.ctx.implants as { refillAll?(): void } | null)?.refillAll?.();
         sys.ctx.bus.emit('audio:play', { id: 'stim', volume: 0.7 });
@@ -259,7 +263,7 @@ export function finishHeal(sys: WeaponSystem, host: Host, q: QuickHand): void {
         p?.applyBoost?.(boost.effect, q.defId);
       }
     } else if (charge) {
-      // 실드 충전기: 체력이 아니라 실드를 채운다 (`Infinity` = 완전 회복). 이벤트는 player/ 가 낸다.
+      // The shield charger fills the shield, not hp (`Infinity` = a full refill). player/ emits the event.
       p?.chargeShield?.(charge.amount);
     } else {
       const heal = q.def.heal;

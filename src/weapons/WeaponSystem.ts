@@ -26,14 +26,14 @@ import { raycastBlockers, damageBarrierAt, makeBlockInfo } from './Blocking';
 import { createUniqueHandler, UniqueFx, type UniqueHandler, type UniqueInput, type UniqueServices, type UniqueShot, type UniqueWeapon } from './unique';
 
 import { BLOOM_DECAY, BLOOM_PER_SHOT, BOLT_SOUND_DELAY, BROKEN_NOTIFY_INTERVAL, CHANNEL_EMIT_HZ, FIRING_POSE_HOLD, GRENADE_MIN_FUSE, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, GRENADE_UNDERHAND_LIFT, type HitInfo, type Host, LOADOUT_FALLBACK_DELAY, MOVING_SPREAD_MUL, QUICK_HOLSTER_TIME, QUICK_USE_COOLDOWN, type QuickHand, type QuickKind, SPRAY_SEND_INTERVAL, SPRINT_SPREAD_MUL, type WeaponInstance, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _tA, _tB, _target, _tmp, gaugeOf, makeHit, toTuple, useTimeOf } from './model';
-/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+/** Shared folder vocabulary (constants · types · scratch) is `model.ts`'s — re-exported for the old import paths. */
 export * from './model';
 import * as Slots from './parts/Slots';
 import * as Fire from './parts/Firing';
 import * as Quick from './parts/QuickUse';
 import * as Heal from './parts/Healing';
 import * as Throw from './parts/Throwing';
-/* 2026-09-15 (사용자 결정): 제세동기는 「떼는 순간」 발동하는 유일한 소모품이라 자기 파일을 갖는다. */
+/* 2026-09-15 (user's decision): the defibrillator alone fires 「on release」, so it gets its own file. */
 import * as Defib from './parts/Defib';
 import * as Svc from './parts/Services';
 import * as Aim from './parts/AimLine';
@@ -44,7 +44,7 @@ export class WeaponSystem implements GameSystem {
   ctx!: GameContext;
   fx!: WeaponFx;
   grenades!: GrenadeManager;
-  /** 투척 궤적 미리보기 (2026-09-08) — shown whenever a grenade / throwable gadget is in the hand. */
+  /** The throw-arc preview (2026-09-08) — shown whenever a grenade / throwable gadget is in the hand. */
   throwArc!: ThrowArc;
   projectiles!: ProjectilePool;
   /** Multiplayer: remote players' weapon models + replicated fire/reload/grenade FX (inert offline). */
@@ -111,16 +111,17 @@ export class WeaponSystem implements GameSystem {
   /** Remaining draw-down of the gun model after taking a consumable (0 = hidden). */
   quickHolsterT = 0;
   /**
-   * 2026-09-11 기폭기 손: T 탭이 "마지막으로 쓴 것" 을 고를 때 그것이 원격 지뢰(C4 · 기폭기)였는가, 설치 확정 여유
-   * (`DETONATOR_CONFIRM_GRACE_S`), `원격 지뢰 없음` 토스트 스로틀, 합성 인스턴스 캐시.
+   * 2026-09-11 the detonator hand: whether the T tap's "last used" was a remote mine (C4 · the detonator), the
+   * placement confirm grace (`DETONATOR_CONFIRM_GRACE_S`), the `원격 지뢰 없음` toast throttle, synthetic instance cache.
    */
   lastQuickDetonator = false;
   detonatorGraceT = 0;
   detonatorNotifyAt = -Infinity;
   detonatorItem: ItemInstance | null = null;
   /**
-   * 2026-09-11 드론 조종: `ctx.player.droneControl` 인 동안 true, 끝난 뒤에도 LMB · RMB · R 을 모두 뗄 때까지 true —
-   * 드론에서 누르던 버튼이 PC 로 돌아온 순간 사격 · 조준으로 새지 않게 한다. true 면 `armedAndFree` 가 false.
+   * 2026-09-11 drone control: true while `ctx.player.droneControl`, and afterwards until LMB · RMB · R have all
+   * been released — a button held on the drone never leaks into firing / aiming the moment the PC takes over.
+   * True means `armedAndFree` is false.
    */
   droneLatch = false;
   quickCooldown = 0;
@@ -132,27 +133,27 @@ export class WeaponSystem implements GameSystem {
   cooked = 0;
   underhand = false;
   /**
-   * Phase 10 회복약, generalised 2026-09-07: LMB held with a 소모품 in hand (붕대 · 약초 붕대 · 회복주사 · 제세동기),
-   * seconds held so far, `ctx.time` of the last `heal:holdChanged`. `healSpray` marks the 회복 스프레이 channel
-   * (gauge instead of a fixed hold) and `sprayAcc` is its 0.1 s tick accumulator.
+   * Phase 10 heal items, generalised 2026-09-07: LMB held with a consumable in hand (`붕대` · `약초 붕대` ·
+   * `회복주사` · `제세동기`), seconds held so far, `ctx.time` of the last `heal:holdChanged`. `healSpray` marks
+   * the heal-spray channel (gauge instead of a fixed hold) and `sprayAcc` is its 0.1 s tick accumulator.
    */
   healHeld = false;
   healT = 0;
   healEmitAt = -Infinity;
   healSpray = false;
   sprayAcc = 0;
-  /** Phase 12: the channelled item behind `item:channelChanged` (a 회복 스프레이 in hand) + its last emit time (≤ 10 Hz). */
+  /** Phase 12: the channelled item behind `item:channelChanged` (a heal spray in hand) + its last emit (≤ 10 Hz). */
   channel: { uid: string; defId: string; max: number } | null = null;
   channelEmitAt = -Infinity;
   sprayEmptyNotifyAt = -Infinity;
-  /** 회복 스프레이: hp owed to each squadmate in range, flushed as a `buff heal` at most twice a second. */
+  /** Heal spray: hp owed to each squadmate in range, flushed as a `buff heal` at most twice a second. */
   sprayOwed = new Map<string, number>();
   spraySendAcc = 0;
   /**
-   * 2026-09-15 (제세동기 조준, 사용자 결정 — `parts/Defib`): 손에 든 제세동기의 좌클릭 홀드 상태.
-   * `defibHeld` = 누르고 있다, `defibT` = 충전한 초, `defibArmed` = 채워서 준비 완료(떼면 발동),
-   * `defibTarget` = 지금 떼면 일으킬 아군이 크로스헤어에 걸려 있다. 회복 홀드(`healT`)와 **따로**인 이유는
-   * 하나다 — 회복은 채워지는 순간 쓰고, 제세동기는 **떼는 순간** 쓴다.
+   * 2026-09-15 (defibrillator aiming, user's decision — `parts/Defib`): the LMB hold state of the defibrillator
+   * in hand. `defibHeld` = it is held down, `defibT` = seconds charged, `defibArmed` = full and ready (firing on
+   * release), `defibTarget` = an ally the release would raise is on the crosshair. It is **separate** from the
+   * heal hold (`healT`) for one reason — a heal is used the moment it fills, the defibrillator **on release**.
    */
   defibHeld = false;
   defibArmed = false;
@@ -163,8 +164,8 @@ export class WeaponSystem implements GameSystem {
   readonly camHit = makeHit();
   readonly gunHit = makeHit();
   /**
-   * 2026-09-12 하이브리드 판정 (`parts/AimLine`): one resolver shared by `fire()`, the unique services and the 총구 막힘
-   * marker, plus their scratch lines (`shot` = fire, `aimLine` = marker, `uniqueShot` = services).
+   * 2026-09-12 hybrid shot resolution (`parts/AimLine`): one resolver shared by `fire()`, the unique services and
+   * the blocked-muzzle marker, plus their scratch lines (`shot` = fire, `aimLine` = marker, `uniqueShot` = services).
    */
   readonly aim = new Aim.ShotResolver(this);
   readonly shot = Aim.makeShotLine();
@@ -188,8 +189,9 @@ export class WeaponSystem implements GameSystem {
    * `attachments` is replaced only when the socket set of the weapon in hand changes (`attachDirty` / uid change).
    */
   /**
-   * `detonator` (2026-09-11, duck-typed — not in `WeaponRemoteState`): the hand is the virtual 기폭기 (no C4 left to place;
-   * `heldItemId` still names the C4 def so remote avatars keep holding something). gadgets/ skips the placement preview then.
+   * `detonator` (2026-09-11, duck-typed — not in `WeaponRemoteState`): the hand is the virtual detonator (no C4
+   * left to place; `heldItemId` still names the C4 def so remote avatars keep holding something). gadgets/ skips
+   * the placement preview then.
    */
   private readonly remoteState: WeaponRemoteState & { attachments: readonly string[]; detonator: boolean } = { heldItemId: null, throwing: false, cooking: false, charging: false, spraying: false, heavy: false, attachments: [], detonator: false };
   private attachUid: string | null = null;
@@ -211,9 +213,10 @@ export class WeaponSystem implements GameSystem {
       getGrenades: () => this.grenades.getViews(),
       // Phase 7: per-frame pose / held item / attachment list for the player snapshot (`PlayerSnapshot.h / att`, THROWING… flags)
       remoteState: this.remoteState,
-      // 2026-09-16 (우하단 무기 패널): HUD 가 매 프레임 묻는다 — 소모품 · 홀스터 중에도 「마지막으로 든 주무기」를
-      //   흐리게 보여 주려면 `weapon:equipped` 만으로는 모자란다 (소모품을 든 채 교체 · 장비 변경이 끝나면 그 이벤트가 안 온다).
-      //   근접 공격은 세지 않는다 (2026-09-17 사용자 결정: 근접은 주무기를 든 채 때리는 동작 — 패널이 깜빡이면 안 된다).
+      // 2026-09-16 (the bottom-right weapon panel): the HUD asks every frame — to draw 「the last primary held」
+      //   dimmed while a consumable is in hand or the gun is holstered, `weapon:equipped` alone is not enough (a
+      //   swap or a loadout change finished with a consumable in hand never emits it). A melee swing does not count
+      //   (2026-09-17 user's decision: melee is a swing with the primary still in hand — the panel must not blink).
       get activeSlot() { return sys.slots[sys.active] ? sys.active : null; },
       get primaryInHand() {
         return !!sys.slots[sys.active] && !sys.quick && !sys.holstered;
@@ -276,7 +279,7 @@ export class WeaponSystem implements GameSystem {
     ctx.bus.on('hub:entered', () => { this.dropQuick(); this.resetTransient(); this.loadoutWait = -1; });
     // Hellpod drop started → pre-compile every shader (hidden FX meshes included) before the first shot/throw.
     ctx.bus.on('game:phaseChanged', ({ phase }) => { this.cancelHeal(); this.cancelDefib(); if (phase === 'deploying' || (phase === 'playing' && ctx.missionMode === 'training')) this.warmupFrames = 2; });
-    // Phase 10: a 회복약 hold survives damage but never a death / knock-down. The `usable` gate catches the same
+    // Phase 10: a heal hold survives damage but never a death / knock-down. The `usable` gate catches the same
     // frame; these keep the HUD gauge honest even when another path clears the hand state first.
     ctx.bus.on('player:died', () => { this.cancelHeal(); this.cancelDefib(); });
     ctx.bus.on('player:downed', () => { this.cancelHeal(); this.cancelDefib(); });
@@ -307,7 +310,7 @@ export class WeaponSystem implements GameSystem {
     // in the middle of the drop.
     if (this.warmupFrames > 0 && --this.warmupFrames === 0 && !ctx.shaders) this.fx.warmUp(ctx.renderer, ctx.scene, ctx.camera);
 
-    // Phase 12: the 스프레이 ticker never outlives its channel — every end path funnels through `stopSpray`, and this
+    // Phase 12: the spray ticker never outlives its channel — every end path funnels through `stopSpray`; this
     // is the backstop for any that clears the hold flags directly (`active:false` must always be the last event).
     if (this.channel && !(this.healHeld && this.healSpray)) this.closeChannel();
 
@@ -319,7 +322,7 @@ export class WeaponSystem implements GameSystem {
     //    model hidden, unarmed pose, neutral zoom. The implant case must NOT wipe grenades / projectiles.
     const phaseHolster = ctx.phase === 'hub' || ctx.phase === 'docking' || ctx.phase === 'menu';
     const implantHolster = !phaseHolster && ctx.implants?.blocksWeapons === true;
-    // 2026-09-08: 전투불능 puts the gun away too. `canUseWeapons()` already refused every action while downed, but
+    // 2026-09-08: being downed puts the gun away too. `canUseWeapons()` already refused every action then, but
     //   nothing hid the model — the soldier lay there still holding a rifle. Same branch as the implant holster
     //   (drop the item in hand, cancel a reload, neutral zoom) so grenades / projectiles in flight are untouched.
     const downHolster = !phaseHolster && ctx.player?.isDowned === true;
@@ -337,7 +340,7 @@ export class WeaponSystem implements GameSystem {
     // fallback loadout if no inventory ever speaks
     if (this.loadoutWait > 0) {
       this.loadoutWait -= dt;
-      // 2026-09-10: 보조무기가 없어져 대비책도 주무기 하나뿐이다 (`WEAPON_SLOTS`).
+      // 2026-09-10: with the secondary gone the fallback is one primary too (`WEAPON_SLOTS`).
       if (this.loadoutWait <= 0 && !this.slots.primary && !this.slots.primary2) {
         this.onLoadout({
           primary: { uid: 'default-primary', defId: defaultFor('primary').id, qty: 1, rotated: false },
@@ -350,11 +353,13 @@ export class WeaponSystem implements GameSystem {
     const input = ctx.input;
     // Phase 3: an armed / targeting ship call owns the mouse — guns neither fire nor swap until it is put away
     const callActive = !!ctx.stratagems && (ctx.stratagems.armed !== null || ctx.stratagems.targeting);
-    // 2026-09-11 드론 조종: the PC does nothing with its weapons while looking through a drone — and not until every
-    // button the drone was using (LMB · RMB · R) is released afterwards. Checked here on its own, not only through
-    // `canUseWeapons()`, so fire / reload / swap / melee / T / wheel / unique input / throw arc all stop together.
+    // 2026-09-11 drone control: the PC does nothing with its weapons while looking through a drone — and not
+    // until every button the drone was using (LMB · RMB · R) is released afterwards. Checked here on its own,
+    // not only through `canUseWeapons()`, so fire / reload / swap / melee / T / wheel / unique input / throw arc
+    // all stop together.
     // The hand itself is left alone: when the control ends the player holds exactly what they held before.
-    // 2026-09-13: 탐사 차량 안도 같은 래치다 — 무기 · 장전 · 교체 · 근접 · T · 휠이 전부 멈추고, 내린 뒤 버튼을 뗄 때까지 새지 않는다
+    // 2026-09-13: riding the rover is the same latch — weapons · reload · swap · melee · T · the wheel all stop,
+    //   and nothing leaks until every button is released after getting off
     if (ctx.player?.droneControl === true || ctx.player?.roverRide === true) this.droneLatch = true;
     else if (this.droneLatch && !input.isMouseDown(MouseButtons.FIRE) && !input.isMouseDown(MouseButtons.AIM) && !input.isDown(Keys.RELOAD)) this.droneLatch = false;
     const armedAndFree = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons() && host.isDiving !== true && !callActive && !this.droneLatch;
@@ -363,8 +368,8 @@ export class WeaponSystem implements GameSystem {
     // the gun in hand (null while a consumable is held)
     const weapon = this.quick ? null : this.slots[this.active];
 
-    // ── Phase 10 들쳐메기: with a squadmate on our shoulder only running is allowed. Any weapon input puts the body
-    //    down first and does nothing else this frame — the next frame retries naturally once the player is free.
+    // ── Phase 10 shouldering: with a squadmate on our shoulder only running is allowed. Any weapon input puts the
+    //    body down first and does nothing else this frame — the next frame retries naturally once the player is free.
     //    (The F *tap* never reaches us while carrying: player/ pre-empts it with `input.consume(Keys.MELEE)` for the
     //    manual drop, and the unique F-hold reads `wasPressed` so it honours the same consumption.)
     const carryBusy = this.carryGate(usable);
@@ -391,16 +396,17 @@ export class WeaponSystem implements GameSystem {
     const inputFree = usable && !this.wheelOpen && !carryBusy;
 
     // ── swap (1 / 2) — also the way back from a consumable to a gun.
-    // 2026-09-07: the 이전 무기 key (V) is retired — V is 구르기 now, and Alt frees the cursor.
-    // 2026-09-10: 보조무기(3번)가 사라져 `Keys.SECONDARY` 는 아무 칸도 가리키지 않는다 — 바인딩은 계약이라 남기고
-    //             여기서만 읽지 않는다 (`WEAPON_SLOTS` 가 두 칸이므로 눌러도 뽑을 무기가 없다).
+    // 2026-09-07: the previous-weapon key (V) is retired — V is the roll now, and Alt frees the cursor.
+    // 2026-09-10: with the secondary (3) gone `Keys.SECONDARY` points at no slot — the binding stays (it is a
+    //             contract) and is simply not read here (`WEAPON_SLOTS` has two slots, so a press draws nothing).
     if (inputFree) {
       const want: WeaponSlot | null | undefined =
         input.wasPressed(Keys.PRIMARY) ? 'primary'
           : input.wasPressed(Keys.PRIMARY2) ? 'primary2' : undefined;
       if (want !== undefined) this.requestSwap(want);
     } else if (this.implantHolstered && armedAndFree && !carryBusy && !this.wheelOpen) {
-      // a wielded implant (배리어 — the 대전차포 was retired 2026-09-15) is in the hands: a weapon key stows it and draws that weapon
+      // a wielded implant (`배리어` — the `대전차포` was retired 2026-09-15) is in the hands: a weapon key stows it
+      //   and draws that weapon
       const want: WeaponSlot | null | undefined =
         input.wasPressed(Keys.PRIMARY) ? 'primary'
           : input.wasPressed(Keys.PRIMARY2) ? 'primary2' : undefined;
@@ -473,9 +479,10 @@ export class WeaponSystem implements GameSystem {
   }
 
   /**
-   * 2026-09-14 레이저 사이트: while aiming or for `FIRING_POSE_HOLD` after a shot the beam turns from the barrel to where
-   * this frame's shot line ends (`aimLine.end` — the crosshair point, or the obstruction the red marker shows); otherwise
-   * it follows the barrel. `WeaponModel.setLaserAim` blends and clamps. Remote replicas never call it (barrel beam).
+   * 2026-09-14 the laser sight: while aiming or for `FIRING_POSE_HOLD` after a shot the beam turns from the barrel
+   * to where this frame's shot line ends (`aimLine.end` — the crosshair point, or the obstruction the red marker
+   * shows); otherwise it follows the barrel. `WeaponModel.setLaserAim` blends and clamps. Remote replicas never
+   * call it (barrel beam).
    */
   private updateLaser(dt: number, host: Host, weapon: WeaponInstance | null): void {
     for (const s of WEAPON_SLOTS) {
@@ -486,21 +493,25 @@ export class WeaponSystem implements GameSystem {
     }
   }
 
-  /** 2026-09-12 총구 막힘: red ring where the barrel really hits + `weapon:aimBlocked` (`parts/AimLine`, same resolver as `fire()`). */
+  /**
+   * 2026-09-12 blocked muzzle: red ring where the barrel really hits + `weapon:aimBlocked` (`parts/AimLine`, the
+   * same resolver as `fire()`).
+   */
   private updateAimBlock(host: Host, weapon: WeaponInstance | null, armedAndFree: boolean): void { return Aim.updateAimBlock(this, host, weapon, armedAndFree); }
 
   /** Marker off when clear; `weapon:aimBlocked` only on change. */
   setAimBlocked(blocked: boolean): void { return Aim.setAimBlocked(this, blocked); }
 
   /**
-   * 투척 궤적 (2026-09-08). While a grenade or a throwable gadget is in the hand, re-simulate the throw that LMB
+   * The throw arc (2026-09-08). While a grenade or a throwable gadget is in the hand, re-simulate the throw that LMB
    * would make right now and draw it. The release maths is duplicated from `throwHeld` / `GadgetSystem.throwGadget`
-   * on purpose: the preview has to use the numbers those two use, 근력 (`derived.throwRangeMul`) included, and the
-   * two apply it differently (a grenade's range goes with speed², so it takes the square root; a gadget scales the
-   * speed straight). The over/under-hand toggle and the player's own momentum ride along in the release velocity.
+   * on purpose: the preview has to use the numbers those two use, `근력` strength (`derived.throwRangeMul`)
+   * included, and the two apply it differently (a grenade's range goes with speed², so it takes the square root;
+   * a gadget scales the speed straight). The over/under-hand toggle and the player's own momentum ride along in
+   * the release velocity.
    *
-   * 2026-09-14 2차 (사용자 결정): `ThrowArc.show` 는 이제 **중력만** 적분한다 — 지형 · 장애물은 미리보기에 없다
-   * (「던질 때 날아가는 방향 궤적만」). 이 함수가 넘기는 값은 한 줄도 안 바뀌었다.
+   * 2026-09-14 2nd pass (user's decision): `ThrowArc.show` now integrates **gravity only** — terrain · obstacles
+   * are not in the preview (「던질 때 날아가는 방향 궤적만」). Not one line of what this function hands over changed.
    */
   private updateThrowArc(host: Host): void {
     const q = this.quick;
@@ -684,19 +695,25 @@ export class WeaponSystem implements GameSystem {
   raycastAll(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, out: HitInfo): void { return Fire.raycastAll(this, origin, dir, maxDist, out); }
 
   /* ───────────────── tactical kit: progression / implant modifiers (all optional, default 1) ───────────────── */
-  /** 재주 (Phase 5): consumable / gadget use speed — divides the quick-use cooldown. */
+  /** Dexterity (Phase 5): consumable / gadget use speed — divides the quick-use cooldown. */
   useSpeedMul(): number { return Fire.useSpeedMul(this); }
-  /** 사격 스킬 recoil multiplier for a class (1 when progression is not registered yet; 2026-09-15: always 1 for a legendary unique). */
+  /**
+   * Shooting-skill recoil multiplier for a class (1 when progression is not registered yet; 2026-09-15: always 1
+   * for a legendary unique).
+   */
   recoilMulFor(cls: WeaponClass, unique = false): number { return Fire.recoilMulFor(this, cls, unique); }
 
-  /** 사격 스킬 reload speed multiplier for a class (>1 = faster; 2026-09-15: no skill part for a legendary unique). */
+  /**
+   * Shooting-skill reload speed multiplier for a class (>1 = faster; 2026-09-15: no skill part for a legendary
+   * unique).
+   */
   reloadSpeedFor(cls: WeaponClass, unique = false): number { return Fire.reloadSpeedFor(this, cls, unique); }
 
   /** Fire rate after the overcharge implant bonus. */
   effectiveFireRate(st: EffectiveWeaponStats): number { return Fire.effectiveFireRate(this, st); }
 
   /**
-   * Phase 10 들쳐메기 gate. While `ctx.player.carrying` holds a squadmate, every weapon action (fire, melee, swap,
+   * Phase 10 shouldering gate. While `ctx.player.carrying` holds a squadmate, every weapon action (fire, melee, swap,
    * throw, quick use, reload) puts the body down first and does nothing else this frame. Returns true when the frame
    * was spent dropping. Duck-typed so a player build without the carry API can never break the trigger.
    */
@@ -705,20 +722,25 @@ export class WeaponSystem implements GameSystem {
   /** LMB with a gadget in hand: `ctx.gadgets.use` consumes the item itself; RMB toggles over / under-hand. */
   useGadget(host: Host, q: QuickHand): void { return Quick.useGadget(this, host, q); }
 
-  /** 2026-09-11: RMB with a C4 / the 기폭기 in hand — detonate every remote mine of mine (deny when there is none). */
+  /** 2026-09-11: RMB with a C4 / the detonator in hand — detonate every remote mine of mine (deny when none). */
   detonateHeld(host: Host): void { return Quick.detonateHeld(this, host); }
 
-  /** 2026-09-11: take the virtual 기폭기 into the hand (`quick:equipped {index: null, item}`); false when no C4 def exists. */
+  /**
+   * 2026-09-11: take the virtual detonator into the hand (`quick:equipped {index: null, item}`); false when no C4
+   * def exists.
+   */
   equipDetonator(defId: string | null, fromPlacement: boolean): boolean { return Quick.equipDetonator(this, defId, fromPlacement); }
 
-  /** 2026-09-11: the 기폭기 in hand, every frame — auto-return when my mines are gone, LMB deny, RMB detonate. */
+  /** 2026-09-11: the detonator in hand, every frame — auto-return when my mines are gone, LMB deny, RMB detonate. */
   updateDetonator(dt: number, host: Host, inputFree: boolean): void { return Quick.updateDetonator(this, dt, host, inputFree); }
 
   /** Returns true if the hit killed an enemy. */
   applyHit(h: HitInfo, damage: number, dir: THREE.Vector3, light: boolean, ammoType?: string): boolean {
-    /* 2026-09-14 (NPC 퀘스트 「그 계열 총기로 처치」): 총알 한 발의 피해 구간을 지금 손에 든 총의 계열로 표시한다 — enemies 가
-       이 구간에 들어온 로컬 피해에만 계열을 적는다 (`shared/damageSource`). 수류탄 · 가젯 · 근접은 이 경로를 지나지 않는다.
-       2026-09-15 (사용자 결정): 전설 유니크는 계열 밖이다 — csv `class` 는 남아 있어도 null 로 넘겨 계열 없는(평범한) 처치로 센다. */
+    /* 2026-09-14 (the NPC quest 「그 계열 총기로 처치」): one round's damage is stamped with the class of the gun now
+       in hand — enemies writes a class only for local damage that arrives inside this scope (`shared/damageSource`).
+       Grenades · gadgets · melee never take this path.
+       2026-09-15 (user's decision): legendary uniques sit outside the class system — the csv `class` stays, but
+       null is passed so the kill counts as a classless (ordinary) one. */
     const held = this.slots[this.active];
     const cls = held && !held.def.unique ? held.stats.weaponClass : null;
     return withLocalGunHit(cls, () => Fire.applyHit(this, h, damage, dir, light, ammoType));
@@ -779,21 +801,22 @@ export class WeaponSystem implements GameSystem {
   /** LMB / R / RMB while a consumable is in hand. */
   private updateQuickHand(dt: number, host: Host, usable: boolean, inputFree: boolean): void { return Quick.updateQuickHand(this, dt, host, usable, inputFree); }
 
-  /* ── 소모품 사용 (Phase 10 회복약 → 2026-09-07 모든 회복 소모품 + 제세동기) ─── */
+  /* ── consumable use (Phase 10 heal items → 2026-09-07 every healing consumable + the defibrillator) ─── */
   /**
    * `heal:holdChanged` at ≤ 30 Hz. `t` = 0..1 of the item's own use time while holding (remaining gauge for a
-   * 스프레이), `-1` on a cancel. `force` bypasses the throttle (start / finish / cancel must always land).
+   * spray), `-1` on a cancel. `force` bypasses the throttle (start / finish / cancel must always land).
    */
   emitHeal(t: number, force: boolean, dur = HEAL_HOLD_S): void { return Heal.emitHeal(this, t, force, dur); }
 
   /**
-   * Phase 12 perk `quick_heal` (가속 대사): every hold-to-use time (회복 소모품 and the 제세동기's `DEFIB_USE_TIME_S`)
-   * is halved while the perk is active. The HUD ring reads the halved value from `heal:holdChanged.dur`.
+   * Phase 12 perk `quick_heal` (`가속 대사`): every hold-to-use time (healing consumables and the defibrillator's
+   * `DEFIB_USE_TIME_S`) is halved while the perk is active. The HUD ring reads the halved value from
+   * `heal:holdChanged.dur`.
    */
   holdTimeOf(def: ItemDef): number { return Heal.holdTimeOf(this, def); }
 
   /**
-   * `item:channelChanged` for the 스프레이 channel: `active:true` when it starts, ≤ `CHANNEL_EMIT_HZ` while it runs
+   * `item:channelChanged` for the spray channel: `active:true` when it starts, ≤ `CHANNEL_EMIT_HZ` while it runs
    * (`gauge` 0..1), `active:false` when it stops for any reason. `force` bypasses the throttle (start / stop).
    */
   emitChannel(active: boolean, gauge01: number, force: boolean): void { return Heal.emitChannel(this, active, gauge01, force); }
@@ -808,15 +831,15 @@ export class WeaponSystem implements GameSystem {
   setConsumableSlow(on: boolean): void { return Heal.setConsumableSlow(this, on); }
 
   /**
-   * 2026-09-10 — 실드 충전기가 지금 채울 실드가 남아 있는가 (방탄복 없음 · 가득 · 파손이면 false).
-   * 홀드를 시작하기 전에 묻는다 — 아이템이 헛되이 소모되면 안 된다.
+   * 2026-09-10 — is there any shield left for a shield charger to fill (no armor · full · broken = false).
+   * Asked before the hold starts — the item must never be spent for nothing.
    */
   canChargeShield(): boolean { return Heal.canChargeShield(this); }
 
   /**
-   * LMB pressed with a 회복 소모품 / 실드 충전기 / 제세동기 in hand. A plain heal is refused at full hp (the old
-   * instant-use rule); a 실드 충전기 with no armor / a full shield; the 스프레이 only when its gauge is empty
-   * (it also heals squadmates); the 제세동기 never checks hp.
+   * LMB pressed with a healing consumable / shield charger / defibrillator in hand. A plain heal is refused at
+   * full hp (the old instant-use rule); a shield charger with no armor / a full shield; the spray only when its
+   * gauge is empty (it also heals squadmates); the defibrillator never checks hp.
    */
   beginHeal(host: Host, q: QuickHand): void { return Heal.beginHeal(this, host, q); }
 
@@ -827,14 +850,14 @@ export class WeaponSystem implements GameSystem {
   updateHeal(dt: number, host: Host, q: QuickHand): void { return Heal.updateHeal(this, dt, host, q); }
 
   /**
-   * 회복 스프레이: every `spray.tick` seconds one gauge unit is spent and `healPerTick` hp goes to the user and to
+   * The heal spray: every `spray.tick` seconds one gauge unit is spent, `healPerTick` hp goes to the user and to
    * every squadmate inside `spray.radius` (remote ones as a batched `buff heal`, the same wire the overcharge beam
    * uses). The gauge lives on the instance (`durability`), so a half-used can keeps its charge in the stash.
    */
   updateSpray(dt: number, host: Host, q: QuickHand): void { return Heal.updateSpray(this, dt, host, q); }
 
   /**
-   * Phase 12: the 스프레이 channel ends (gauge empty, button released, swap, death, screen). The can is **never**
+   * Phase 12: the spray channel ends (gauge empty, button released, swap, death, screen). The can is **never**
    * consumed — at 0 it stays in the slot with `durability` 0 until the ship repairs it. Closes both the HUD ring
    * (`heal:holdChanged -1`) and the ticker (`item:channelChanged active:false`).
    */
@@ -846,20 +869,20 @@ export class WeaponSystem implements GameSystem {
   /** Send one `buff heal` per owed squadmate and clear the ledger. */
   flushSprayHeals(): void { return Heal.flushSprayHeals(this); }
 
-  /** Hold completed: consume the item and apply its effect (a 제세동기 hands off to the gadget path). */
+  /** Hold completed: consume the item and apply its effect (a defibrillator hands off to the gadget path). */
   finishHeal(host: Host, q: QuickHand): void { return Heal.finishHeal(this, host, q); }
 
   /** Button released, swap, implant wield, death / downed, phase change, world reset: the hold is thrown away. */
   cancelHeal(): void { return Heal.cancelHeal(this); }
 
-  /* ── 제세동기 조준 (2026-09-15, parts/Defib) ── */
-  /** 손에 든 것이 제세동기인가 — `updateQuickHand` 가 이 손만 `updateDefibHand` 로 보낸다. */
+  /* ── defibrillator aiming (2026-09-15, parts/Defib) ── */
+  /** Is the thing in hand a defibrillator — `updateQuickHand` sends only this hand to `updateDefibHand`. */
   isDefibHand(q: QuickHand): boolean { return Defib.isDefibHand(this, q); }
 
-  /** 매 프레임: 좌클릭 충전 → 준비 완료 → 겨눔 → **떼면** 발동 (`gadget:defibAim` 방송). */
+  /** Every frame: LMB charges → armed → aims → fires **on release** (broadcasts `gadget:defibAim`). */
   updateDefibHand(dt: number, host: Host, q: QuickHand, usable: boolean, inputFree: boolean): void { return Defib.updateDefibHand(this, dt, host, q, usable, inputFree); }
 
-  /** 손을 떼기 전에 끝난 모든 경로(무기 교체 · 사망 · 페이즈 · 리셋): 크로스헤어를 닫는다. 소모 없음. */
+  /** Every path ending before the release (swap · death · phase · reset): closes the crosshair, consumes nothing. */
   cancelDefib(): void { return Defib.cancelDefib(this); }
 
   /**

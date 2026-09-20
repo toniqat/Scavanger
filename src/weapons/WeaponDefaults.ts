@@ -6,8 +6,8 @@ import { weaponClassOf, damageFalloff } from '@/items';
 export { weaponClassOf, damageFalloff };
 
 /**
- * The weapon slots in key order (1 / 2). 2026-09-10: 보조무기(3번)가 없어져 둘뿐이다 — `WeaponSlot` 의
- * `'secondary'` 는 계약이라 남아 있지만 이 목록에는 없고, 따라서 아무도 그 칸을 채우지 않는다.
+ * The weapon slots in key order (1 / 2). 2026-09-10: with the secondary (3) gone there are only two —
+ * `WeaponSlot` keeps `'secondary'` because it is a contract, but this list does not, so nothing fills that slot.
  */
 export const WEAPON_SLOTS: readonly WeaponSlot[] = ['primary', 'primary2'];
 
@@ -107,8 +107,9 @@ export const STANCE_ACCURACY: Readonly<Record<'stand' | 'crouch' | 'prone', read
 };
 
 /**
- * 정조준이 탄 퍼짐을 조이는 계열인가. 2026-09-17 (사용자 결정): 산탄총(SG)은 아니다 — 정조준은 카메라 확대뿐이고
- * 퍼짐은 지향 사격 그대로다 (`parts/Firing.fire`). 산탄총 계열 유니크가 생기면 같은 규칙을 따른다 (계열로 판단).
+ * Is this a class whose ADS tightens the spread? 2026-09-17 (user's decision): the shotgun (SG) is not — ADS is
+ * camera zoom only and the spread stays the hip value (`parts/Firing.fire`). A shotgun-class unique would follow
+ * the same rule (decided by class).
  */
 export function adsTightensSpread(cls: WeaponClass): boolean {
   return cls !== 'SG';

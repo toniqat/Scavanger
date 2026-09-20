@@ -1,9 +1,10 @@
 /**
- * src/weapons/parts/Slots.ts — **무기 슬롯의 상태**.
+ * src/weapons/parts/Slots.ts — **the state of the weapon slots**.
  *
- * 1 주무기 I · 2 주무기 II (`WEAPON_SLOTS` — 보조무기는 목록에서 빠졌고 `secondary` 는 타입 · 옛 세이브 호환으로만 남는다) — 어떤 `ItemInstance` 가 어느 슬롯에 있고, 그 실효 스탯 ·
- * 탄창 · 예비탄 · 내구도 · 부착물이 무엇인지. 인벤토리 쪽 변화(`loadout:changed`, 소켓 변경,
- * 아이템 갱신)를 받아 여기서 무기 모델과 HUD 숫자를 다시 맞춘다. **발사는 하지 않는다.**
+ * 1 `주무기 I` · 2 `주무기 II` (`WEAPON_SLOTS` — the secondary is off the list and `secondary` survives only for
+ * the type and old saves) — which `ItemInstance` is in which slot, and what its effective stats · magazine ·
+ * reserve · durability · attachments are. Changes on the inventory side (`loadout:changed`, socket changes, item
+ * updates) arrive here and the weapon model and the HUD numbers are re-matched. **It does not fire.**
  */
 import * as THREE from 'three';
 import {
@@ -108,7 +109,7 @@ export function initInstanceFields(sys: WeaponSystem, w: WeaponInstance): void {
   }
 
 /**
- * 2026-09-15 (「롱혼」 장전 없음): a weapon whose unique handler has `autoFeed` keeps its magazine topped up straight from
+ * 2026-09-15 (「롱혼」 no reload): a weapon whose unique handler has `autoFeed` keeps its magazine topped up from
  * the carried ammo — no reload phase, no `weapon:reload*`, no net `reload`. Called by the handler (`UniqueServices.feed`)
  * from its per-frame update (never from inside an inventory event). Moves `magSize − mag` rounds of the calibre from the
  * bag onto the instance, persists, and re-announces the ammo (so `ammoInMag + reserveRounds` is always the rounds carried).

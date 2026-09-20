@@ -1,9 +1,9 @@
 /**
- * src/weapons/model.ts — 무기 폴더의 공용 어휘.
+ * src/weapons/model.ts — the weapon folder's shared vocabulary.
  *
- * `WeaponSystem` 에서 떼어낸 상수 · 타입 · 스크래치 객체만 있다. 클래스를 참조하지 않으므로
- * `parts/*` 모듈이 클래스를 되돌아 import 하지 않고 이 값들을 쓸 수 있다(순환 import 방지).
- * `WeaponSystem.ts` 가 그대로 재수출하므로 기존 import 경로는 전부 유지된다.
+ * Only the constants · types · scratch objects split out of `WeaponSystem`. Nothing here references the class,
+ * so a `parts/*` module can use these values without importing the class back (no circular import).
+ * `WeaponSystem.ts` re-exports the file as it is, so every existing import path still works.
  */
 import * as THREE from 'three';
 import {
@@ -86,67 +86,73 @@ export interface QuickHand {
   def: ItemDef;
   kind: QuickKind;
   /**
-   * 2026-09-11 — **기폭기 손** (가상 상태). 원격 지뢰(C4)를 다 설치해 슬롯이 비었는데 월드에 내 C4 가 남아 있을 때
-   * 손에 남는 것. 퀵슬롯에 묶이지 않으므로 `index` 는 −1, `item` 은 `qty: 0` 인 합성 인스턴스
-   * (`DETONATOR_UID_PREFIX + defId`)이고 `quick:equipped {index: null, item}` 으로 알린다.
+   * 2026-09-11 — **the detonator hand** (a virtual state). What stays in the hand once every remote mine (C4)
+   * has been placed and the slot is empty while my C4 are still out in the world. It is not bound to a quick
+   * slot, so `index` is −1 and `item` is a synthetic instance with `qty: 0` (`DETONATOR_UID_PREFIX + defId`),
+   * announced with `quick:equipped {index: null, item}`.
    */
   detonator?: boolean;
 }
 
 /**
- * 2026-09-11 — 마지막 C4 를 설치한 직후 `liveRemoteMineCount()` 가 0 이어도 기폭기 손을 유지하는 시간(초).
- * 비호스트의 설치는 `gadq` 요청이라 호스트가 확정해 복제될 때까지 내 C4 가 세어지지 않는다 — **밸런스 수치가 아니라
- * 네트워크 확정 여유**다. 한 번이라도 1 개 이상 세어지면 여유는 즉시 끝나고, 그 뒤 0 이 되면 총으로 돌아간다.
+ * 2026-09-11 — seconds the detonator hand is kept right after the last C4 was placed, even while
+ * `liveRemoteMineCount()` reads 0. A non-host's placement is a `gadq` request, so my C4 is not counted until the
+ * host confirms and replicates it — **not a balance number but a network confirm grace**. The grace ends the
+ * instant one or more are counted, and the hand goes back to the gun when the count falls to 0 after that.
  */
 export const DETONATOR_CONFIRM_GRACE_S = 2;
-/** 기폭기 손의 합성 `ItemInstance.uid` 접두사 — 인벤토리의 어떤 uid 와도 겹치지 않는다. */
+/** Prefix of the detonator hand's synthetic `ItemInstance.uid` — it collides with no uid in the inventory. */
 export const DETONATOR_UID_PREFIX = 'detonator:';
 
 /**
- * Seconds a 회복 소모품 / 실드 충전기 / 전투 소모품 / **가젯** must be held before it fires (0 = instant).
+ * Seconds a healing consumable / shield charger / combat boost / **gadget** is held before it fires (0 = instant).
  *
- * 2026-09-15 (가젯 개편 · 사용자 버그 「바리케이드 사용 시간이 적용되지 않고 회수에만 시간이 걸린다」):
- * 가젯은 여기서 **늘 0** 이었다 — `ItemDef.gadgetUseTime`(`items.csv` 의 같은 이름 열)을 회복약(`healUseTime`) ·
- * 실드 충전기(`shieldUseTime`) · 전투 소모품(`boostUseTime`) 과 **같은 홀드 틀**로 읽는다. 값이 있으면
- * `QuickUse.updateQuickHand` 가 `beginHeal` 로 보내므로 크로스헤어 홀드 링(`heal:holdChanged`)도 저절로 돈다.
- * 비면 제세동기는 `DEFIB_USE_TIME_S`, 나머지 가젯은 0(즉시)이다.
+ * 2026-09-15 (the gadget rework · user's bug 「바리케이드 사용 시간이 적용되지 않고 회수에만 시간이 걸린다」):
+ * a gadget was **always 0** here — `ItemDef.gadgetUseTime` (the column of the same name in `items.csv`) is read
+ * on the **same hold path** as a heal item (`healUseTime`) · a shield charger (`shieldUseTime`) · a combat boost
+ * (`boostUseTime`). With a value set, `QuickUse.updateQuickHand` sends it to `beginHeal`, so the crosshair hold
+ * ring (`heal:holdChanged`) turns by itself. With none, the defibrillator takes `DEFIB_USE_TIME_S`, every other
+ * gadget 0 (instant).
  */
 export function useTimeOf(def: ItemDef): number {
   if (def.heal) return def.heal.spray ? 0 : Math.max(0, def.heal.useTime);
-  // 2026-09-10 실드 충전기: 회복 소모품과 같은 홀드 틀을 쓰지만 자기 사용 시간을 갖는다 (data/items.csv)
+  // 2026-09-10 shield charger: the same hold path as a healing consumable, but with its own use time (data/items.csv)
   const sc = shieldChargeOf(def.id);
   if (sc) return Math.max(0, sc.useTime);
-  // 2026-09-12 전투 소모품 3종 (아드레날린 · 각성제 · 안정제): 같은 홀드 틀, 자기 사용 시간 (data/items.csv `boostUseTime`)
+  // 2026-09-12 the three combat boosts (`아드레날린` · `각성제` · `안정제`): the same hold path, their own use time
+  //   (data/items.csv `boostUseTime`)
   const boost = boostItemOf(def.id);
   if (boost) return Math.max(0, boost.useTime);
   if (def.category === 'stim') return HEAL_HOLD_S;
-  // 2026-09-15: 수류탄은 쿠킹(홀드 = 신관)이라 이 틀을 타지 않는다 — `gadgetUseTime` 은 가젯 줄에만 있다.
+  // 2026-09-15: a grenade cooks instead (hold = the fuse), so it never takes this path — `gadgetUseTime` is on
+  //   gadget rows only.
   if (def.grenade !== undefined) return 0;
   if (typeof def.gadgetUseTime === 'number') return Math.max(0, def.gadgetUseTime);
   return def.gadgetId === 'defib' ? DEFIB_USE_TIME_S : 0;
 }
 
 /**
- * 2026-09-15 (가젯 개편, 사용자 결정): 손에 든 소모품이 **무엇처럼 동작하는가**.
+ * 2026-09-15 (the gadget rework, user's decision): **what the consumable in hand behaves like**.
  *
- * `ItemCategory` 의 `'grenade'` 가 폐지돼 수류탄도 `category: 'gadget'` 이므로 `def.category` 를 그대로
- * `QuickKind` 로 캐스트할 수 없다 — 수류탄인지는 `ItemDef.grenade` 하나가 가른다(`shared/types.ts`).
- * 이 한 함수가 「수류탄 쿠킹 · 투척」 과 「가젯 사용」 을 가르는 유일한 자리다.
+ * `ItemCategory`'s `'grenade'` was removed, so a grenade is `category: 'gadget'` too and `def.category` can no
+ * longer be cast straight to `QuickKind` — `ItemDef.grenade` alone decides whether it is a grenade
+ * (`shared/types.ts`). This one function is the only place that splits 「grenade cooking · throwing」 from
+ * 「gadget use」.
  */
 export function quickKindOf(def: ItemDef): QuickKind {
   if (def.grenade !== undefined) return 'grenade';
   return def.category === 'stim' ? 'stim' : 'gadget';
 }
 
-/** Remaining gauge of a 회복 스프레이 instance (a fresh can that never got a `durability` reads full). */
+/** Remaining gauge of a heal-spray instance (a fresh can that never got a `durability` reads full). */
 export function gaugeOf(inst: ItemInstance, def: ItemDef): number {
   const max = def.durabilityMax ?? 0;
   return Math.max(0, Math.min(max, inst.durability ?? max));
 }
 
-/** Seconds between the batched `buff heal` messages a 스프레이 sends to squadmates in range. */
+/** Seconds between the batched `buff heal` messages a spray sends to squadmates in range. */
 export const SPRAY_SEND_INTERVAL = 0.5;
-/** Phase 12: `item:channelChanged` rate while a 스프레이 channel runs. */
+/** Phase 12: `item:channelChanged` rate while a spray channel runs. */
 export const CHANNEL_EMIT_HZ = 10;
 
 export const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _pd = new THREE.Vector3(), _tA = new THREE.Vector3(), _tB = new THREE.Vector3();
@@ -156,8 +162,9 @@ export const _rep = new THREE.Vector3();
 export const _netDir = new THREE.Vector3();
 export const _mq = new THREE.Quaternion();
 /**
- * 2026-09-12 (하이브리드 판정): a near-muzzle hit closer than this to the crosshair point is the crosshair's own target
- * (aiming at a wall 2 m ahead), not an obstruction — no red marker, no crosshair warning. A tolerance, not a balance value.
+ * 2026-09-12 (hybrid shot resolution): a near-muzzle hit closer than this to the crosshair point is the
+ * crosshair's own target (aiming at a wall 2 m ahead), not an obstruction — no red marker, no crosshair warning.
+ * A tolerance, not a balance value.
  */
 export const AIM_BLOCK_SAME_EPS = 0.25;
 export const _block = new THREE.Vector3();
@@ -171,7 +178,7 @@ export function toTuple(v: THREE.Vector3): Vec3Tuple {
 }
 
 /**
- * Three weapon slots (주무기 I / 주무기 II / 보조무기): hitscan & projectile firing from the reticle ray with
+ * Three weapon slots (`주무기 I` / `주무기 II` / `보조무기`): hitscan & projectile firing from the reticle ray with
  * graded + socketed effective stats, spread/bloom, recoil, durability, ammo v2 (reserve = calibre rounds in the
  * bag, magazine on the item), reloads, swap animation, grenades and all weapon FX/events.
  */

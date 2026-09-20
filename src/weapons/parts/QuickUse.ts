@@ -1,9 +1,11 @@
 /**
- * src/weapons/parts/QuickUse.ts — **빠른 사용** (T 탭 / 홀드 휠).
+ * src/weapons/parts/QuickUse.ts — **quick use** (T tap / hold wheel).
  *
- * 소모품 · 가젯을 손에 드는 경로 전체: 휠 열기/닫기, 슬롯 해석, 무기 홀스터, 손에 든 것을 놓고
- * 총으로 돌아가기, 그리고 들쳐메기 중에는 모든 행동을 `dropCarried` 로 바꾸는 `carryGate`.
- * 2026-09-11: 손에 든 원격 지뢰(C4)의 우클릭 기폭 · 슬롯이 빈 뒤의 **기폭기 손** · 드론 조종기 손.
+ * The whole path that puts a consumable · gadget in the hand: opening / closing the wheel, resolving the slot,
+ * holstering the weapon, dropping what is in hand and going back to the gun, and `carryGate`, which turns every
+ * action into `dropCarried` while shouldering someone.
+ * 2026-09-11: RMB detonation of a remote mine (C4) in hand · the **detonator hand** once the slot is empty · the
+ * drone controller hand.
  */
 import * as THREE from 'three';
 import {
@@ -32,7 +34,7 @@ import { createUniqueHandler, UniqueFx, type UniqueHandler, type UniqueInput, ty
 import { BLOOM_DECAY, BLOOM_PER_SHOT, BOLT_SOUND_DELAY, BROKEN_NOTIFY_INTERVAL, CHANNEL_EMIT_HZ, DETONATOR_CONFIRM_GRACE_S, DETONATOR_UID_PREFIX, FIRING_POSE_HOLD, GRENADE_MIN_FUSE, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, GRENADE_UNDERHAND_LIFT, type HitInfo, type Host, LOADOUT_FALLBACK_DELAY, MOVING_SPREAD_MUL, QUICK_HOLSTER_TIME, QUICK_USE_COOLDOWN, type QuickHand, type QuickKind, SPRAY_SEND_INTERVAL, SPRINT_SPREAD_MUL, type WeaponInstance, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _tA, _tB, _target, _tmp, gaugeOf, makeHit, quickKindOf, toTuple, useTimeOf } from '../model';
 import type { WeaponSystem } from '../WeaponSystem';
 
-/** 2026-09-11: 원격 지뢰(C4) 가젯 id. */
+/** 2026-09-11: the remote-mine (C4) gadget id. */
 const REMOTE_MINE: GadgetId = 'remoteMine';
 
 /** True when `def` is a drone item (`droneGround` / `droneAir`) — in the hand it is the drone's controller. */
@@ -41,7 +43,7 @@ function isDroneDef(def: ItemDef | null | undefined): boolean {
 }
 
 /**
- * Phase 10 들쳐메기 gate. While `ctx.player.carrying` holds a squadmate, every weapon action (fire, melee, swap,
+ * Phase 10 shouldering gate. While `ctx.player.carrying` holds a squadmate, every weapon action (fire, melee, swap,
  * throw, quick use, reload) puts the body down first and does nothing else this frame. Returns true when the frame
  * was spent dropping. Duck-typed so a player build without the carry API can never break the trigger.
  */
@@ -49,7 +51,7 @@ export function carryGate(sys: WeaponSystem, usable: boolean): boolean {
   const p = sys.ctx.player as (PlayerRef & { carrying?: string | null }) | null;
   if (!usable || !p || typeof p.dropCarried !== 'function' || p.carrying == null) return false;
   const input = sys.ctx.input;
-  // 2026-09-11: 드론 조종기를 든 손에서 R 은 무기 행동이 아니다 (드론 코어가 R 홀드를 읽는다)
+  // 2026-09-11: with the drone controller in hand R is not a weapon action (the drone core reads the R hold)
   const droneHand = !!sys.quick && isDroneDef(sys.quick.def);
   const acted = input.isMouseDown(MouseButtons.FIRE) || input.wasMousePressed(MouseButtons.FIRE)
     || input.wasMousePressed(MouseButtons.AIM)
@@ -63,7 +65,7 @@ export function carryGate(sys: WeaponSystem, usable: boolean): boolean {
 /**
  * LMB with a gadget in hand: `ctx.gadgets.use` consumes the item itself; RMB toggles over / under-hand.
  * 2026-09-11: a drone item is **not** consumed (`use` returns true, the stack stays) → it simply stays in the hand as
- * the controller. The last 원격 지뢰 placed → the hand becomes the 기폭기 instead of going back to the gun.
+ * the controller. The last remote mine placed → the hand becomes the detonator instead of going back to the gun.
  */
 export function useGadget(sys: WeaponSystem, host: Host, q: QuickHand): void {
   const gadgets = sys.ctx.gadgets;
@@ -81,12 +83,12 @@ export function useGadget(sys: WeaponSystem, host: Host, q: QuickHand): void {
   const remaining = sys.adoptSlot(cur) ? Math.max(0, cur!.qty) : 0;
   sys.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
   if (remaining > 0) return;
-  // 리드 결정 (2026-09-11): 마지막 C4 를 설치해 슬롯이 비어도 손은 기폭기로 남는다
+  // The lead's decision (2026-09-11): the hand stays the detonator even when placing the last C4 empties the slot
   if (id === REMOTE_MINE && sys.equipDetonator(q.defId, true)) return;
   sys.returnToGun();
   }
 
-/* ─────────────────────────── 2026-09-11: 원격 지뢰 기폭 · 기폭기 손 ─────────────────────────── */
+/* ─────────────────────────── 2026-09-11: remote-mine detonation · the detonator hand ─────────────────────────── */
 
 /** Remote mines the local player still has in the world (0 when gadgets/ does not publish the count). */
 export function liveRemoteMines(sys: WeaponSystem): number {
@@ -97,7 +99,7 @@ export function liveRemoteMines(sys: WeaponSystem): number {
   }
 
 /**
- * RMB with a C4 or the 기폭기 in hand: every armed remote mine of mine goes off (`GadgetsRef.detonateRemoteMines`,
+ * RMB with a C4 or the detonator in hand: every armed remote mine of mine goes off (`GadgetsRef.detonateRemoteMines`,
  * a non-host sends the request). Nothing to detonate → deny. A short thumb-press kick on success.
  */
 export function detonateHeld(sys: WeaponSystem, host: Host): void {
@@ -110,7 +112,7 @@ export function detonateHeld(sys: WeaponSystem, host: Host): void {
   sys.ctx.bus.emit('audio:play', { id: 'ui_click', volume: 0.55 });
   }
 
-/** The synthetic `qty: 0` instance + def the 기폭기 hand shows (`defId` null = the remote-mine item def from loot). */
+/** The synthetic `qty: 0` instance + def the detonator hand shows (`defId` null = the remote-mine def from loot). */
 function detonatorSlot(sys: WeaponSystem, defId: string | null): { item: ItemInstance; def: ItemDef } | null {
   const loot = sys.ctx.loot, inv = sys.ctx.inventory;
   let id = defId ?? sys.detonatorItem?.defId ?? null;
@@ -125,10 +127,10 @@ function detonatorSlot(sys: WeaponSystem, defId: string | null): { item: ItemIns
   }
 
 /**
- * Take the 기폭기 into the hand (virtual, not bound to a quick slot): `quick:equipped {index: null, item}` with the
- * synthetic instance, `remoteState.heldItemId` = the C4 def id. `fromPlacement` = the last C4 was just placed — the hand
- * swaps silently and survives `DETONATOR_CONFIRM_GRACE_S` of a 0 count (a non-host's mine is not counted until the host
- * confirms it). Returns false when no remote-mine item def exists.
+ * Take the detonator into the hand (virtual, not bound to a quick slot): `quick:equipped {index: null, item}` with
+ * the synthetic instance, `remoteState.heldItemId` = the C4 def id. `fromPlacement` = the last C4 was just placed
+ * — the hand swaps silently and survives `DETONATOR_CONFIRM_GRACE_S` of a 0 count (a non-host's mine is not
+ * counted until the host confirms it). Returns false when no remote-mine item def exists.
  */
 export function equipDetonator(sys: WeaponSystem, defId: string | null, fromPlacement: boolean): boolean {
   const host = sys.getHost();
@@ -144,9 +146,9 @@ export function equipDetonator(sys: WeaponSystem, defId: string | null, fromPlac
   }
 
 /**
- * The 기폭기 in hand, every frame: back to the gun once no mine of mine is left (after the confirm grace, never while
- * looking through a drone — the hand stays as it was until the control ends). LMB = deny + `원격 지뢰 없음` (throttled),
- * RMB = detonate. Weapon keys / T tap / the wheel leave it through the usual paths.
+ * The detonator in hand, every frame: back to the gun once no mine of mine is left (after the confirm grace, never
+ * while looking through a drone — the hand stays as it was until the control ends). LMB = deny + `원격 지뢰 없음`
+ * (throttled), RMB = detonate. Weapon keys / T tap / the wheel leave it through the usual paths.
  */
 export function updateDetonator(sys: WeaponSystem, dt: number, host: Host, inputFree: boolean): void {
   if (sys.detonatorGraceT > 0) sys.detonatorGraceT = Math.max(0, sys.detonatorGraceT - dt);
@@ -219,7 +221,7 @@ export function closeWheel(sys: WeaponSystem, host: Host): void {
   sys.ctx.bus.emit('quick:wheelChanged', { open: false, hover: null });
   }
 
-/** First usable quick slot holding a 원격 지뢰, or null. */
+/** First usable quick slot holding a remote mine, or null. */
 function firstRemoteMineSlot(sys: WeaponSystem): number | null {
   for (const i of QUICK_SLOT_UNLOCK_ORDER) {
     const s = sys.quickSlotItem(i);
@@ -230,9 +232,10 @@ function firstRemoteMineSlot(sys: WeaponSystem): number | null {
 
 /**
  * F tap: the last used consumable (else the first usable slot) into the hand; the same item again → back to the gun.
- * 2026-09-11: with my remote mines still in the world, the 기폭기 is a tap target too — when no slot is usable, or when
- * the last thing used was the C4 / 기폭기 and its slot is empty now. A C4 still sitting in a slot always wins over the
- * virtual 기폭기 (that hand detonates with RMB as well). Tapping with the 기폭기 in hand and nothing else to pick → gun.
+ * 2026-09-11: with my remote mines still in the world the detonator is a tap target too — when no slot is usable,
+ * or when the last thing used was the C4 / the detonator and its slot is empty now. A C4 still sitting in a slot
+ * always wins over the virtual detonator (that hand detonates with RMB as well). Tapping with the detonator in
+ * hand and nothing else to pick → the gun.
  */
 export function quickTap(sys: WeaponSystem): void {
   let index: number | null = null;
@@ -305,7 +308,8 @@ export function equipQuick(sys: WeaponSystem, index: number): void {
   sys.lastQuickIndex = index;
   sys.lastQuickDetonator = slot.def.gadgetId === REMOTE_MINE;
   takeIntoHand(sys, host, {
-    // 2026-09-15 (가젯 개편): `category` 캐스트는 끝났다 — `'grenade'` 카테고리가 폐지돼 수류탄도 `gadget` 이다 (`model.quickKindOf`).
+    // 2026-09-15 (the gadget rework): the `category` cast is gone — the `'grenade'` category was removed, so a
+    //   grenade is a `gadget` too (`model.quickKindOf`).
     index, uid: slot.item.uid, defId: slot.item.defId, item: slot.item, def: slot.def, kind: quickKindOf(slot.def),
   }, index, true);
   }
@@ -344,7 +348,7 @@ export function dropQuick(sys: WeaponSystem): void {
   const host = sys.getHost();
   if (host) sys.closeWheel(host);
   sys.cancelHeal();
-  sys.cancelDefib();   // 2026-09-15: 제세동기 홀드도 손을 놓으면 닫힌다 (parts/Defib)
+  sys.cancelDefib();   // 2026-09-15: a defibrillator hold closes too when the hand is let go (parts/Defib)
   if (!sys.quick) return;
   sys.endHold(true);
   sys.quick = null;
@@ -357,7 +361,7 @@ export function dropQuick(sys: WeaponSystem): void {
 /**
  * `inventory:quickSlotsChanged`: the consumable in hand vanished (dropped, moved, consumed elsewhere) → back to the
  * gun. A sibling stack of the same def that the inventory relinked into the slot is adopted instead.
- * 2026-09-11: the 기폭기 is not bound to a slot, so slot changes never kick it (it leaves when my mines are gone).
+ * 2026-09-11: the detonator is not bound to a slot, so slot changes never kick it (it leaves when my mines are gone).
  */
 export function onQuickSlotsChanged(sys: WeaponSystem, slots: readonly (ItemInstance | null)[]): void {
   if (!sys.quick || sys.quickBusy || sys.quick.detonator) return;
@@ -369,15 +373,17 @@ export function updateQuickHand(sys: WeaponSystem, dt: number, host: Host, usabl
   const q = sys.quick!;
   const input = sys.ctx.input;
   if (q.detonator) { sys.updateDetonator(dt, host, inputFree); return; }
-  // 2026-09-15 (사용자 결정): 제세동기는 **떼는 순간** 발동한다 — 충전이 끝나도 손을 떼기 전까지는 아무 일도 없고,
-  // 그 동안 크로스헤어가 대상을 잡는다 (`parts/Defib`). 그래서 채우면 곧바로 쓰는 `beginHeal` 길을 타지 않는다.
+  // 2026-09-15 (user's decision): the defibrillator fires **on release** — nothing happens once the charge is full
+  // until the hand is let go, and meanwhile the crosshair picks up a target (`parts/Defib`). So it never takes the
+  // `beginHeal` path, which uses an item the moment it fills.
   if (sys.isDefibHand(q)) { sys.updateDefibHand(dt, host, q, usable, inputFree); return; }
   if (sys.holding) {
     if (!usable) { sys.cancelHold(host); if (sys.quick && !sys.quickSlotItem(q.index)) sys.returnToGun(); return; }
     sys.updateHold(dt, host, q);
     return;
   }
-  // Phase 10 / 2026-09-07: 소모품은 LMB 홀드로 쓴다. Death / downed / menu / a wielded implant clear `usable` → cancel.
+  // Phase 10 / 2026-09-07: a consumable is used with an LMB hold. Death / downed / menu / a wielded implant clear
+  //   `usable` → cancel.
   if (sys.healHeld) {
     if (!usable) { sys.cancelHeal(); if (sys.quick && !sys.quickSlotItem(q.index)) sys.returnToGun(); return; }
     sys.updateHeal(dt, host, q);
@@ -385,8 +391,9 @@ export function updateQuickHand(sys: WeaponSystem, dt: number, host: Host, usabl
   }
   if (!inputFree || sys.quickCooldown > 0 || sys.quickHolsterT > 0) return;
   if (q.kind === 'gadget' && input.wasMousePressed(MouseButtons.AIM)) {
-    // 2026-09-11: C4 는 우클릭이 기폭이다. 드론 조종기는 우클릭에 할 일이 없다 (오버/언더 토글은 던지는 가젯의 것).
-    // 드론 조종기의 R 도 여기서 읽지 않는다 — 재장전 · 쿠킹 · 취소 어느 것도 아니고 consume 도 하지 않는다 (드론 코어의 R 홀드).
+    // 2026-09-11: RMB detonates for a C4. A drone controller has nothing to do with RMB (the over / underhand
+    //   toggle belongs to throwable gadgets). The drone controller's R is not read here either — it is neither a
+    //   reload nor a cook nor a cancel, and it consumes nothing (the drone core's R hold).
     if (q.def.gadgetId === REMOTE_MINE) { sys.detonateHeld(host); return; }
     if (isDroneDef(q.def)) return;
     sys.gadgetUnderhand = !sys.gadgetUnderhand;

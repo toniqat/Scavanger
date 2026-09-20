@@ -22,7 +22,7 @@ export interface ProjectileHit {
   fused: boolean;
   /** Phase 9: the projectile stopped at an implant barrier of this owner (`WeaponSystem` bills the barrier once; the raycast is pure). */
   barrierOwner?: PeerId | 'local' | null;
-  /* ── 2026-09-14 모든 총알을 발사체로 ── */
+  /* ── 2026-09-14 every bullet a projectile ── */
   /** An interceptable enemy shell was hit (the hitscan path could always shoot them down). */
   intercept?: InterceptableRef | null;
   /** The damage handed to `onHit` already carries the distance falloff (`ProjectileOptions.falloff*`). */
@@ -399,9 +399,9 @@ export class ProjectilePool {
   fire(origin: THREE.Vector3, dir: THREE.Vector3, speed: number, damage: number, range: number, color: number, weaponId: string, visualOnly = false, opts?: ProjectileOptions): void {
     const s = this.acquire();
     s.report = !visualOnly && (opts?.report ?? true);
-    // Phase 12 총알 추적: a reporting launch goes out along its initial line with no impact yet (the impact follows from
-    // `WeaponSystem.onProjectileHit`); gun fire reports once per trigger pull itself (`report: false`); visual-only
-    // replicas of other players' shots are the shooter's to report.
+    // Phase 12 shot tracking: a reporting launch goes out along its initial line with no impact yet (the impact
+    // follows from `WeaponSystem.onProjectileHit`); gun fire reports once per trigger pull itself
+    // (`report: false`); visual-only replicas of other players' shots are the shooter's to report.
     if (s.report) this.ctx.enemies?.reportShot(origin, dir, range, null);
     const v = Math.max(0.01, speed);
     s.seq = ++this.seq;
@@ -600,7 +600,8 @@ export class ProjectilePool {
       if (!out.valid) return false;
       const o = out.obstacleRef;
       if (o && o.fragile && !out.enemy && !out.intercept && !out.barrierOwner && pane < MAX_PANES_PER_STEP) {
-        // 2026-09-11 창문 규칙: 총알은 유리를 깨고 지나간다 (world makes the pane ray-transparent at once)
+        // 2026-09-11 the window rule: a bullet breaks the glass and passes through (world makes the pane
+        //   ray-transparent at once)
         if (!s.visualOnly) o.destructible?.onDamage(s.damage, out.point);
         const skip = out.distance + PANE_SKIP;
         _from.addScaledVector(_dir, skip);

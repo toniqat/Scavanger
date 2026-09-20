@@ -1,50 +1,61 @@
 /**
- * src/weapons/parts/Defib.ts — **제세동기의 조준 사용** (2026-09-15, 사용자 결정).
+ * src/weapons/parts/Defib.ts — **aimed use of the defibrillator** (2026-09-15, user's decision).
  *
- * 다른 홀드 소모품과 **반대**다: 회복약 · 실드 충전기 · 가젯은 홀드가 **채워지는 순간** 발동하지만,
- * 제세동기는 채워진 뒤에도 좌클릭을 **누르고 있고**, 쓰러진 아군을 크로스헤어에 올린 채 **떼야** 일으킨다.
- * 대상 없이 떼면 불발이고 **아이템은 소모되지 않는다**.
+ * It is the **opposite** of every other hold-to-use consumable: a heal · a shield charger · a gadget fires the
+ * **moment the hold fills**, but the defibrillator keeps the left button **held** after it has filled and revives
+ * only when it is **released** with a downed ally on the crosshair. Released with no target nothing fires and
+ * **the item is not consumed**.
  *
- * 이 파일이 하는 일은 셋뿐이다 — ① 충전 타이머(`DEFIB_USE_TIME_S`, 아이템의 `gadgetUseTime` 가 있으면 그것),
- * ② 겨눈 대상 판정(`GADGET_DEFIB_RANGE` 안 · `DEFIB_AIM_CONE_DEG` 반각), ③ 상태 방송 `gadget:defibAim`.
- * **그리는 곳은 `ui/hud/Reticle` 하나다** (작은 흰 원이 커져 큰 반투명 원과 겹치고, 겨누면 주황).
+ * This file does three things and no more — ① the charge timer (`DEFIB_USE_TIME_S`, or the item's own
+ * `gadgetUseTime` when it has one), ② the aimed-target test (inside `GADGET_DEFIB_RANGE` · half-angle
+ * `DEFIB_AIM_CONE_DEG`), ③ broadcasting the state as `gadget:defibAim`.
+ * **`ui/hud/Reticle` is the only place that draws it** (a small white circle grows into a large translucent one,
+ * orange while aimed).
  *
- * 실제 소생은 그대로 `ctx.gadgets.use('defib')` 가 한다 — 아이템 소모 · 사거리 검사 · `buff revive` 송신이
- * 전부 거기 있다. 여기의 `target` 은 **크로스헤어용 표시**이고, 「어느 아군인가」는 gadgets 의
- * `findDownedAlly` 가 **같은 조준 광선에서 각이 가장 작은 아군**을 고르므로 둘이 어긋나지 않는다.
+ * The revive itself is still `ctx.gadgets.use('defib')` — consuming the item, checking the range and sending
+ * `buff revive` are all in there. The `target` here is **a crosshair display only**, and 「which ally」 is
+ * decided by gadgets' `findDownedAlly`, which picks **the ally at the smallest angle off the same aim ray**, so
+ * the two never disagree.
  */
 import * as THREE from 'three';
 import { DEFIB_AIM_CONE_DEG, GADGET_DEFIB_RANGE, MouseButtons, type GadgetId, type ItemDef } from '@/shared';
 import type { Host, QuickHand } from '../model';
 import type { WeaponSystem } from '../WeaponSystem';
 
-/** 제세동기 가젯 id — 아이템 def 의 `gadgetId`. */
+/** The defibrillator's gadget id — the item def's `gadgetId`. */
 const DEFIB: GadgetId = 'defib';
 
-/** `gadget:defibAim` 송신 상한 (회복 홀드 게이지와 같은 30 Hz). 시작 · 준비 완료 · 대상 변화 · 종료는 강제로 보낸다. */
+/**
+ * `gadget:defibAim` send cap (30 Hz, the same as the heal hold gauge). Start · armed · a target change · the end
+ * are sent regardless.
+ */
 const EMIT_HZ = 30;
 
 const _o = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _to = new THREE.Vector3();
-/** 아군의 「가슴」 높이 — 발밑을 겨누지 않아도 잡히게 (스프레이 · 오버차지 빔과 같은 값). */
+/**
+ * An ally's 「chest」 height — so it catches without aiming at their feet (the same value the heal spray and the
+ * overcharge beam use).
+ */
 const CHEST_Y = 1.15;
 
-/** 손에 든 것이 제세동기인가 (기폭기 손 · 드론 조종기와 같은 방식의 한 줄 판별). */
+/** Is the thing in hand a defibrillator (a one-line test, like the detonator hand · a drone controller). */
 export function isDefibHand(sys: WeaponSystem, q: QuickHand): boolean {
   void sys;
   return !q.detonator && q.def.gadgetId === DEFIB;
 }
 
-/** 충전에 걸리는 초 — 아이템의 `gadgetUseTime`(없으면 `DEFIB_USE_TIME_S`)에 퍽 `quick_heal` 이 얹힌다. */
+/** Seconds the charge takes — the item's `gadgetUseTime` (else `DEFIB_USE_TIME_S`), with perk `quick_heal` on top. */
 function chargeTime(sys: WeaponSystem, def: ItemDef): number {
   return Math.max(0.05, sys.holdTimeOf(def));
 }
 
 /**
- * 지금 떼면 일으킬 아군이 걸려 있는가 — `GADGET_DEFIB_RANGE` 안의 **전투불능** 분대원 중 조준 광선에서 각이
- * `DEFIB_AIM_CONE_DEG` 이내인 것이 하나라도 있으면 true. 벽 뒤는 보지 않는다 (사거리가 5 m 라 의미가 없고,
- * gadgets 의 실제 소생 판정도 사거리만 본다 — 두 판정이 어긋나면 안 된다).
+ * Is an ally that releasing now would revive on the crosshair — true when at least one **downed** squadmate
+ * inside `GADGET_DEFIB_RANGE` sits within `DEFIB_AIM_CONE_DEG` of the aim ray. It does not look behind walls
+ * (the range is 5 m, so it would mean nothing, and gadgets' real revive test looks at the range alone — the two
+ * tests must not disagree).
  */
 function hasAimedAlly(sys: WeaponSystem, host: Host): boolean {
   const ctx = sys.ctx;
@@ -65,8 +76,9 @@ function hasAimedAlly(sys: WeaponSystem, host: Host): boolean {
     if (!r.isDowned || r.stale) continue;
     if (aimed(r.position)) return true;
   }
-  /* 2026-09-15 (안드로이드 분대원): 쓰러진 **안드로이드**도 같은 대상이다 — 여기가 「떼면 발동한다」 의 문이므로
-   * (`releaseDefib` 의 `fire = armed && target`) gadgets 의 `findDownedAlly` 와 **같은 범위**를 봐야 한다. */
+  /* 2026-09-15 (android squadmates): a downed **android** is the same kind of target — this is the gate for
+   * 「it fires on release」 (`releaseDefib`'s `fire = armed && target`), so it has to look at the **same range**
+   * as gadgets' `findDownedAlly`. */
   for (const b of ctx.allies?.getBodies?.() ?? []) {
     if (!b.downed || b.dead || b.hidden || b.mode !== 'raid') continue;
     if (aimed(b.position)) return true;
@@ -74,14 +86,14 @@ function hasAimedAlly(sys: WeaponSystem, host: Host): boolean {
   return false;
 }
 
-/** `gadget:defibAim` (throttled). `force` = 시작 · 준비 완료 · 대상 변화 · 종료. */
+/** `gadget:defibAim` (throttled). `force` = start · armed · a target change · the end. */
 function emit(sys: WeaponSystem, armed: boolean, charge: number, target: boolean, force: boolean): void {
   if (!force && sys.ctx.time - sys.defibEmitAt < 1 / EMIT_HZ) return;
   sys.defibEmitAt = sys.ctx.time;
   sys.ctx.bus.emit('gadget:defibAim', { armed, charge: THREE.MathUtils.clamp(charge, 0, 1), target });
 }
 
-/** 손을 떼거나 무기를 바꾸거나 죽었다: 크로스헤어를 닫고 이동 감속을 푼다. 아이템은 건드리지 않는다. */
+/** Released, swapped weapon or died: the crosshair closes and the movement slow is released. Items are untouched. */
 export function cancelDefib(sys: WeaponSystem, quiet = true): void {
   if (!sys.defibHeld && !sys.defibArmed) { if (!quiet) emit(sys, false, 0, false, true); return; }
   sys.defibHeld = false;
@@ -93,8 +105,8 @@ export function cancelDefib(sys: WeaponSystem, quiet = true): void {
 }
 
 /**
- * 매 프레임, 제세동기를 손에 든 동안. 누르기 시작 → 충전 → 준비 완료(이동 감속 해제) → 겨눔 표시 →
- * **떼면** 발동(대상이 있을 때만 `useGadget`, 없으면 거부음 · 소모 없음).
+ * Every frame while the defibrillator is in hand. Press → charge → armed (the movement slow is released) → the
+ * aimed marker → **release** fires it (`useGadget` only with a target; with none a deny sound and nothing used).
  */
 export function updateDefibHand(sys: WeaponSystem, dt: number, host: Host, q: QuickHand, usable: boolean, inputFree: boolean): void {
   const input = sys.ctx.input;
@@ -102,7 +114,8 @@ export function updateDefibHand(sys: WeaponSystem, dt: number, host: Host, q: Qu
   const down = input.isMouseDown(MouseButtons.FIRE);
 
   if (!sys.defibHeld) {
-    // 크로스헤어는 손에 든 순간부터 제세동기 모양이다 (Reticle 이 `quick:equipped` 로 안다) — 여기서는 누름만 본다.
+    // The crosshair takes the defibrillator shape the moment it is in hand (Reticle learns that from
+    //   `quick:equipped`) — only the press is read here.
     if (!inputFree || sys.quickCooldown > 0 || sys.quickHolsterT > 0) return;
     if (!input.wasMousePressed(MouseButtons.FIRE)) return;
     sys.defibHeld = true;
@@ -124,7 +137,7 @@ export function updateDefibHand(sys: WeaponSystem, dt: number, host: Host, q: Qu
       sys.defibArmed = true;
       sys.defibT = dur;
       force = true;
-      // 준비가 끝나면 감속을 푼다 — 준비한 채로 쓰러진 아군에게 **걸어가야** 하기 때문이다 (사용자 결정).
+      // The slow is released once armed — one has to **walk** to the downed ally holding it ready (user's decision).
       sys.setConsumableSlow(false);
       sys.ctx.bus.emit('audio:play', { id: 'ui_click', volume: 0.5 });
     }
@@ -134,7 +147,7 @@ export function updateDefibHand(sys: WeaponSystem, dt: number, host: Host, q: Qu
   emit(sys, sys.defibArmed, sys.defibArmed ? 1 : sys.defibT / dur, target, force);
 }
 
-/** 좌클릭을 뗐다. 준비 + 대상이면 일으키고, 아니면 불발 — **아이템은 소모되지 않는다**. */
+/** The left button was released. Armed + a target revives; otherwise nothing fires — **the item is not consumed**. */
 function releaseDefib(sys: WeaponSystem, host: Host, q: QuickHand): void {
   const fire = sys.defibArmed && sys.defibTarget;
   sys.defibHeld = false;
@@ -144,6 +157,6 @@ function releaseDefib(sys: WeaponSystem, host: Host, q: QuickHand): void {
   sys.setConsumableSlow(false);
   emit(sys, false, 0, false, true);
   if (!fire) { sys.deny(); return; }
-  // 소모 · 사거리 재검사 · `buff revive` 는 전부 gadgets 안에 있다 (거절하면 아이템도 그대로다).
+  // Consuming · re-checking the range · `buff revive` are all inside gadgets (a refusal leaves the item alone too).
   sys.useGadget(host, q);
 }
