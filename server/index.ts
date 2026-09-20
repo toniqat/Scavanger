@@ -28,15 +28,16 @@ const maxClients = Number(arg('max') ?? process.env.SCAV_MAX_CLIENTS ?? 0) || nu
 const devEconomy = devEconomyFromEnv();
 
 /*
- * 2026-09-15: **콘솔이 끊겨도 릴레이는 계속 돈다.** `npm run verify … --keep-relay` 가 남긴 릴레이는 러너가 끝나는
- * 순간 표준 출력 파이프의 *읽는 쪽*을 잃는다. 그 뒤 로그 한 줄이 EPIPE 를 던지고, 처리되지 않은 스트림 오류는
- * uncaughtException 으로 올라오며, 파일 끝의 핸들러가 그것을 다시 `console.error` 로 찍으려다 같은 EPIPE 를
- * 던진다 — 이벤트 루프가 그 고리에 갇혀 한 코어를 100 % 먹고, 버려진 쓰기가 쌓이면서 응답이 점점 늦어진다
- * (한 시간쯤 지나면 ping 왕복이 1 초 — 중계가 늦는 만큼 두 클라이언트 스모크가 통째로 무너진다).
- * 리스너를 달아 두면 스트림 오류가 uncaughtException 이 되지 않는다 — 로그만 잃고 중계는 멀쩡히 이어진다.
+ * 2026-09-15: **the relay keeps running when its console is gone.** A relay left behind by `npm run verify …
+ * --keep-relay` loses the *reading end* of its stdout pipe the moment the runner exits. A log line then throws EPIPE,
+ * an unhandled stream error rises as an uncaughtException, and the handler at the end of this file throws the same
+ * EPIPE while trying to print it with `console.error` — the event loop is caught in that loop, eats 100 % of one core
+ * and answers ever later as discarded writes pile up (after about an hour a ping round trip is 1 s — a relay that
+ * late brings a whole two-client smoke down). With a listener attached a stream error never becomes an
+ * uncaughtException — only the log is lost and the relay carries on.
  */
-process.stdout.on('error', () => { /* 콘솔이 사라졌다 — 이 줄은 버리고 계속 서비스한다 */ });
-process.stderr.on('error', () => { /* 같다 */ });
+process.stdout.on('error', () => { /* the console is gone — drop this line and keep serving */ });
+process.stderr.on('error', () => { /* the same */ });
 
 let server: RelayServer;
 try {
@@ -56,11 +57,11 @@ try {
     console.error('[relay]   start-server.bat 가 이미 켜져 있는지 먼저 확인하세요. 다른 포트로 켜려면 --port=<n>');
     console.error('[relay]   (그 경우 접속하는 사람도 주소 끝에 같은 포트를 적어야 합니다)');
   }
-  // 저장소 · 시세 타이머가 이미 돌고 있을 수 있다 — 기다리지 않고 끝낸다.
+  // The stores · the quote timer may already be running — this exits without waiting for them.
   process.exit(1);
 }
 
-// 명령 줄은 사람이 입력할 수 있을 때만 알린다 (터미널이거나, dev-all 이 자기 창의 입력을 넘겨주는 중).
+// The command line is announced only when a person can type (a TTY, or dev-all forwarding its own window's input).
 const consoleInput = startServerConsole(server);
 if (consoleInput && (process.stdin.isTTY || process.env.SCAV_CONSOLE === '1')) {
   console.log(`[relay] 콘솔 명령: ${CONSOLE_COMMANDS_LINE}   (이 창에 치고 Enter)`);
@@ -76,14 +77,14 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGHUP', () => shutdown('SIGHUP'));
 /**
- * 잡지 못한 오류를 한 줄 적고 **계속 돈다** (릴레이가 통째로 죽는 것보다 낫다).
- * 보고하다가 또 터지면 그대로 끝낸다 — 위 주석의 고리(EPIPE → uncaughtException → EPIPE)를 두 겹으로 막는다.
+ * Writes one line for an uncaught error and **keeps running** (better than losing the whole relay).
+ * A throw while reporting ends it there — a second guard over the loop above (EPIPE → uncaughtException → EPIPE).
  */
 let reporting = false;
 const report = (label: string, e: unknown): void => {
   if (reporting) return;
   reporting = true;
-  try { console.error(`[relay] ${label}`, e); } catch { /* 적을 곳이 없다 */ }
+  try { console.error(`[relay] ${label}`, e); } catch { /* nowhere left to write */ }
   reporting = false;
 };
 process.on('uncaughtException', (e) => report('uncaughtException', e));

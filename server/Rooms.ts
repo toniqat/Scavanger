@@ -1,22 +1,27 @@
 /**
- * server/Rooms.ts — 단체 메신저방 저장소 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * server/Rooms.ts — the group room store (2026-09-14, docs/DECISIONS.md
+ * 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
- * 방은 **서버 권위 · 영속**이다. 이 파일은 데이터와 규칙(멤버 · 방장 · 초대 · 줄 · 한도)만 갖고, 누가 친구인지 · 누가 누구를
- * 차단했는지 · 접속해 있는지는 모른다 — 그건 `RelayServer` 가 `ProfileStore` 로 먼저 보고 여기를 부른다. 그래서 모든 연산은
- * 소켓 없이 부를 수 있고 (selftest 가 한도 · 방장 이관 · GC 를 직접 돌린다) 결과로 **붙은 줄**과 **`room:state` 를 새로 받아야 할
- * 아이디 목록**을 돌려준다.
+ * Rooms are **server-authoritative and persistent**. This file holds only the data and the rules (members · the room
+ * owner · invites · lines · limits); it does not know who is a friend, who blocked whom or who is connected — the
+ * `RelayServer` checks that against the `ProfileStore` first and then calls in here. So every operation can be called
+ * without a socket (the selftest drives the limits · the owner handoff · GC directly) and returns the **appended
+ * lines** plus **the list of codes that need a fresh `room:state`**.
  *
- * 규칙 (사용자 결정 「방장형」):
- *  - 누구나 만든다 (만든 사람 = 방장). 한 사람이 든 방은 `ROOM_JOINED_MAX` 개.
- *  - 초대 · 강퇴 · 이름 변경은 방장만. 초대는 영속이고 `ROOM_INVITE_TTL_MS` 뒤 사라진다. 멤버는 `ROOM_MEMBER_MAX` 명.
- *  - 방장이 나가면 **가장 먼저 들어온 멤버**가 방장 (시스템 줄 `owner`), 마지막 멤버가 나가면 방 삭제 (열린 초대도 함께).
- *  - 줄은 방마다 최근 `ROOM_LINES_MAX` 줄. 시각은 방 안에서 **엄격히 증가**한다 (`room:history {before}` 가 시각으로 자르므로 같은
- *    ms 두 줄이 한쪽을 건너뛰지 않게).
- *  - 프로필 GC 가 지운 아이디는 멤버 · 초대에서 빠진다 (`collectGarbage`).
+ * Rules (user's decision 「방장형」):
+ *  - Anyone creates one (the creator = the room owner). One person is in at most `ROOM_JOINED_MAX` rooms.
+ *  - Invite · kick · rename are owner-only. An invite is persistent and disappears after `ROOM_INVITE_TTL_MS`.
+ *    Members are capped at `ROOM_MEMBER_MAX`.
+ *  - When the owner leaves, the **member who joined first** becomes owner (system line `owner`); when the last member
+ *    leaves the room is deleted (with its open invites).
+ *  - Lines are the last `ROOM_LINES_MAX` per room. Their times **strictly increase** inside a room (`room:history
+ *    {before}` cuts by time, so two lines in the same ms must never skip one of them).
+ *  - A code the profile GC deleted drops out of the members · invites (`collectGarbage`).
  *
- * 저장: `<dataDir>/rooms.json` — `Store.ts` 와 같은 춤 (디바운스 비동기 쓰기 = tmp + fsync → 이전 파일 → `.bak` → tmp → 본 파일,
- * `flush()` · `close()` 는 동기). 읽다 깨지면 원본을 `rooms.corrupt-<시각>.json` 으로 옮기고 `.bak` 에서 복구, 그것도 없으면 빈 채로
- * 시작하되 원본은 남는다. 옮기지도 못하면 메모리로만 돈다 (덮어쓰지 않는다).
+ * Persistence: `<dataDir>/rooms.json` — the same dance as `Store.ts` (a debounced async write = tmp + fsync → the old
+ * file → `.bak` → tmp → the main file; `flush()` · `close()` are synchronous). On a parse failure the original is
+ * moved to `rooms.corrupt-<time>.json` and recovered from `.bak`; with neither it starts empty and the original is
+ * kept. If it cannot even be moved aside, the store runs memory-only (it never overwrites).
  *
  * Erasable-TypeScript only (runs under Node 24's native type stripping).
  */
@@ -50,12 +55,12 @@ export type RoomOp =
 export interface RoomGcReport {
   /** Rooms deleted because no member was left. */
   deleted: RoomId[];
-  /** Members / invites dropped (unknown 아이디 or an expired invite). */
+  /** Members / invites dropped (an unknown code or an expired invite). */
   droppedMembers: number;
   expiredInvites: number;
   /** System lines appended (owner handoffs) — the relay fans them out. */
   lines: { room: RoomRecord; line: RoomLine }[];
-  /** 아이디 whose `room:state` changed. */
+  /** The codes whose `room:state` changed. */
   notify: PlayerCode[];
 }
 
@@ -64,7 +69,7 @@ export interface RoomStoreOptions {
   dataDir?: string | null;
   saveDebounceMs?: number;
   quiet?: boolean;
-  /** Display name of an 아이디 for system lines the store writes on its own (GC owner handoff). Default: the dashed code. */
+  /** Display name of a code for system lines the store writes itself (GC owner handoff); default the dashed code. */
   nameOf?: (code: PlayerCode) => string;
 }
 
@@ -112,9 +117,9 @@ function sanitizeRoom(id: string, raw: unknown): RoomRecord | null {
 
 export class RoomStore {
   private readonly rooms = new Map<RoomId, RoomRecord>();
-  /** 아이디 → rooms it is a member of. */
+  /** Code → rooms it is a member of. */
   private readonly byMember = new Map<PlayerCode, Set<RoomId>>();
-  /** 아이디 → rooms that invited it. */
+  /** Code → rooms that invited it. */
   private readonly byInvitee = new Map<PlayerCode, Set<RoomId>>();
   private file: string | null;
   private readonly debounceMs: number;
@@ -295,8 +300,8 @@ export class RoomStore {
   }
 
   /**
-   * Profile GC follow-up + invite expiry: members whose 아이디 no longer resolves leave (owner handoff with its system line,
-   * empty rooms deleted), invites past `ROOM_INVITE_TTL_MS` or naming a vanished 아이디 are dropped.
+   * Profile GC follow-up + invite expiry: members whose code no longer resolves leave (owner handoff with its system
+   * line, empty rooms deleted), invites past `ROOM_INVITE_TTL_MS` or naming a vanished code are dropped.
    */
   collectGarbage(resolves: (code: PlayerCode) => boolean, now: number = Date.now()): RoomGcReport {
     const report: RoomGcReport = { deleted: [], droppedMembers: 0, expiredInvites: 0, lines: [], notify: [] };

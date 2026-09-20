@@ -7,26 +7,31 @@
  * (`<dataDir>/profiles.json`) written with a 1 s debounce and flushed on close; `dataDir: null` keeps everything in
  * memory (selftest). Erasable-TypeScript only (Node native type stripping).
  *
- * **2026-09-11 (C-41 · X-2) — 쓰기와 손상 복구.**
- *  - 디바운스 쓰기는 **비동기**다: `tmp` 에 쓰고 `fsync` → 이전 `profiles.json` 을 `profiles.json.bak` 으로 →
- *    `tmp` 를 `profiles.json` 으로 rename. 13 MB 짜리 파일을 동기로 쓰면 그동안 릴레이 전체(스냅샷 중계)가 멎었다.
- *    쓰는 도중에 또 바뀌면 끝난 뒤 **한 번 더** 쓴다. `close()` 는 예전처럼 **동기**다 — 종료 직전의 마지막 쓰기를
- *    잃지 않고, 진행 중이던 비동기 쓰기는 세대 번호(`gen`)가 바뀐 것을 보고 rename 하지 않고 물러난다.
- *  - 예전에는 `profiles.json` 파싱이 실패하면 "starting empty" 로 빈 DB 를 띄웠고 **첫 flush 가 원본을 덮어써**
- *    모든 계정이 영구히 사라졌다(백업도 없었다). 이제 원본을 `profiles.corrupt-<시각>.json` 으로 옮겨 **보존**하고
- *    `.bak`(직전 세대)에서 복구한다. `.bak` 도 없으면 빈 DB 로 시작하되 원본은 그대로 남는다.
- *  - 파일 포맷(`{v:1, profiles}`)은 바뀌지 않았다.
+ * **2026-09-11 (C-41 · X-2) — writes and corruption recovery.**
+ *  - The debounced write is **async**: write `tmp` and `fsync` → the old `profiles.json` to `profiles.json.bak` →
+ *    rename `tmp` over `profiles.json`. Writing a 13 MB file synchronously stalled the whole relay (snapshot
+ *    forwarding included) for as long as it took. A change made during a write is written **once more** afterwards.
+ *    `close()` is **synchronous** as before — the last write before shutdown is never lost, and an async write
+ *    already in flight sees the generation number (`gen`) change and backs off without renaming.
+ *  - A failed `profiles.json` parse used to bring up an empty DB, "starting empty", and **the first flush overwrote
+ *    the original**, so every account was gone for good (there was no backup either). Now the original is moved to
+ *    `profiles.corrupt-<time>.json` and **kept**, and the store recovers from `.bak` (the previous generation). With
+ *    no `.bak` it starts on an empty DB and the original still stays.
+ *  - The file format (`{v:1, profiles}`) did not change.
  *
- * **2026-09-11 (B-2) — GC.** 토큰으로 한 번이라도 붙은 사람마다 프로필(≈ 5.7 KB)이 영원히 남던 것을 정리한다.
- * `seenAt`(접속 · 해제 시각) 기준 `PROFILE_GC_INACTIVE_MS`(90일) 동안 안 온 프로필을 통째로 지우고, 남은 프로필의
- * 친구 · 요청 · 최근 목록에서 그 아이디를 뺀다. 최근 만난 플레이어(`SOCIAL_RECENT_TTL_MS`)와 답 없는 친구 요청
- * (`SOCIAL_REQUEST_TTL_MS`, `SocialRecord.requestsAt`)은 30일에 따로 만료된다. 무엇을 지우지 않을지(접속 중 · 로비
- * 멤버)는 릴레이가 `collectGarbage(keep)` 로 알려 준다.
+ * **2026-09-11 (B-2) — GC.** Cleans up what used to leave one profile (≈ 5.7 KB) behind forever for everyone who
+ * ever connected with a token. A profile unseen for `PROFILE_GC_INACTIVE_MS` (90 days) by `seenAt` (the connect ·
+ * disconnect time) is deleted whole, and its code is dropped from the friends · requests · recent lists of the
+ * profiles that stay. Recent players (`SOCIAL_RECENT_TTL_MS`) and unanswered friend requests
+ * (`SOCIAL_REQUEST_TTL_MS`, `SocialRecord.requestsAt`) expire separately at 30 days. What must not be deleted
+ * (connected · a lobby member) is told by the relay through `collectGarbage(keep)`.
  *
- * **2026-09-11 (E-6) — 문서 리비전.** 문서마다 `docsRev[key]` 가 있고 받아들인 쓰기마다 +1 이다(옛 `at` 쓰기도).
- * 새 쓰기(`writeDocs`)는 시계가 아니라 "내가 본 판 위에 쓰는가" 를 묻는다 — `baseRev` 가 지금 rev 와 같으면 저장,
- * 아니면 `conflict` 로 서버 사본을 돌려준다. 여러 문서는 전부 검사한 뒤 **전부 또는 전무**. 같은 쓰기 id 의 재전송은
- * 다시 ack 한다(메모리에 최근 16개). 옛 파일의 문서는 로드 때 rev 1 로 시드된다. `stale` 무음 규칙은 옛 프레임에만 남는다.
+ * **2026-09-11 (E-6) — document revisions.** Every document has a `docsRev[key]`, +1 on every accepted write (the
+ * old `at` writes too). A new write (`writeDocs`) asks not about the clock but "am I writing on top of the version I
+ * saw" — `baseRev` equal to the current rev stores it, anything else returns the server's copy as a `conflict`.
+ * Several documents are all checked first and then written **all or nothing**. A resend of the same write id is
+ * acked again (the last 16, in memory). Documents from an old file are seeded to rev 1 on load. The silent `stale`
+ * rule survives for the old frames only.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { mkdir, open, rename, rm } from 'node:fs/promises';
@@ -34,7 +39,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CreditsTxResult, ProfileDocKey, ProfileRecord } from '../src/shared/profile.ts';
 import { PROFILE_CLOCK_SKEW_MS, PROFILE_DOC_KEYS, PROFILE_DOC_MAX_BYTES, PROFILE_GC_INACTIVE_MS } from '../src/shared/profile.ts';
-/* 2026-09-11 (E-6): 문서 리비전 · 트랜잭션 */
+/* 2026-09-11 (E-6): document revisions · transactions */
 import { PROFILE_SETMANY_MAX_BYTES } from '../src/shared/profile.ts';
 import type { PeerId } from '../src/shared/net.ts';
 import { sanitizePlayerName } from '../src/shared/net.ts';
@@ -44,9 +49,9 @@ import {
   SOCIAL_FRIEND_MAX, SOCIAL_RECENT_MAX, SOCIAL_RECENT_TTL_MS, SOCIAL_REQUEST_MAX, SOCIAL_REQUEST_TTL_MS,
   isValidPlayerCode, playerCodeFrom,
 } from '../src/shared/social.ts';
-/* 2026-09-11 (B-4): 차단 · 오프라인 개인 대화 보관 */
+/* 2026-09-11 (B-4): blocks · keeping offline private chat */
 import { SOCIAL_BLOCK_MAX, SOCIAL_WHISPER_INBOX_MAX, SOCIAL_WHISPER_INBOX_TTL_MS, SOCIAL_WHISPER_MAX } from '../src/shared/social.ts';
-/* 2026-09-11 (E-4 ⑦): 서버 크레딧 검증 */
+/* 2026-09-11 (E-4 ⑦): server-side credit validation */
 import type { CreditLedger } from '../src/shared/credits.ts';
 import { CREDIT_TX_INVALID_KO } from '../src/shared/credits.ts';
 import { type CreditEconomy, emptyLedger, sanitizeLedger } from './Economy.ts';
@@ -74,9 +79,9 @@ export const PROFILE_GC_INTERVAL_MS = 6 * 60 * 60_000;
 export interface ProfileGcReport {
   /** Profiles deleted because their owner had not connected for `PROFILE_GC_INACTIVE_MS`. */
   removed: PeerId[];
-  /** Friend / request / 최근 만난 플레이어 entries whose 아이디 no longer belongs to any profile. */
+  /** Friend / request / recent-player entries whose code no longer belongs to any profile. */
   danglingRefs: number;
-  /** 최근 만난 플레이어 entries older than `SOCIAL_RECENT_TTL_MS`. */
+  /** Recent-player entries older than `SOCIAL_RECENT_TTL_MS`. */
   expiredRecent: number;
   /** Request entries older than `SOCIAL_REQUEST_TTL_MS` — one unanswered request is two entries (incoming + outgoing). */
   expiredRequests: number;
@@ -246,7 +251,7 @@ function sanitizeRecord(raw: unknown, now: number = Date.now()): ProfileRecord |
 /** Outcome of `ProfileStore.setDoc`. `'stale'` = an older stamp (or a `fresh` write over an existing document): ignored, not an error. */
 export type SetDocResult = ProfileRecord | 'invalid' | 'too_large' | 'stale';
 
-/* ── 2026-09-11 (E-6): 문서 리비전 ───────────────────────────────────────── */
+/* ── 2026-09-11 (E-6): document revisions ─────────────────────────────── */
 
 /** One document of a revision write: the JSON and the `docsRev[key]` it was made on top of (0 = no document yet). */
 export interface RevWriteDoc { doc: unknown; baseRev: number }
@@ -407,7 +412,7 @@ export class ProfileStore {
 
   has(id: PeerId): boolean { return this.profiles.has(id); }
 
-  /** Record for `id` **without** creating one (Phase 11: a lookup by 아이디 must not mint placeholder profiles). */
+  /** Record for `id` **without** creating one (Phase 11: a lookup by code must not mint placeholder profiles). */
   getIfExists(id: PeerId): ProfileRecord | undefined { return this.profiles.get(id); }
 
   /** Wire copy (documents are shared by reference — never mutated by the server). */
@@ -584,7 +589,7 @@ export class ProfileStore {
         return code;
       }
     }
-    // Astronomically unlikely: keep salt 0 rather than leaving the profile without an 아이디.
+    // Astronomically unlikely: keep salt 0 rather than leaving the profile without a code.
     soc.code = playerCodeFrom(id, 0);
     soc.salt = 0;
     return soc.code;
@@ -594,7 +599,7 @@ export class ProfileStore {
   social(id: PeerId): SocialRecord | undefined { return this.profiles.get(id)?.social; }
 
   /**
-   * The social record of `id`, created on first contact with a freshly assigned 아이디. `name` (the socket's `?n=` /
+   * The social record of `id`, created on first contact with a freshly assigned code. `name` (the socket's `?n=` /
    * `lobby:name`) refreshes the stored display name so an offline friend still has one.
    */
   ensureSocial(id: PeerId, name?: string): SocialRecord {
@@ -616,7 +621,7 @@ export class ProfileStore {
     return soc;
   }
 
-  /** PeerId owning this 아이디, or undefined. The reverse direction is never sent to a client. */
+  /** PeerId owning this code, or undefined. The reverse direction is never sent to a client. */
   peerByCode(code: PlayerCode): PeerId | undefined {
     return isValidPlayerCode(code) ? this.byCode.get(code) : undefined;
   }
@@ -719,7 +724,7 @@ export class ProfileStore {
   }
 
   /**
-   * 최근 만난 플레이어: two profiles shared a ship. Written newest-first on both records, skipped for friends, and
+   * Recent players: two profiles shared a ship. Written newest-first on both records, skipped for friends, and
    * trimmed to `SOCIAL_RECENT_MAX` (oldest first). Returns true when either record changed.
    */
   recordMet(aId: PeerId, bId: PeerId, at: number = Date.now()): boolean {
@@ -743,13 +748,13 @@ export class ProfileStore {
     return changed;
   }
 
-  /* ── 2026-09-11 (B-4): 차단 · 오프라인 개인 대화 보관 ─────────────────────── */
+  /* ── 2026-09-11 (B-4): blocks · keeping offline private chat ──────────── */
 
   private hasBlocked(owner: SocialRecord, code: PlayerCode): boolean {
     return owner.blocked !== undefined && owner.blocked.includes(code);
   }
 
-  /** B-4: true when the profile `ownerId` has blocked the 아이디 `code`. */
+  /** B-4: true when the profile `ownerId` has blocked the code `code`. */
   isBlocked(ownerId: PeerId, code: PlayerCode): boolean {
     const soc = this.social(ownerId);
     return soc !== undefined && this.hasBlocked(soc, code);
@@ -857,9 +862,9 @@ export class ProfileStore {
 
   /**
    * One GC pass. ① Deletes every profile whose owner has not been seen for `PROFILE_GC_INACTIVE_MS` unless `keep(id)`
-   * (the relay passes "connected or a lobby member") — its 아이디 leaves the index, so the same token coming back later
-   * starts over as a new profile. ② On every survivor, drops friend / request / 최근 만난 플레이어 entries whose 아이디 no
-   * longer resolves, 최근 entries older than `SOCIAL_RECENT_TTL_MS` and requests older than `SOCIAL_REQUEST_TTL_MS`.
+   * (the relay passes "connected or a lobby member") — its code leaves the index, so the same token coming back later
+   * starts over as a new profile. ② On every survivor, drops friend / request / recent-player entries whose code no
+   * longer resolves, recent entries past `SOCIAL_RECENT_TTL_MS` and requests past `SOCIAL_REQUEST_TTL_MS`.
    *
    * A legacy record's `seenAt` is filled from `lastSeen` on its first pass: otherwise a friend request *to* an abandoned
    * profile (which bumps its `social.updatedAt`) would keep it alive forever. The GC itself never bumps `updatedAt`.
@@ -909,7 +914,7 @@ export class ProfileStore {
           dirty = true;
         }
       }
-      /* B-4: a blocked 아이디 whose profile is gone cannot be drawn (or unblocked) — dropped like any dangling entry. */
+      /* B-4: a blocked code whose profile is gone cannot be drawn (or unblocked) — dropped like a dangling entry. */
       const blocked = soc.blocked?.filter(resolves);
       const blockedChanged = blocked !== undefined && blocked.length !== (soc.blocked?.length ?? 0);
       if (blockedChanged) { if (blocked.length === 0) delete soc.blocked; else soc.blocked = blocked; }
@@ -948,7 +953,7 @@ export class ProfileStore {
   private serialize(): string {
     const out: ProfileFile = { v: 1, profiles: {} };
     for (const [id, rec] of this.profiles) {
-      // Never persist untouched placeholder records (a social record counts as content: it holds the 아이디).
+      // Never persist untouched placeholder records (a social record counts as content: it holds the code).
       if (rec.credits === null && rec.updatedAt === 0 && Object.keys(rec.docs).length === 0 && !rec.social) continue;
       out.profiles[id] = rec;
     }

@@ -1,38 +1,47 @@
 /**
- * 암호화폐 시세 시뮬레이션 · 봉 이력 · 저장 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — 계약 `src/shared/cryptoMarket.ts` ·
- * `src/shared/credits.ts` 의 `EconomyTable.crypto` · `src/shared/net.ts` 의 `crypto:*`).
+ * Crypto price simulation · candle history · persistence (2026-09-13, docs/DECISIONS.md
+ * 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — the contract is `src/shared/cryptoMarket.ts` ·
+ * `EconomyTable.crypto` in `src/shared/credits.ts` · `crypto:*` in `src/shared/net.ts`).
  *
- * 릴레이가 코인 시세의 **유일한 원본**이다 (사용자 결정 — 서버에 붙어 있어야 차트 · 매매가 된다). 수치의 원본은
- * `economy.gen.json` 의 `crypto` 절(← data/crypto.csv · tuning.csv): 기준가 `basePrice` · 하루 표준편차 `volatility` · 틱 `tickMs` ·
- * 거래 검증 창 `quoteWindowMs`.
+ * The relay is the **one source** of coin prices (user's decision — a chart and a trade need the server). The numbers
+ * come from the `crypto` section of `economy.gen.json` (← data/crypto.csv · tuning.csv): the base price `basePrice` ·
+ * the daily standard deviation `volatility` · the tick `tickMs` · the trade validation window `quoteWindowMs`.
  *
- * **움직임.** 틱마다 코인별로 로그 가격 x 가 ln(basePrice) 쪽으로 평균 회귀한다 (Ornstein–Uhlenbeck 의 정확한 이산화):
- *   x' = μ + (x − μ)·e^(−θ·dt) + volatility·√dt·Z     (dt = 틱 길이 ÷ 하루, θ = ln2 ÷ 반감기 3일)
- * 드물게 점프(`CRYPTO_JUMPS_PER_DAY` 기대 횟수, 크기 σ = volatility × `CRYPTO_JUMP_SIGMA_MUL`)가 끼고, x 는 [μ − ln5, μ + ln5]
- * (= 기준가의 1/5 … 5배)로 자른다. 정상 상태의 로그 표준편차는 volatility ÷ √(2θ) ≈ 1.47 × volatility 라 경계는 거의 닿지 않는다.
+ * **The movement.** Every tick each coin's log price x mean-reverts toward ln(basePrice) (the exact discretisation of
+ * an Ornstein–Uhlenbeck process):
+ *   x' = μ + (x − μ)·e^(−θ·dt) + volatility·√dt·Z     (dt = tick length ÷ a day, θ = ln2 ÷ a half-life of 3 days)
+ * Rare jumps slip in (`CRYPTO_JUMPS_PER_DAY` expected, size σ = volatility × `CRYPTO_JUMP_SIGMA_MUL`), and x is cut
+ * to [μ − ln5, μ + ln5] (= 1/5 … 5× the base price). The steady state's log standard deviation is
+ * volatility ÷ √(2θ) ≈ 1.47 × volatility, so the band is almost never touched.
  *
- * **난수는 상태가 없다.** 한 걸음의 난수는 (seed, 코인 id 해시, 틱 번호 = 시각 ÷ tickMs, 스트림)의 해시다 — 그래서 끊겼던 시간을
- * 틱 단위로 다시 돌리면(갭 채우기) 서버가 켜져 있었을 때와 **같은 경로**가 나오고, 같은 seed · 같은 시각이면 셀프테스트가 늘 같다.
- * seed 는 `crypto.json` 에 산다 (처음 켤 때 무작위 또는 옵션).
+ * **The random numbers hold no state.** One step's randomness is a hash of (seed, the coin id's hash, the tick
+ * number = time ÷ tickMs, the stream) — so replaying the time it was down tick by tick (the gap fill) gives **the
+ * same path** it would have had while running, and the same seed at the same time makes the selftest repeat exactly.
+ * The seed lives in `crypto.json` (random on the first start, or from an option).
  *
- * **봉.** 1분봉을 25시간, 1시간봉을 32일 들고 있다. 기간별 답(`history`)은 `CRYPTO_CANDLE_MS` · `CRYPTO_CANDLE_COUNT` 그대로 —
- * '1h' = 1분봉 60개, '1d' = 1분봉을 15분으로 묶은 96개, '1w' = 1시간봉 168개, '1M' = 1시간봉을 4시간으로 묶은 180개.
- * 마지막 봉은 진행 중일 수 있다. 봉의 시가는 직전 가격이다 (차트가 끊기지 않게).
+ * **Candles.** 1-minute candles are kept for 25 hours, 1-hour ones for 32 days. The per-range answer (`history`) is
+ * exactly `CRYPTO_CANDLE_MS` · `CRYPTO_CANDLE_COUNT` — '1h' = 60 one-minute candles, '1d' = 96 one-minute candles
+ * grouped by 15 minutes, '1w' = 168 one-hour candles, '1M' = 180 one-hour candles grouped by 4 hours.
+ * The last candle may still be running. A candle's open is the price before it (so the chart never breaks).
  *
- * **처음 켤 때 · 꺼져 있던 동안.** 기록이 없으면 31일 전 기준가에서 출발해 지금까지 결정적으로 채운다 — 차트가 비지 않는다.
- * 꺼져 있던 틈도 같은 함수로 채운다: 가장 최근 `CRYPTO_FINE_FILL_MS`(24시간)는 틱 단위(1시간 · 1일 차트가 촘촘하게),
- * 그보다 오래된 부분은 `CRYPTO_COARSE_STEP_MS`(10분) 걸음(1시간봉 OHLC 가 나온다), 31일을 넘는 틈은 31일로 자른다 —
- * 코인 8종 × 최악의 틈이 수십 ms 다.
+ * **The first start · the time it was down.** With no history it starts from the base price 31 days ago and fills
+ * deterministically up to now — the chart is never empty. A gap while it was down is filled by the same function: the
+ * most recent `CRYPTO_FINE_FILL_MS` (24 hours) tick by tick (so the 1-hour · 1-day charts are dense), anything older
+ * in `CRYPTO_COARSE_STEP_MS` (10-minute) steps (which yields the 1-hour candles' OHLC), a gap over 31 days is cut to
+ * 31 days — 8 coins × the worst gap is tens of ms.
  *
- * **거래 검증 창.** 최근 `quoteWindowMs + 2 × tickMs` 의 틱 가격을 들고 `quoteRange(coin, now)` 가 [now − quoteWindowMs − tickMs, now]
- * 안의 최저 · 최고 시세를 돌려준다 (창 시작 순간에 유효했던 시세 = 그 직전 틱까지 포함). `Economy.ts` 가 이것으로 `cbuy` · `csell`
- * 금액을 본다 — 이 파일은 크레딧을 모른다.
+ * **The trade validation window.** It keeps the tick prices of the last `quoteWindowMs + 2 × tickMs`, and
+ * `quoteRange(coin, now)` returns the lowest · highest quote inside [now − quoteWindowMs − tickMs, now] (the quote
+ * that was live the moment the window opened = the tick before it included). `Economy.ts` judges the `cbuy` · `csell`
+ * amounts with it — this file knows nothing about credits.
  *
- * **저장.** `<dataDir>/crypto.json` — `Store.ts` 와 같은 춤: 디바운스(`CRYPTO_SAVE_DEBOUNCE_MS`) 비동기 쓰기 = tmp + fsync → 이전 파일 →
- * `.bak` → tmp → 본 파일, `close()` 는 동기. 읽다 깨지면 원본을 `crypto.corrupt-<시각>.json` 으로 옮기고 `.bak` 에서 복구, 그것도 없으면
- * 다시 채운다 (시세는 다시 만들 수 있는 데이터다). 표에 없는 코인은 버리고, 새 코인은 채운다. `dataDir: null` = 메모리만.
+ * **Persistence.** `<dataDir>/crypto.json` — the same dance as `Store.ts`: a debounced (`CRYPTO_SAVE_DEBOUNCE_MS`)
+ * async write = tmp + fsync → the old file → `.bak` → tmp → the main file; `close()` is synchronous. On a parse
+ * failure the original is moved to `crypto.corrupt-<time>.json` and recovered from `.bak`; with neither it is filled
+ * again (a price history is data that can be remade). Coins missing from the table are dropped, new coins filled in.
+ * `dataDir: null` = memory only.
  *
- * erasable TypeScript 만 (Node 네이티브 타입 제거) · `import.meta` 없음 (배포 exe 번들이 CJS 다).
+ * Erasable TypeScript only (Node's native type stripping) · no `import.meta` (the shipped exe's bundle was CJS).
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { mkdir, open, rename, rm } from 'node:fs/promises';
@@ -59,8 +68,10 @@ export function corruptCryptoFileName(now: Date = new Date()): string {
 export const CRYPTO_SAVE_DEBOUNCE_MS = 60_000;
 
 /*
- * 시뮬레이션 모양 (리드 설계 — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」). 코인별 밸런스(기준가 · 변동성 · 틱)는 csv 에 있고, 여기는 **모델의 모양**만:
- * 반감기 · 점프 빈도 · 점프 크기 · 가격 띠. 이 넷을 csv 로 올리려면 `EconomyTable.crypto` 에 필드를 추가하고 생성기가 싣는다.
+ * The shape of the simulation (the lead's design — docs/DECISIONS.md
+ * 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」). Per-coin balance (base price · volatility · tick) lives in
+ * the csv; only the **shape of the model** is here: the half-life · the jump frequency · the jump size · the price
+ * band. To lift these four into the csv, add fields to `EconomyTable.crypto` and have the generator carry them.
  */
 /** Mean-reversion half-life of the log price (days). */
 export const CRYPTO_REVERSION_HALF_LIFE_DAYS = 3;

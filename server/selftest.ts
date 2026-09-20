@@ -23,7 +23,7 @@ import { SOCIAL_BLOCK_MAX, SOCIAL_PUSH_COALESCE_MS, SOCIAL_WHISPER_INBOX_MAX, SO
 import { Lobby, LobbyManager, LOBBY_ERROR_MESSAGE_KO } from './Lobby.ts';
 import { startRelayServer, peerIdFromToken, PEER_ID_LENGTH } from './RelayServer.ts';
 import { ProfileStore, PROFILE_BACKUP_SUFFIX, PROFILE_FILE, SOCIAL_LEVEL_MAX } from './Store.ts';
-/* 2026-09-11 (E-4 ⑦) — part 12: 서버 크레딧 검증 */
+/* 2026-09-11 (E-4 ⑦) — part 12: server-side credit validation */
 import type { CreditLedger, CreditReason } from '../src/shared/credits.ts';
 import {
   CREDIT_CONTRACT_MAX_PER_HOUR, CREDIT_REFUND_WINDOW_MS, CREDIT_ROVER_MAX_PER_HOUR, CREDIT_TX_INVALID_KO, economyTableDigest, formatCreditReason,
@@ -32,23 +32,23 @@ import {
 import {
   CREDIT_CONTRACT_WINDOW_MS, CREDIT_LEDGER_DEBITS_MAX, CreditEconomy, ECONOMY_TABLE, devEconomyFromEnv, emptyLedger, sanitizeLedger,
 } from './Economy.ts';
-/* 2026-09-14 (정보상) — part 12 의 `intel:<planet>:<code>` */
+/* 2026-09-14 (the intel broker) — part 12's `intel:<planet>:<code>` */
 import { CREDIT_INTEL_MAX_PER_HOUR } from '../src/shared/credits.ts';
 import { intelCode, intelCost, parseIntelCode, sanitizeIntelPicks } from '../src/shared/intel.ts';
-/* 2026-09-13 — part 13: 암호화폐 시세 */
+/* 2026-09-13 — part 13: crypto prices */
 import { CREDIT_CRYPTO_MAX_PER_HOUR } from '../src/shared/credits.ts';
 import type { CryptoChartRange } from '../src/shared/cryptoMarket.ts';
 import { CRYPTO_CANDLE_COUNT, CRYPTO_CANDLE_MS, CRYPTO_CHART_RANGES, cryptoTradeCredits } from '../src/shared/cryptoMarket.ts';
 import { CRYPTO_BACKUP_SUFFIX, CRYPTO_FILE, CRYPTO_PRICE_BAND, CryptoMarket, DAY_MS, HOUR_MS, type CryptoTable } from './CryptoMarket.ts';
-/* 2026-09-14 — part 14: 단체 메신저방 */
+/* 2026-09-14 — part 14: group rooms */
 import {
   ROOM_ERROR_MESSAGE_KO, ROOM_HISTORY_PAGE, ROOM_INVITE_TTL_MS, ROOM_JOINED_MAX, ROOM_LINES_MAX, ROOM_MEMBER_MAX, ROOM_SAY_BURST,
   isValidRoomId, roomSystemTextKo,
 } from '../src/shared/social.ts';
 import { ROOM_FILE, RoomStore } from './Rooms.ts';
-/* 2026-09-15 — part 8d: 분대 · 도킹 매칭 */
+/* 2026-09-15 — part 8d: squad · dock matchmaking */
 import { NET_ACCENT_PARAM } from '../src/shared/net.ts';
-/* 2026-09-15 — part 15: 안드로이드 분대원 (봇 멤버) */
+/* 2026-09-15 — part 15: android squadmates (bot members) */
 import { ANDROID_BAY_COUNT, NET_MAX_PLAYERS, androidIdOf, androidPlayersOf, humanPlayersOf } from '../src/shared/net.ts';
 import { androidNameOf } from '../src/shared/allies.ts';
 import type { RelayServer } from './RelayServer.ts';
@@ -163,7 +163,7 @@ function makeToken(seedChar: string): string {
 }
 
 /**
- * Phase 11: a raid start needs a 목표 행성 (`no_planet` otherwise), so every existing raid in this file picks one
+ * Phase 11: a raid start needs a target planet (`no_planet` otherwise), so every existing raid in this file picks one
  * first. `watchers` are the other connected members that must see the broadcast (so no stale `lobby:state` is left
  * queued for a later `expectNone`).
  */
@@ -270,7 +270,7 @@ async function main(): Promise<void> {
     await Promise.all([a, b, c].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.every((p) => p.ready))));
     pass('all three ready and every client saw it');
 
-    /* start (Phase 11: a raid needs a 목표 행성 first) */
+    /* start (Phase 11: a raid needs a target planet first) */
     await pickPlanet(a, 'mossy', [b, c]);
     a.send({ t: 'lobby:start', seed: 1234 });
     const starts = await Promise.all([a, b, c].map((cl) => cl.wait('game:start')));
@@ -798,7 +798,7 @@ async function main(): Promise<void> {
     v.send({ t: 'lobby:mission', inMission: true });
     await Promise.all([u, v].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === v.id)?.inMission === true)));
     pass('lobby:mission {true} on a started lobby → inMission true again (rejoin)');
-    /* 2026-09-15 (타이틀 이어하기 · 레이드 포기): a reloaded page's `keep` keeps the blob; `lobby:abandon` drifts the member */
+    /* 2026-09-15 (title resume · abandon): a reloaded page's `keep` keeps the blob; `lobby:abandon` drifts them */
     u.flush(); v.flush();
     v.send({ t: 'raid:save', blob: blob(4242, 'vic') });
     await sleep(80);
@@ -1067,7 +1067,7 @@ async function main(): Promise<void> {
       rmSync(dir, { recursive: true, force: true });
     }
 
-    /* ── part 7b (2026-09-11, C-41 · X-2): 비동기 쓰기 · .bak 세대 · 손상 파일 보존 + 복구 ── */
+    /* ── part 7b (2026-09-11, C-41 · X-2): async writes · .bak generations · a corrupt file kept + recovered ── */
     const d7 = mkdtempSync(join(tmpdir(), 'scav-store-b-'));
     const d7e = mkdtempSync(join(tmpdir(), 'scav-store-c-'));
     try {
@@ -1101,7 +1101,8 @@ async function main(): Promise<void> {
       assert(creditsIn(main7) === 103 && creditsIn(bak7) === 101, 'C-41: the aborted in-flight write never renames an older snapshot over close()', { main: creditsIn(main7), bak: creditsIn(bak7) });
       assert(readdirSync(d7).every((f) => f === PROFILE_FILE || f === `${PROFILE_FILE}${PROFILE_BACKUP_SUFFIX}`), 'C-41: no tmp file is left behind', readdirSync(d7));
 
-      /* X-2 ① 망가진 profiles.json + 쓸 만한 .bak → 원본은 corrupt-<시각> 으로 보존, .bak 에서 복구, 곧 새 main */
+      /* X-2 ① a broken profiles.json + a usable .bak → the original kept as corrupt-<time>, recovered from .bak,
+         a new main right after */
       const garbage = '{"v":1,"profiles":{ half-written';
       writeFileSync(main7, garbage, 'utf8');
       const b7 = new ProfileStore({ dataDir: d7, saveDebounceMs: 5, quiet: true });
@@ -1114,13 +1115,14 @@ async function main(): Promise<void> {
       assert(existsSync(main7) && creditsIn(main7) === 101, 'X-2: a recovered store writes a healthy profiles.json back on its own', existsSync(main7));
       b7.close();
 
-      /* X-2 ② flush 의 두 rename 사이에서 죽었다(= main 없음, .bak 만) → .bak 이 최신이다 */
+      /* X-2 ② died between flush's two renames (= no main, only a .bak) → the .bak is the newest */
       renameSync(main7, bak7);
       const c7 = new ProfileStore({ dataDir: d7, quiet: true });
       assert(c7.loadResult.note === 'bak-recovered' && c7.get('q1').credits === 101, 'X-2: a missing profiles.json with a .bak loads the .bak', c7.loadResult);
       c7.close();
 
-      /* X-2 ③ 망가진 파일 + .bak 없음 → 빈 DB 로 시작하되 원본은 남고, 첫 쓰기가 그것을 덮지 않는다 */
+      /* X-2 ③ a broken file + no .bak → starts on an empty DB; the original stays and the first write does not
+         overwrite it */
       const mainE = join(d7e, PROFILE_FILE);
       writeFileSync(mainE, 'not json at all', 'utf8');
       const e7 = new ProfileStore({ dataDir: d7e, quiet: true });
@@ -1135,7 +1137,7 @@ async function main(): Promise<void> {
       rmSync(d7e, { recursive: true, force: true });
     }
 
-    /* ══════════════════════════ part 8: Phase 11 — 행성 + 소셜 ══════════════════════════ */
+    /* ══════════════════════════ part 8: Phase 11 — planets + social ══════════════════════════ */
     const T81 = makeToken('1'), T82 = makeToken('2'), T83 = makeToken('3'), T84 = makeToken('4');
     let { c: p8a, welcome: w8a } = await connect('P1', url, { token: T81, name: 'Uno' });
     const { c: p8b } = await connect('P2', url, { token: T82, name: 'Duo' });
@@ -1143,7 +1145,7 @@ async function main(): Promise<void> {
     let se: Extract<ServerToClient, { t: 'social:error' }>;
     let sn: Extract<ServerToClient, { t: 'social:state' }>;
 
-    /* ── 아이디 assignment + welcome.social ── */
+    /* ── code assignment + welcome.social ── */
     const code1: PlayerCode = w8a.social?.me.code ?? '';
     const codes = await Promise.all([p8b, p8c].map(async (cl) => { cl.send({ t: 'social:get' }); return (await cl.wait('social:state')).social.me.code; }));
     const codeB: PlayerCode = codes[0], codeC: PlayerCode = codes[1];
@@ -1249,7 +1251,7 @@ async function main(): Promise<void> {
       'welcome.social carries the friends list and the stored level across a reconnect', w8a.social);
     assert(sn.social.friends[0].squad === 0, 'a friend coming back online is pushed as ship / squad 0', sn.social.friends[0]);
 
-    /* ── 최근 만난 플레이어 ── */
+    /* ── recent players ── */
     p8a.send({ t: 'lobby:create', name: 'Uno' });
     st = await p8a.wait('lobby:state');
     const code8A = st.lobby.code;
@@ -1273,7 +1275,7 @@ async function main(): Promise<void> {
     ]);
     assert(fa.social.recent.length === 0 && fc.social.recent.length === 0, 'becoming friends drops the 최근 만난 플레이어 entry on both sides', { a: fa.social.recent, c: fc.social.recent });
 
-    /* ── 목표 행성 ── */
+    /* ── the target planet ── */
     p8c.send({ t: 'lobby:planet', planet: 'ashen' });
     err = await p8c.wait('lobby:error');
     assert(err.code === 'not_host', 'lobby:planet from a non-host → not_host');
@@ -1312,7 +1314,7 @@ async function main(): Promise<void> {
     assert(rs8.every((mm) => mm.lobby.planet === 'mossy' && mm.lobby.seed === null),
       'lobby:reset keeps the 목표 행성 (the destination outlives the mission)', rs8[0].lobby);
 
-    /* ── 2026-09-14: 정보상 (`lobby:intel` — 서버는 **모양만** 씻고 그대로 방송한다) ── */
+    /* ── 2026-09-14: the intel broker (`lobby:intel` — the server sanitizes **the shape only** and broadcasts) ── */
     const IW: IntelWire = { seed: 99811, picks: [{ g: 'extraction', tier: 2 }, { g: 'nest', tier: 1 }] };
     p8c.send({ t: 'lobby:intel', intel: IW });
     err = await p8c.wait('lobby:error');
@@ -1355,7 +1357,8 @@ async function main(): Promise<void> {
     assert(rs8b.every((mm) => mm.lobby.intel === undefined && mm.lobby.planet === 'crimson'),
       'lobby:reset drops the intel (it was consumed by that raid) but keeps the planet', rs8b[0].lobby);
 
-    /* ── 같이 하기 (social:play) — 2026-09-15 (분대 · 도킹 매칭): invite only, the old "move into their ship" branch is gone ── */
+    /* ── `같이 하기` (social:play) — 2026-09-15 (squad · dock matchmaking): invite only, the old "move into their
+       ship" branch is gone ── */
     p8b.send({ t: 'social:play', code: codeB });
     se = await p8b.wait('social:error');
     assert(se.code === 'self', '같이 하기 with my own 아이디 → self');
@@ -1408,7 +1411,7 @@ async function main(): Promise<void> {
     se = await p8b.wait('social:error');
     assert(se.code === 'offline' && server.lobbies.lobbyOf(p8b.id) === undefined, '같이 하기 with a profile that is not connected → offline (no squad made)');
 
-    /* ── 개인 대화 (옛 귓속말) ── */
+    /* ── private chat (the old whisper) ── */
     p8a.send({ t: 'social:whisper', code: codeB, text: '  안녕 <b>친구</b>  ' });
     const wh = await p8b.wait('social:whisper');
     assert(wh.code === code1 && wh.name === 'Uno' && wh.text === '안녕 b친구/b' && wh.at > 0,
@@ -1430,7 +1433,7 @@ async function main(): Promise<void> {
     se = await p8a.wait('social:error');
     assert(se.code === 'offline', 'a whisper to a profile that is not connected → offline');
 
-    /* ── 친구 삭제 tears the push channel down ── */
+    /* ── `친구 삭제` tears the push channel down ── */
     p8b.send({ t: 'social:remove', code: code1 });
     const [remB, remA] = await Promise.all([
       p8b.wait('social:state', (mm) => mm.social.friends.length === 0),
@@ -1484,7 +1487,7 @@ async function main(): Promise<void> {
 
     const dir8 = mkdtempSync(join(tmpdir(), 'scav-social-'));
     try {
-      /* p-own squats the 아이디 p-clone would derive, and p-clone's stored code is unusable → re-derive with a salt. */
+      /* p-own squats the code p-clone would derive, and p-clone's stored code is unusable → re-derive with a salt. */
       const squatted = playerCodeFrom('p-clone');
       writeFileSync(join(dir8, PROFILE_FILE), JSON.stringify({ v: 1, profiles: {
         'p-own': { credits: 0, docs: {}, updatedAt: 5, social: {
@@ -1512,7 +1515,7 @@ async function main(): Promise<void> {
         && clone.code === playerCodeFrom('p-clone', 1) && s9.peerByCode(clone.code) === 'p-clone',
         'a colliding 아이디 is re-derived with the next salt and re-indexed', clone);
       s9.close();
-      /* the assigned 아이디 and the friends list survive a store restart */
+      /* the assigned code and the friends list survive a store restart */
       const s10 = new ProfileStore({ dataDir: dir8, quiet: true });
       assert(s10.peerByCode(squatted) === 'p-own' && (s10.social('p-own')?.friends.length ?? 0) === 2,
         'a social record round-trips through profiles.json (아이디 + friends)', s10.social('p-own'));
@@ -1521,7 +1524,8 @@ async function main(): Promise<void> {
       rmSync(dir8, { recursive: true, force: true });
     }
 
-    /* ── part 8b (2026-09-11, B-2): 프로필 GC — 비활성 프로필 삭제 · 끊긴 아이디 · 최근 목록 / 친구 요청 만료 ── */
+    /* ── part 8b (2026-09-11, B-2): profile GC — inactive profiles deleted · dangling codes · the recent list /
+       friend requests expiring ── */
     {
       const DAY = 24 * 60 * 60_000;
       const T = Date.now();
@@ -1554,7 +1558,7 @@ async function main(): Promise<void> {
       assert(!('seenAt' in g.snapshot('gc-friend')), 'gc: seenAt is server-internal (not in the wire snapshot)');
       g.close();
 
-      /* expiry: requests (both halves at once) and 최근 만난 플레이어 */
+      /* expiry: requests (both halves at once) and recent players */
       const e = new ProfileStore({ dataDir: null, quiet: true });
       for (const id of ['ex-a', 'ex-b', 'ex-c']) { e.ensureSocial(id, id); e.touchSeen(id, T); }
       e.addFriendRequest('ex-a', 'ex-b');
@@ -1644,7 +1648,8 @@ async function main(): Promise<void> {
       }
     }
 
-    /* ── part 8c (2026-09-11, B-6 · B-3 · B-5 · B-4): 원자적 이동 · 초대 표 · 푸시 합치기 · 차단 · 개인 대화 확인/보관 ── */
+    /* ── part 8c (2026-09-11, B-6 · B-3 · B-5 · B-4): the atomic move · the invite table · push coalescing ·
+       blocks · private-chat acks / storage ── */
     {
       /* B-6 (unit): one join rule, and a refused move changes nothing */
       const lm = new LobbyManager();
@@ -1887,7 +1892,7 @@ async function main(): Promise<void> {
         assert(mvLeft.reason === 'moved' && mvLeft.to === mvState.lobby.code && mvRes.outcome === 'accepted' && ss.lobbies.byCode(cShip) === undefined,
           'B-3 + B-6: accepting from a ship where I am alone → lobby:left {moved, to} → the inviter ship; my old ship is deleted', { mvLeft, mvRes });
 
-        /* ── failed: the inviter ship fills up · B-6: 같이 하기 into a full ship leaves my own ship alone ── */
+        /* ── failed: the inviter ship fills up · B-6: `같이 하기` into a full ship leaves my own ship alone ── */
         /* A's ship holds A + B. Two invites open (C · E), D joins (3), then C accepts from a ship of its own → 4 = full:
          * C's invite must read accepted (the move filled the ship — not "failed full"), E's fails full. */
         const aShipNow = A.c.lobby?.code ?? '';
@@ -1913,7 +1918,7 @@ async function main(): Promise<void> {
         E.c.flush();
         E.c.send({ t: 'social:play', code: A.code });
         const fullErr = await E.c.wait('social:error');
-        /* 2026-09-15: 같이 하기 no longer moves me into their ship — a squad of 2+ is simply not invitable. */
+        /* 2026-09-15: `같이 하기` no longer moves me into their ship — a squad of 2+ is simply not invitable. */
         assert(fullErr.code === 'in_other_squad' && ss.lobbies.lobbyOf(E.c.id)?.code === eShip && await E.c.expectNone('lobby:left', 100),
           'B-6 (2026-09-15): 같이 하기 toward a full squad → in_other_squad, and my own ship is kept (no lobby:left)', fullErr);
         E.c.send({ t: 'lobby:leave' });
@@ -1935,7 +1940,7 @@ async function main(): Promise<void> {
         for (const id of capIds.slice(1)) F.c.send({ t: 'social:inviteReply', id, accept: false });
         await Promise.all([B, D, E].map((p, i) => p.c.wait('social:inviteResult', (mm) => mm.id === capIds[i + 1] && mm.outcome === 'declined')));
 
-        /* ── B-6 → 2026-09-15: 같이 하기 while my ship runs a raid → busy, the raid goes on ── */
+        /* ── B-6 → 2026-09-15: `같이 하기` while my ship runs a raid → busy, the raid goes on ── */
         /* (the declines above dissolved D's undocked invite squad — D opens a docked ship of its own for the raid) */
         await D.c.wait('lobby:left');
         D.c.flush();   // the dissolved squad's lobby:state (one player) must not be read as the new ship
@@ -1952,7 +1957,7 @@ async function main(): Promise<void> {
         D.c.send({ t: 'lobby:mission', inMission: false });
         await D.c.wait('lobby:state', (mm) => !mm.lobby.started);
 
-        /* ── B-5: 최근 만난 플레이어 · request targets are watched; my own answer is immediate ── */
+        /* ── B-5: recent players · request targets are watched; my own answer is immediate ── */
         const G = await conn('8cG', 'V', 'Golf');
         let H = await conn('8cH', 'W', 'Hotel');
         const hShip = await openedLobby(H);
@@ -2059,7 +2064,8 @@ async function main(): Promise<void> {
         assert((await N1.c.wait('social:state')).social.incoming.length === 0, 'B-4: … and my incoming stays empty');
         N2.c.send({ t: 'social:play', code: N1.code });
         const plSw = await N2.c.wait('social:play');
-        /* 2026-09-15: nobody is ever moved by 같이 하기 now — the blocked sender gets an undocked squad of its own and a hidden invite. */
+        /* 2026-09-15: nobody is ever moved by `같이 하기` now — the blocked sender gets an undocked squad of its own
+           and a hidden invite. */
         assert(plSw.outcome === 'invited' && ss.lobbies.lobbyOf(N2.c.id)?.size === 1 && ss.lobbies.lobbyOf(N2.c.id)?.docked === false
           && ss.lobbies.lobbyOf(N1.c.id) === undefined && await N1.c.expectNone('social:invited', 200),
           'B-4: 같이 하기 toward a blocker reads "invited", no card reaches me, and nobody is moved', plSw);
@@ -2108,7 +2114,8 @@ async function main(): Promise<void> {
         N4 = await conn('8cN4c', 'd', 'Quebec');
         assert(await N4.c.expectNone('social:whisperBacklog', 250), 'B-4: the backlog is delivered once (the inbox was emptied)');
 
-        /* ── B-11 (2026-09-11): 차단한 사이는 같은 분대에 서지 않는다 — `lobby:join` 은 방향별로, quickmatch 는 건너뛴다 ── */
+        /* ── B-11 (2026-09-11): two people who blocked each other never stand in one squad — `lobby:join` answers
+           by direction, quickmatch skips the lobby ── */
         const block = async (me: P, them: P): Promise<void> => {
           me.c.send({ t: 'social:block', code: them.code, blocked: true });
           await me.c.wait('social:state', (mm) => (mm.social.blocked ?? []).some((r) => r.code === them.code));
@@ -2118,14 +2125,14 @@ async function main(): Promise<void> {
         const K3 = await conn('8cK3', 'h', 'Mike');
         const K4 = await conn('8cK4', 'i', 'Nato');
         const kShip = await openedLobby(K1);
-        /* ① 참가자가 차단한 사람이 그 배에 있다 → 명시 (내 선택이므로 정직하게) */
+        /* ① somebody the joiner blocked is on that ship → said plainly (it is my own choice, so it is honest) */
         await block(K2, K1);
         K2.c.send({ t: 'lobby:join', code: kShip, name: 'Lima' });
         const eK2 = await K2.c.wait('lobby:error');
         assert(eK2.code === 'blocked' && eK2.message === LOBBY_ERROR_MESSAGE_KO.blocked
           && ss.lobbies.lobbyOf(K2.c.id) === undefined && ss.lobbies.byCode(kShip)?.size === 1,
           'B-11: joining by code a ship holding someone I blocked → blocked (명시), and the lobby is untouched', eK2);
-        /* ② 나를 차단한 사람이 그 배에 있다 → not_found 위장 (코드 오타와 구별되지 않는다) */
+        /* ② somebody who blocked me is on that ship → disguised as not_found (indistinguishable from a typo) */
         await block(K1, K3);
         K3.c.send({ t: 'lobby:join', code: kShip, name: 'Mike' });
         const eK3 = await K3.c.wait('lobby:error');
@@ -2137,7 +2144,7 @@ async function main(): Promise<void> {
         assert(okK4.lobby.code === kShip && ss.lobbies.lobbyOf(K4.c.id)?.code === kShip,
           'B-11: a join with no 차단 in either direction still goes through', okK4.lobby.code);
 
-        /* quickmatch: 거절이 아니라 후보에서 건너뛴다 (공개 로비는 여러 개다) */
+        /* quickmatch: not a refusal — the lobby is skipped as a candidate (public lobbies come in numbers) */
         const K5 = await conn('8cK5', 'j', 'Osca');
         const K6 = await conn('8cK6', 'k', 'Pete');
         const K7 = await conn('8cK7', 'l', 'Quin');
@@ -2166,7 +2173,8 @@ async function main(): Promise<void> {
       }
     }
 
-    /* ── part 8d (2026-09-15): 분대 · 도킹 매칭 — 미도킹 분대 · lobby:dock · 초대 전용 같이 하기 · 외로운 분대 해산 · accent ── */
+    /* ── part 8d (2026-09-15): squad · dock matchmaking — undocked squads · lobby:dock · invite-only `같이 하기` ·
+       the lonely-party prune · accent ── */
     {
       /* unit: the model's docked flag */
       const lu = new Lobby('DOCKU1', 'u-host', true);
@@ -2314,7 +2322,7 @@ async function main(): Promise<void> {
         await Promise.all([A.c, B.c].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.players.some((p) => p.id === B.c.id && p.ready))));
         pass('part 8d: once docked, lobby:ready is accepted again');
 
-        /* ── 도킹 해제 from a docked lobby takes out only me; a docked lobby left with one member is not dissolved ── */
+        /* ── `도킹 해제` from a docked lobby takes out only me; one left with a single member is not dissolved ── */
         B.c.send({ t: 'lobby:leave' });
         const [bLeft] = await Promise.all([B.c.wait('lobby:left'), A.c.wait('peer:left', (mm) => mm.id === B.c.id)]);
         assert(bLeft.reason === undefined && sd.lobbies.byCode(pSquad)?.size === 1 && sd.lobbies.lobbyOf(A.c.id)?.code === pSquad && await A.c.expectNone('lobby:left', 200),
@@ -2339,7 +2347,7 @@ async function main(): Promise<void> {
           'part 8d: a squad of 2 presses 공개 매칭 → its own lobby is docked + public (quick-matchable)', pub.lobby);
         const shipCD = inv5.lobby;
 
-        /* ── a lone player (no lobby) pressing 공개 매칭 joins that ship as a member ── */
+        /* ── a lone player (no lobby) pressing `공개 매칭` joins that ship as a member ── */
         E.c.send({ t: 'lobby:dock', isPublic: true });
         const [eSt] = await Promise.all([
           E.c.wait('lobby:state', (mm) => mm.lobby.code === shipCD),
@@ -2357,7 +2365,7 @@ async function main(): Promise<void> {
         assert(fSt.lobby.code === inv6.lobby && fSt.lobby.code !== shipCD && fSt.lobby.players.length === 2 && fSt.lobby.isPublic && sd.lobbies.byCode(shipCD)?.size === 3,
           'part 8d: a second squad of 2 pressing 공개 매칭 docks its own lobby (squads never merge)', { own: fSt.lobby.code, other: shipCD });
 
-        /* ── a lone leader with a pending invite pressing 공개 매칭 moves into the open ship; its invite fails ── */
+        /* ── a lone leader with a pending invite pressing `공개 매칭` moves into the open ship; its invite fails ── */
         const inv7 = await inviteOf(H, I);
         H.c.send({ t: 'lobby:dock', isPublic: true });
         const [hMoved, hSt, hRes, iClosed] = await Promise.all([
@@ -2372,7 +2380,7 @@ async function main(): Promise<void> {
         assert(hRes.outcome === 'failed' && hRes.reason === 'not_found' && iClosed.outcome === 'failed',
           'part 8d: … and the invite into the old squad fails through the normal sweep', { hRes, iClosed });
 
-        /* ── no lobby + 비공개 매칭 → a docked private lobby of my own ── */
+        /* ── no lobby + `비공개 매칭` → a docked private lobby of my own ── */
         J.c.send({ t: 'lobby:dock', isPublic: false });
         const jSt = await J.c.wait('lobby:state');
         assert(jSt.lobby.docked === true && jSt.lobby.isPublic === false && jSt.lobby.players.length === 1 && jSt.lobby.hostId === J.c.id,
@@ -2404,10 +2412,10 @@ async function main(): Promise<void> {
     await sleep(GRACE_MS + 400);
     assert(server.lobbies.count === 0 && server.clientCount() === 0, 'part 8 cleanup: all lobbies deleted, no clients left', { lobbies: server.lobbies.count, clients: server.clientCount() });
 
-    /* ══════════════════════ part 9 (2026-09-09): 분대장(호스트) 지명 이관 ══════════════════════
+    /* ══════════════════════ part 9 (2026-09-09): host transfer by nomination ═════════════════════════════════
      *
-     * 두 경우만 통한다 — 지금 호스트가 넘기거나, `lobby:hostDown` 으로 사망 표시가 켜진 뒤 누군가 claim 하거나.
-     * 나머지는 `not_host`, 로비 밖 targetId 는 `invalid`.
+     * Exactly two cases pass — the current host hands it over, or somebody claims it after `lobby:hostDown` raised
+     * the down flag. Everything else is `not_host`, and a targetId outside the lobby is `invalid`.
      */
     const { c: p9a } = await connect('P9A', url, { token: makeToken('9'), name: '분대장' });
     const { c: p9b } = await connect('P9B', url, { token: makeToken('8'), name: '대원B' });
@@ -2419,41 +2427,41 @@ async function main(): Promise<void> {
     await Promise.all([p9a, p9b].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.players.length === 2)));
     assert(l9.lobby.hostId === p9a.id, 'part 9: the creator is the host', l9.lobby.hostId);
 
-    /* ① 호스트가 남에게 넘기면 모두가 새 lobby:state 를 받는다 */
+    /* ① the host hands it to somebody else → everyone gets a fresh lobby:state */
     p9a.send({ t: 'lobby:transferHost', targetId: p9b.id });
     const t9 = await Promise.all([p9a, p9b].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.hostId === p9b.id)));
     assert(t9[0].lobby.players.find((p) => p.id === p9b.id)?.isHost === true
       && t9[0].lobby.players.find((p) => p.id === p9a.id)?.isHost === false,
       'lobby:transferHost by the host moves hostId and every isHost flag', t9[0].lobby.players);
 
-    /* ② 이제 호스트가 아닌 A 가 되돌리려 하면 not_host */
+    /* ② A, no longer the host, tries to take it back → not_host */
     p9a.send({ t: 'lobby:transferHost', targetId: p9a.id });
     let e9 = await p9a.wait('lobby:error');
     assert(e9.code === 'not_host', 'a non-host transferHost → not_host', e9);
 
-    /* ③ 사망 표시가 없는 상태의 claim 도 not_host */
+    /* ③ a claim with no down flag up is not_host either */
     p9a.send({ t: 'lobby:transferHost', targetId: p9a.id, claim: true });
     e9 = await p9a.wait('lobby:error');
     assert(e9.code === 'not_host', 'claim without a hostDown flag → not_host', e9);
 
-    /* ④ 사망 표시는 호스트만 세울 수 있다 */
+    /* ④ only the host can raise the down flag */
     p9a.send({ t: 'lobby:hostDown', down: true });
     e9 = await p9a.wait('lobby:error');
     assert(e9.code === 'not_host', 'lobby:hostDown from a non-host → not_host', e9);
 
-    /* ⑤ 호스트가 사망 표시를 켜면 남의 claim 이 통한다 (분대장 기기) */
+    /* ⑤ with the host's down flag up somebody else's claim goes through (the squad-leader device) */
     p9b.send({ t: 'lobby:hostDown', down: true });
     assert(await p9a.expectNone('lobby:state', 200), 'lobby:hostDown itself broadcasts nothing (it is not part of LobbyState)');
     p9a.send({ t: 'lobby:transferHost', targetId: p9a.id, claim: true });
     const c9 = await Promise.all([p9a, p9b].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.hostId === p9a.id)));
     assert(c9[0].lobby.hostId === p9a.id, 'claim after lobby:hostDown hands the 분대장 to the claimer', c9[0].lobby.hostId);
 
-    /* ⑥ 표시는 이관과 함께 지워진다 — 같은 claim 을 두 번 쓸 수 없다 */
+    /* ⑥ the flag is cleared by the transfer — the same claim cannot be used twice */
     p9b.send({ t: 'lobby:transferHost', targetId: p9b.id, claim: true });
     e9 = await p9b.wait('lobby:error');
     assert(e9.code === 'not_host', 'the hostDown flag is cleared by the transfer, so a second claim → not_host', e9);
 
-    /* ⑦ 로비 밖 targetId 는 invalid */
+    /* ⑦ a targetId outside the lobby is invalid */
     p9a.send({ t: 'lobby:transferHost', targetId: p9c.id });
     e9 = await p9a.wait('lobby:error');
     assert(e9.code === 'invalid', 'a targetId outside the lobby → invalid', e9);
@@ -2461,19 +2469,19 @@ async function main(): Promise<void> {
     e9 = await p9a.wait('lobby:error');
     assert(e9.code === 'invalid', 'an unknown targetId → invalid', e9);
 
-    /* ⑧ 이미 호스트인 사람에게 넘기면 방송 없이 상태만 되돌아온다 */
+    /* ⑧ handing it to the current host echoes the state back with no broadcast */
     p9b.flush();
     p9a.send({ t: 'lobby:transferHost', targetId: p9a.id });
     const noop9 = await p9a.wait('lobby:state');
     assert(noop9.lobby.hostId === p9a.id, 'transferHost to the current host echoes the state to the sender', noop9.lobby.hostId);
     assert(await p9b.expectNone('lobby:state', 200), 'a no-op transferHost is not broadcast to the squad');
 
-    /* ⑨ 로비 밖에서 보내면 not_in_lobby */
+    /* ⑨ sent from outside a lobby → not_in_lobby */
     p9c.send({ t: 'lobby:transferHost', targetId: p9a.id });
     e9 = await p9c.wait('lobby:error');
     assert(e9.code === 'not_in_lobby', 'transferHost outside a lobby → not_in_lobby', e9);
 
-    /* ⑩ 미션이 끝나면(lobby:reset) 사망 표시도 끝난다 */
+    /* ⑩ the end of the mission (lobby:reset) ends the down flag too */
     await pickPlanet(p9a, 'mossy', [p9b]);
     for (const cl of [p9a, p9b]) cl.send({ t: 'lobby:ready', ready: true });
     await Promise.all([p9a, p9b].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.players.every((p) => p.ready))));
@@ -2486,7 +2494,7 @@ async function main(): Promise<void> {
     e9 = await p9b.wait('lobby:error');
     assert(e9.code === 'not_host', 'lobby:reset clears the hostDown flag (a later claim → not_host)', e9);
 
-    /* ⑪ 잘못된 프레임은 파서가 먼저 거른다 */
+    /* ⑪ a malformed frame is filtered out by the parser first */
     p9a.sendRaw(JSON.stringify({ t: 'lobby:transferHost' }));
     e9 = await p9a.wait('lobby:error');
     assert(e9.code === 'invalid', 'lobby:transferHost with no targetId → invalid (parser)', e9);
@@ -2498,11 +2506,12 @@ async function main(): Promise<void> {
     await sleep(GRACE_MS + 400);
     assert(server.lobbies.count === 0 && server.clientCount() === 0, 'part 9 cleanup: all lobbies deleted, no clients left', { lobbies: server.lobbies.count, clients: server.clientCount() });
 
-    /* ══════════════════════ part 10 (2026-09-11, C-29): 서버 콘솔 — list · kick · max ══════════════════════
+    /* ══════════════════════ part 10 (2026-09-11, C-29): the operator console — list · kick · max ═══════════
      *
-     * `server/Console.ts`(start-server.bat 창)의 콘솔 명령이 부르는 세 API. kick 은 유예 없이 슬롯부터 비우고(peer:left + 호스트 이관)
-     * `lobby:error kicked` 뒤 CLOSE_KICKED 로 닫는다 — 밴은 없다. max 는 **새** 소켓만 막고, 같은 소켓의 교체와
-     * 유예 중인 로비 멤버의 재접속은 예외다.
+     * The three APIs the console commands of `server/Console.ts` (the start-server.bat window) call. `kick` frees
+     * the slot first with no grace (peer:left + host migration) and closes with CLOSE_KICKED after
+     * `lobby:error kicked` — there is no ban. `max` blocks **new** sockets only; a replacement of the same socket
+     * and a reconnect by a lobby member inside its grace are exempt.
      */
     const { c: k1, welcome: wk1 } = await connect('K1', url, { token: makeToken('K'), name: '호스트K' });
     const { c: k2, welcome: wk2 } = await connect('K2', url, { token: makeToken('L'), name: '대원L' });
@@ -2519,7 +2528,8 @@ async function main(): Promise<void> {
     assert(!!code10 && rows10.find((r) => r.id === k1.id)?.code === code10 && rows10.find((r) => r.id === k2.id)?.code === wk2.social?.me.code,
       'listClients carries each 아이디', rows10);
 
-    /* ① 아이디(대시 · 소문자로 쳐도)로 호스트를 쫓아내면: kicked → CLOSE_KICKED, 분대는 곧바로 peer:left + 호스트 이관 */
+    /* ① kicking the host by its code (dashed · lower case too): kicked → CLOSE_KICKED, and the squad gets
+       peer:left + a host migration at once */
     const kr = server.kick(`${code10.slice(0, 4)}-${code10.slice(4)}`.toLowerCase(), '테스트 사유');
     assert(kr.ok && kr.id === k1.id && kr.connected && kr.lobby === lk.lobby.code, 'kick resolves a dashed lower-case 아이디 to the connected peer', kr);
     const ek = await k1.wait('lobby:error', (mm) => mm.code === 'kicked');
@@ -2533,11 +2543,11 @@ async function main(): Promise<void> {
     const nf = server.kick('ZZZZ-ZZZZ');
     assert(!nf.ok && nf.reason === 'not_found' && !server.kick('').ok, 'kick of an unknown / empty 아이디 → not_found');
 
-    /* ② 밴은 없다 — 같은 토큰은 다시 붙고, 로비 밖에서 시작한다 */
+    /* ② there is no ban — the same token connects again and starts outside any lobby */
     const { c: k1b, welcome: wk1b } = await connect('K1b', url, { token: makeToken('K'), name: '호스트K' });
     assert(wk1b.id === k1.id && !wk1b.lobby, 'no ban: the kicked token connects again, outside any lobby', wk1b);
 
-    /* ③ 유예 중인(소켓이 없는) 멤버를 PeerId 로 kick → 슬롯만 비운다 */
+    /* ③ kicking a member inside its grace (no socket) by PeerId → only the slot is freed */
     k2.close();
     await k2.closed();
     await sleep(50);
@@ -2546,7 +2556,7 @@ async function main(): Promise<void> {
     assert(kg.ok && !kg.connected && server.lobbies.lobbyOf(k2.id) === undefined && server.lobbies.count === 0,
       'kick by PeerId of a member in grace removes the slot (and the empty lobby) before the grace expires', kg);
 
-    /* ④ max: 새 소켓은 welcome 없이 server_full → CLOSE_SERVER_FULL, /health 에 제한이 보인다 */
+    /* ④ max: a new socket gets server_full with no welcome → CLOSE_SERVER_FULL, and /health shows the cap */
     server.setMaxClients(1);
     assert(server.maxClients === 1, 'setMaxClients(1) → maxClients 1');
     const full10 = new TestClient('FULL', url);
@@ -2559,12 +2569,12 @@ async function main(): Promise<void> {
     const h10 = await (await fetch(`http://127.0.0.1:${server.port}/health`)).json() as { maxClients?: unknown };
     assert(h10.maxClients === 1, '/health reports maxClients', h10);
 
-    /* ⑤ 같은 토큰의 소켓 교체(새로고침)는 제한에 걸리지 않는다 */
+    /* ⑤ a socket replacement by the same token (a reload) is not stopped by the cap */
     const { c: k1c, welcome: wk1c } = await connect('K1c', url, { token: makeToken('K'), name: '호스트K' });
     assert(wk1c.id === k1.id, 'at the cap, a page reload replacing its own socket is not refused');
     await k1b.closed();
 
-    /* ⑥ 유예 중인 로비 멤버의 재접속은 제한에 걸리지 않는다 — 새 토큰은 걸린다 */
+    /* ⑥ a lobby member reconnecting inside its grace is not stopped by the cap — a new token is */
     server.setMaxClients(null);
     k1c.send({ t: 'lobby:create', name: '호스트K' });
     const lk2 = await k1c.wait('lobby:state');
@@ -2594,19 +2604,20 @@ async function main(): Promise<void> {
     await sleep(GRACE_MS + 400);
     assert(server.lobbies.count === 0 && server.clientCount() === 0, 'part 10 cleanup: all lobbies deleted, no clients left', { lobbies: server.lobbies.count, clients: server.clientCount() });
 
-    /* ══════════════════════ part 11 (2026-09-11, E-6): 문서 리비전 · ack · 트랜잭션 ══════════════════════ */
+    /* ══════════════════════ part 11 (2026-09-11, E-6): document revisions · ack · transactions ═══════════ */
     await part11ProfileRevisions(url);
 
-    /* ══════════════════════ part 12 (2026-09-11, E-4 ⑦): 서버 크레딧 검증 ══════════════════════ */
+    /* ══════════════════════ part 12 (2026-09-11, E-4 ⑦): server-side credit validation ═══════════════ */
     await part12CreditEconomy();
 
-    /* ══════════════════════ part 13 (2026-09-13): 암호화폐 시세 · 봉 · 저장 · cbuy / csell ══════════════════════ */
+    /* ══════════════════════ part 13 (2026-09-13): crypto prices · candles · persistence · cbuy / csell ══════ */
     await part13CryptoMarket();
 
-    /* ══════════════════════ part 14 (2026-09-14): 단체 메신저방 — 저장소 규칙 · 릴레이 흐름 · 재시작 · GC ══════════════════════ */
+    /* ══════════════════════ part 14 (2026-09-14): group rooms — store rules · relay flow · restart ·
+       GC ══════════════════════ */
     await part14Rooms();
 
-    /* ══════════════════════ part 15 (2026-09-15): 안드로이드 분대원 — 봇 멤버 ══════════════════════ */
+    /* ══════════════════════ part 15 (2026-09-15): android squadmates — bot members ════════════════════ */
     await part15AndroidBots(url, server);
   } catch (e) {
     fail('unexpected exception', (e as Error).message);
@@ -2744,7 +2755,8 @@ async function part11ProfileRevisions(url: string): Promise<void> {
 }
 
 /**
- * part 12 (2026-09-11, E-4 ⑦): 서버 크레딧 검증 — `server/Economy.ts` + `Store.applyCreditsTx` + `credits:tx`.
+ * part 12 (2026-09-11, E-4 ⑦): server-side credit validation — `server/Economy.ts` + `Store.applyCreditsTx` +
+ * `credits:tx`.
  * The reason grammar round trip, every rule of `shared/credits.ts` accepting the exact legit amount and refusing a wrong
  * sign / too much / too little / an unknown id, refunds pairing with their debit (window, double refund), the quest once
  * rule, the contract hourly cap, migrate once + `CREDITS_MAX` clamp, dev reasons gated by `devEconomy`, the ledger through
@@ -2840,7 +2852,7 @@ async function part12CreditEconomy(): Promise<void> {
   assert(paid === CREDIT_CONTRACT_MAX_PER_HOUR && chk(CREWARD, `contract:${CONTRACT}`, LC, 0, NOW + CREDIT_CONTRACT_WINDOW_MS + CREDIT_CONTRACT_MAX_PER_HOUR),
     `E-4: contract payouts stop at ${CREDIT_CONTRACT_MAX_PER_HOUR} per rolling hour and open again after it`, { paid });
 
-  /* 2026-09-13: 탐사 차량 요금 `rover:<from>:<to>` */
+  /* 2026-09-13: the rover fare `rover:<from>:<to>` */
   const FMIN = T.roverFareMin ?? NaN, FMAX = T.roverFareMax ?? NaN;
   assert(Number.isInteger(FMIN) && Number.isInteger(FMAX) && FMIN > 0 && FMIN <= FMAX,
     'rover: the economy table carries 0 < roverFareMin ≤ roverFareMax (ROVER_FARE_MIN / ROVER_FARE_MAX)', { FMIN, FMAX });
@@ -2869,7 +2881,7 @@ async function part12CreditEconomy(): Promise<void> {
   assert(!!keptRover && keptRover.roverAt?.length === 2 && keptRover.roverAt.every((at) => at <= NOW),
     'rover: sanitizeLedger keeps the rover stamps of the last hour (junk dropped, future clamped to now)', keptRover);
 
-  /* 2026-09-14 정보상 (`intel:<planet>:<code>`, docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+  /* 2026-09-14 the intel broker (`intel:<planet>:<code>`, docs/DECISIONS.md 「2026-09-14 — 정보상」) */
   const IX = T.intel;
   const IPLANET = IX ? Object.keys(IX.planetThreat)[0] : 'x';
   const IGIMMICK = IX ? Object.keys(IX.options)[0] : 'x';
@@ -3042,7 +3054,8 @@ async function part12CreditEconomy(): Promise<void> {
 }
 
 /**
- * part 14 (2026-09-14): 단체 메신저방 — `server/Rooms.ts` rules without sockets (name sanitizing, owner-only invite / kick / rename,
+ * part 14 (2026-09-14): group rooms — `server/Rooms.ts` rules without sockets (name sanitizing,
+ * owner-only invite / kick / rename,
  * invite expiry, member / joined / line caps, strictly increasing line times, history paging, owner handoff, deletion, GC,
  * `rooms.json` round-trip + corrupt file) and the relay over real sockets (welcome `room:state`, anonymous refusal, friends-only +
  * blocks, ack / line fan-out without echo, rate limit, rename / kick / leave → owner, relay restart, profile GC dropping an owner).
@@ -3373,7 +3386,8 @@ async function part14Rooms(): Promise<void> {
 }
 
 /**
- * part 13 (2026-09-13): 암호화폐 — the relay's price simulation (`CryptoMarket`: determinism, band, candle ranges + aggregation,
+ * part 13 (2026-09-13): crypto — the relay's price simulation (`CryptoMarket`: determinism, band, candle ranges +
+ * aggregation,
  * quote window), `crypto.json` (round trip, gap fill = an uninterrupted run, long gap cap, dropped / new coins, corrupt + `.bak`,
  * clock going back), `cbuy:` / `csell:` in `Economy.ts` (window prices, locked coins, units, hourly cap, grammar) and the wire
  * (`crypto:watch` · `crypto:history` · `crypto:prices`, rate limit, trades through `credits:tx`).
@@ -3670,11 +3684,12 @@ async function part13CryptoMarket(): Promise<void> {
 }
 
 /**
- * part 15 (2026-09-15): **안드로이드 분대원** — 릴레이의 봇 멤버 (`LobbyPlayer.bot`).
- * 들이기 / 돌려보내기(`lobby:android`)와 거절 코드 전부, 「사람이 봇을 이긴다」(합류 · 초대 수락 시 가장 늦게 들어온
- * 기가 슬롯으로 돌아간다), 봇이 빠지는 자리들(분대장 · relay · 빠른 매칭 · presence · 재접속 유예)과 봇이 채우는
- * 자리들(`allReady` · `reset` 뒤에도 준비 완료), 그리고 사람이 전부 나가면 로비가 봇과 함께 사라진다는 것.
- * 자기 함수로 둔 이유는 part 11 과 같다 — 다른 사람이 덧붙이는 part 와 부딪히지 않는다.
+ * part 15 (2026-09-15): **android squadmates** — the relay's bot members (`LobbyPlayer.bot`).
+ * Recruiting / sending back (`lobby:android`) and every refusal code, "humans win" (on a join · an accepted invite
+ * the latest-recruited unit goes back to its bay), the places a bot is left out of (the squad leader · relay · quick
+ * match · presence · the reconnect grace) and the places it fills (`allReady` · ready even after `reset`), and that
+ * the lobby disappears together with its bots once every human has left.
+ * It sits in its own function for the same reason as part 11 — it never collides with a part somebody else appends.
  */
 async function part15AndroidBots(url: string, server: RelayServer): Promise<void> {
   const { c: a, welcome: wa } = await connect('A15', url, { token: makeToken('a'), name: '분대장A' });
@@ -3683,21 +3698,22 @@ async function part15AndroidBots(url: string, server: RelayServer): Promise<void
   const codeB = wb.social?.me.code ?? '';
   assert(isValidPlayerCode(codeA) && isValidPlayerCode(codeB), 'part 15 precondition: both sockets have a profile 아이디');
 
-  /* ① 로비 밖 → not_in_lobby */
+  /* ① outside a lobby → not_in_lobby */
   a.send({ t: 'lobby:android', bay: 0, recruit: true });
   assert((await a.wait('lobby:error')).code === 'not_in_lobby', 'lobby:android outside a lobby → not_in_lobby');
 
-  /* ② 미도킹 분대(초대가 만든 로비) → not_docked: 안드로이드 슬롯은 공용 함선 조종실에만 있다 */
+  /* ② an undocked squad (the lobby an invite made) → not_docked: android bays exist only in a shared ship's
+     cockpit */
   a.send({ t: 'social:play', code: codeB });
   const inv0 = await b.wait('social:invited');
   await a.wait('lobby:state', (mm) => mm.lobby.docked === false);
   a.send({ t: 'lobby:android', bay: 0, recruit: true });
   assert((await a.wait('lobby:error')).code === 'not_docked', 'lobby:android in an undocked squad → not_docked');
   b.send({ t: 'social:inviteReply', id: inv0.invite.id ?? '', accept: false });
-  await a.wait('lobby:left');   // 초대가 닫히며 외로운 분대가 해산된다
+  await a.wait('lobby:left');   // closing the invite dissolves the lonely squad
   a.flush(); b.flush();
 
-  /* ③ 들이기 · 돌려보내기 (도킹된 로비) */
+  /* ③ recruiting · sending back (in a docked lobby) */
   a.send({ t: 'lobby:create', name: '분대장A' });
   const l1 = (await a.wait('lobby:state')).lobby;
   a.send({ t: 'lobby:android', bay: 0, recruit: true });
@@ -3712,7 +3728,7 @@ async function part15AndroidBots(url: string, server: RelayServer): Promise<void
   assert(s1.lobby.players.find((p) => p.id === a.id)?.isHost === true && s1.lobby.hostId === a.id,
     'the recruiting leader stays host');
 
-  /* ④ 같은 상태로 다시 · 범위 밖 · 없는 기 돌려보내기 · 모양 오류 → invalid */
+  /* ④ the same state again · out of range · sending back a unit that is not there · a bad shape → invalid */
   a.send({ t: 'lobby:android', bay: 0, recruit: true });
   assert((await a.wait('lobby:error')).code === 'invalid', 'recruiting an already recruited bay → invalid');
   a.send({ t: 'lobby:android', bay: 1, recruit: false });
@@ -3725,7 +3741,7 @@ async function part15AndroidBots(url: string, server: RelayServer): Promise<void
   const s2 = await a.wait('lobby:state', (mm) => mm.lobby.players.length === 1);
   assert(androidPlayersOf(s2.lobby).length === 0, 'lobby:android {recruit:false} sends the android back to its slot', s2.lobby.players);
 
-  /* ⑤ 조종실 슬롯 전부 (3기) — 봇은 분대장도, relay 대상도 되지 않는다 */
+  /* ⑤ every cockpit bay (3 units) — a bot is neither a squad leader nor a relay target */
   for (let bay = 0; bay < ANDROID_BAY_COUNT; bay++) a.send({ t: 'lobby:android', bay, recruit: true });
   const s3 = await a.wait('lobby:state', (mm) => mm.lobby.players.length === 1 + ANDROID_BAY_COUNT);
   assert(androidPlayersOf(s3.lobby).map((p) => p.bay).join(',') === '0,1,2', 'all three bays can be recruited (bay order)', s3.lobby.players);
@@ -3735,7 +3751,7 @@ async function part15AndroidBots(url: string, server: RelayServer): Promise<void
   a.send({ t: 'relay', to: botId2, d: { t: 'chat', text: '안드로이드에게' } });
   assert(await a.expectNone('lobby:error', 200), 'relay addressed to an android id is dropped silently (no error, nobody to send to)');
 
-  /* ⑥ 빠른 매칭은 봇으로 찬 분대를 건너뛴다 (「더 이상 다른 플레이어가 매칭되지 않음」) */
+  /* ⑥ quick match skips a squad filled with bots (「더 이상 다른 플레이어가 매칭되지 않음」) */
   a.send({ t: 'lobby:setPublic', isPublic: true });
   await a.wait('lobby:state', (mm) => mm.lobby.isPublic);
   b.send({ t: 'lobby:quickmatch', name: '대원B' });
@@ -3746,7 +3762,8 @@ async function part15AndroidBots(url: string, server: RelayServer): Promise<void
   await b.wait('lobby:left');
   b.flush();
 
-  /* ⑦ 초대는 여전히 통하고, 사람이 들어오면 **가장 늦게 들어온** 기가 슬롯으로 돌아간다 — 새로 온 사람도 그 소식을 받는다 */
+  /* ⑦ an invite still goes through, and when a human joins the **latest-recruited** unit goes back to its bay —
+     the newcomer hears that news too */
   a.send({ t: 'social:play', code: codeB });
   const outcome1 = await Promise.race([
     a.wait('social:play').then((mm) => `outcome:${mm.outcome}`).catch(() => 'none'),
@@ -3766,14 +3783,14 @@ async function part15AndroidBots(url: string, server: RelayServer): Promise<void
   assert(humanPlayersOf(s4).length === 2 && androidPlayersOf(s4).map((p) => p.bay).join(',') === '0,1',
     'the lobby now holds 2 humans + the 2 older androids', s4.players.map((p) => `${p.id}:${p.bay ?? '-'}`));
 
-  /* ⑧ 분대장이 나가면 봇이 아니라 사람에게 넘어간다 */
+  /* ⑧ when the squad leader leaves the role goes to a human, never to a bot */
   a.send({ t: 'lobby:leave' });
   await a.wait('lobby:left');
   const s5 = (await b.wait('peer:left', (mm) => mm.id === a.id)).lobby;
   assert(s5.hostId === b.id && s5.players.find((p) => p.id === b.id)?.isHost === true
     && !s5.players.some((p) => p.bot === true && p.isHost), 'after the host leaves the role goes to the human, never to an android', s5);
 
-  /* ⑨ 봇은 늘 준비 완료다 — 출격 판정에 들어가고 `reset()` 뒤에도 그대로 */
+  /* ⑨ a bot is always ready — it counts toward the launch check and stays ready after `reset()` */
   await pickPlanet(b, 'mossy');
   b.send({ t: 'lobby:ready', ready: true });
   await b.wait('lobby:state', (mm) => mm.lobby.players.every((p) => p.ready));
@@ -3787,17 +3804,17 @@ async function part15AndroidBots(url: string, server: RelayServer): Promise<void
     && s6.players.find((p) => p.id === b.id)?.ready === false,
     'lobby:reset clears every human ready flag but leaves the androids ready', s6.players);
 
-  /* ⑩ 사람이 전부 나가면 로비는 봇과 함께 사라진다 */
+  /* ⑩ once every human is gone the lobby disappears together with its bots */
   b.send({ t: 'lobby:leave' });
   await b.wait('lobby:left');
   await sleep(30);
   assert(server.lobbies.byCode(l1.code) === undefined && server.lobbies.lobbyOf(b.id) === undefined,
     'the last human leaving deletes the lobby — androids never keep it alive', { lobby: l1.code });
 
-  /* ⑪ 사람으로 가득 찬 분대 → 들이기는 full, 그리고 요청자에게만 androidReturned {full} */
+  /* ⑪ a squad full of humans → recruiting is full, and androidReturned {full} goes to the sender alone */
   const { c: cc } = await connect('C15', url, { token: makeToken('c'), name: '대원C' });
   const { c: dd } = await connect('D15', url, { token: makeToken('d'), name: '대원D' });
-  a.flush(); b.flush();   // 앞 절의 묵은 `lobby:state` 가 새 로비 코드로 읽히지 않게
+  a.flush(); b.flush();   // so a stale `lobby:state` from the section above is not read as the new lobby code
   a.send({ t: 'lobby:create', name: '분대장A' });
   const l2 = (await a.wait('lobby:state')).lobby;
   for (const cl of [b, cc, dd]) {

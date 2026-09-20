@@ -1,22 +1,23 @@
 /**
- * `server/Console.ts` — **서버를 켠 사람이 창에 치는 명령** (운영 콘솔).
+ * `server/Console.ts` — **what the person who started the server types into its window** (the operator console).
  *
- * 2026-09-11 (C-29) 에 배포용 서버 exe(`server/tool.ts`)에 처음 생겼고, **2026-09-15 에 여기로 옮겼다** — 빌드에서
- * 서버를 빼고(사용자 결정) 서버는 이 저장소의 `start-server.bat` 로만 켜기로 했으므로, 그 bat 가 띄우는
- * `npm run server`(`server/index.ts`)가 콘솔을 갖는다. 기본 모드(`npm run dev:all`)에서는 `scripts/dev-all.mjs` 가
- * 자기 창의 입력을 줄 단위로 릴레이 자식에게 넘긴다.
+ * It first appeared on 2026-09-11 (C-29) in the shipped server exe (`server/tool.ts`) and **moved here on
+ * 2026-09-15** — builds ship no server (user's decision) and a server is started only from this repo's
+ * `start-server.bat`, so the `npm run server` (`server/index.ts`) that bat launches is the one that owns the console.
+ * In the default mode (`npm run dev:all`), `scripts/dev-all.mjs` forwards its window's input to the relay child.
  *
- * 밴은 없다 — `kick` 은 지금 연결을 끊고 슬롯을 비울 뿐이고, 같은 사람이 다시 붙는 것은 막지 않는다 (게임 쪽은
- * `kicked` 를 받으면 자동 재접속만 멈춘다).
+ * There is no ban — `kick` only drops the current connection and frees the slot; it does not stop the same person
+ * from connecting again (the game side merely stops auto-reconnecting once it is told `kicked`).
  *
- * ⚠ **stdin 이 없어도 서버를 막거나 죽이지 않는다.** verify 러너 · 스모크는 릴레이를 `stdio: ignore`(곧바로 EOF) 나
- * 쓰지 않는 파이프로 띄운다. readline 은 EOF 에 조용히 닫히고, 스트림 오류는 삼키고, 명령 하나가 던져도 한 줄만 찍는다.
+ * ⚠ **No stdin must never block or kill the server.** The verify runner · the smokes start the relay with
+ * `stdio: ignore` (EOF at once) or with a pipe nobody reads. readline closes quietly on EOF, stream errors are
+ * swallowed, and a command that throws prints one line.
  */
 import { createInterface } from 'node:readline';
 import type { RelayServer } from './RelayServer.ts';
 import { formatPlayerCode } from '../src/shared/social.ts';
 
-/** 명령 목록 한 줄 요약 — `index.ts` 의 시작 줄 · `start-server.bat` 배너와 같은 순서다. */
+/** One-line summary of the command list — the same order as `index.ts`'s startup line and the bat's banner. */
 export const CONSOLE_COMMANDS_LINE = 'list · lobbies · kick <아이디> [사유] · max <인원> · gc · help';
 
 const HELP = [
@@ -35,7 +36,7 @@ function since(at: number): string {
   return `${Math.floor(s / 3600)}시간 ${Math.floor((s % 3600) / 60)}분`;
 }
 
-/** Pad by display width (한글 = 2 columns), so the table lines up in a Windows console. */
+/** Pad by display width (Hangul = 2 columns), so the table lines up in a Windows console. */
 function pad(text: string, width: number): string {
   let w = 0;
   for (const ch of text) w += (ch.codePointAt(0) ?? 0) > 0x2e80 ? 2 : 1;
@@ -71,9 +72,10 @@ export function runConsoleCommand(server: RelayServer, input: string): string {
       const lines = [`함선 ${all.length}개`];
       for (const l of all) {
         const mode = l.started ? (l.mode === 'training' ? '훈련 중' : '임무 중') : '대기';
-        // 2026-09-15: 도킹 전 분대(초대만 오간 사이 — 각자 개인 함선에 있다)는 따로 적는다. 필드가 없는 로비는 도킹한 것이다.
+        // 2026-09-15: an undocked squad (only an invite passed — each member is in their own personal ship) is
+        // marked separately. A lobby with no such field is a docked one.
         const undocked = (l as unknown as { docked?: boolean }).docked === false ? '  도킹 전 분대' : '';
-        /* 2026-09-15: 안드로이드 분대원(봇 멤버)은 사람과 따로 센다 — 「N명」은 사람 수다. */
+        /* 2026-09-15: android squadmates (bot members) are counted apart from humans — the 「N명」 is the humans. */
         const bots = l.botCount();
         lines.push(`  ${l.code}  ${mode}  ${l.humanCount()}명${bots ? ` + 안드로이드 ${bots}기` : ''}${l.isPublic ? '  공개' : ''}${undocked}${l.planet ? `  행성 ${l.planet}` : ''}`);
         for (const p of l.players.values()) {
@@ -119,12 +121,12 @@ export interface ServerConsole {
 }
 
 /**
- * stdin 을 줄 단위로 읽어 명령을 돌린다. 입력이 없는 실행(`stdio: ignore` · 서비스)에서는 readline 이 곧바로 닫히고
- * 서버는 그대로 돈다 — 콘솔만 없어진다. 파이프가 깨지는 오류(`EPIPE` · `ECONNRESET`)도 같은 뜻이다.
+ * Reads stdin line by line and runs the commands. With no input (`stdio: ignore` · a service) readline closes at once
+ * and the server carries on — only the console is gone. A broken pipe (`EPIPE` · `ECONNRESET`) means the same.
  */
 export function startServerConsole(server: RelayServer, input: NodeJS.ReadableStream = process.stdin): ServerConsole | null {
   if (!(input as NodeJS.ReadStream).readable) return null;
-  input.on('error', () => { /* 입력이 끊겼다 — 콘솔만 없어진다 */ });
+  input.on('error', () => { /* the input is gone — only the console is lost */ });
   let rl;
   try {
     rl = createInterface({ input, terminal: false });

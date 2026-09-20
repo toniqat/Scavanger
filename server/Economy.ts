@@ -1,47 +1,60 @@
 /**
- * 서버 크레딧 검증 (2026-09-11, E-4 ⑦ — `src/shared/credits.ts` 가 계약, 커밋 `9bd72ce`(계약) · `b3fc2f0`(구현)).
+ * Server-side credit validation (2026-09-11, E-4 ⑦ — `src/shared/credits.ts` is the contract, commits `9bd72ce`
+ * (the contract) · `b3fc2f0` (the implementation)).
  *
- * 예전 릴레이는 `credits:tx {delta, reason}` 를 **그대로** 받았다 (잔액이 0 밑으로 가는 것만 거절). 이제 `reason` 을
- * `parseCreditReason` 으로 해석하고 금액을 **경제 표**(`economy.gen.json` — `npm run data:check -- --write` 가 클라이언트와
- * 같은 코드로 csv 에서 만든다)로 검사한다. 규칙은 `credits.ts` 머리 주석의 표 그대로다:
+ * The old relay took `credits:tx {delta, reason}` **as it came** (refusing only a balance falling below 0). Now
+ * `reason` is read with `parseCreditReason` and the amount checked against the **economy table**
+ * (`economy.gen.json` — `npm run data:check -- --write` builds it from the csv with the client's own code). The
+ * rules are exactly the table in `credits.ts`'s header comment:
  *
- *   buy:<id>               delta < 0 이고 |delta| ≥ 최고 신뢰도 할인가 (`tableMinBuyPrice`)
+ *   buy:<id>               delta < 0 and |delta| ≥ the best-trust discount price (`tableMinBuyPrice`)
  *   sell:<id>:<qty>        1 ≤ qty ≤ stack, 0 < delta ≤ `tableSellPrice(value, qty)`
- *   refund:<id>            0 < delta ≤ 원장의 창(`CREDIT_REFUND_WINDOW_MS`) 안 미환불 `buy:<id>` 잔액
- *   repair:<broken>        delta === −수리비
- *   refund:repair:<broken> 창 안 미환불 `repair:<broken>` 짝
- *   contract:<id>          delta === 보상, 한 시간에 `CREDIT_CONTRACT_MAX_PER_HOUR` 회
- *   quest:<id>             delta === 보상, 퀘스트 id 당 1회 (원장)
- *   rover:<from>:<to>      (2026-09-13 탐사 차량 요금) delta < 0 정수, |delta| ∈ [roverFareMin, roverFareMax] (경로 거리는 시드마다
- *                          달라 범위만 본다), from ≠ to, 한 시간에 `CREDIT_ROVER_MAX_PER_HOUR` 회 (원장 `roverAt`), 환불 짝 없음
- *   cbuy:<coin>:<units>    (2026-09-13 암호화폐 매수) delta < 0 정수, |delta| ≥ cryptoTradeCredits('buy', 시세 창 최저가, units), 코인이 표에
- *                          있고 해금 퀘스트가 있으면 원장 `quests` 에 있어야 한다, 1 ≤ units ≤ maxUnits, 한 시간에 `CREDIT_CRYPTO_MAX_PER_HOUR` 회
- *                          (원장 `cryptoAt`), 환불 짝 없음. 시세 창은 주입된 `CryptoQuoteSource`(릴레이의 `CryptoMarket`) — 없으면 전부 거절
- *   csell:<coin>:<units>   (매도) 0 < delta ≤ cryptoTradeCredits('sell', 시세 창 최고가, units), 나머지는 cbuy 와 같다
- *   intel:<planet>:<code>  (2026-09-14 정보상) delta < 0 정수, 행성이 표의 `planetThreat` 에 있고, `parseIntelCode` 가 풀리고,
- *                          모든 줄이 표에 있고 단계가 `maxTier` 이내이며, |delta| === intelCost(threat, picks, table.intel).
- *                          한 시간에 `CREDIT_INTEL_MAX_PER_HOUR` 회 (원장 `intelAt`), 환불 짝 없음. 정말 그 정보로 출격했는지는
- *                          보지 않는다 — 맵은 클라이언트가 만든다 (아이템 소유와 같은 한계)
- *   migrate                잔액이 null 일 때 1회, [0, CREDITS_MAX] 로 clamp
- *   console · smoke:* · e2e:* · shot   `devEconomy` 릴레이에서만 (`SCAV_DEV_ECONOMY=1` — 스모크 러너가 띄우는 릴레이뿐, dev:all 도 끔)
- *   그 밖                  거절 (`CREDIT_TX_INVALID_KO`)
+ *   refund:<id>            0 < delta ≤ the unrefunded `buy:<id>` balance inside the ledger's window
+ *                          (`CREDIT_REFUND_WINDOW_MS`)
+ *   repair:<broken>        delta === −the repair fee
+ *   refund:repair:<broken> an unrefunded `repair:<broken>` pair inside the window
+ *   contract:<id>          delta === the reward, `CREDIT_CONTRACT_MAX_PER_HOUR` times an hour
+ *   quest:<id>             delta === the reward, once per quest id (the ledger)
+ *   rover:<from>:<to>      (2026-09-13 rover fare) delta < 0 integer, |delta| ∈ [roverFareMin, roverFareMax]
+ *                          (the route length differs per seed, so only the range is read), from ≠ to,
+ *                          `CREDIT_ROVER_MAX_PER_HOUR` times an hour (ledger `roverAt`), no refund pair
+ *   cbuy:<coin>:<units>    (2026-09-13 crypto buy) delta < 0 integer, |delta| ≥ cryptoTradeCredits('buy', the
+ *                          quote window's lowest, units), the coin is in the table and, if it has an unlock quest,
+ *                          that quest is in the ledger's `quests`, 1 ≤ units ≤ maxUnits,
+ *                          `CREDIT_CRYPTO_MAX_PER_HOUR` times an hour (ledger `cryptoAt`), no refund pair. The
+ *                          quote window is the injected `CryptoQuoteSource` (the relay's `CryptoMarket`) — with
+ *                          none every trade is refused
+ *   csell:<coin>:<units>   (a sell) 0 < delta ≤ cryptoTradeCredits('sell', the window's highest, units); the rest
+ *                          is the same as cbuy
+ *   intel:<planet>:<code>  (2026-09-14 the intel broker) delta < 0 integer, the planet is in the table's
+ *                          `planetThreat`, `parseIntelCode` resolves, every row is in the table with its tier
+ *                          within `maxTier`, and |delta| === intelCost(threat, picks, table.intel).
+ *                          `CREDIT_INTEL_MAX_PER_HOUR` times an hour (ledger `intelAt`), no refund pair. Whether
+ *                          the launch really used that intel is not checked — the map is built by the client (the
+ *                          same limit as item ownership)
+ *   migrate                once while the balance is null, clamped to [0, CREDITS_MAX]
+ *   console · smoke:* · e2e:* · shot   only on a `devEconomy` relay (`SCAV_DEV_ECONOMY=1` — only the relay the
+ *                          smoke runner starts; dev:all leaves it off too)
+ *   anything else          refused (`CREDIT_TX_INVALID_KO`)
  *
- * 이 파일은 **순수**하다 — 잔액 · 원장을 받아 판정하고(`check`), 잔액이 실제로 바뀐 뒤 원장을 적는다(`commit`). 저장 ·
- * 원자성은 `Store.applyCreditsTx` 가, 와이어는 `RelayServer` 의 `credits:tx` 가 갖는다. 핸들러가 동기라 check → apply →
- * commit 사이에 다른 트랜잭션이 끼지 않는다.
+ * This file is **pure** — it takes the balance · ledger and judges (`check`), and writes the ledger once the balance
+ * really moved (`commit`). Persistence · atomicity belong to `Store.applyCreditsTx`, the wire to `RelayServer`'s
+ * `credits:tx`. Handlers are synchronous, so no other transaction slips between check → apply → commit.
  *
- * 표는 **JSON import** 로 읽는다 (`node --experimental-strip-types server/index.ts` 에서 Node 의 JSON 모듈).
- * `import.meta` 는 쓰지 않는다 — 옛 단독 exe 의 CJS 번들 때문에 생긴 규칙이고 (2026-09-15 exe 폐기), 지켜서 잃는 것이 없다.
+ * The table is read with a **JSON import** (Node's JSON module under `node --experimental-strip-types
+ * server/index.ts`). `import.meta` is not used — a rule that came from the old standalone exe's CJS bundle (the exe
+ * was dropped 2026-09-15), and keeping it costs nothing.
  */
 import type { CreditLedger, CreditReason, EconomyTable } from '../src/shared/credits.ts';
 import {
   CREDIT_CONTRACT_MAX_PER_HOUR, CREDIT_DEV_ENV, CREDIT_REFUND_WINDOW_MS, CREDIT_ROVER_MAX_PER_HOUR, economyTableDigest, formatCreditReason,
   parseCreditReason, tableMinBuyPrice, tableSellPrice,
 } from '../src/shared/credits.ts';
-/* 2026-09-13: 암호화폐 매매 `cbuy:` · `csell:` (서버 시세 창) */
+/* 2026-09-13: crypto trades `cbuy:` · `csell:` (the server's quote window) */
 import { CREDIT_CRYPTO_MAX_PER_HOUR } from '../src/shared/credits.ts';
 import { cryptoTradeCredits } from '../src/shared/cryptoMarket.ts';
-/* 2026-09-14: 정보상 `intel:<planet>:<code>` — 금액 식은 클라와 **같은 함수**다 (표만 다른 출처에서 온다) */
+/* 2026-09-14: the intel broker `intel:<planet>:<code>` — the price formula is the **same function** the client
+   runs (only the table comes from another source) */
 import { CREDIT_INTEL_MAX_PER_HOUR } from '../src/shared/credits.ts';
 import { intelCost, parseIntelCode } from '../src/shared/intel.ts';
 import generated from './economy.gen.json' with { type: 'json' };
@@ -309,8 +322,9 @@ export class CreditEconomy {
         return ledger?.quests.includes(parsed.id) ? { ok: false, why: `quest ${parsed.id} already paid` } : okay(d);
       }
       case 'rover': {
-        /* 2026-09-13 탐사 차량 요금: the fare comes from the seed's route length, which the relay cannot know — so only the
-         * csv range, the sign, whole credits and an hourly cap. `parseCreditReason` already refused from === to / bad ids. */
+        /* 2026-09-13 rover fare: the fare comes from the seed's route length, which the relay cannot know — so only
+         * the csv range, the sign, whole credits and an hourly cap. `parseCreditReason` already refused from === to /
+         * bad ids. */
         const lo = t.roverFareMin, hi = t.roverFareMax;
         if (!finite(lo) || !finite(hi)) return { ok: false, why: 'rover fare but the table has no roverFareMin/roverFareMax' };
         if (!finite(delta) || delta !== d) return { ok: false, why: `rover fare ${String(delta)} is not whole credits` };
@@ -320,8 +334,9 @@ export class CreditEconomy {
         return recent < CREDIT_ROVER_MAX_PER_HOUR ? okay(d) : { ok: false, why: `rover fare cap ${CREDIT_ROVER_MAX_PER_HOUR}/h reached` };
       }
       case 'intel': {
-        /* 2026-09-14 정보상: 릴레이는 **금액만** 검산한다 — 정말 그 정보를 갖고 출격했는지는 볼 수 없다 (맵은 클라이언트가
-         * 만든다, 아이템 소유와 같은 한계). 식은 클라와 같은 `intelCost` 이고 표만 `economy.gen.json` 에서 온다. */
+        /* 2026-09-14 the intel broker: the relay checks **the amount only** — it cannot see whether the launch was
+         * really made with that intel (the map is built by the client, the same limit as item ownership). The
+         * formula is the client's own `intelCost` and only the table comes from `economy.gen.json`. */
         const ix = t.intel;
         if (!ix) return { ok: false, why: 'intel purchase but the table has no intel section' };
         const threat = Object.prototype.hasOwnProperty.call(ix.planetThreat, parsed.id) ? ix.planetThreat[parsed.id] : undefined;
@@ -342,9 +357,10 @@ export class CreditEconomy {
       }
       case 'crypto-buy':
       case 'crypto-sell': {
-        /* 2026-09-13 암호화폐 매매 (`credits.ts` 의 같은 날 절): the amount must be one a client could have computed from a price the
-         * relay showed inside the quote window — a buy at least the cost at the window's lowest price, a sell at most the payout at its
-         * highest. Wallet ownership is not checked (the ship document is a client write — the same limit as items). */
+        /* 2026-09-13 crypto trades (`credits.ts`'s section of the same day): the amount must be one a client could
+         * have computed from a price the relay showed inside the quote window — a buy at least the cost at the
+         * window's lowest price, a sell at most the payout at its highest. Wallet ownership is not checked (the ship
+         * document is a client write — the same limit as items). */
         const cx = t.crypto;
         const buy = parsed.kind === 'crypto-buy';
         if (!cx) return { ok: false, why: 'crypto trade but the table has no crypto section' };
@@ -401,7 +417,7 @@ export class CreditEconomy {
         (ledger.cryptoAt ??= []).push(now);
         break;
       case 'intel':
-        // 2026-09-14: the hourly cap only — 정보는 **환불 불가** 라 `debits` 에 남기지 않는다 (rover 와 같다)
+        // 2026-09-14: the hourly cap only — intel is **not refundable**, so no `debits` entry (the same as rover)
         (ledger.intelAt ??= []).push(now);
         break;
       default:

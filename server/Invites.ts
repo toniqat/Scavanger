@@ -13,7 +13,7 @@ import { randomBytes } from 'node:crypto';
 import type { PeerId } from '../src/shared/net.ts';
 import { SOCIAL_PUSH_COALESCE_MS, SQUAD_INVITE_TTL_S } from '../src/shared/social.ts';
 
-/** One open squad invite. `from` / `to` are PeerIds — the wire only ever carries 아이디 and the invite `id`. */
+/** One open squad invite. `from` / `to` are PeerIds — the wire carries only the player code and the invite `id`. */
 export interface OpenInvite {
   readonly id: string;
   readonly from: PeerId;

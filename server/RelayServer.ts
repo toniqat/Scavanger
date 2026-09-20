@@ -26,14 +26,15 @@ import { PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES } from '../src/shared/profil
 /* Phase 11 */
 import type { PlanetId } from '../src/shared/planets.ts';
 import { isPlanetId } from '../src/shared/planets.ts';
-/* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (모양만 씻는다, docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* 2026-09-14: the intel broker — the fixed gimmicks carried on the lobby (only the shape is sanitized,
+   docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelWire } from '../src/shared/net.ts';
 import { sanitizeIntelPicks } from '../src/shared/intel.ts';
 import type { PlayerCode, PresenceState, SocialErrorCode, SocialPlayer, SocialSnapshot } from '../src/shared/social.ts';
 import {
   SOCIAL_ERROR_MESSAGE_KO, SOCIAL_WHISPER_MAX, normalizePlayerCode, playBlockReason,
 } from '../src/shared/social.ts';
-/* 2026-09-11 (B-3 · B-4 · B-5 · B-6): 초대 표 · 차단 · 푸시 합치기 · 원자적 이동 */
+/* 2026-09-11 (B-3 · B-4 · B-5 · B-6): the invite table · blocks · push coalescing · the atomic move */
 import type { InviteOutcome, SocialCard } from '../src/shared/social.ts';
 import { SQUAD_INVITE_MAX } from '../src/shared/social.ts';
 import { InviteTable, PushCoalescer, type OpenInvite } from './Invites.ts';
@@ -42,15 +43,15 @@ import {
   PROFILE_GC_INTERVAL_MS, ProfileStore, SOCIAL_LEVEL_MAX, docBytes, isProfileDocKey,
   type ProfileGcReport, type ProfileStoreOptions,
 } from './Store.ts';
-/* 2026-09-11 (E-6): 문서 리비전 · 트랜잭션 */
+/* 2026-09-11 (E-6): document revisions · transactions */
 import { PROFILE_WRITE_ID_MAX, type RevWriteResult } from './Store.ts';
 import { PROFILE_SETMANY_MAX_BYTES } from '../src/shared/profile.ts';
-/* 2026-09-11 (E-4 ⑦): 서버 크레딧 검증 */
+/* 2026-09-11 (E-4 ⑦): server-side credit validation */
 import type { EconomyTable } from '../src/shared/credits.ts';
 import { CreditEconomy, ECONOMY_TABLE, economyTableIntact } from './Economy.ts';
-/* 2026-09-13: 암호화폐 시세 (`crypto:watch` · `crypto:history` · `crypto:prices`) */
+/* 2026-09-13: crypto prices (`crypto:watch` · `crypto:history` · `crypto:prices`) */
 import { CryptoMarket } from './CryptoMarket.ts';
-/* 2026-09-14: 단체 메신저방 (`room:*` · server/Rooms.ts) */
+/* 2026-09-14: group rooms (`room:*` · server/Rooms.ts) */
 import type { RoomErrorCode, RoomInfo, RoomInvite, RoomLine, RoomRecord, RoomSnapshot, SocialRecord } from '../src/shared/social.ts';
 import {
   ROOM_MEMBER_MAX, ROOM_NAME_MAX, ROOM_SAY_BURST, ROOM_SAY_PER_S, ROOM_TEXT_MAX, formatPlayerCode, isValidRoomId, roomErrorMessage,
@@ -59,9 +60,10 @@ import {
 import { RoomStore, type RoomOp } from './Rooms.ts';
 import { DEFAULT_DATA_DIR } from './Store.ts';
 import type { CryptoChartRange } from '../src/shared/cryptoMarket.ts';
-/* 2026-09-15: 분대 · 도킹 매칭 (`lobby:dock` · `lobby:look` · 초대 전용 같이 하기 · 외로운 분대 해산) */
+/* 2026-09-15: squad · dock matchmaking (`lobby:dock` · `lobby:look` · invite-only `같이 하기` · lonely-party prune) */
 import { NET_ACCENT_PARAM, sanitizeAccent } from '../src/shared/net.ts';
-/* 2026-09-15: 안드로이드 분대원 (`lobby:android` · `lobby:androidReturned` · 봇 멤버) — `src/shared/net.ts` 파일 끝 절 */
+/* 2026-09-15: android squadmates (`lobby:android` · `lobby:androidReturned` · bot members) — the last section
+   of `src/shared/net.ts` */
 import { ANDROID_BAY_COUNT, isAndroidId, isBotPlayer } from '../src/shared/net.ts';
 import type { PlayBlock } from '../src/shared/social.ts';
 
@@ -136,7 +138,7 @@ export interface RelayClientInfo {
   id: PeerId;
   name: string;
   remote: string;
-  /** The 아이디 (`PlayerCode`) — null for an anonymous socket (or before the store assigned one). */
+  /** The player code (`PlayerCode`) — null for an anonymous socket (or before the store assigned one). */
   code: string | null;
   /** Lobby code, or null outside any ship. */
   lobby: string | null;
@@ -197,11 +199,13 @@ export interface RelayServer {
   readonly store: ProfileStore;
   clientCount(): number;
   close(): Promise<void>;
-  /* 2026-09-11 (C-29) — 서버 콘솔 관리 (`server/Console.ts`, start-server.bat 창). 밴은 없다: 쫓겨난 사람이 다시 붙는 것은 막지 않는다. */
+  /* 2026-09-11 (C-29) — operator console administration (`server/Console.ts`, the start-server.bat window). There
+     is no ban: a kicked person is never stopped from connecting again. */
   /** Every connected socket, oldest first. */
   listClients(): RelayClientInfo[];
   /**
-   * Disconnect `idOrCode` (a PeerId, or an 아이디 typed with or without the dash) **without a reconnect grace**: the
+   * Disconnect `idOrCode` (a PeerId, or a player code typed with or without the dash) **without a reconnect
+   * grace**: the
    * lobby slot is removed at once (`peer:left`, host migrated like an ordinary leave), then `lobby:error kicked` and a
    * close with `CLOSE_KICKED`. A member that is only sitting in its grace (no socket) just loses the slot.
    */
@@ -221,7 +225,7 @@ export interface RelayServer {
   collectGarbage(now?: number): ProfileGcReport;
   /** 2026-09-13: the crypto market (null when the economy table has no `crypto` section). */
   readonly crypto: CryptoMarket | null;
-  /** 2026-09-14: 단체 메신저방 저장소 (`rooms.json` next to `profiles.json`). */
+  /** 2026-09-14: the group room store (`rooms.json` next to `profiles.json`). */
   readonly rooms: RoomStore;
 }
 
@@ -275,7 +279,8 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
       const out: ClientToServer = { t: 'lobby:start', seed: m.seed };
       if (m.mode !== undefined) out.mode = m.mode as MissionMode;
       if (m.planet !== undefined) out.planet = m.planet as PlanetId;
-      /* 2026-09-14 (정보상): 모양만 본다 — 값이 뭘 뜻하는지는 클라이언트의 월드 생성기가 안다 (`planet` 과 같은 취급). */
+      /* 2026-09-14 (the intel broker): only the shape is read — what the values mean is the client world
+         generator's business (treated like `planet`). */
       if (m.intel !== undefined) out.intel = sanitizeIntelWire(m.intel);
       return out;
     }
@@ -298,9 +303,9 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
     /* appended: Phase 7 — mission membership, profile store, credits, raid session */
     case 'lobby:mission':
       if (typeof m.inMission !== 'boolean') return null;
-      /* 2026-09-15: `keep` = 새로고침한 페이지의 `false` — blob 을 남긴다 (생략 · true 가 아닌 값 = 예전처럼 지운다) */
+      /* 2026-09-15: `keep` = a reloaded page's `false` — the blob is kept (omitted · not true = dropped as before) */
       return m.keep === true && !m.inMission ? { t: 'lobby:mission', inMission: false, keep: true } : { t: 'lobby:mission', inMission: m.inMission };
-    /* appended: 2026-09-15 — 타이틀 레이드 포기 (표류) */
+    /* appended: 2026-09-15 — abandoning the raid from the title (drifting) */
     case 'lobby:abandon':
       return { t: 'lobby:abandon' };
     case 'profile:get':
@@ -333,10 +338,11 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
         || !isRecord(b.stats) || !('inventory' in b) || typeof b.savedAt !== 'number') return null;
       return { t: 'raid:save', blob: b as unknown as RaidSessionBlob };
     }
-    /* appended: Phase 11 — 목표 행성 + 소셜. Shapes only; every social rule is the handler's (and the store's). */
+    /* appended: Phase 11 — the target planet + social. Shapes only; every social rule is the handler's (and the
+       store's). */
     case 'lobby:planet':
       return isPlanetId(m.planet) ? { t: 'lobby:planet', planet: m.planet } : null;
-    /* appended: 2026-09-14 — 정보상. `null` 은 「지역 재배치」(폐기)라 정상값이다. */
+    /* appended: 2026-09-14 — the intel broker. `null` is a valid value (it is a discarded 「지역 재배치」). */
     case 'lobby:intel':
       return m.intel === null || isRecord(m.intel) ? { t: 'lobby:intel', intel: sanitizeIntelWire(m.intel) } : null;
     case 'social:get':
@@ -360,14 +366,14 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
       if (typeof m.nonce === 'number') out.nonce = m.nonce;
       return out;
     }
-    /* appended: 2026-09-11 — B-3 초대 응답 · B-4 차단. Shapes only. */
+    /* appended: 2026-09-11 — B-3 the invite reply · B-4 blocks. Shapes only. */
     case 'social:inviteReply':
       return typeof m.id === 'string' && m.id.length > 0 && m.id.length <= MAX_INVITE_ID_INPUT && typeof m.accept === 'boolean'
         ? { t: 'social:inviteReply', id: m.id, accept: m.accept } : null;
     case 'social:block':
       return validSocialCode(m.code) && typeof m.blocked === 'boolean'
         ? { t: 'social:block', code: m.code as string, blocked: m.blocked } : null;
-    /* appended: 2026-09-09 — 분대장 지명 이관. 규칙은 전부 핸들러가 본다; 여기서는 모양만. */
+    /* appended: 2026-09-09 — host transfer by nomination. Every rule is the handler's; only the shape here. */
     case 'lobby:transferHost': {
       if (typeof m.targetId !== 'string' || m.targetId.length === 0 || m.targetId.length > MAX_CODE_INPUT) return null;
       if (m.claim !== undefined && typeof m.claim !== 'boolean') return null;
@@ -377,22 +383,26 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
     }
     case 'lobby:hostDown':
       return typeof m.down === 'boolean' ? { t: 'lobby:hostDown', down: m.down } : null;
-    /* appended: 2026-09-15 — 분대 · 도킹 매칭. Shapes only; a string that is not `#rrggbb` is ignored by the handler (not refused). */
+    /* appended: 2026-09-15 — squad · dock matchmaking. Shapes only; a string that is not `#rrggbb` is ignored by
+       the handler (not refused). */
     case 'lobby:dock':
       return typeof m.isPublic === 'boolean' ? { t: 'lobby:dock', isPublic: m.isPublic } : null;
     case 'lobby:look':
       return typeof m.accent === 'string' && m.accent.length <= MAX_ACCENT_INPUT ? { t: 'lobby:look', accent: m.accent } : null;
-    /* appended: 2026-09-15 — 안드로이드 분대원. 모양만: bay 의 범위 · 이미 그 상태인지는 핸들러가 `invalid` 로 답한다. */
+    /* appended: 2026-09-15 — android squadmates. Shapes only: the bay's range · whether it already is in that
+       state are answered `invalid` by the handler. */
     case 'lobby:android':
       return typeof m.bay === 'number' && Number.isInteger(m.bay) && typeof m.recruit === 'boolean'
         ? { t: 'lobby:android', bay: m.bay, recruit: m.recruit } : null;
-    /* appended: 2026-09-13 — 암호화폐 시세. Shapes only: an unknown coin / range is ignored by the handler (contract: 조용히 무시). */
+    /* appended: 2026-09-13 — crypto prices. Shapes only: an unknown coin / range is ignored by the handler
+       (contract: silently ignored). */
     case 'crypto:watch':
       return typeof m.on === 'boolean' ? { t: 'crypto:watch', on: m.on } : null;
     case 'crypto:history':
       return typeof m.coin === 'string' && m.coin.length > 0 && m.coin.length <= MAX_CODE_INPUT && typeof m.range === 'string' && m.range.length <= 4
         ? { t: 'crypto:history', coin: m.coin, range: m.range as CryptoChartRange } : null;
-    /* appended: 2026-09-14 — 단체 메신저방. Shapes + input caps only; membership / owner / friend rules are the handler's and the store's. */
+    /* appended: 2026-09-14 — group rooms. Shapes + input caps only; membership / owner / friend rules
+       are the handler's and the store's. */
     case 'room:get':
       return { t: 'room:get' };
     case 'room:create': {
@@ -423,9 +433,10 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
 }
 
 /**
- * 2026-09-14 (정보상) — `IntelWire` 의 **모양만** 씻는다. 릴레이는 이 값이 무엇을 뜻하는지 모르고 알 필요도 없다:
- * 레이아웃은 클라이언트가 만들고(`planet` 과 같은 한계) 서버는 그저 분대에 그대로 전한다. 빈 선택 · 모르는 기믹은
- * 「안 샀다」(null) 로 접는다 — 식은 `src/shared/intel.ts` 하나다.
+ * 2026-09-14 (the intel broker) — sanitizes **the shape only** of an `IntelWire`. The relay neither knows nor needs
+ * to know what the value means: the layout is built by the client (the same limit as `planet`) and the server merely
+ * passes it on to the squad. An empty pick · an unknown gimmick folds to "nothing was bought" (null) — the formula
+ * lives in one place, `src/shared/intel.ts`.
  */
 function sanitizeIntelWire(raw: unknown): IntelWire | null {
   if (!isRecord(raw)) return null;
@@ -435,7 +446,7 @@ function sanitizeIntelWire(raw: unknown): IntelWire | null {
   return picks.length ? { seed: Math.floor(seed), picks } : null;
 }
 
-/** A typed-in 아이디 arrives dashed / lower case; only the shape is checked here (`normalizePlayerCode` follows). */
+/** A typed-in code arrives dashed / lower case; only the shape is checked here (`normalizePlayerCode` follows). */
 function validSocialCode(v: unknown): boolean {
   return typeof v === 'string' && v.length > 0 && v.length <= MAX_CODE_INPUT;
 }
@@ -463,7 +474,8 @@ function parseConnectQuery(req: IncomingMessage): { token: string | null; name: 
     if (isValidSessionToken(t)) token = t;
     const n = url.searchParams.get(NET_NAME_PARAM);
     if (typeof n === 'string' && n.length > 0 && n.length <= MAX_NAME_INPUT) name = sanitizePlayerName(n);
-    /* 2026-09-15: 매칭 탭 초상의 강조색 — the one parser (`sanitizeAccent`) decides; anything else is simply unknown. */
+    /* 2026-09-15: the accent colour of the face tiles in the `매칭` tab — the one parser (`sanitizeAccent`)
+       decides; anything else is simply unknown. */
     const a = url.searchParams.get(NET_ACCENT_PARAM);
     if (typeof a === 'string' && a.length <= MAX_ACCENT_INPUT) accent = sanitizeAccent(a);
   } catch { /* malformed url → anonymous */ }
@@ -491,8 +503,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   /* E-4 (⑦): credits:tx rules. `devEconomy` only from `server/index.ts` (env) — the shipped exe / desktop shell never pass it. */
   const economy = new CreditEconomy(opts.economyTable ?? ECONOMY_TABLE, { dev: opts.devEconomy === true });
   log(`economy table ${economy.table.hash}${economyTableIntact(economy.table) ? '' : ' (digest mismatch — regenerate with npm run data:check -- --write)'} · ${Object.keys(economy.table.items).length} items · dev reasons ${economy.dev ? 'ON' : 'off'}`);
-  /* 2026-09-13: 암호화폐 시세 — the one entrypoint (`server/index.ts`, started by start-server.bat / verify) goes through here.
-     Same directory as the profile store (`crypto.json` next to `profiles.json`); `dataDir: null` keeps it in memory. */
+  /* 2026-09-13: crypto prices — the one entrypoint (`server/index.ts`, started by start-server.bat / verify) goes
+     through here. Same directory as the profile store (`crypto.json` next to `profiles.json`); `dataDir: null`
+     keeps it in memory. */
   const market = economy.table.crypto
     ? new CryptoMarket({ table: economy.table.crypto, dataDir: opts.dataDir === undefined ? DEFAULT_DATA_DIR : opts.dataDir, quiet, ...(opts.cryptoSeed !== undefined ? { seed: opts.cryptoSeed } : {}) })
     : null;
@@ -546,7 +559,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     }
   };
   /**
-   * Phase 11: every `LobbyState` that leaves the server carries each member's 아이디 + level from the profile store.
+   * Phase 11: every `LobbyState` that leaves the server carries each member's code + level from the profile store.
    * `Lobby` itself knows nothing about the store (it is pure data), so the decoration happens here — one place every
    * emitter goes through. Anonymous members simply have neither field.
    */
@@ -564,9 +577,10 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     broadcast(lobby, { t: 'lobby:state', lobby: lobbyState(lobby) });
   };
   /**
-   * 2026-09-15 (안드로이드 분대원): 사람이 들어오느라 슬롯으로 돌아간 봇을 로비 **전원**에게 알린다.
-   * 합류가 끝난 **뒤**에 부른다 — 새로 들어온 사람도 같은 소식을 받아야 분대 목록과 조종실 슬롯이 맞는다.
-   * 사람을 넣는 길(코드 참가 · 초대 수락 · 이동 · 공개 매칭)마다 `broadcastState` 바로 뒤에 온다.
+   * 2026-09-15 (android squadmates): tells **everyone** in the lobby about a bot that went back to its bay to let
+   * a human in. Called **after** the join is done — the newcomer has to hear the same news for its squad list and
+   * the cockpit bays to be right. It follows `broadcastState` on every path that puts a human in (joining by code ·
+   * accepting an invite · a move · public matchmaking).
    */
   const announceBotReturns = (lobby: Lobby): void => {
     for (const bot of lobby.takeReturnedBots()) {
@@ -588,12 +602,13 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     if (!lobby) return { presence: 'ship', squad: 0 };
     const inside = lobby.started && (lobby.get(id)?.inMission ?? false);
     const presence: PresenceState = inside ? (lobby.mode === 'training' ? 'training' : 'raid') : 'ship';
-    /* 2026-09-15: 분대 인원은 **사람만** 센다 — 안드로이드로 채운 분대도 사람은 초대할 수 있다 (사람이 봇을 이긴다). */
+    /* 2026-09-15: a squad's size counts **humans only** — a squad filled with androids can still invite people
+       (humans win over bots). */
     return { presence, squad: lobby.humanCount() };
   };
 
   /**
-   * One resolved row. null when the 아이디 has no profile any more — the caller then skips it.
+   * One resolved row. null when the code has no profile any more — the caller then skips it.
    * 2026-09-15: `iAmMember` = the viewer sits in a lobby it does not lead — 같이 하기 is invite-only now, so only a leader (or
    * someone with no squad) sees `joinable` (the same `playBlockReason` call `social:play` makes).
    */
@@ -608,7 +623,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       joinable: playBlockReason({ presence, squad }, mySquad, NET_MAX_PLAYERS, id === viewer, iAmMember) === null,
     };
     if (at !== undefined) row.at = at;
-    /* B-3 배지: my invite to them is still open (a hidden one too — for me it is an ordinary unanswered invite). */
+    /* B-3 badge: my invite to them is still open (a hidden one too — for me it is an ordinary unanswered invite). */
     const inv = invites.pair(viewer, id);
     if (inv) row.inviteAt = inv.at;
     return row;
@@ -622,7 +637,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     const soc = store.social(id);
     if (!soc) return null;
     const myLobby = lobbies.lobbyOf(id);
-    const mySquad = myLobby?.humanCount() ?? 0;   // 2026-09-15: 봇은 초대 가능 판정에서 빠진다
+    const mySquad = myLobby?.humanCount() ?? 0;   // 2026-09-15: bots are left out of the invitability test
     const iAmMember = myLobby !== undefined && myLobby.hostId !== id;
     const rows = (codes: readonly PlayerCode[]): SocialPlayer[] => {
       const out: SocialPlayer[] = [];
@@ -647,9 +662,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   /**
    * `broadcast()` only reaches a lobby, so a friend sitting in their own personal ship would never hear about a
    * presence change. These two indexes are the missing channel: `watchers` = subject → connected clients that have
-   * the subject in **any** of their four lists (2026-09-11, B-5 — friends · incoming · outgoing · recent; it used to be
-   * friends only, so a request or a 최근 만난 플레이어 row showed a stale presence), `watching` = its reverse so a disconnect
-   * costs O(rows). Nothing polls.
+   * the subject in **any** of their four lists (2026-09-11, B-5 — friends · incoming · outgoing · recent; it used
+   * to be friends only, so a request or a recent-player row showed a stale presence), `watching` = its reverse so
+   * a disconnect costs O(rows). Nothing polls.
    */
   const watchers = new Map<PeerId, Set<PeerId>>();
   const watching = new Map<PeerId, Set<PeerId>>();
@@ -668,7 +683,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
 
   /**
    * (Re)build one connected client's watch entries from all four of its lists (connect, and after anything that
-   * changes a list: request · respond · remove · block · 최근 만난 플레이어 · GC).
+   * changes a list: request · respond · remove · block · recent players · GC).
    */
   const rewatch = (id: PeerId): void => {
     unwatchAll(id);
@@ -712,11 +727,12 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   };
   /** `id` moved (connected / disconnected / joined / left / entered a mission / picked a planet). */
   const pushPresence = (id: PeerId): void => { pushSocial(id); notifyWatchers(id); markRoomPeers(id); };
-  /** A whole squad moved at once (start, reset, membership, 목표 행성). */
-  /* 2026-09-15: 봇은 프로필도 소켓도 없다 — presence 대상이 아니다. */
+  /** A whole squad moved at once (start, reset, membership, the target planet). */
+  /* 2026-09-15: a bot has neither a profile nor a socket — it is not a presence subject. */
   const pushLobbyPresence = (lobby: Lobby): void => { for (const p of lobby.players.values()) if (!isBotPlayer(p)) pushPresence(p.id); };
 
-  /* ── 2026-09-14: 단체 메신저방 (server/Rooms.ts — rules + persistence; here: profiles, friends, blocks, presence, fan-out) ── */
+  /* ── 2026-09-14: group rooms (server/Rooms.ts — rules + persistence; here: profiles, friends, blocks,
+     presence, fan-out) ── */
   const rooms = new RoomStore({
     dataDir: opts.dataDir === undefined ? DEFAULT_DATA_DIR : opts.dataDir,
     quiet,
@@ -816,7 +832,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     if (!target) return 'not_found';
     if (target.id === c.id || target.code === soc.code) return 'self';
     if (store.isBlocked(c.id, target.code)) return 'invalid';        // I blocked them: unblock first (same as a whisper)
-    if (store.isBlocked(target.id, soc.code)) return 'not_found';    // they blocked me: indistinguishable from a wrong 아이디
+    if (store.isBlocked(target.id, soc.code)) return 'not_found';    // they blocked me: reads as a wrong code
     if (!soc.friends.includes(target.code)) return 'not_friend';
     const op = rooms.invite(roomId, soc.code, target.code, Date.now());
     if (!op.ok) return op.code;
@@ -830,7 +846,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   };
   /** My own social record, or null when this connection has no profile (anonymous → `unavailable`). */
   const socialOf = (c: Client) => (c.hasProfile ? store.ensureSocial(c.id, c.name) : null);
-  /** `PlayerCode` → PeerId for an incoming request; undefined for an unknown / malformed 아이디. */
+  /** `PlayerCode` → PeerId for an incoming request; undefined for an unknown / malformed code. */
   const peerOfCode = (raw: string): { code: PlayerCode; id: PeerId } | null => {
     const code = normalizePlayerCode(raw);
     if (!code) return null;
@@ -839,7 +855,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   };
 
   /**
-   * 최근 만난 플레이어: a join put two or more profiles in the same ship, so each pair remembers the other (unless
+   * Recent players: a join put two or more profiles in the same ship, so each pair remembers the other (unless
    * they are already friends). Mutation only — the caller broadcasts the fresh snapshots.
    */
   const recordMet = (lobby: Lobby, joiner: PeerId): void => {
@@ -847,16 +863,16 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     let any = false;
     for (const p of lobby.players.values()) {
       const id = p.id;
-      if (isBotPlayer(p)) continue;   // 2026-09-15: 안드로이드는 「최근 만난 플레이어」가 아니다 (프로필이 없다)
+      if (isBotPlayer(p)) continue;   // 2026-09-15: an android is never a recent player (it has no profile)
       if (id === joiner || !store.social(id)) continue;
       if (store.recordMet(joiner, id)) { rewatch(id); any = true; }   // B-5: the new recent row is watched at once
     }
     if (any) rewatch(joiner);
   };
 
-  /* ── 2026-09-11 (B-11): 차단한 사이는 같은 분대에 서지 않는다 ─────────────────── */
+  /* ── 2026-09-11 (B-11): two people who blocked each other never stand in one squad ────── */
   /**
-   * true when the profile `owner` has blocked `other`. 차단 is kept **by 아이디**, so a profile without a social
+   * true when the profile `owner` has blocked `other`. A block is kept **by code**, so a profile without a social
    * record (anonymous, or one that never connected with a token) can neither block nor be blocked.
    */
   const blocks = (owner: PeerId, other: PeerId): boolean => {
@@ -865,10 +881,11 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   };
 
   /**
-   * Why `joiner` must not be put into `lobby` because of a 차단, or null. **Direction decides the answer** (사용자 결정):
+   * Why `joiner` must not be put into `lobby` because of a block, or null. **Direction decides the answer**
+   * (user's decision):
    *
    * - a member `joiner` has blocked → `'blocked'`: it is my own choice, so it is told plainly.
-   * - a member who has blocked `joiner` → `'not_found'`: a 차단 must never show through, and being indistinguishable
+   * - a member who has blocked `joiner` → `'not_found'`: a block must never show through, and being indistinguishable
    *   from a mistyped code is exactly the point (the invite path hides it the same way, `Invites.ts` `hidden`).
    *
    * My own direction wins when both are present — it is the one the player can act on. Callers ask this **before**
@@ -879,7 +896,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     let hidden = false;
     for (const p of lobby.players.values()) {
       const other = p.id;
-      if (isBotPlayer(p)) continue;   // 2026-09-15: 안드로이드는 차단할 수도, 차단당할 수도 없다
+      if (isBotPlayer(p)) continue;   // 2026-09-15: an android can neither block nor be blocked
       if (other === joiner) continue;
       if (blocks(joiner, other)) return 'blocked';
       if (blocks(other, joiner)) hidden = true;
@@ -887,7 +904,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     return hidden ? 'not_found' : null;
   };
 
-  /* ── 2026-09-11 (B-3): 초대 표 — every invite closes exactly once, through `closeInvite`, which tells both sides ── */
+  /* ── 2026-09-11 (B-3): the invite table — every invite closes exactly once, through `closeInvite`, which tells
+     both sides ── */
   const inviteCode = (id: PeerId): PlayerCode => store.card(id)?.code ?? '';
   const inviteName = (id: PeerId): string => store.card(id)?.name ?? '';
 
@@ -923,8 +941,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   const invites = new InviteTable({ ttlMs: opts.inviteTtlMs, onExpire: (inv) => { closeInvite(inv, 'expired'); } });
 
   /**
-   * 2026-09-15 (분대 · 도킹 매칭): an **undocked**, not-started lobby with exactly one member and no open invite into it is a
-   * squad of nobody — the invite that made it is gone (declined · expired · failed · offline · 차단 · the member left). It is
+   * 2026-09-15 (squad · dock matchmaking): an **undocked**, not-started lobby with exactly one member and no open
+   * invite into it is a squad of nobody — the invite that made it is gone (declined · expired · failed · offline ·
+   * a block · the member left). It is
    * dissolved: the member gets `lobby:left` (no reason — nobody moved them anywhere), the lobby is deleted, presence pushed.
    *
    * Called after every path that can leave that state behind: `closeInvite` (any outcome), `announceLeave` (leave · grace
@@ -936,7 +955,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
    */
   const pruneLonely = (lobby: Lobby | undefined): boolean => {
     if (!lobby || lobbies.byCode(lobby.code) !== lobby) return false;
-    /* 2026-09-15: 「혼자」는 **사람** 하나라는 뜻이다 (미도킹 분대에는 안드로이드가 있을 수 없지만 식은 한 곳에 둔다). */
+    /* 2026-09-15: "alone" means exactly one **human** (an undocked squad cannot hold androids, but the test lives
+       in one place). */
     if (lobby.docked || lobby.started || lobby.humanCount() !== 1) return false;
     for (const inv of invites.all()) if (inv.lobby === lobby.code) return false;
     let only: LobbyPlayer | undefined;
@@ -1080,7 +1100,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     log(`lobby ${res.to.code}: ${c.name}(${c.id}) moved in (${why}, ${res.to.size} players)`);
     recordMet(res.to, c.id);
     broadcastState(res.to);
-    announceBotReturns(res.to);   // 2026-09-15: 초대 수락 · 공개 매칭 이동도 사람이 봇을 이긴다
+    announceBotReturns(res.to);   // 2026-09-15: accepting an invite · a `공개 매칭` move — humans win over bots here too
     pushLobbyPresence(res.to);
     sweepInvites();
     return { ok: true, lobby: res.to };
@@ -1088,8 +1108,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
 
   /**
    * `lobby:quickmatch`, and (2026-09-15) `lobby:dock {isPublic:true}` from a player with no lobby: join the best open public
-   * **docked** lobby (B-11: one holding a 차단 either way is not a candidate) or create a docked public one. The caller has
-   * set `c.name`.
+   * **docked** lobby (B-11: one holding a block either way is not a candidate) or create a docked public one. The
+   * caller has set `c.name`.
    */
   const quickMatchClient = (c: Client, why: string): void => {
     const res = lobbies.quickMatch(c.id, c.name || sanitizePlayerName(''), (l) => blockRefusal(l, c.id) === null, c.accent);
@@ -1097,7 +1117,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     log(`lobby ${res.lobby.code}: ${why} ${res.created ? 'created (public)' : `joined (${res.lobby.size} players)`} by ${c.name}(${c.id})`);
     if (!res.created) recordMet(res.lobby, c.id);
     broadcastState(res.lobby);
-    /* 2026-09-15: 빠른 매칭 후보는 봇까지 세므로 여기서 밀려나는 안드로이드는 없다 — 그래도 길 하나에 규칙 하나로 둔다. */
+    /* 2026-09-15: quick-match candidates count bots too, so no android is ever pushed out here — one rule per path
+       all the same. */
     announceBotReturns(res.lobby);
     pushLobbyPresence(res.lobby);
     if (!res.created) { settleInvitesInto(c.id, res.lobby, false); sweepInvites(); }   // B-3: it may be full now
@@ -1181,9 +1202,10 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       if (clients.has(c.id)) return;
       const lobby = lobbies.lobbyOf(c.id);
       const me = lobby?.get(c.id);
-      // A 훈련장 is entered and left individually and holds no body — only a **raid** keeps the slot, and only while
-      // somebody else is still actually inside it (the last member inside expiring ends the mission, as before).
-      /* 2026-09-15: 「안에 남은 사람」 — 안드로이드는 세지 않는다 (봇만 남은 레이드는 버려진 레이드다). */
+      // The training range is entered and left individually and holds no body — only a **raid** keeps the slot,
+      // and only while somebody else is still actually inside it (the last member inside expiring ends the mission,
+      // as before).
+      /* 2026-09-15: "somebody still inside" — androids do not count (a raid left to bots is an abandoned one). */
       let othersInside = 0;
       if (lobby) for (const p of lobby.players.values()) if (p.id !== c.id && p.connected && p.inMission && !isBotPlayer(p)) othersInside++;
       if (lobby && me && lobby.started && lobby.mode !== 'training' && me.inMission && othersInside > 0) {
@@ -1222,12 +1244,13 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
-      /* appended: 2026-09-15 — 분대 · 도킹 매칭. 터미널 > 매칭의 `비공개 매칭` / `공개 매칭`. */
+      /* appended: 2026-09-15 — squad · dock matchmaking. The `비공개 매칭` / `공개 매칭` of 터미널 > 매칭. */
       case 'lobby:dock': {
         const mine = lobbies.lobbyOf(c.id);
         const name = c.name || sanitizePlayerName('');
         if (!mine) {
-          /* 분대가 없다: 비공개 = 나 혼자인 도킹된 비공개 로비, 공개 = 예전 빠른 매칭 그대로 (열린 공개 함선 합류 또는 새로 연다). */
+          /* No squad: private = a docked private lobby of my own, public = the old quick match unchanged (join an
+             open public ship, or open a new one). */
           if (m.isPublic) { quickMatchClient(c, 'dock public'); return; }
           const res = lobbies.create(c.id, name, false, { accent: c.accent });
           if (typeof res === 'string') { sendError(c, res); return; }
@@ -1241,9 +1264,10 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (mine.docked) { sendError(c, 'in_lobby'); return; }
         if (m.isPublic && mine.size === 1) {
           /*
-           * 혼자인 분대장(초대만 걸어 둔 상태)은 「혼자인 플레이어」다 — 열린 공개 함선이 있으면 **그리로 옮겨 탄다**. 옛 로비는
-           * 비어서 지워지고, 그 로비로 걸어 둔 초대는 평소의 sweep 으로 실패한다 (`failed / not_found`). 분대원이 한 명이라도 있으면
-           * 이 가지를 절대 타지 않는다 — 분대끼리는 합쳐지지 않는다 (사용자 결정).
+           * A lone leader (one that only has an invite out) is a "lone player" — with an open public ship around it
+           * **moves over into it**. The old lobby is emptied and deleted, and the invite pointing at it fails in the
+           * ordinary sweep (`failed / not_found`). With even one squadmate this branch is never taken — squads never
+           * merge (user's decision).
            */
           const open = lobbies.findQuickMatch((l) => l !== mine && blockRefusal(l, c.id) === null);
           if (open) {
@@ -1252,7 +1276,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
             log(`lobby ${mine.code}: 공개 매칭 move into ${open.code} refused (${moved.code}) → docking own lobby instead`);
           }
         }
-        /* 제자리 도킹: 비공개는 초대로만, 공개는 빠른 매칭 후보가 된다 (혼자 매칭한 사람만 빈 칸을 채운다). */
+        /* Docking in place: a private one takes invites only, a public one becomes a quick-match candidate (only a
+           lone matcher fills its free slots). */
         mine.docked = true;
         mine.isPublic = m.isPublic;
         log(`lobby ${mine.code}: docked (${m.isPublic ? 'public' : 'private'}, ${mine.size} players) by ${c.name}(${c.id})`);
@@ -1261,19 +1286,20 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       }
 
       /*
-       * appended: 2026-09-15 — 안드로이드 분대원. 공용 함선 조종실의 슬롯을 분대장이 3초 꾹 누른 결과다.
-       * 순서: 로비 → 분대장 → 도킹 → 시작 전 → bay(범위 · 이미 그 상태) → 빈 자리. 마지막만 `full` 이고,
-       * 그때는 에러와 함께 `lobby:androidReturned {reason:'full'}` 이 **요청자에게만** 간다 (조종실 연출이 되돌아간다).
+       * appended: 2026-09-15 — android squadmates. The result of the squad leader holding a bay in the shared
+       * ship's cockpit for 3 s. The order: in a lobby → the leader → docked → not started → the bay (its range ·
+       * already in that state) → a free slot. Only the last one is `full`, and then `lobby:androidReturned
+       * {reason:'full'}` goes with the error **to the sender alone** (the cockpit animation runs back).
        */
       case 'lobby:android': {
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
         if (lobby.hostId !== c.id) { sendError(c, 'not_host'); return; }
-        if (!lobby.docked) { sendError(c, 'not_docked'); return; }   // 안드로이드 슬롯은 공용 함선 조종실에만 있다
+        if (!lobby.docked) { sendError(c, 'not_docked'); return; }   // android bays exist only in a shared ship
         if (lobby.started) { sendError(c, 'started'); return; }
         if (m.bay < 0 || m.bay >= ANDROID_BAY_COUNT) { sendError(c, 'invalid'); return; }
         const cur = lobby.botOnBay(m.bay);
-        if (m.recruit === (cur !== null)) { sendError(c, 'invalid'); return; }   // 이미 그 상태다
+        if (m.recruit === (cur !== null)) { sendError(c, 'invalid'); return; }   // already in that state
         if (m.recruit) {
           const res = lobby.addBot(m.bay, Date.now());
           if (typeof res === 'string') {
@@ -1291,7 +1317,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
-      /* appended: 2026-09-15 — 매칭 탭 초상의 강조색. 잘못된 값은 조용히 무시한다 (거절하지 않는다). */
+      /* appended: 2026-09-15 — the accent colour of the face tiles in the `매칭` tab. A bad value is silently
+         ignored (never refused). */
       case 'lobby:look': {
         const accent = sanitizeAccent(m.accent);
         if (accent === null) return;
@@ -1305,7 +1332,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const code = normalizeLobbyCode(m.code);
         if (!isValidLobbyCode(code)) { sendError(c, 'invalid', '잘못된 로비 코드입니다.'); return; }
         c.name = sanitizePlayerName(m.name);
-        /* B-11: 차단 is checked **before** `lobbies.join`, so a refusal never touches the lobby. */
+        /* B-11: a block is checked **before** `lobbies.join`, so a refusal never touches the lobby. */
         const target = lobbies.byCode(code);
         if (target && !lobbies.lobbyOf(c.id)) {
           const refused = blockRefusal(target, c.id);
@@ -1316,7 +1343,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         log(`lobby ${code}: ${c.name}(${c.id}) joined (${res.size} players)`);
         recordMet(res, c.id);
         broadcastState(res);
-        announceBotReturns(res);   // 2026-09-15: 사람이 이겼다 — 밀려난 안드로이드를 새 사람까지 포함해 알린다
+        announceBotReturns(res);   // 2026-09-15: the human won — the pushed-out android is announced, newcomer too
         pushLobbyPresence(res);
         /* B-3: an older client accepts an invite with a plain `lobby:join` — that answers it too; the ship may be full now. */
         settleInvitesInto(c.id, res, false);
@@ -1335,7 +1362,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       case 'lobby:ready': {
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
-        if (!lobby.docked) { sendError(c, 'not_docked'); return; }   // 2026-09-15: 미도킹 분대에는 발사 포드가 없다
+        if (!lobby.docked) { sendError(c, 'not_docked'); return; }   // 2026-09-15: an undocked squad has no pods
         // Started lobby: ready = "in pod" is handled client-side in the hub; accept as a no-op and echo the state.
         if (lobby.started) { sendTo(c, { t: 'lobby:state', lobby: lobbyState(lobby) }); return; }
         lobby.setReady(c.id, m.ready);
@@ -1348,12 +1375,12 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
         const mode: MissionMode = m.mode ?? 'raid';
-        /* 2026-09-15: 미도킹 분대는 개인 출격도 훈련장도 잠긴다 — 레이드 · 훈련장 모두 여기서 막는다. */
+        /* 2026-09-15: an undocked squad locks the solo launch and the training range — both are refused here. */
         if (!lobby.docked) { sendError(c, 'not_docked'); return; }
         if (lobby.started) { sendError(c, 'started'); return; }
         if (mode === 'training') {
           // Any member, no ready gating: only the starter enters; the rest join later through `lobby:mission`.
-          // A training has no 목표 행성 (the arena is not on a planet), so `planet` is ignored here.
+          // A training has no target planet (the arena is not on a planet), so `planet` is ignored here.
           lobby.start(m.seed, 'training', c.id);
           log(`lobby ${lobby.code}: training started seed=${m.seed} by ${c.name}(${c.id})`);
           broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobbyState(lobby), mode: 'training' });
@@ -1366,8 +1393,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const planet: PlanetId | null = m.planet ?? lobby.planet;
         if (planet === null) { sendError(c, 'no_planet'); return; }
         lobby.planet = planet;
-        /* 2026-09-14 (정보상): 시작 메시지의 것이 우선, 없으면 이미 올라와 있는 `lobby:intel`. `lobby.start` 앞에
-         * 세팅해야 `lobbyState(lobby)` 와 `game:start.intel` 이 같은 값을 싣는다. */
+        /* 2026-09-14 (the intel broker): the start message's wins, else the `lobby:intel` already uploaded. It has
+         * to be set before `lobby.start` so `lobbyState(lobby)` and `game:start.intel` carry the same value. */
         if (m.intel !== undefined) lobby.intel = m.intel;
         const intel = lobby.intel;
         lobby.start(m.seed, 'raid', c.id);
@@ -1405,7 +1432,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
-      /* appended: 2026-09-14 — 정보상. 호스트 전용 · 시작 전. 서버는 **모양만** 씻고 그대로 방송한다 (레이아웃은 계산하지 않는다). */
+      /* appended: 2026-09-14 — the intel broker. Host only · before the start. The server sanitizes **the shape
+         only** and broadcasts it as it is (it computes no layout). */
       case 'lobby:intel': {
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
@@ -1417,22 +1445,25 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
-      /* appended: 2026-09-09 — 분대장(호스트) 지명 이관 */
+      /* appended: 2026-09-09 — host transfer by nomination */
       case 'lobby:transferHost': {
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
         /*
-         * 허용되는 두 경우뿐이다: ① 보낸 사람이 지금 호스트다, ② `claim` 이고 현재 호스트가 `lobby:hostDown`
-         * 으로 사망 표시를 켜 두었다 (시체 옆의 분대장 기기를 집은 사람). 그 외에는 `not_host`.
+         * Exactly two cases pass: ① the sender is the host right now, ② it is a `claim` and the current host has
+         * raised its down flag with `lobby:hostDown` (somebody picked up the squad-leader device beside the corpse).
+         * Anything else is `not_host`.
          */
         const isHost = lobby.hostId === c.id;
         const claiming = m.claim === true && lobby.hostDown && !isHost;
         if (!isHost && !claiming) { sendError(c, 'not_host'); return; }
         const target = lobby.get(m.targetId);
-        /* 2026-09-15: 안드로이드는 분대장이 될 수 없다 — 시뮬레이션을 돌릴 클라이언트가 없다 (`Lobby.transferHostTo` 와 같은 규칙). */
+        /* 2026-09-15: an android cannot be the squad leader — there is no client to run the simulation (the same
+           rule as `Lobby.transferHostTo`). */
         if (!target || !target.connected || isBotPlayer(target)) { sendError(c, 'invalid', '분대에 없는(또는 접속이 끊긴) 대원입니다.'); return; }
         if (lobby.hostId === m.targetId) {
-          // 이미 그 사람이 분대장 — 사망 표시만 걷고 상태를 되돌려 준다 (`lobby:planet` 의 no-op 과 같은 규약).
+          // They are the leader already — only the down flag is cleared and the state echoed back (the same
+          // convention as `lobby:planet`'s no-op).
           lobby.hostDown = false;
           sendTo(c, { t: 'lobby:state', lobby: lobbyState(lobby) });
           return;
@@ -1461,11 +1492,12 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
         if (m.inMission && !lobby.docked) { sendError(c, 'not_docked'); return; }   // 2026-09-15 (`false` stays allowed)
         if (m.inMission && !lobby.started) { sendError(c, 'in_mission'); return; }
-        // 2026-09-15 (타이틀 레이드 포기): 포기한 레이드에는 다시 들어갈 수 없다 (훈련장은 표류와 무관하다 — 표시는 레이드에만 선다)
+        // 2026-09-15 (abandoning the raid from the title): an abandoned raid can never be entered again (the
+        // training range has nothing to do with drifting — the flag is raised in a raid only)
         if (m.inMission && lobby.get(c.id)?.drifted) { sendError(c, 'drifted'); return; }
         lobby.setInMission(c.id, m.inMission);
         log(`lobby ${lobby.code}: ${c.name}(${c.id}) inMission=${m.inMission}${m.keep ? ' (reload, blob kept)' : ''} (${lobby.inMissionCount()} in mission)`);
-        // 2026-09-15: 새로고침(`keep`)은 blob 을 남긴다 — 다음 부팅의 타이틀이 그것으로 이어하거나 포기한다
+        // 2026-09-15: a reload (`keep`) keeps the blob — the next boot's title resumes or abandons the raid with it
         if (!m.inMission) { if (!m.keep) lobby.raid.delete(c.id); migrateHostAway(lobby, c.id); }
         else if (!migrateTimers.has(lobby.code)) {
           // Phase 9: entering a mission whose host is parked (down past its delay) or outside it → this member takes the role.
@@ -1478,12 +1510,12 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
-      /* appended: 2026-09-15 — 타이틀 레이드 포기. 그 레이드에서 사망 + 표류 (`Lobby.setDrifted`). */
+      /* appended: 2026-09-15 — abandoning the raid from the title: death + drifting (`Lobby.setDrifted`). */
       case 'lobby:abandon': {
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
         if (!lobby.started || (lobby.mode ?? 'raid') !== 'raid') { sendError(c, 'not_started'); return; }
-        // 이미 표류다 (두 번 누름 · 재전송) — 바꿀 것 없이 지금 상태만 돌려준다
+        // Already drifted (a double press · a resend) — nothing to change, just the current state back
         if (lobby.get(c.id)?.drifted) { sendTo(c, { t: 'lobby:state', lobby: lobbyState(lobby) }); return; }
         if (!lobby.setDrifted(c.id)) { sendError(c, 'invalid'); return; }
         let note = '';
@@ -1575,7 +1607,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
-      /* ── appended: Phase 11 — 소셜. Every branch needs a profile; an anonymous socket gets `unavailable`. ── */
+      /* ── appended: Phase 11 — social. Every branch needs a profile; an anonymous socket gets `unavailable`. ── */
       /*
        * 2026-09-11 (B-5): a direct answer to the sender's own request (`get` · `me` · `request` · `respond` · `remove` ·
        * `block`) goes out at once (`pushSocialNow`); everyone else it concerns is marked and gets one coalesced snapshot.
@@ -1641,7 +1673,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
-      /* appended: 2026-09-11 (B-4) — 차단 */
+      /* appended: 2026-09-11 (B-4) — blocks */
       case 'social:block': {
         const soc = socialOf(c);
         if (!soc) { socialError(c, 'unavailable'); return; }
@@ -1677,12 +1709,13 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         /* They already sit in my squad (answered before the leader gate — a member asking about a squadmate hears `in_squad`). */
         if (mine && mine.has(target.id)) { socialError(c, 'in_squad'); return; }
         /*
-         * 2026-09-15 (분대 · 도킹 매칭): 같이 하기 is **invite only** — the old branch "they already have a ship → I move into it"
+         * 2026-09-15 (squad · dock matchmaking): `같이 하기` is **invite only** — the old branch "they already have a
+         * ship → I move into it"
          * is gone. The same gate the UI greys the button out with (`playBlockReason`, `iAmMember` = I am in a squad I do not
          * lead), mapped onto the error codes.
          */
-        /* 2026-09-15: 내 분대 인원은 **사람만** 센다 — 안드로이드로 채운 분대에도 아는 사람은 초대할 수 있다
-         * (사람이 봇을 이긴다 — 수락하면 가장 늦게 들어온 기가 슬롯으로 돌아간다). */
+        /* 2026-09-15: my squad's size counts **humans only** — even a squad filled with androids can invite
+         * somebody it knows (humans win over bots — on an accept the latest-recruited unit goes back to its bay). */
         const block: PlayBlock | null = playBlockReason(
           presenceOf(target.id), mine?.humanCount() ?? 0, NET_MAX_PLAYERS, false, mine !== undefined && mine.hostId !== c.id,
         );
@@ -1713,7 +1746,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
-      /* appended: 2026-09-11 (B-3) — 초대 응답. Accepting is a server-side move (B-6), so every refusal is one `social:error`. */
+      /* appended: 2026-09-11 (B-3) — the invite reply. Accepting is a server-side move (B-6), so every refusal is
+         one `social:error`. */
       case 'social:inviteReply': {
         if (!socialOf(c)) { socialError(c, 'unavailable'); return; }
         const inv = invites.get(m.id);
@@ -1728,8 +1762,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
           return;
         }
         /* Someone else's squad in tow, or inside a mission: refused, and the invite stays open (leave, then accept). */
-        /* 2026-09-15: 「분대를 끌고 온다」는 **사람**이 둘 이상일 때다 — 안드로이드만 데리고 있는 사람은 혼자다
-         * (옮겨 가면 사람이 없어진 옛 로비와 함께 그 기들도 사라진다, `LobbyManager.leave`). */
+        /* 2026-09-15: "dragging a squad along" means two or more **humans** — someone who only has androids with
+         * them is alone (on the move the old lobby loses its last human and those units go with it,
+         * `LobbyManager.leave`). */
         if (mine && (mine.humanCount() > 1 || (mine.get(c.id)?.inMission ?? false))) { socialError(c, 'busy'); return; }
         const moved = moveToLobby(c, target.code, `invite ${inv.id}`, inv);
         if (!moved.ok) { closeInvite(inv, 'failed', moved.code, true); socialError(c, moved.code); return; }
@@ -1768,7 +1803,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
-      /* ── appended: 2026-09-13 — 암호화폐 시세. Anonymous sockets too (prices are not secret). ── */
+      /* ── appended: 2026-09-13 — crypto prices. Anonymous sockets too (prices are not secret). ── */
       case 'crypto:watch': {
         if (!market) return;
         c.cryptoWatch = m.on;
@@ -1788,8 +1823,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
-      /* ── appended: 2026-09-14 — 단체 메신저방. Profile sockets only (anonymous → `unavailable`). `create` / `say` answer with
-       * `room:ack {nonce}`; every other refusal is `room:error`. ── */
+      /* ── appended: 2026-09-14 — group rooms. Profile sockets only (anonymous → `unavailable`).
+       * `create` / `say` answer with `room:ack {nonce}`; every other refusal is `room:error`. ── */
       case 'room:get': {
         if (!socialOf(c)) { roomError(c, 'unavailable'); return; }
         roomPushes.now(c.id);
@@ -1835,7 +1870,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       case 'room:kick': {
         const soc = socialOf(c);
         if (!soc) { roomError(c, 'unavailable'); return; }
-        const code = normalizePlayerCode(m.code);   // a member whose profile is gone can still be kicked by 아이디
+        const code = normalizePlayerCode(m.code);   // a member whose profile is gone can still be kicked by code
         if (!code) { roomError(c, 'not_found'); return; }
         const op = rooms.kick(m.room, roomActor(soc), code, Date.now());
         if (!op.ok) { roomError(c, op.code); return; }
@@ -1885,7 +1920,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
           const h = clients.get(lobby.hostId);
           if (h) sendTo(h, out);
         } else {
-          /* 2026-09-15: 안드로이드는 소켓이 없다 — 로비 멤버이긴 하지만 relay 대상이 될 수 없다 (조용히 버린다). */
+          /* 2026-09-15: an android has no socket — a lobby member it may be, but never a relay target (dropped
+             silently). */
           if (isAndroidId(m.to)) return;
           if (!lobby.has(m.to)) return; // unknown / foreign peer: drop silently
           const target = clients.get(m.to);
@@ -1940,7 +1976,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     // Still a lobby member (reconnect within grace, page reload, or replaced socket) → resume into it.
     const lobby = lobbies.lobbyOf(id);
     const profile = c.hasProfile ? store.snapshot(id) : undefined;
-    /* Phase 11: a token connection gets (or is given) an 아이디 and its social snapshot; anonymous gets neither. */
+    /* Phase 11: a token connection gets (or is given) a code and its social snapshot; anonymous gets neither. */
     if (c.hasProfile) { store.ensureSocial(id, c.name); store.touchSeen(id); }
     if (lobby) {
       const wasDown = clearGrace(id) || !(lobby.get(id)?.connected ?? true);
@@ -1958,8 +1994,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const me = lobby.get(id);
         if (lobby.started && me?.inMission) {
           lobby.setInMission(id, false);
-          // 2026-09-15 (타이틀 이어하기): blob 은 남긴다 — 소켓이 바뀐 것은 새로고침(`lobby:mission {false, keep}`)과 같은 일이고,
-          // 새 페이지의 타이틀이 그 blob 으로 이어하거나 포기한다 (예전에는 여기서 지워 새로고침 경쟁에서 이어하기가 사라졌다)
+          // 2026-09-15 (title resume): the blob is kept — a replaced socket is the same event as a reload
+          // (`lobby:mission {false, keep}`), and the new page's title resumes or abandons the raid with that blob
+          // (it used to be dropped here, so a resume vanished in the race with a reload)
           note += ' (duplicate socket → left the mission)';
           if (migrateHostAway(lobby, id)) note += ` → host now ${lobby.hostId}`;
           if (autoResetMission(lobby)) note += ' → mission over → reset';
@@ -2056,7 +2093,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   }, heartbeatMs);
   heartbeat.unref();
 
-  /* ── 2026-09-13: 암호화폐 시세 — every tick that moved the market goes to the watching sockets (one JSON for all) ── */
+  /* ── 2026-09-13: crypto prices — every tick that moved the market goes to the watching sockets (one JSON) ── */
   if (market) {
     market.onTick = (msg) => {
       let text: string | null = null;
@@ -2089,8 +2126,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   };
 
   /**
-   * 2026-09-15: 안드로이드 봇은 `byPeer` 색인에 없다 (소켓이 없어 그 색인의 뜻 — 「이 사람이 있는 로비」 — 과 다르다).
-   * 운영 콘솔의 `kick <안드로이드 id>` 를 위해서만 로비를 훑는다 (로비 수는 한 줌이다).
+   * 2026-09-15: an android bot is not in the `byPeer` index (it has no socket, so it does not fit what that index
+   * means — "the lobby this person is in"). The lobbies are walked only for the operator console's
+   * `kick <an android id>` (there is only ever a handful of lobbies).
    */
   const lobbyOfBot = (id: PeerId): Lobby | undefined => {
     if (!isAndroidId(id)) return undefined;
@@ -2098,7 +2136,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     return undefined;
   };
 
-  /** A typed target → PeerId: an exact connected / lobby-member id first, then an 아이디 (dash and case ignored). */
+  /** A typed target → PeerId: an exact connected / lobby-member id first, then a code (dash and case ignored). */
   const resolveKickTarget = (raw: string): PeerId | null => {
     const text = raw.trim();
     if (!text) return null;
@@ -2111,9 +2149,10 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   const kick = (idOrCode: string, reason?: string): RelayKickResult => {
     const id = resolveKickTarget(idOrCode);
     /*
-     * 2026-09-15: 안드로이드를 내보내는 것은 슬롯으로 돌려보내는 것과 같다 — 끊을 소켓도, 유예도 없다.
-     * `lobby:androidReturned` 는 보내지 않는다 (그 소식의 사유는 사람 합류 · 정원 초과 둘뿐이다). 새 `lobby:state` 로
-     * 모두가 명단을 다시 읽는다 — 클라이언트의 안드로이드 명단은 로비 상태에서 나온다.
+     * 2026-09-15: kicking an android is the same thing as sending it back to its bay — there is no socket to close
+     * and no grace. No `lobby:androidReturned` is sent (that news has only two reasons: a human joined · the squad
+     * is full). The fresh `lobby:state` makes everyone read the roster again — a client's android roster comes out
+     * of the lobby state.
      */
     const botLobby = id !== null ? lobbyOfBot(id) : undefined;
     if (id !== null && botLobby) {
@@ -2162,7 +2201,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       log(`profile gc: removed ${report.removed.length} inactive profiles, dropped ${report.danglingRefs} dangling / `
         + `${report.expiredRecent} old recent / ${report.expiredRequests} old request entries (${store.size} profiles left)`);
     }
-    /* 2026-09-14: a collected 아이디 leaves its rooms (owner handoff / empty room deleted); expired room invites go too. */
+    /* 2026-09-14: a collected code leaves its rooms (owner handoff / empty room deleted); expired invites go too. */
     const rg = rooms.collectGarbage((code) => store.peerByCode(code) !== undefined, now);
     for (const code of rg.notify) {
       const pid = store.peerByCode(code);
