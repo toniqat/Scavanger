@@ -34,20 +34,21 @@ function errCode(v: unknown): SocialErrorCode | undefined {
 }
 function inviteId(v: unknown): string | null { return typeof v === 'string' && INVITE_ID_RE.test(v) ? v : null; }
 
-/** One conversation partner in the local 대화 기록 (`slotKey(WHISPER_STORAGE_KEY)`), newest partner first. */
+/** One conversation partner in the local history (`slotKey(WHISPER_STORAGE_KEY)`), newest partner first. */
 interface PeerHistory {
   code: PlayerCode; name: string; at: number; lines: WhisperLine[];
   /**
-   * 2026-09-14: received lines newer than this are 읽지 않음 (`whisperUnread`). Moved forward by `markWhisperRead` and by my own
-   * line (writing to someone means reading them). A history saved before this field reads as all read.
+   * 2026-09-14: received lines newer than this are unread (`whisperUnread`). Moved forward by `markWhisperRead`
+   * and by my own line (writing to someone means reading them). A history saved before this field reads as all read.
    */
   readAt: number;
 }
 
 /**
- * `ctx.net.social` (Phase 11): client mirror of the relay's social state — 아이디 · 친구 · 받은/보낸 요청 ·
- * 최근 만난 플레이어 · 개인 대화(옛 귓속말) · 분대 초대. Modelled on `ProfileSync`: NetSystem owns it, injects `bus` / `send` /
- * `serverNow` / `joinLobby` / `squadSize` and feeds it the socket messages:
+ * `ctx.net.social` (Phase 11): client mirror of the relay's social state — the player code · friends · received /
+ * sent requests · recently met players · private chat (the old whisper) · squad invites. Modelled on `ProfileSync`:
+ * NetSystem owns it, injects `bus` / `send` / `serverNow` / `joinLobby` / `squadSize` and feeds it the socket
+ * messages:
  *   - `onWelcome(social)`   → `welcome.social`; absent (anonymous socket / a relay without a store) = unavailable.
  *   - `onState(snapshot)`   → `social:state` after `social:get` and after every mutation / presence move.
  *   - `onInvited(invite)`   → `social:invited`; held for `SQUAD_INVITE_TTL_S`, at most `SQUAD_INVITE_MAX` at a time.
@@ -64,10 +65,10 @@ interface PeerHistory {
  *   - `onWhisperBacklog(m)` → lines kept for me while I was offline → `social:whisper {line.backlog:true}` each.
  *   Accepting / declining an invite that carries an `id` is `social:inviteReply` (the server moves me); an invite from
  *   an older relay (no `id`) keeps the Phase 11 `lobby:join` path. `block()` is a request like every other mutation.
- *   The 대화 기록 is the **one** thing this mirror persists: per character slot, never on the server.
+ *   The history is the **one** thing this mirror persists: per character slot, never on the server.
  *
  * **The client never edits the lists.** Every mutation is a request; the server answers with a fresh snapshot
- * (the `inviteAt` badge above is the one derived field dropped early). Apart from the 대화 기록 nothing social is
+ * (the `inviteAt` badge above is the one derived field dropped early). Apart from the history nothing social is
  * persisted locally — with no relay the feature is simply absent (`available === false`) and every method is an inert
  * no-op (`refresh()` excepted: it is how a connection becomes available in the first place; the history readers
  * work offline too). Inbound data is untrusted and sanitized field by field; **only `PlayerCode`s ever cross the wire**,
@@ -104,7 +105,7 @@ export class SocialSync implements SocialRef {
   private acksSeen = false;
   /** Nonce of my last social request when it was a whisper (an older relay's `social:error` is attributed to it). */
   private lastWhisperNonce: number | null = null;
-  /* ── B-4: 대화 기록 (lazy — the slot is fixed for the page's lifetime) ── */
+  /* ── B-4: the history (lazy — the slot is fixed for the page's lifetime) ── */
   private history: PeerHistory[] | null = null;
   private saveQueued = false;
   /** 2026-09-14: the last `social:unreadChanged.total` emitted (null = never). */
@@ -119,7 +120,8 @@ export class SocialSync implements SocialRef {
   joinLobby: (code: string) => void = () => {};
   /** Members in my own lobby (0 = none): the `mySquad` argument of `playBlockReason`. */
   squadSize: () => number = () => 0;
-  /** 2026-09-15: 아이디s of the **other** members of my lobby (a row already in my squad is `in_squad`, checked first). */
+  /** 2026-09-15: the player codes of the **other** members of my lobby (a row already in my squad is `in_squad`,
+   * checked first). */
   squadCodes: () => readonly PlayerCode[] = () => [];
   /** 2026-09-15: I am in a lobby I do not lead — the `iAmMember` argument of `playBlockReason` (only the leader invites). */
   iAmMember: () => boolean = () => false;
@@ -166,9 +168,10 @@ export class SocialSync implements SocialRef {
   }
 
   /**
-   * 분대 초대 (`social:play`). 2026-09-15: **초대 전용** — 상대의 분대로 옮겨 가는 길은 없어졌다. 분대가 없으면 서버가
-   * 그 자리에서 나를 분대장으로 하는 **미도킹** 로비를 만들고(모두 제 개인 함선에 남는다) 초대를 보낸다; 받는 사람은
-   * 수락(P 홀드)해야만 분대원이 된다. 결과는 `social:play {outcome:'invited'}` 또는 `social:error`.
+   * A squad invite (`social:play`). 2026-09-15: **invite only** — the path that moved me into the other player's
+   * squad is gone. With no squad the server creates an **undocked** lobby on the spot with me as its leader
+   * (everyone stays in their own personal ship) and sends the invite; the receiver becomes a squadmate only by
+   * accepting (holding P). The result is `social:play {outcome:'invited'}` or `social:error`.
    */
   playWith(code: PlayerCode): void {
     const c = this.wanted(code);
@@ -272,7 +275,7 @@ export class SocialSync implements SocialRef {
 
   get lastWhisperPeer(): PlayerCode | null { return this.loadHistory()[0]?.code ?? null; }
 
-  /* ── 2026-09-14: 개인 대화 읽지 않음 (메신저 배지) ── */
+  /* ── 2026-09-14: private-chat unread (the messenger badge) ── */
   whisperUnread(code: PlayerCode): number {
     const c = normalizePlayerCode(code);
     const peer = this.loadHistory().find((p) => p.code === c);
@@ -317,9 +320,9 @@ export class SocialSync implements SocialRef {
   }
 
   /**
-   * Pure mirror of the server's own 분대 초대 gate (`playBlockReason`), so the UI greys out with the same reason.
-   * 2026-09-15: 「이미 내 분대에 있다」를 **먼저** 본다(서버도 리더 게이트보다 먼저 `in_squad` 로 답한다), 그다음 분대원이면
-   * `not_leader` (초대는 분대장만).
+   * A pure mirror of the server's own squad-invite gate (`playBlockReason`), so the UI greys out for the same
+   * reason. 2026-09-15: "already in my squad" is tested **first** (the server also answers `in_squad` before its
+   * leader gate), then, while I am a squadmate, `not_leader` (only the leader invites).
    */
   playBlock(code: PlayerCode): PlayBlock | null {
     const c = normalizePlayerCode(code);
@@ -408,7 +411,7 @@ export class SocialSync implements SocialRef {
     this.bus?.emit('social:inviteResult', reason ? { id, code, name, outcome, reason } : { id, code, name, outcome });
   }
 
-  /** `social:whisper`: an incoming line (`out:false`); ChatLog renders it, the 대화 기록 keeps it. */
+  /** `social:whisper`: an incoming line (`out:false`); ChatLog renders it, the history keeps it. */
   onWhisper(m: Extract<ServerToClient, { t: 'social:whisper' }>): void {
     const line = this.sanitizeIncoming(m);
     if (!line) return;
@@ -529,7 +532,7 @@ export class SocialSync implements SocialRef {
     return true;
   }
 
-  /** Canonical 아이디 for an outgoing request, or null when the feature is off / the code is nonsense. */
+  /** The canonical player code for an outgoing request, or null when the feature is off / the code is nonsense. */
   private wanted(code: PlayerCode): PlayerCode | null {
     if (!this._available) return null;
     const c = normalizePlayerCode(code);
@@ -586,7 +589,7 @@ export class SocialSync implements SocialRef {
     clearTimeout(p.timer);
     this.pending.delete(nonce);
     if (this.lastWhisperNonce === nonce) this.lastWhisperNonce = null;
-    const line = p.line;   // the same object the 대화 기록 holds
+    const line = p.line;   // the same object the history holds
     line.state = state;
     if (failCode) line.failCode = failCode; else delete line.failCode;
     if (at !== undefined) line.at = at;
@@ -618,7 +621,7 @@ export class SocialSync implements SocialRef {
     return invite;
   }
 
-  /* ── B-4: 대화 기록 (localStorage, per character slot) ── */
+  /* ── B-4: the history (localStorage, per character slot) ── */
   private loadHistory(): PeerHistory[] {
     if (this.history) return this.history;
     let list: PeerHistory[] = [];
@@ -630,7 +633,7 @@ export class SocialSync implements SocialRef {
     return list;
   }
 
-  /** The name the 대화 기록 last saw for `code` (a whisper to someone who is on none of my lists). */
+  /** The name the history last saw for `code` (a whisper to someone who is on none of my lists). */
   private historyName(code: PlayerCode): string {
     return this.loadHistory().find((p) => p.code === code)?.name ?? '';
   }

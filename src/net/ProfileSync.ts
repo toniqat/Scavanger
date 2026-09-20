@@ -515,10 +515,11 @@ export class ProfileSync implements ProfileRef {
       const ks = keysOf(w);
       const eff = (k: ProfileDocKey): number => sRev(k) + (validInflight.has(k) ? 1 : 0);
       if (ks.length === 1 && w.docs[ks[0]]!.at === null && serverDocs[ks[0]] !== undefined && !validInflight.has(ks[0])) continue;   // fresh default loses silently
-      /* C-69, 전환 1회: 이 쓰기의 모든 키에 대해 이 클라이언트가 rev 를 한 번도 본 적이 없다면(`this.revs` 는 아래
-         ③ 에서야 새로 채워지므로 여기서 읽는 값은 "직전까지 알던 것"이다) 서버의 rev 는 옛 문서를 로드하며 1 로
-         시드한 것이지 남이 쓴 흔적이 아니다 — 그런 쓰기만 Phase 9 스탬프로 판정한다. 지면 조용히 버린다(Phase 9
-         에서도 진 쓰기다). 트랜잭션은 전부 또는 전무: 한 키라도 벗어나면 아래 기존 경로(E-6 서버 우선 + 경고)로 간다. */
+      /* C-69, the one-time transition: if this client has never seen a rev for any key of this write (`this.revs`
+         is only refilled at ③ below, so what is read here is "what was known until now"), the server's rev was
+         seeded to 1 while loading an old document rather than left by somebody else's write — only such a write is
+         judged by the Phase 9 stamp, and a loss is dropped silently (it lost under Phase 9 too). A transaction is
+         all or nothing: one key outside this and it takes the existing path below (E-6 server wins + a warning). */
       const virgin = !ks.some((k) => deadKeys.has(k))
         && ks.every((k) => (this.revs[k] ?? 0) === 0 && w.docs[k]!.baseRev === 0 && w.docs[k]!.at !== null);
       if (virgin) {

@@ -5,15 +5,15 @@ import type {
 } from '@/shared';
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, RelayProbe, SocialRef } from '@/shared';
-/* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* 2026-09-14: the intel broker — the fixed gimmicks the lobby carries (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelWire } from '@/shared';
 import type { NetLinkInfo } from '@/shared';
-/* appended (2026-09-08): 공용 함선 격납고 */
+/* appended (2026-09-08): the shared ship's hangar */
 import type { ShipVisitWire } from '@/shared';
 import { isPlanetId } from '@/shared';
-/* 2026-09-15: 분대 · 도킹 매칭 — 공용 함선 판정 · 접속 URL 의 강조색 (`?a=`) */
+/* 2026-09-15: squads · dock matching — the shared-ship test · the accent colour in the connect URL (`?a=`) */
 import { NET_ACCENT_PARAM, activeSlot, isDockedLobby, readSlotCard, sanitizeAccent } from '@/shared';
-/* 2026-09-15: 안드로이드 분대원 — 봇 멤버를 사람과 가른다 (`src/shared/net.ts` 파일 끝 절) */
+/* 2026-09-15: android squadmates — tells a bot member from a person (`src/shared/net.ts`, last section) */
 import { humanPlayersOf } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
@@ -32,16 +32,16 @@ import type { CrewCardWire, ImplantId } from '@/shared';
 import { IMPLANT_IDS } from '@/shared';
 
 import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_STORAGE_KEY, PEER_LINGER, PING_KINDS, SNAPSHOT_INTERVAL, TOKEN_ALPHABET, TOKEN_RE, defIdOrNull, isGhostWire, isNum, isVec3, loadOrCreateSessionToken, sameCard, sanitizeCrewCard, vec } from './model';
-/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+/** `model.ts` owns the folder vocabulary (constants · types · scratch) — re-exported for the old import paths. */
 export * from './model';
 import * as Sock from './parts/Socket';
 import * as Lobby from './parts/Lobby';
 import * as Remotes from './parts/Remotes';
 import * as Msg from './parts/Messages';
-/* 2026-09-16 (접시 모델): 옛 `parts/Meal`(공유 함선 식탁 「분대에 차리기」)은 없어졌다 — 식탁 접시 와이어가 대신한다 */
+/* 2026-09-16 (the plate model): the old `parts/Meal` (the table's 「분대에 차리기」) is gone — the plate wire replaces it */
 import { PlateRelay } from './parts/Plates';
 import { CharBuffRelay } from './parts/CharBuffs';
-/* 2026-09-13: 암호화폐 시세 창구 `ctx.net.crypto` */
+/* 2026-09-13: the crypto quote desk `ctx.net.crypto` */
 import { CryptoMarketClient } from './parts/Crypto';
 import type { CryptoMarketRef } from '@/shared';
 
@@ -66,7 +66,7 @@ export class NetSystem implements GameSystem, NetRef {
   /** Last id the server gave us; kept through a drop so `isHost`/`isAuthority` do not flip while reconnecting. */
   lastLocalId: PeerId | null = null;
   pendingQuickMatch = false;
-  /** 2026-09-15 (분대 · 도킹 매칭): `requestDock` sent, no docked lobby / error back yet — `NetRef.dockPending`. */
+  /** 2026-09-15 (squads · dock matching): `requestDock` sent, no docked lobby / error yet — `NetRef.dockPending`. */
   _dockPending = false;
 
   /* ── reconnect state machine ── */
@@ -89,7 +89,7 @@ export class NetSystem implements GameSystem, NetRef {
   /** We were inside a running mission when the socket dropped (seamless-resume candidate). */
   wasInSessionAtDrop = false;
 
-  /* ── B-1 (2026-09-11): 링크 상태 · 배경 프로브 — 규칙은 `parts/Socket` 의 `setLink` / `goUnreachable` ── */
+  /* ── B-1 (2026-09-11): link state · background probe — rules in `parts/Socket` (`setLink` / `goUnreachable`) ── */
   /** Stored link (`link` getter adds the live `nextProbeInMs`). `url` = the address the state is about. */
   _link: NetLinkInfo = { state: 'idle', url: '' };
   probeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -124,8 +124,8 @@ export class NetSystem implements GameSystem, NetRef {
    */
   readonly crewCards = new Map<PeerId, CrewCardWire>();
   /**
-   * 공용 함선 격납고 (2026-09-08): last `ship state` seen per peer (our own included — `send()` snoops it exactly
-   * like a crew card). hub/ renders a hangar bay's ship straight out of this map.
+   * The shared ship's hangar (2026-09-08): the last `ship state` seen per peer (our own included — `send()` snoops
+   * it exactly like a crew card). hub/ renders a hangar bay's ship straight out of this map.
    */
   readonly shipVisits = new Map<PeerId, ShipVisitWire>();
   /** true while anybody (local or remote) is carrying someone: gates the per-frame `carriedBy` derivation. */
@@ -134,22 +134,22 @@ export class NetSystem implements GameSystem, NetRef {
   /* ── Phase 11 ── */
   /** `ctx.net.social`: the relay's social state (friends / requests / recent / whispers / squad invites). */
   readonly socialSync = new SocialSync();
-  /** 2026-09-14: `ctx.net.rooms` — 단체 메신저방 mirror (`RoomSync`). */
+  /** 2026-09-14: `ctx.net.rooms` — the group-room mirror (`RoomSync`). */
   readonly roomSync = new RoomSync();
 
   /* ── A-3c (2026-09-11) ── */
-  /** 공유 함선 식탁의 `meal serve` 와이어 (`parts/Meal`): 규칙은 progression, 토스트는 ui — 여기는 흐름만. */
-  /** 2026-09-16: 식탁 접시 — `plate state` / `plateq sync` (`parts/Plates`). */
+  /** The dining table's `meal serve` wire (`parts/Meal`): rules in progression, toasts in ui — only the flow here. */
+  /** 2026-09-16: the dining plate — `plate state` / `plateq sync` (`parts/Plates`). */
   readonly plateRelay = new PlateRelay();
 
-  /* ── 2026-09-12: 캐릭터 버프 ── */
+  /* ── 2026-09-12: character buffs ── */
   /** `cbuf state` / `cbufq sync` + the per-member list store (`parts/CharBuffs`). */
   readonly charBuffRelay = new CharBuffRelay();
 
-  /* ── 2026-09-13: 암호화폐 시세 ── */
+  /* ── 2026-09-13: crypto quotes ── */
   /** `crypto:watch` refcount + the last `crypto:prices` / `crypto:history` (`parts/Crypto`). */
   readonly cryptoMarket = new CryptoMarketClient();
-  /** `ctx.net.crypto`: 서버 시세 · 봉 이력 (`available` false = 서버에 붙어 있지 않거나 시세를 아직 못 받았다). */
+  /** `ctx.net.crypto`: server quotes · candle history (`available` false = offline, or no quote received yet). */
   get crypto(): CryptoMarketRef { return this.cryptoMarket; }
 
   /* ── NetRef getters ─────────────────────────────────────────────────── */
@@ -171,9 +171,11 @@ export class NetSystem implements GameSystem, NetRef {
   get reconnecting(): boolean { return this._reconnecting; }
   get missionInProgress(): boolean { return this._lobby !== null && this._lobby.started && !this._inSession; }
   /**
-   * 2026-09-15 (분대 · 도킹 매칭): 분대(로비)가 곧 공용 함선이 아니다. 허브 스냅샷은 **도킹된** 분대의 공용 함선
-   * (갑판 · 격납고 · 격납고에서 들어간 개인 함선) 안에서만 오간다 — 미도킹 분대원은 저마다 원점에 지은 **다른** 개인
-   * 함선에 서 있어 서로의 아바타가 남의 함선 좌표에 그려진다. 도킹 카운트다운 동안 개인 함선에 서 있는 것도 같다.
+   * 2026-09-15 (squads · dock matching): a squad (a lobby) is not the same thing as the shared ship. Hub snapshots
+   * travel only inside a **docked** squad's shared ship (the deck · the hangar · a personal ship entered from the
+   * hangar) — undocked squadmates each stand in a **different** personal ship built at the same origin, so their
+   * avatars would be drawn at somebody else's ship coordinates. Standing in the personal ship during the dock
+   * countdown is the same case.
    */
   get inHubSession(): boolean {
     if (!isDockedLobby(this._lobby) || this._inSession || this.ctx.phase !== 'hub') return false;
@@ -186,22 +188,23 @@ export class NetSystem implements GameSystem, NetRef {
   get missionMode(): MissionMode | null { return this._lobby?.started ? (this._lobby.mode ?? 'raid') : null; }
   get tookOver(): boolean { return this._tookOver; }
   /* ── Phase 11 ── */
-  /** The squad's 목표 행성 (`lobby.planet`), or null outside a lobby / while nothing is picked. */
+  /** The squad's target planet (`lobby.planet`), or null outside a lobby / while nothing is picked. */
   get lobbyPlanet(): PlanetId | null { return this._lobby?.planet ?? null; }
   /**
-   * Host only, while not started: share the 목표 행성 with the ship. Mirrored optimistically (like `setLobbySeed`) so
-   * the host's own terminal reacts without a round trip; the server's `lobby:state` confirms it for everyone else.
+   * Host only, while not started: share the target planet with the ship. Mirrored optimistically (like
+   * `setLobbySeed`) so the host's own terminal reacts without a round trip; the server's `lobby:state` confirms it
+   * for everyone else.
    * There is no travel message — each client starts the cutscene off its own copy of `lobby.planet`.
    */
   setLobbyPlanet(planet: PlanetId): void { return Lobby.setLobbyPlanet(this, planet); }
-  /* ── 2026-09-14: 정보상 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ── */
-  /** 분대장이 산 기믹 고정 (`lobby.intel`). 로비가 없거나 아무도 안 샀으면 null — 분대원은 읽기 전용이다. */
+  /* ── 2026-09-14: the intel broker (docs/DECISIONS.md 「2026-09-14 — 정보상」) ── */
+  /** Fixed gimmicks the leader bought (`lobby.intel`) — null with no lobby / nothing bought; squadmates read only. */
   get lobbyIntel(): IntelWire | null { return this._lobby?.intel ?? null; }
-  /** 분대장 전용, 시작 전: 산 정보(또는 폐기 = null)를 분대에 알린다 (`setLobbyPlanet` 과 같은 규약). */
+  /** Leader only, before the start: announces the intel bought (or dropped = null) — `setLobbyPlanet`'s contract. */
   setLobbyIntel(intel: IntelWire | null): void { return Lobby.setLobbyIntel(this, intel); }
-  /** 친구 · 요청 · 최근 플레이어 · 개인 대화 · 분대 초대 (always present; `available` is false offline). */
+  /** Friends · requests · recent · private chat · squad invites (always present; `available` false offline). */
   get social(): SocialRef { return this.socialSync; }
-  /** 2026-09-14: 단체 메신저방 (always present; `available` is false offline / anonymous / a relay without rooms). */
+  /** 2026-09-14: group rooms (always present; `available` is false offline / anonymous / a relay without rooms). */
   get rooms(): RoomsRef { return this.roomSync; }
   /* ── Phase 8 ── */
   /**
@@ -227,12 +230,13 @@ export class NetSystem implements GameSystem, NetRef {
     this.socialSync.serverNow = () => this.serverNow();
     this.socialSync.joinLobby = (code) => this.joinLobby(code);
     /*
-     * 2026-09-15 (안드로이드 분대원): 소셜 게이트가 쓰는 분대 인원은 **사람만** 센다 — 릴레이의 `presenceOf` ·
-     * `canAdd` 와 같은 규칙이다 (사람이 봇을 이기므로 안드로이드로 찬 분대에도 아는 사람은 들어올 수 있다).
-     * 난이도 · 적 배분처럼 「전투원이 몇인가」를 묻는 곳은 안드로이드를 **센다** — 그쪽은 enemies/ 가 로비를 직접 읽는다.
+     * 2026-09-15 (android squadmates): the squad size the social gates use counts **humans only** — the same rule
+     * as the relay's `presenceOf` · `canAdd` (a human beats a bot, so a friend can still join a squad filled with
+     * androids). Anywhere that asks "how many fighters" — difficulty · enemy scaling — **does** count androids,
+     * and that side reads the lobby directly in enemies/.
      */
     this.socialSync.squadSize = () => humanPlayersOf(this._lobby).length;
-    /* 2026-09-15 (분대 · 도킹 매칭): 분대 초대 게이트 — 이미 내 분대인 아이디, 그리고 「내가 이끌지 않는 분대에 있다」 */
+    /* 2026-09-15 (squads · dock matching): squad-invite gate — codes in my squad · "in a squad I do not lead" */
     this.socialSync.squadCodes = () => {
       const me = this.localId;
       const out: string[] = [];
@@ -304,17 +308,19 @@ export class NetSystem implements GameSystem, NetRef {
     bus.on('progress:loaded', () => this.pushLevel());
     bus.on('progress:levelUp', () => this.pushLevel());
     /*
-     * 2026-09-09: 분대장 넘기기의 **공용 입구**. 커뮤니티 창의 우클릭 메뉴도, 공용 함선 안의 상호작용도
-     * 같은 이벤트를 낸다 — 어느 쪽도 `ctx.net` 을 직접 붙잡지 않는다.
+     * 2026-09-09: the **shared entrance** to handing the squad leader over. The community window's right-click menu
+     * and the interaction inside the shared ship both emit the same event — neither grabs `ctx.net` directly.
      */
     bus.on('leader:transferRequested', ({ peerId }) => this.transferHost(peerId));
     /* B-1 (2026-09-11): a server the background probe found during a raid / training is joined once we are back in the ship / title. */
     bus.on('game:phaseChanged', ({ phase }) => Sock.onPhaseChanged(this, phase));
-    /* 2026-09-16: 식탁 접시 — `housing:plateChanged` ↔ `plate` / `plateq` → `net:squadPlate` (`parts/Plates`, 옛 `meal` 와이어 대체). */
+    /* 2026-09-16: the dining plate — `housing:plateChanged` ↔ `plate` / `plateq` → `net:squadPlate`
+     * (`parts/Plates`, replacing the old `meal` wire). */
     this.plateRelay.init(this);
-    /* 2026-09-12: 캐릭터 버프 — `player:buffsChanged` ↔ `cbuf` / `cbufq` (`parts/CharBuffs`). */
+    /* 2026-09-12: character buffs — `player:buffsChanged` ↔ `cbuf` / `cbufq` (`parts/CharBuffs`). */
     this.charBuffRelay.init(this);
-    /* 2026-09-13: 암호화폐 시세 — `crypto:watch` refcount / history cache (`parts/Crypto`, wired in Messages + onStatus). */
+    /* 2026-09-13: crypto quotes — `crypto:watch` refcount / history cache
+     * (`parts/Crypto`, wired in Messages + onStatus). */
     this.cryptoMarket.init(this);
   }
 
@@ -340,7 +346,7 @@ export class NetSystem implements GameSystem, NetRef {
       // 2026-09-12: my buff list changed since the last frame → one `cbuf state`, sent BEFORE the snapshot that carries
       // the new `bfr`, so receivers normally never see the revision ahead of the list (any phase, while in a lobby).
       this.charBuffRelay.flush();
-      this.plateRelay.tick();   // 2026-09-16: 허브 세션에 들어선 프레임 — 내 접시 + `plateq sync`
+      this.plateRelay.tick();   // 2026-09-16: the frame the hub session is entered — my plate + `plateq sync`
 
       // Broadcast our own snapshot: in a mission (gameplay phases + hellpod drop) or while walking the shared ship.
       // Timed on unscaled ctx.time (Engine passes dt = 0 while paused, but a multiplayer pause is non-freezing and
@@ -392,10 +398,10 @@ export class NetSystem implements GameSystem, NetRef {
 
   defaultUrl(): string { return Sock.defaultUrl(this); }
 
-  /* ── 링크 상태 (2026-09-11, B-1): 전이는 전부 `parts/Socket` 이 `setLink` 로 한다 ── */
+  /* ── the link state (2026-09-11, B-1): every transition goes through `parts/Socket`'s `setLink` ── */
   get link(): NetLinkInfo { return Sock.linkInfo(this); }
 
-  /* ── 서버 주소 (2026-09-10) ─────────────────────────────────────────── */
+  /* ── the server address (2026-09-10) ────────────────────────────── */
   get relayUrl(): string { return Sock.defaultUrl(this); }
 
   get relayOverride(): string { return Sock.relayOverride(); }
@@ -409,7 +415,7 @@ export class NetSystem implements GameSystem, NetRef {
   /**
    * Append `?t=<token>&n=<name>` (NET_TOKEN_PARAM / NET_NAME_PARAM) to a relay URL. 2026-09-15: plus `&a=<accent>`
    * (`NET_ACCENT_PARAM`) — this character's `PlayerProfile.accent`, read from the slot card exactly like
-   * `player/PlayerSystem` does, so the 매칭 탭 portraits (`LobbyPlayer.accent`) know it from the first `lobby:state`.
+   * `player/PlayerSystem` does, so `매칭` tab portraits (`LobbyPlayer.accent`) know it from the first `lobby:state`.
    * No valid accent (no card yet · storage off) → nothing is added and the portrait falls back to the slot colour.
    */
   withSession(url: string): string {
@@ -441,7 +447,7 @@ export class NetSystem implements GameSystem, NetRef {
   setReady(ready: boolean): void { return Lobby.setReady(this, ready); }
   /**
    * Raid (default): host only, everyone ready. Training: any member; only the caller enters (`inMission`).
-   * Phase 11: `planet` is the raid's 목표 행성 (the server refuses a raid without one — `no_planet`); a training
+   * Phase 11: `planet` is the raid's target planet (the server refuses a raid without one — `no_planet`); a training
    * ignores it, and an unknown id is dropped here rather than sent. Falls back to `lobby.planet` when omitted.
    */
   startGame(seed: number, mode?: MissionMode, planet?: PlanetId, intel?: IntelWire | null): void { return Lobby.startGame(this, seed, mode, planet, intel); }
@@ -451,22 +457,23 @@ export class NetSystem implements GameSystem, NetRef {
   requestDock(isPublic: boolean): void { return Lobby.requestDock(this, isPublic); }
   get dockPending(): boolean { return this._dockPending; }
   /**
-   * 2026-09-15 (안드로이드 분대원): 분대장 전용 — 조종실 슬롯 `bay` 의 안드로이드를 분대원으로 들이거나(`recruit`)
-   * 슬롯으로 돌려보낸다. 결과는 새 `lobby:state`(`net:lobbyUpdated`), 거절은 `net:error`. 사람이 합류해 밀려난 기는
-   * `net:androidReturned {bay, reason}` 로 따로 온다.
+   * 2026-09-15 (android squadmates): leader only — recruits the android of cockpit bay `bay` into the squad
+   * (`recruit`) or sends it back to its bay. The result is a new `lobby:state` (`net:lobbyUpdated`), a refusal is
+   * `net:error`. A unit pushed out because a human joined arrives separately as `net:androidReturned {bay, reason}`.
    */
   setAndroidBay(bay: number, recruit: boolean): void { return Lobby.setAndroidBay(this, bay, recruit); }
   setLobbySeed(seed: number): void { return Lobby.setLobbySeed(this, seed); }
 
-  /* ══ 2026-09-09: 분대장(호스트) 지명 이관 ═════════════════════════════ */
+  /* ══ 2026-09-09: host transfer by nomination ════════════════ */
   /**
-   * 분대장을 `targetId` 에게 넘긴다. 서버가 허용하는 경우는 ① 내가 지금 호스트다, 또는 ② `claim` 이고
-   * 현재 호스트가 `reportHostDown(true)` 로 사망 표시를 켜 두었다 (분대장 기기) — 그 외에는 `not_host`.
-   * 성공하면 새 `lobby:state` 가 오고 모두가 `net:hostChanged` 를 받는다. 로비 밖에서는 no-op.
+   * Hands the squad leader over to `targetId`. The server allows it when ① I am the host right now, or ② it is a
+   * `claim` and the current host raised its death flag with `reportHostDown(true)` (the squad-leader device) —
+   * anything else is `not_host`. On success a new `lobby:state` arrives and everyone gets `net:hostChanged`.
+   * Outside a lobby it is a no-op.
    */
   transferHost(targetId: PeerId, claim?: boolean): void { return Lobby.transferHost(this, targetId, claim); }
 
-  /** 호스트 본인이 이 레이드에서 완전히 사망했다고 서버에 알린다 (남의 `claim` 이 통하는 유일한 조건). */
+  /** The host tells the server it died fully in this raid — the only condition someone else's `claim` works under. */
   reportHostDown(down: boolean): void { return Lobby.reportHostDown(this, down); }
 
   /**
@@ -479,7 +486,7 @@ export class NetSystem implements GameSystem, NetRef {
   /** Leave the running mission but stay in the lobby (training exit, raid abort by a client). */
   leaveMission(): void { return Lobby.leaveMission(this); }
 
-  /** 2026-09-15 (타이틀 레이드 포기): 빠져나온 레이드를 버린다 → `lobby:abandon` (그 레이드에서 표류). */
+  /** 2026-09-15 (title `레이드 포기`): throws away the raid we left → `lobby:abandon` (drifted from that raid). */
   abandonRaid(): void { return Lobby.abandonRaid(this); }
 
   /** Upload my mid-raid state (game/ calls it periodically and on loot). Only inside a raid session. */
@@ -507,7 +514,7 @@ export class NetSystem implements GameSystem, NetRef {
 
   /**
    * Enter the mission of `lobby` with `seed` (server `game:start`, or `rejoinMission()`).
-   * Phase 11: `planet` is the raid's 목표 행성 (null for a training / an older relay with nothing picked).
+   * Phase 11: `planet` is the raid's target planet (null for a training / an older relay with nothing picked).
    */
   beginSession(seed: number, lobby: LobbyState, mode: MissionMode, rejoin: boolean, planet: PlanetId | null, intel: IntelWire | null = null): void { return Lobby.beginSession(this, seed, lobby, mode, rejoin, planet, intel); }
 
@@ -554,7 +561,7 @@ export class NetSystem implements GameSystem, NetRef {
   removeRemote(id: PeerId): void { return Remotes.removeRemote(this, id); }
 
   clearRemotes(): void { return Remotes.clearRemotes(this); }
-  /* ══ Phase 10 — 발사 준비 패널 crew cards ══════════════════════════════ */
+  /* ══ Phase 10 — the ready panel's crew cards ═════════════════════ */
   /**
    * Last `crew card` seen for `id`, the local player included: hub/ owns *sending* the card and we snoop our own
    * broadcast in `send()`, so the READY panel reads every cell (ours and the squad's) through this one accessor.
@@ -571,7 +578,7 @@ export class NetSystem implements GameSystem, NetRef {
   /** Mirror the ship-side card onto the member's ref (the wielded `implantId` stays snapshot-driven). */
   applyCrewCard(id: PeerId, card: CrewCardWire): void { return Remotes.applyCrewCard(this, id, card); }
 
-  /* ══ 공용 함선 격납고 (2026-09-08) ═════════════════════════════════════ */
+  /* ══ the shared ship's hangar (2026-09-08) ══════════════════════ */
   /**
    * Last `ship state` seen for `id` (our own broadcast is snooped in `send()`, so our own id answers too). The hangar
    * bay reads this to build the parked member's interior; null means nothing has arrived yet and the bay asks.

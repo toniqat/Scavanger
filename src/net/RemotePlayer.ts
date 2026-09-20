@@ -105,7 +105,7 @@ export class RemotePlayer implements RemotePlayerRef {
   }
 
   get isDead(): boolean { return (this.flags & PlayerFlags.DEAD) !== 0; }
-  /** 전투불능 (Phase 2): crawling, revivable. */
+  /** Downed (Phase 2): crawling, revivable. */
   get isDowned(): boolean { return (this.flags & PlayerFlags.DOWNED) !== 0; }
 
   /* appended: tactical kit — gear the remote avatar renders, straight off the newest snapshot. */
@@ -113,7 +113,7 @@ export class RemotePlayer implements RemotePlayerRef {
   armorId: string | null = null;
   get isCloaked(): boolean { return (this.flags & PlayerFlags.CLOAKED) !== 0; }
 
-  /* ── appended (Phase 10): 들쳐메기 · 배리어 방패 · crew card ── */
+  /* ── appended (Phase 10): shouldering · the barrier shield · crew card ── */
   /** `PlayerSnapshot.cr` while CARRYING — the downed peer on this ref's shoulder. Also set optimistically by `carry pick`. */
   carrying: PeerId | null = null;
   /** Peer carrying THIS ref (derived by NetSystem from everyone's `carrying`), or null. */
@@ -124,7 +124,7 @@ export class RemotePlayer implements RemotePlayerRef {
   get isBarrierUp(): boolean { return (this.flags & PlayerFlags.BARRIER) !== 0; }
   /** `PlayerSnapshot.bhp` of the newest snapshot while the shield is up; undefined otherwise. */
   barrierHp: number | undefined = undefined;
-  /* 2026-09-10: 방탄복 실드 (`PlayerSnapshot.sh` / `.shm`). 방탄복이 없는 peer 는 undefined 로 남는다. */
+  /* 2026-09-10: the armor shield (`PlayerSnapshot.sh` / `.shm`). A peer with no armor stays undefined. */
   shield: number | undefined = undefined;
   maxShield: number | undefined = undefined;
   /** `CrewCardWire.level` — the ship-side card, written by NetSystem when a `crew card` arrives. */
@@ -132,15 +132,15 @@ export class RemotePlayer implements RemotePlayerRef {
   /** Implant EQUIPPED on the ship (`CrewCardWire.implant`); distinct from `implantId` (wielded, always null in the hub). */
   equippedImplant: ImplantId | null | undefined = undefined;
 
-  /* ── appended (2026-09-08): 공용 함선 격납고 ── */
+  /* ── appended (2026-09-08): the shared ship's hangar ── */
   /**
-   * `PlayerSnapshot.hs` — the 개인 함선 this peer is standing in, or null on the shared deck (공유 함선 + 격납고).
+   * `PlayerSnapshot.hs` — the personal ship this peer stands in, or null on the shared deck (shared ship + hangar).
    * `player/RemoteAvatar` hides the body whenever it differs from ours, so a tour of somebody's ship is private to
    * the people actually in it.
    */
   hubSite: PeerId | null = null;
 
-  /* ── appended (2026-09-12): 캐릭터 버프 · 가구 자세 ── */
+  /* ── appended (2026-09-12): character buffs · furniture pose sync ── */
   /** The member's buff list from the last accepted `cbuf state` (written by `parts/CharBuffs`). A new array whenever it changes. */
   buffs: readonly CharBuff[] = EMPTY_CHAR_BUFFS;
   /** Revision of `buffs` (0 = nothing received yet). */
@@ -152,7 +152,7 @@ export class RemotePlayer implements RemotePlayerRef {
   furniturePose: RemoteFurniturePose | null = null;
   /** `PlayerSnapshot.bfr` of the newest snapshot (0 when omitted) — `parts/CharBuffs` compares it with `buffsRevision`. */
   snapshotBuffsRev = 0;
-  /* ── appended (2026-09-15): 땅굴벌레 등장 판정 ── */
+  /* ── appended (2026-09-15): the sandworm appearance check ── */
   /** `PlayerSnapshot.ws` of the newest snapshot decoded through `WEIGHT_STATE_WIRE`; undefined until a sender says (older senders never do → `normal`). */
   weightState: WeightState | undefined = undefined;
   /**
@@ -217,7 +217,7 @@ export class RemotePlayer implements RemotePlayerRef {
     this.barrierHp = (s.f & PlayerFlags.BARRIER) !== 0 && typeof s.bhp === 'number' && Number.isFinite(s.bhp) ? s.bhp : undefined;
     this.maxShield = typeof s.shm === 'number' && Number.isFinite(s.shm) && s.shm > 0 ? s.shm : undefined;
     this.shield = this.maxShield !== undefined && typeof s.sh === 'number' && Number.isFinite(s.sh) ? s.sh : undefined;
-    /* 격납고 (2026-09-08): which ship interior the sender is standing in (null = the shared deck). */
+    /* The hangar (2026-09-08): which ship interior the sender is standing in (null = the shared deck). */
     this.hubSite = typeof s.hs === 'string' && s.hs.length > 0 ? s.hs : null;
     /* 2026-09-12: buff list revision (the pose itself is derived per frame in `tick`). */
     this.snapshotBuffsRev = typeof s.bfr === 'number' && Number.isFinite(s.bfr) && s.bfr > 0 ? Math.floor(s.bfr) : 0;

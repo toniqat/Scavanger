@@ -20,7 +20,7 @@ export class Snapshotter {
   implantId: ImplantId | null = null;
   /** Equipped armor def id. Set from `equip:changed`. */
   armorId: string | null = null;
-  /* appended (2026-09-09): 채팅 입력 중 말풍선 — set from `ui:chatToggled`; remotes draw `…` over the head. */
+  /* appended (2026-09-09): the typing speech bubble — set from `ui:chatToggled`; remotes draw `…` over the head. */
   typing = false;
 
   private seq = 0;
@@ -49,9 +49,9 @@ export class Snapshotter {
     m.hp = Math.round(p.hp);
     const inHub = ctx.isHubPhase();
     /*
-     * 격납고 (2026-09-08): which ship interior we are standing in. `null` on the shared deck (공유 함선 + 격납고),
-     * the owner's PeerId inside a 개인 함선 — remote avatars whose `hs` differs from the receiver's are hidden, so
-     * a member touring somebody's ship is only visible to the people in that ship.
+     * The hangar (2026-09-08): which ship interior the local player stands in. `null` on the shared deck (the
+     * shared ship + the hangar), the owner's PeerId inside a personal ship — remote avatars whose `hs` differs from
+     * the receiver's are hidden, so a member touring somebody's ship is only visible to the people in that ship.
      */
     const site = inHub ? (ctx.hub?.hubSite ?? null) : null;
     if (site !== null && site.length > 0) m.hs = site; else delete m.hs;
@@ -66,17 +66,19 @@ export class Snapshotter {
     else delete m.dhp;
 
     /*
-     * 2026-09-15 (땅굴벌레 등장 판정): carry-weight state (`InventoryRef.getWeight().state`) as a `WEIGHT_STATE_WIRE` index, raid
-     * only — the host's sandworm director counts sprinting squadmates who are `light` or heavier. Omitted in the hub and when
-     * the inventory is not up (older receivers ignore the field; an omitted field reads as `normal`).
+     * 2026-09-15 (the sandworm appearance check): carry-weight state (`InventoryRef.getWeight().state`) as a
+     * `WEIGHT_STATE_WIRE` index, raid only — the host's sandworm director counts sprinting squadmates who are
+     * `light` or heavier. Omitted in the hub and when the inventory is not up (older receivers ignore the field; an
+     * omitted field reads as `normal`).
      */
     const inv = ctx.inventory;
     const wsIdx = !inHub && inv && typeof inv.getWeight === 'function' ? WEIGHT_STATE_WIRE.indexOf(inv.getWeight().state) : -1;
     if (wsIdx >= 0) m.ws = wsIdx; else delete m.ws;
 
     /*
-     * 2026-09-10: 실드는 **방탄복을 입었을 때만** 실린다 (`dhp` 와 같은 규약). 원격 체력 바가 그리고,
-     * 호스트가 고스트를 만들 때 물려주며, 재접속 복귀가 이 값을 돌려준다 — 없으면 돌아온 사람만 실드를 잃는다.
+     * 2026-09-10: the shield rides along **only while armor is worn** (the contract `dhp` uses). The remote health
+     * bar draws it, the host inherits it when it builds a ghost, and a reconnect restores it — without it the
+     * returning player alone loses the shield.
      */
     const shm = Math.round(p.maxShield ?? 0);
     if (shm > 0) { m.shm = shm; m.sh = Math.round(p.shield ?? 0); }
@@ -92,10 +94,11 @@ export class Snapshotter {
     else delete m.cr;
 
     /*
-     * 2026-09-12 (캐릭터 버프 · 가구 자세): `bfr` = my buff list revision (omitted while 0 — "never had a buff"); a receiver
-     * whose copy is older asks `cbufq sync` (`parts/CharBuffs`). `fp` / `fu` = the furniture pose's continuous values, only
-     * while posed — the feet x · z already ride on `p`. Valid in the hub and the raid alike (player refuses poses outside
-     * the ship, so the raid simply never carries them). Duck-typed: an older player impl has neither member.
+     * 2026-09-12 (character buffs · furniture pose sync): `bfr` = my buff list revision (omitted while 0 — "never
+     * had a buff"); a receiver whose copy is older asks `cbufq sync` (`parts/CharBuffs`). `fp` / `fu` = the furniture
+     * pose's continuous values, only while posed — the feet x · z already ride on `p`. Valid in the hub and the raid
+     * alike (player refuses poses outside the ship, so the raid simply never carries them). Duck-typed: an older
+     * player impl has neither member.
      */
     const rev = p.buffsRevision;
     if (typeof rev === 'number' && Number.isFinite(rev) && rev > 0) m.bfr = Math.floor(rev);
@@ -137,7 +140,7 @@ export class Snapshotter {
     if (p.isHovering) f |= PlayerFlags.HOVER;
     if (p.isOvercharged) f |= PlayerFlags.OVERCHARGED;
     /*
-     * Phase 10: the 배리어 is a shield held in hand — `barrierActive` means "raised" and `bhp` rides along so remotes
+     * Phase 10: the barrier is a shield in hand — `barrierActive` means "raised" and `bhp` rides along so remotes
      * tint the panel and a late joiner needs no `imp shield`. Omitted whenever the shield is down.
      */
     if (ctx.implants?.barrierActive) {
@@ -149,9 +152,9 @@ export class Snapshotter {
     if (p.isMeleeHeavy) f |= PlayerFlags.MELEE_HEAVY;
     /* appended (2026-09-09): chat input open → `…` speech bubble on remotes (valid in the hub too). */
     if (this.typing) f |= PlayerFlags.TYPING;
-    /* appended (2026-09-11): 사다리에 매달림 → 원격이 오르기 자세를 그리고 `p` 가 수직으로 움직인다. */
+    /* appended (2026-09-11): hanging on a ladder → remotes draw the climbing pose and `p` moves vertically. */
     if (!inHub && typeof p.climbingLadder === 'string' && p.climbingLadder.length > 0) f |= PlayerFlags.CLIMBING;
-    /* appended (2026-09-13): 탐사 차량 안 → 원격이 아바타 · 이름표를 숨기고 적이 노리지 않는다. */
+    /* appended (2026-09-13): inside the rover → remotes hide the avatar · name tag and enemies do not target it. */
     if (!inHub && p.roverRide === true) f |= PlayerFlags.IN_ROVER;
     if (rs && !inHub) {
       if (rs.throwing) f |= PlayerFlags.THROWING;
@@ -160,7 +163,7 @@ export class Snapshotter {
       if (rs.spraying) f |= PlayerFlags.SPRAYING;
       if (rs.heavy) f |= PlayerFlags.HEAVY;
     }
-    /* appended: Phase 10 — 들쳐메기. CARRYING keeps the carrier unarmed; CARRIED marks the body on the shoulder. */
+    /* appended: Phase 10 — shouldering. CARRYING keeps the carrier unarmed; CARRIED marks the shouldered body. */
     if (carrying !== null) f |= PlayerFlags.CARRYING;
     if (p.isCarried === true) f |= PlayerFlags.CARRIED;
     // A carrier holds the squadmate with both hands, so it advertises neither HOLDING_ITEM nor HAS_WEAPON (`m.w`

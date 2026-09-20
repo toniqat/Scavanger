@@ -1,21 +1,27 @@
 /**
- * src/net/parts/Crypto.ts — **`ctx.net.crypto`: 암호화폐 시세 창구** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」).
+ * src/net/parts/Crypto.ts — **`ctx.net.crypto`: the crypto quote desk** (2026-09-13, docs/DECISIONS.md
+ * 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」).
  *
- * 시세의 원본은 릴레이다 (`server/CryptoMarket.ts` — 사용자 결정: 서버에 붙어 있어야 차트 · 매매가 된다). 이 파일은 받은 것을
- * 들고 있을 뿐이고 규칙이 없다:
+ * Quotes originate at the relay (`server/CryptoMarket.ts` — the user's decision: the chart and trading need a server
+ * connection). This file only holds what arrives and owns no rules:
  *
- *  - `watch()` 는 참조 계수다. 첫 구독에서 `crypto:watch {on:true}`, 마지막 해제에서 `{on:false}`. 서버는 연결마다 구독을 잊으므로
- *    **welcome 마다**(재접속 · 새로고침) 구독자가 남아 있으면 다시 켠다. 켜는 순간 서버가 시세를 한 번 즉시 보낸다.
- *  - `available` = 소켓이 붙어 있고 **이 연결에서** `crypto:prices` 를 한 번이라도 받았다. 옛 릴레이(시세 없음)는 시세를 영영 안 보내므로
- *    false 로 남는다 — 화면은 「서버에 연결되어야 합니다」. 끊기면 곧바로 false 이고 마지막 시세(`prices`)는 그대로 둔다.
- *    구독이 없으면 시세가 새로 오지 않는다 — 견적을 내는 화면은 열려 있는 동안 `watch()` 를 들고 있어야 한다 (`pricesAt` 으로 신선도를 본다).
- *  - `requestHistory(coin, range)` → `crypto:history` → (coin, range)별로 **마지막 답**을 캐시하고 `net:cryptoHistory`. 연결이 없으면
- *    조용히 아무것도 하지 않는다 (화면이 `net:cryptoPrices` 로 `available` 이 켜진 것을 보고 다시 부른다).
- *  - 캐시된 봉은 **살아 있다**: 시세가 올 때마다 그 가격을 캐시의 마지막 봉에 접고(같은 봉 구간이면 고가 · 저가 · 종가, 새 구간이면 봉
- *    하나를 붙이고 `CRYPTO_CANDLE_COUNT` 로 자른다). 서버가 봉을 만드는 방식과 같아서 다시 요청하지 않아도 차트가 흐른다 —
- *    차트는 `net:cryptoPrices` 에 다시 그리면 된다 (`net:cryptoHistory` 는 요청의 답에만 나간다).
+ *  - `watch()` is ref-counted. The first subscription sends `crypto:watch {on:true}`, the last release `{on:false}`.
+ *    The server forgets the subscription per connection, so it is turned back on **on every welcome** (reconnect ·
+ *    reload) while a subscriber is left. Turning it on makes the server send one quote immediately.
+ *  - `available` = the socket is attached and a `crypto:prices` arrived **on this connection**. An old relay (no
+ *    quotes) never sends one, so it stays false — the screen then reads 「서버에 연결되어야 합니다」. A drop makes it
+ *    false at once and leaves the last quotes (`prices`) alone. With no subscription no new quote arrives — a screen
+ *    that prices something must hold a `watch()` while it is open (`pricesAt` is how fresh it is).
+ *  - `requestHistory(coin, range)` → `crypto:history` → the **last answer** is cached per (coin, range) and
+ *    `net:cryptoHistory` fires. Without a connection it silently does nothing (the screen calls again once
+ *    `net:cryptoPrices` shows that `available` went on).
+ *  - The cached candles are **alive**: every arriving quote is folded into the cache's last candle (high · low ·
+ *    close inside the same candle bucket; a new bucket appends one candle and trims to `CRYPTO_CANDLE_COUNT`). It is
+ *    how the server builds its candles too, so the chart flows without asking again — a chart only has to redraw on
+ *    `net:cryptoPrices` (`net:cryptoHistory` is emitted only as the answer to a request).
  *
- * 받은 프레임은 필드마다 검사한다 (코인 id 문법 · 유한한 양수 가격 · 알려진 기간 · 봉 개수 상한).
+ * Every received frame is checked field by field (coin id grammar · a finite positive price · a known range · the
+ * candle-count cap).
  */
 import type { CryptoCandle, CryptoChartRange, CryptoMarketRef, ServerToClient } from '@/shared';
 import { CRYPTO_CANDLE_COUNT, CRYPTO_CANDLE_MS, CRYPTO_CHART_RANGES } from '@/shared';
@@ -24,7 +30,7 @@ import type { NetSystem } from '../NetSystem';
 type PricesMsg = Extract<ServerToClient, { t: 'crypto:prices' }>;
 type HistoryMsg = Extract<ServerToClient, { t: 'crypto:history' }>;
 
-/** Same grammar as the credit reason id of `cbuy:` / `csell:` (`shared/crypto.ts` 의 `COIN_ID`). */
+/** Same grammar as the credit reason id of `cbuy:` / `csell:` (`shared/crypto.ts`'s `COIN_ID`). */
 const COIN_RE = /^[a-z0-9_]{1,32}$/;
 const RANGE_SET: ReadonlySet<string> = new Set(CRYPTO_CHART_RANGES);
 const MAX_COINS = 64;

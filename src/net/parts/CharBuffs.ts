@@ -1,20 +1,24 @@
 /**
- * src/net/parts/CharBuffs.ts — **분대원의 버프 목록은 어떻게 오고 가는가** (캐릭터 버프, 2026-09-12). 결정: `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」.
+ * src/net/parts/CharBuffs.ts — **how a squadmate's buff list travels** (character buffs, 2026-09-12). Decision:
+ * `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」.
  *
- *   내 목록 변경 ── `player:buffsChanged` ──▶ dirty ──(NetSystem.update, 스냅샷 **앞**)──▶ `cbuf state {rev, buffs}` → others
- *                                                  (한 프레임의 여러 변경은 한 번으로 — update 한 번에 한 번만 보낸다)
- *   20 Hz 스냅샷 `bfr` ── 받는 쪽 `onSnapshot(ref)`: `bfr ≠ ref.buffsRevision` (또는 스트림 재시작) → 그 사람에게 `cbufq sync`
- *                                                  (`CHAR_BUFF_SYNC_COOLDOWN_S` 에 한 번)
- *   `cbufq sync` ── 요청자에게만 내 `cbuf state` (요청자별 같은 쿨다운)
- *   `cbuf state` ── 로비 멤버만 · `sanitizeCharBuffs` · 더 낮은 rev 는 버림(단, 그 사람의 최신 스냅샷 `bfr` 와 같으면 받는다 —
- *                   새로고침으로 리비전 번호가 1 부터 다시 시작한 경우) → `entries` + ref 미러 → 목록이 실제로 바뀌었을 때만
- *                   `net:remoteBuffsChanged`
+ *   my list changed ── `player:buffsChanged` ──▶ dirty ──(NetSystem.update, **before** the snapshot)──▶
+ *                      `cbuf state {rev, buffs}` → others
+ *                      (several changes in one frame collapse into one — at most one send per update)
+ *   the 20 Hz snapshot's `bfr` ── the receiver's `onSnapshot(ref)`: `bfr ≠ ref.buffsRevision` (or the stream
+ *                      restarted) → `cbufq sync` to that member (once per `CHAR_BUFF_SYNC_COOLDOWN_S`)
+ *   `cbufq sync` ── my `cbuf state` to the requester alone (the same cooldown, per requester)
+ *   `cbuf state` ── lobby members only · `sanitizeCharBuffs` · a lower rev is dropped (unless it equals that member's
+ *                   newest snapshot `bfr` — a reload restarted the revision counter at 1) → `entries` + the ref
+ *                   mirror → `net:remoteBuffsChanged` only when the list really changed
  *
- * 버프에는 게임 효과가 없으므로(사용자 결정) 권위 검사가 없다 — 로비 멤버 여부와 모양만 본다. 서버는 한 줄도 바뀌지 않는다:
- * 릴레이는 `relay` 봉투의 `d` 를 `t` 가 문자열인지만 보고 그대로 넘긴다 (`server/RelayServer.ts` 의 `relay` 검증).
+ * Buffs have no gameplay effect (the user's decision), so there is no authority check — only lobby membership and the
+ * shape are tested. Not one line of the server changes: the relay passes the `relay` envelope's `d` through after
+ * checking only that `t` is a string (`server/RelayServer.ts`'s `relay` validation).
  *
- * `entries` 는 ref 와 따로 산다: 함선 ↔ 레이드 전환마다 ref 가 지워지고 다시 만들어지는데(`clearRemotes`), 목록은 그 사이에 바뀌지
- * 않았으므로 새 ref 가 곧바로 물려받는다 (`mirror`) — 분대 목록의 썸네일이 깜빡이지 않고 요청도 나가지 않는다.
+ * `entries` lives apart from the ref: every ship ↔ raid transition clears and rebuilds the refs (`clearRemotes`)
+ * while the lists did not change in between, so a new ref inherits them at once (`mirror`) — the squad list's
+ * thumbnails never blink and no request goes out.
  */
 import type { CharBuffMessage, CharBuffRequest, PeerId, RelayTarget } from '@/shared';
 import type { CharBuff } from '@/shared';
@@ -56,7 +60,7 @@ export class CharBuffRelay {
     this.sys = null;
   }
 
-  /* ── 보내는 쪽 ─────────────────────────────────────────────────────────── */
+  /* ── the sending side ──────────────────────────────────────────────── */
   /**
    * `NetSystem.update`, **before** the snapshot: at most one `cbuf state` per frame however many `player:buffsChanged`
    * fired since. A change while offline / lobbyless is simply dropped — the next snapshot's `bfr` makes every receiver ask.
@@ -78,7 +82,7 @@ export class CharBuffRelay {
     sys.send(msg, to);
   }
 
-  /* ── 받는 쪽 ───────────────────────────────────────────────────────────── */
+  /* ── the receiving side ─────────────────────────────────────────────── */
   private isMember(from: PeerId): boolean {
     const sys = this.sys;
     return !!sys && from !== sys.localId && !!sys.getLobbyPlayer(from);

@@ -6,17 +6,17 @@ const SERVER_TYPES: ReadonlySet<string> = new Set([
   'welcome', 'lobby:state', 'lobby:error', 'lobby:left', 'game:start', 'relay', 'peer:left', 'pong',
   /* Phase 7 */
   'profile:docs', 'credits:result',
-  /* Phase 11: 소셜 (the snapshots are small — MAX_INBOUND_BYTES is unchanged) */
+  /* Phase 11: social (the snapshots are small — MAX_INBOUND_BYTES is unchanged) */
   'social:state', 'social:invited', 'social:whisper', 'social:play', 'social:error',
-  /* 2026-09-11 (B-3 · B-4): 초대 결과 · 전송 확인 · 오프라인 보관 */
+  /* 2026-09-11 (B-3 · B-4): the invite result · the send ack · the offline backlog */
   'social:inviteResult', 'social:inviteClosed', 'social:whisperAck', 'social:whisperBacklog',
   /* 2026-09-11 (E-6): the answer to a revision write / transaction (a conflict carries ≤ 5 documents — under the cap) */
   'profile:ack', 'profile:conflict', 'profile:refused',
-  /* 2026-09-13: 암호화폐 시세 (`parts/Crypto`) — prices ≈ 8 coins, history ≤ 180 candles */
+  /* 2026-09-13: crypto quotes (`parts/Crypto`) — prices ≈ 8 coins, history ≤ 180 candles */
   'crypto:prices', 'crypto:history',
-  /* 2026-09-14: 단체 메신저방 (`RoomSync`) — a history page ≤ ROOM_HISTORY_PAGE lines */
+  /* 2026-09-14: group rooms (`RoomSync`) — a history page ≤ ROOM_HISTORY_PAGE lines */
   'room:state', 'room:line', 'room:ack', 'room:history', 'room:error',
-  /* 2026-09-15: 안드로이드 분대원 — 한 기가 조종실 슬롯으로 돌아갔다 (`net:androidReturned`) */
+  /* 2026-09-15: android squadmates — one unit went back to its cockpit bay (`net:androidReturned`) */
   'lobby:androidReturned',
 ]);
 const PING_INTERVAL_MS = 2000;

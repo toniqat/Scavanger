@@ -1,9 +1,9 @@
 /**
- * src/net/parts/Messages.ts — **수신 메시지 분배**.
+ * src/net/parts/Messages.ts — **inbound message dispatch**.
  *
- * 서버 프로토콜 메시지(`handleServerMessage`)와 다른 클라이언트가 보낸 불투명 게임 메시지
- * (`handleRelay`)를 각 시스템의 `onMessage` 구독자에게 넘긴다. 게임 규칙은 여기 없다 —
- * 스냅샷 적용과 `net:*` 버스 이벤트 번역까지가 이 파일의 범위다.
+ * Hands the server protocol frames (`handleServerMessage`) and the opaque game messages other clients sent
+ * (`handleRelay`) to each system's `onMessage` subscribers. No game rules live here — applying a
+ * snapshot and translating `net:*` bus events is this file's whole scope.
  */
 import * as THREE from 'three';
 import type {
@@ -13,7 +13,7 @@ import type {
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, SocialRef } from '@/shared';
 import { isPlanetId } from '@/shared';
-/* 2026-09-15: 안드로이드 분대원 — `lobby:androidReturned` 의 bay 범위 · 봇 멤버 판정 */
+/* 2026-09-15: android squadmates — the bay range of `lobby:androidReturned` · the bot-member test */
 import { ANDROID_BAY_COUNT, humanPlayersOf } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
@@ -31,14 +31,18 @@ import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_
 import type { NetSystem } from '../NetSystem';
 import type { DamageCauseKind, PlayerDamageSource } from '@/shared';
 
-/** 2026-09-15 (결과 창 개편): `dmg.src.k` 로 받아들이는 값 — `DamageCauseKind` 전부 (빠지면 타입 오류로 잡힌다). */
+/**
+ * 2026-09-15 (the results screen rework): the values `dmg.src.k` accepts — every `DamageCauseKind` (a missing one is
+ * caught as a type error).
+ */
 const DAMAGE_CAUSE_KIND: Record<DamageCauseKind, true> = {
   enemy: true, fall: true, hazard: true, env: true, explosion: true, self: true, ally: true, other: true,
 };
 
 /**
- * 2026-09-15 (결과 창 개편): `dmg.src`(`DamageSourceWire`) → `PlayerDamageSource`. 모양이 틀리면 undefined (= 모름) —
- * 출처는 결과 창의 표시일 뿐이라 거절 대신 버린다. 문자열은 짧게 자르고 id 는 양의 정수만.
+ * 2026-09-15 (the results screen rework): `dmg.src` (`DamageSourceWire`) → `PlayerDamageSource`. A malformed shape
+ * becomes undefined (= unknown) — the source is only something the results screen prints, so it is dropped rather
+ * than rejected. Strings are cut short and an id must be a positive integer.
  */
 function damageSourceFromWire(w: unknown): PlayerDamageSource | undefined {
   if (!w || typeof w !== 'object') return undefined;
@@ -66,9 +70,9 @@ export function send(sys: NetSystem, msg: GameMessage, to: RelayTarget = 'others
     }
   }
   /*
-   * 공용 함선 격납고 (2026-09-08): the same snoop for `ship state`. hub/ broadcasts our own ship layout; keeping our
-   * copy here means our **own** hangar bay renders from exactly the wire the squad sees — one code path, and it
-   * still works offline / single-player where the relay drops the message.
+   * The shared ship's hangar (2026-09-08): the same snoop for `ship state`. hub/ broadcasts our own ship layout;
+   * keeping our copy here means our **own** hangar bay renders from exactly the wire the squad sees — one code path,
+   * and it still works offline / single-player where the relay drops the message.
    */
   if (msg.t === 'ship' && msg.ev === 'state') {
     const me = sys.localId;
@@ -91,7 +95,7 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       sys.cryptoMarket.onWelcome();   // 2026-09-13: the relay forgot `crypto:watch` with the old socket
       sys.roomSync.onWelcome();       // 2026-09-14: the relay pushes `room:state` right after this frame
       return;
-    /* 2026-09-13: 암호화폐 시세 — `parts/Crypto` validates and caches */
+    /* 2026-09-13: crypto quotes — `parts/Crypto` validates and caches */
     case 'crypto:prices':
       sys.cryptoMarket.onPrices(msg);
       return;
@@ -107,7 +111,7 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       sys.applyLobby(msg.lobby);
       if (matched) {
         sys.pendingQuickMatch = false;
-        // 2026-09-15: 「새로 열었다」는 **사람**이 나 하나라는 뜻이다 (안드로이드가 찬 분대는 애초에 매칭되지 않는다).
+        // 2026-09-15: "newly opened" means I am the only **human** (a squad filled with androids is never matched).
         bus.emit('net:matched', { lobby: msg.lobby, created: humanPlayersOf(msg.lobby).length === 1 });
       }
       return;
@@ -124,9 +128,10 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       return;
 
     /*
-     * 2026-09-15 (안드로이드 분대원): 릴레이가 한 기를 조종실 슬롯으로 돌려보냈다. 명단 자체는 `lobby:state` 가 싣는다 —
-     * 이 사실은 **왜** 빠졌는지(사람 합류 · 정원 초과)를 알려 줄 뿐이라 명단을 손대지 않고 그대로 버스에 옮긴다.
-     * 모르는 모양은 조용히 버린다 (알림 하나가 못 뜰 뿐, 로비 상태는 멀쩡하다).
+     * 2026-09-15 (android squadmates): the relay sent one unit back to its cockpit bay. The roster itself rides on
+     * `lobby:state` — this frame only says **why** it left (a human joined · over the cap), so it is moved straight
+     * onto the bus without touching the roster. An unknown shape is dropped silently (one toast is lost, never the
+     * lobby state).
      */
     case 'lobby:androidReturned': {
       const bay = msg.bay;
@@ -149,9 +154,10 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       // the rest just see the lobby running (`missionInProgress`) and may join from the terminal.
       const enters = me ? (me.inMission ?? true) : true;
       if (sys._inSession || (mode === 'training' && !enters)) { sys.applyLobby(msg.lobby); return; }
-      // Phase 11: the raid's 목표 행성 — the server echoes it, `lobby.planet` is the fallback for an older relay.
+      // Phase 11: the raid's target planet — the server echoes it, `lobby.planet` is the fallback for an older relay.
       const planet = mode === 'training' ? null : (isPlanetId(msg.planet) ? msg.planet : (isPlanetId(msg.lobby.planet) ? msg.lobby.planet : null));
-      /* 2026-09-14 (정보상): 행성과 같은 규약 — 서버가 에코한 것, 없으면 `lobby.intel` (에코하지 않는 옛 릴레이). */
+      /* 2026-09-14 (the intel broker): the planet's contract — what the server echoed, else `lobby.intel`
+       * (an older relay does not echo it). */
       const intel = mode === 'training' ? null : (msg.intel ?? msg.lobby.intel ?? null);
       sys.beginSession(msg.seed, msg.lobby, mode, false, planet, intel);
       return;
@@ -184,7 +190,7 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
     case 'credits:result':
       sys.profileSync.onCreditsResult(msg);
       return;
-    /* 2026-09-11 (E-6): 문서 리비전 — one answer per queued write (matched by writeId / txId inside ProfileSync) */
+    /* 2026-09-11 (E-6): doc revisions — one answer per queued write (matched by writeId / txId inside ProfileSync) */
     case 'profile:ack':
       sys.profileSync.onAck(msg);
       return;
@@ -195,7 +201,7 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       sys.profileSync.onRefused(msg);
       return;
 
-    /* Phase 11: 소셜 — SocialSync validates every frame before it reaches the UI. */
+    /* Phase 11: social — SocialSync validates every frame before it reaches the UI. */
     case 'social:state':
       sys.socialSync.onState(msg.social);
       return;
@@ -224,7 +230,7 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
     case 'social:whisperBacklog':
       sys.socialSync.onWhisperBacklog(msg);
       return;
-    /* 2026-09-14: 단체 메신저방 — RoomSync validates every frame before it reaches the UI */
+    /* 2026-09-14: group rooms — RoomSync validates every frame before it reaches the UI */
     case 'room:state':
       sys.roomSync.onState(msg);
       return;
@@ -260,15 +266,16 @@ export function handleRelay(sys: NetSystem, from: PeerId, d: GameMessage): void 
       // mission snapshots while we walk the ship — belong to a different 3D scene. An existing ref simply goes stale.
       const senderInHub = (d.f & PlayerFlags.IN_HUB) !== 0;
       if (senderInHub === sys._inSession) break;
-      // 2026-09-15 (분대 · 도킹 매칭): a hub snapshot counts only while WE stand in the docked squad's shared ship too —
-      // an undocked squad (or our own countdown in the personal ship) builds a different ship at the same origin.
+      // 2026-09-15 (squads · dock matching): a hub snapshot counts only while WE stand in the docked squad's shared
+      // ship too — an undocked squad (or our own countdown in the personal ship) builds a different ship at the same
+      // origin.
       if (senderInHub && !sys.inHubSession) break;
       const r = sys.getOrCreateRemote(from);
       const wasDowned = r.isDowned;
       const wasCarrying = r.carrying;
       // 2026-09-12: an accepted snapshot whose `bfr` differs from the list we hold → `cbufq sync` (`parts/CharBuffs`).
       if (r.push(d, sys.ctx.time)) sys.charBuffRelay.onSnapshot(r);
-      // Phase 10: the carried peer changed → HUD markers / 분대 목록 (`carriedBy` is derived in `update`).
+      // Phase 10: the carried peer changed → HUD markers / the squad list (`carriedBy` is derived in `update`).
       if (r.carrying !== wasCarrying) bus.emit('net:remoteCarryChanged', { id: from, carrying: r.carrying });
       // Phase 2: squadmate went down / got back up → HUD feed (derived from the DOWNED flag transition)
       if (r.isDowned !== wasDowned) {
@@ -287,7 +294,8 @@ export function handleRelay(sys: NetSystem, from: PeerId, d: GameMessage): void 
       if (typeof d.w === 'string') bus.emit('net:remoteReloaded', { id: from, weaponId: d.w });
       break;
     case 'grenade':
-      // 2026-09-15 (B-16): `fire` 1 = G-10 소이 수류탄 — 받는 쪽 피해가 작은 폭발이 된다. 생략이면 undefined (옛 클라이언트)
+      // 2026-09-15 (B-16): `fire` 1 = the G-10 incendiary grenade — damage on the receiving side becomes a small
+      // explosion. Omitted means undefined (an older client).
       if (isVec3(d.p) && isVec3(d.v)) bus.emit('net:remoteGrenade', { id: from, position: vec(d.p), velocity: vec(d.v), fuse: typeof d.fuse === 'number' ? d.fuse : undefined, fire: d.fire === 1 ? true : undefined });
       break;
     case 'revive': {
@@ -321,7 +329,7 @@ export function handleRelay(sys: NetSystem, from: PeerId, d: GameMessage): void 
       break;
     case 'dmg':
       if (isNum(d.amount) && sys.ctx.player && sys._inSession) {
-        // 2026-09-15 (결과 창 개편): `src` = 피해 출처 (없으면 모름)
+        // 2026-09-15 (the results screen rework): `src` = the damage source (absent = unknown)
         sys.ctx.player.takeDamage(d.amount, isVec3(d.from) ? vec(d.from) : undefined, damageSourceFromWire(d.src));
         if (d.slow && isNum(d.slow.duration) && isNum(d.slow.factor)) bus.emit('player:applySlow', { duration: d.slow.duration, factor: d.slow.factor });
         // Phase 7: knockback rides along (behemoth charge, blasts); the player ignores it while downed.
@@ -356,8 +364,8 @@ export function handleRelay(sys: NetSystem, from: PeerId, d: GameMessage): void 
       break;
     }
     /*
-     * 공용 함선 격납고 (2026-09-08): a member's ship layout (`ship state`), sent on arrival in the shared ship, on a
-     * debounced housing change and as the answer to `shipq state`. Stored for hub/ to render a hangar bay from.
+     * The shared ship's hangar (2026-09-08): a member's ship layout (`ship state`), sent on arrival in the shared
+     * ship, on a debounced housing change and as the answer to `shipq state`. Stored for hub/ to render a bay from.
      * `shipq` needs no case — hub/ answers it through `onMessage('shipq')`, exactly like `crewq`.
      */
     case 'ship': {
@@ -368,7 +376,7 @@ export function handleRelay(sys: NetSystem, from: PeerId, d: GameMessage): void 
       break;
     }
     /*
-     * Phase 10: 들쳐메기 one-shots. The steady state rides on `PlayerFlags.CARRYING` + `cr`, so these only buy
+     * Phase 10: shouldering one-shots. The steady state rides on `PlayerFlags.CARRYING` + `cr`, so these only buy
      * instant feedback (before the next 20 Hz snapshot) and tell everyone where a dropped body landed.
      */
     case 'carry': {

@@ -1,8 +1,8 @@
 /**
- * src/net/parts/Lobby.ts — **로비 · 세션 · 호스트 이관**.
+ * src/net/parts/Lobby.ts — **the lobby · the session · the host transfer**.
  *
- * 방 만들기 / 참가 / 신호 찾기 / 준비 / 시작 / 나가기, 목표 행성 지정, 그리고 임무의 시작과 끝.
- * 임무가 끝나도 **로비는 유지된다** — 로비를 떠나는 것은 `leaveLobby()`(도킹 해제) 하나뿐이다.
+ * Create / join / quick match / ready / start / leave, picking the target planet, and the two ends of a mission.
+ * **The lobby survives a mission's end** — the only thing that leaves a lobby is `leaveLobby()` (undocking).
  */
 import * as THREE from 'three';
 import type {
@@ -12,11 +12,11 @@ import type {
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, SocialRef } from '@/shared';
 import { isPlanetId } from '@/shared';
-/* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* 2026-09-14: the intel broker — the fixed gimmicks the lobby carries (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelWire } from '@/shared';
 import { resolveIntelEffects, sanitizeIntelPicks } from '@/shared';
 import { isDockedLobby } from '@/shared';
-/* 2026-09-15: 안드로이드 분대원 — 봇 멤버는 사람 취급을 받지 않는다 (`src/shared/net.ts` 파일 끝 절) */
+/* 2026-09-15: android squadmates — a bot member is never treated as a person (`src/shared/net.ts`, last section) */
 import { ANDROID_BAY_COUNT, isBotPlayer } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
@@ -34,8 +34,9 @@ import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_
 import type { NetSystem } from '../NetSystem';
 
 /**
- * Host only, while not started: share the 목표 행성 with the ship. Mirrored optimistically (like `setLobbySeed`) so
- * the host's own terminal reacts without a round trip; the server's `lobby:state` confirms it for everyone else.
+ * Host only, while not started: share the target planet with the ship. Mirrored optimistically (like
+ * `setLobbySeed`) so the host's own terminal reacts without a round trip; the server's `lobby:state` confirms it for
+ * everyone else.
  * There is no travel message — each client starts the cutscene off its own copy of `lobby.planet`.
  */
 export function setLobbyPlanet(sys: NetSystem, planet: PlanetId): void {
@@ -50,9 +51,10 @@ export function setLobbyPlanet(sys: NetSystem, planet: PlanetId): void {
   }
 
 /**
- * 2026-09-14 (정보상) — 분대장 전용, 시작 전: 산 기믹 고정(또는 폐기 = null)을 분대에 알린다 (`lobby:intel`).
- * `setLobbyPlanet` 과 **같은 규약**이다: 낙관적 미러링 + 서버의 `lobby:state` 가 확정, 이벤트는 내지 않는다
- * (분대원은 평소의 `net:lobbyUpdated` 로 알게 된다). 서버는 모양만 씻고 그대로 방송한다 — 레이아웃은 계산하지 않는다.
+ * 2026-09-14 (the intel broker) — leader only, before the start: tells the squad the fixed gimmicks it bought (or
+ * dropped = null) through `lobby:intel`. **Same contract** as `setLobbyPlanet` — an optimistic mirror the server's
+ * `lobby:state` confirms, and no event (squadmates learn it through the ordinary `net:lobbyUpdated`). The server
+ * only sanitizes the shape and rebroadcasts it; it computes no layout.
  */
 export function setLobbyIntel(sys: NetSystem, intel: IntelWire | null): void {
   const lobby = sys._lobby;
@@ -62,7 +64,7 @@ export function setLobbyIntel(sys: NetSystem, intel: IntelWire | null): void {
   sys.client.send({ t: 'lobby:intel', intel: next });
   }
 
-/** 와이어에 실어도 되는 모양인가 — 빈 선택 · 모르는 기믹은 「안 샀다」(null) 로 본다 (`shared/intel`). */
+/** A wire-safe shape: an empty pick · an unknown gimmick reads as "not bought" (null) — `shared/intel`. */
 export function sanitizeIntelWire(raw: IntelWire | null | undefined): IntelWire | null {
   if (!raw || typeof raw !== 'object') return null;
   const seed = Number(raw.seed);
@@ -73,9 +75,10 @@ export function sanitizeIntelWire(raw: IntelWire | null | undefined): IntelWire 
 
 /* ── lobby ops ──────────────────────────────────────────────────────── */
 /*
- * 2026-09-15 (분대 · 도킹 매칭): 옛 입구 셋(`lobby:create` · `lobby:join` · `lobby:quickmatch`)은 서버가 여전히 **도킹된**
- * 로비를 만들거나 넣어 준다 — 내가 누른 것이므로 `requestDock` 과 똑같이 「내 도킹」(`dockPending`)이다. 안 켜면 hub/ 가
- * 분대장의 도킹으로 읽어 카운트다운부터 돈다 (초대 링크 · 스모크 · 옛 UI).
+ * 2026-09-15 (squads · dock matching): the three old entrances (`lobby:create` · `lobby:join` ·
+ * `lobby:quickmatch`) still have the server create a **docked** lobby or put us in one — I pressed it, so exactly
+ * like `requestDock` this is "my own dock" (`dockPending`). Without it hub/ reads the arrival as the leader's dock
+ * and runs the countdown first (invite link · smokes · the old UI).
  */
 export function createLobby(sys: NetSystem): void {
   sys.pendingQuickMatch = false;
@@ -106,7 +109,7 @@ export function setReady(sys: NetSystem, ready: boolean): void { sys.client.send
 
 /**
  * Raid (default): host only, everyone ready. Training: any member; only the caller enters (`inMission`).
- * Phase 11: `planet` is the raid's 목표 행성 (the server refuses a raid without one — `no_planet`); a training
+ * Phase 11: `planet` is the raid's target planet (the server refuses a raid without one — `no_planet`); a training
  * ignores it, and an unknown id is dropped here rather than sent. Falls back to `lobby.planet` when omitted.
  */
 export function startGame(sys: NetSystem, seed: number, mode?: MissionMode, planet?: PlanetId, intel?: IntelWire | null): void {
@@ -116,7 +119,8 @@ export function startGame(sys: NetSystem, seed: number, mode?: MissionMode, plan
   const msg: Extract<ClientToServer, { t: 'lobby:start' }> = { t: 'lobby:start', seed: s };
   if (mode) msg.mode = mode;
   if (p !== undefined) msg.planet = p;
-  /* 2026-09-14 (정보상): 인자를 안 주면 `lobby.intel`(이미 `lobby:intel` 로 올라간 것)이 실린다. 훈련장은 언제나 없다. */
+  /* 2026-09-14 (the intel broker): with no argument given, `lobby.intel` (what already went up through
+   * `lobby:intel`) rides along. A training never has one. */
   if (!training) {
     const w = sanitizeIntelWire(intel !== undefined ? intel : sys._lobby?.intel ?? null);
     if (w) msg.intel = w;
@@ -137,10 +141,10 @@ export function quickMatch(sys: NetSystem): void {
 export function setPublic(sys: NetSystem, isPublic: boolean): void { sys.client.send({ t: 'lobby:setPublic', isPublic }); }
 
 /**
- * 2026-09-15 (안드로이드 분대원): 공용 함선 조종실의 슬롯 `bay` 를 분대장이 3초 꾹 누른 결과 — 들이기(`recruit`) /
- * 돌려보내기. 결과는 서버의 `lobby:state`(`net:lobbyUpdated`) 하나다 — `setLobbyPlanet` 처럼 낙관적으로 미리 그리지
- * 않는다: 정원은 릴레이만 알고(사람이 봇을 이긴다), 슬롯 자리도 릴레이가 정한다.
- * 보낼 수 없는 상황은 `net:error` 로 이유를 돌려준다 (`requestDock` 과 같은 규약).
+ * 2026-09-15 (android squadmates): the result of the leader holding the shared ship's cockpit bay `bay` for 3 s —
+ * recruiting (`recruit`) / sending it back. The answer is one server `lobby:state` (`net:lobbyUpdated`); unlike
+ * `setLobbyPlanet` nothing is mirrored optimistically — only the relay knows the cap (a human beats a bot) and only
+ * the relay decides the slot. What cannot be sent returns its reason as `net:error` (`requestDock`'s contract).
  */
 export function setAndroidBay(sys: NetSystem, bay: number, recruit: boolean): void {
   if (!Number.isInteger(bay) || bay < 0 || bay >= ANDROID_BAY_COUNT) return;
@@ -160,8 +164,9 @@ export function setAndroidBay(sys: NetSystem, bay: number, recruit: boolean): vo
   }
 
 /**
- * 2026-09-15 (분대 · 도킹 매칭): 터미널 > 매칭의 `비공개 매칭` / `공개 매칭`. `dockPending` 은 도킹된 로비가 오거나
- * (`applyLobby`) · 에러가 오거나 · 로비를 떠날 때(`dropLobby`) 꺼진다 — hub/ 가 「내가 누른 도킹」 을 가르는 근거다.
+ * 2026-09-15 (squads · dock matching): the terminal's 매칭 tab `비공개 매칭` / `공개 매칭`. `dockPending` is cleared
+ * when a docked lobby arrives (`applyLobby`), on an error, or on leaving the lobby (`dropLobby`) — it is what lets
+ * hub/ tell "the dock I pressed" from someone else's.
  */
 export function requestDock(sys: NetSystem, isPublic: boolean): void {
   if (!sys.client.connected) {
@@ -173,11 +178,12 @@ export function requestDock(sys: NetSystem, isPublic: boolean): void {
   sys.client.send({ t: 'lobby:dock', isPublic });
   }
 
-/* ══ 2026-09-09: 분대장(호스트) 지명 이관 ═══════════════════════════════════════════════════════════════════
+/* ══ 2026-09-09: host transfer by nomination ══════════════════════════════════════════════════════
  *
- * 서버가 받아 주는 경우는 둘뿐이다 — ① 지금 내가 호스트다, ② `claim` 이고 현재 호스트가 `lobby:hostDown` 으로
- * 사망 표시를 켜 두었다(시체 옆의 분대장 기기). 그 외에는 `lobby:error {code:'not_host'}` 가 돌아온다.
- * 여기서는 **로비가 없을 때만** no-op 이다 — 함선(로비는 있고 세션은 없다) 안에서도 넘길 수 있어야 한다.
+ * The server accepts two cases only — ① I am the host right now, ② it is a `claim` and the current host raised its
+ * death flag with `lobby:hostDown` (the squad-leader device beside the corpse); anything else comes back as
+ * `lobby:error {code:'not_host'}`. Here it is a no-op **only without a lobby** — the role has to be handed over
+ * inside the ship as well (a lobby, no session).
  */
 export function transferHost(sys: NetSystem, targetId: PeerId, claim?: boolean): void {
   if (!sys._lobby || !sys.client.connected) return;
@@ -187,7 +193,7 @@ export function transferHost(sys: NetSystem, targetId: PeerId, claim?: boolean):
   sys.client.send(msg);
   }
 
-/** 호스트 본인이 이 레이드에서 완전히 사망했다(또는 되살아났다)고 서버에 알린다 (분대장 기기의 전제 조건). */
+/** The host tells the server it died fully in this raid (or came back) — the squad-leader device's precondition. */
 export function reportHostDown(sys: NetSystem, down: boolean): void {
   if (!sys._lobby || !sys.client.connected) return;
   sys.client.send({ t: 'lobby:hostDown', down });
@@ -210,17 +216,19 @@ export function rejoinMission(sys: NetSystem): void {
   const seed = lobby.seed;
   const mode: MissionMode = lobby.mode ?? 'raid';
   const me = sys.localId ? sys.getLobbyPlayer(sys.localId) : undefined;
-  /* 2026-09-15 (타이틀 레이드 포기): 포기한 레이드에는 들어가지 않는다. 릴레이도 `drifted` 로 거절하지만 여기서 세션을 먼저
-   * 열면 혼자 빈 월드에 서게 된다 — 보내기 전에 멈춘다. 훈련장은 표류와 무관하다 (표시는 레이드에만 선다). */
+  /* 2026-09-15 (title `레이드 포기`): an abandoned raid is never re-entered. The relay refuses it with `drifted`
+   * too, but opening the session here first would leave us alone in an empty world — stop before sending. A training
+   * has nothing to do with drifting (the mark is only ever raised on a raid). */
   if (mode === 'raid' && me?.drifted) {
     sys.ctx.bus.emit('net:error', { code: 'drifted', message: '레이드를 포기해 표류 처리되었습니다. 이 임무에는 다시 들어갈 수 없습니다.' });
     return;
   }
   sys.client.send({ t: 'lobby:mission', inMission: true });
   if (me) me.inMission = true; // optimistic; the broadcast confirms it
-  // Phase 11: a rejoin takes the 목표 행성 from the lobby (the mission is already running on it).
+  // Phase 11: a rejoin takes the target planet from the lobby (the mission is already running on it).
   const planet = mode === 'training' ? null : (isPlanetId(lobby.planet) ? lobby.planet : null);
-  /* 2026-09-14 (정보상): 기믹 고정도 **행성과 똑같이** 로비에서 되찾는다 — 안 그러면 돌아온 사람만 다른 맵을 만든다. */
+  /* 2026-09-14 (the intel broker): the fixed gimmicks are taken back from the lobby **exactly like the planet** —
+   * otherwise the returning player alone builds a different map. */
   const intel = mode === 'training' ? null : sanitizeIntelWire(lobby.intel ?? null);
   sys.beginSession(seed, lobby, mode, true, planet, intel);
   sys.send({ t: 'flow', ev: 'rejoined' }, 'all');
@@ -245,9 +253,10 @@ export function leaveMission(sys: NetSystem): void {
   }
 
 /**
- * 2026-09-15 (타이틀 레이드 포기): 새로고침으로 빠져나온 레이드를 버린다 → `lobby:abandon`. 나를 곧장 `drifted` 로 적고 blob 을
- * 버린 뒤 `net:lobbyUpdated` 를 낸다 (포기 팝업을 닫은 타이틀이 한 틱도 `이어하기` 를 다시 그리지 않게). 확정은 릴레이의 `lobby:state` 다.
- * 시체 · 정산은 game/ 이 이것을 부르기 **전에** 끝낸다 (`game/parts/Resume`).
+ * 2026-09-15 (title `레이드 포기`): throws away the raid a reload left behind → `lobby:abandon`. Marks me `drifted`
+ * at once, drops the blob and then emits `net:lobbyUpdated` (so the title that just closed the abandon popup never
+ * redraws `이어하기` for even one tick). The relay's `lobby:state` confirms it. The corpse · the settlement are
+ * finished by game/ **before** this is called (`game/parts/Resume`).
  */
 export function abandonRaid(sys: NetSystem): void {
   const lobby = sys._lobby;
@@ -286,7 +295,7 @@ export function getLobbyPlayer(sys: NetSystem, id: PeerId): LobbyPlayer | undefi
 
 /**
  * Enter the mission of `lobby` with `seed` (server `game:start`, or `rejoinMission()`).
- * Phase 11: `planet` is the raid's 목표 행성 (null for a training / an older relay with nothing picked).
+ * Phase 11: `planet` is the raid's target planet (null for a training / an older relay with nothing picked).
  */
 export function beginSession(
   sys: NetSystem, seed: number, lobby: LobbyState, mode: MissionMode, rejoin: boolean, planet: PlanetId | null,
@@ -305,8 +314,9 @@ export function beginSession(
   // core/ read them inside their synchronous handlers (the world generates during the emit).
   sys.ctx.missionMode = mode;
   sys.ctx.missionPlanet = mode === 'training' ? null : planet;
-  /* 2026-09-14 (정보상): `missionPlanet` 과 **똑같은 규약** — `game:newMission` 을 emit 하기 **전에** 세팅해야
-   * world/ · enemies/ 가 동기 핸들러 안에서 읽는다 (월드는 emit 안에서 생성된다). 훈련장은 언제나 null. */
+  /* 2026-09-14 (the intel broker): **exactly the contract of** `missionPlanet` — it has to be set **before**
+   * `game:newMission` is emitted so world/ · enemies/ read it inside their synchronous handlers (the world
+   * generates during the emit). A training is always null. */
   const iw = mode === 'training' ? null : sanitizeIntelWire(intel);
   sys.ctx.missionIntel = iw ? resolveIntelEffects(iw.picks) : null;
   const p = sys.ctx.missionPlanet;
@@ -322,8 +332,8 @@ export function applyLobby(sys: NetSystem, next: LobbyState): void {
     const me = sys.localId;
     for (const p of next.players) {
       if (p.id === me) continue;
-      /* 2026-09-15: 안드로이드 봇 멤버는 **사람이 아니다** — 합류/이탈 알림도 원격 아바타도 만들지 않는다.
-       * 명단 변화는 allies/ 가 `ally:rosterChanged` 로 알린다 (`androidPlayersOf(lobby)` 를 읽는다). */
+      /* 2026-09-15: an android bot member is **not a person** — it makes no join / leave announcement and no
+       * remote avatar. allies/ announces roster changes with `ally:rosterChanged` (`androidPlayersOf(lobby)`). */
       if (isBotPlayer(p)) continue;
       const was = prev.players.find((q) => q.id === p.id);
       if (!was) bus.emit('net:peerJoined', { id: p.id, name: p.name, slot: p.slot });
@@ -345,9 +355,9 @@ export function applyLobby(sys: NetSystem, next: LobbyState): void {
   sys.syncRemoteIdentities();
   bus.emit('net:lobbyUpdated', { lobby: next });
   /*
-   * 2026-09-15 (분대 · 도킹 매칭): the dock I asked for arrived. Cleared **after** the emit on purpose — hub/ reads
-   * `dockPending` inside its `net:lobbyUpdated` handler to tell my own dock (fade → cutscene at once) from the leader's
-   * dock reaching me (countdown first). Clearing it before the emit made every dock look like somebody else's.
+   * 2026-09-15 (squads · dock matching): the dock I asked for arrived. Cleared **after** the emit on purpose — hub/
+   * reads `dockPending` inside its `net:lobbyUpdated` handler to tell my own dock (fade → cutscene at once) from the
+   * leader's dock reaching me (countdown first). Clearing it earlier made every dock look like somebody else's.
    */
   if (isDockedLobby(next)) sys._dockPending = false;
   }
@@ -379,15 +389,15 @@ export function dropLobby(sys: NetSystem, reason: 'left' | 'disconnected' | 'kic
   sys.missionSeed = null;
   sys.lobbySuspended = false;
   sys.pendingQuickMatch = false;
-  // 2026-09-15: a dock request dies with the lobby — except `moved`: 공개 매칭 from alone in an undocked squad moves me into
-  // an open public ship (`lobby:left {moved}` + its `lobby:state`), and that arrival is still **my** dock.
+  // 2026-09-15: a dock request dies with the lobby — except `moved`: `공개 매칭` from alone in an undocked squad moves
+  // me into an open public ship (`lobby:left {moved}` + its `lobby:state`), and that arrival is still **my** dock.
   if (reason !== 'moved') sys._dockPending = false;
   sys._tookOver = false;
   sys._raidBlob = null;
   sys.prevHostId = null;
   sys.membership.clear();
   sys.crewCards.clear();   // Phase 10: cards belong to the party we just left (hub/ re-sends ours on `hub:entered`)
-  sys.shipVisits.clear();  // 2026-09-08: so do the ship layouts behind the 격납고 bays
+  sys.shipVisits.clear();  // 2026-09-08: so do the ship layouts behind the hangar bays
   sys.charBuffRelay.clear(); // 2026-09-12: and the squad's buff lists (the next lobby's members answer `bfr` with `cbufq sync`)
   sys.carryActive = false;
   sys.clearRemotes();

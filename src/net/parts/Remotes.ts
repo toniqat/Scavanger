@@ -1,8 +1,8 @@
 /**
- * src/net/parts/Remotes.ts — **원격 플레이어 참조**.
+ * src/net/parts/Remotes.ts — **the remote player refs**.
  *
- * 들어온 스냅샷마다 `RemotePlayerRef` 를 만들고 지운다. 이름 · 레벨 · 크루 카드 · 들쳐메기 관계가
- * 각각 다른 메시지로 오므로, 그것들을 하나의 ref 위에 합치는 것이 이 파일의 일이다.
+ * Creates and removes a `RemotePlayerRef` per inbound snapshot. Names · levels · crew cards · the shouldering
+ * relation each arrive in a different message, and folding them onto one ref is this file's job.
  */
 import * as THREE from 'three';
 import type {
@@ -11,10 +11,10 @@ import type {
 } from '@/shared';
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, SocialRef } from '@/shared';
-/* appended (2026-09-08): 공용 함선 격납고 */
+/* appended (2026-09-08): the shared ship's hangar */
 import type { ShipVisitWire } from '@/shared';
 import { isPlanetId } from '@/shared';
-/* 2026-09-15: 안드로이드 분대원 — 봇 멤버는 원격 플레이어가 아니다 */
+/* 2026-09-15: android squadmates — a bot member is not a remote player */
 import { isBotPlayer } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
@@ -53,9 +53,10 @@ export function syncRemoteIdentities(sys: NetSystem): void {
   const seen = new Set<PeerId>();
   for (const p of lobby.players) {
     /*
-     * 2026-09-15 (안드로이드 분대원): 봇 멤버는 원격 플레이어가 아니다 — `RemotePlayerRef` 도, `net:missionMembership`
-     * 도 만들지 않는다 (몸은 allies/ 가 `AllyBodyView` 로 내놓고 player/ 가 그린다). `seen` 에도 넣지 않으므로
-     * 크루 카드 · 함선 방문 · 버프 목록 정리에서도 그냥 빠진다 (봇은 애초에 그런 것을 보내지 않는다).
+     * 2026-09-15 (android squadmates): a bot member is not a remote player — neither a `RemotePlayerRef` nor a
+     * `net:missionMembership` is made for it (allies/ hands the body out as an `AllyBodyView` and player/ draws it).
+     * It never enters `seen` either, so it simply falls out of the crew-card · ship-visit · buff-list pruning as
+     * well (a bot never sends any of those in the first place).
      */
     if (isBotPlayer(p)) continue;
     seen.add(p.id);
@@ -85,7 +86,7 @@ export function syncRemoteIdentities(sys: NetSystem): void {
   for (const id of Array.from(sys.membership.keys())) if (!seen.has(id)) sys.membership.delete(id);
   // Phase 10: forget the crew cards of members who are gone (our own card is kept — hub/ owns it).
   for (const id of Array.from(sys.crewCards.keys())) if (id !== me && !seen.has(id)) sys.crewCards.delete(id);
-  // 2026-09-08: and their ship layouts, so a 격납고 bay never renders a member who left (ours is kept — hub/ owns it).
+  // 2026-09-08: and their ship layouts, so a hangar bay never renders a member who left (ours stays — hub/ owns it).
   for (const id of Array.from(sys.shipVisits.keys())) if (id !== me && !seen.has(id)) sys.shipVisits.delete(id);
   // 2026-09-12: and their buff lists + sync cooldowns.
   sys.charBuffRelay.prune(seen);
@@ -135,7 +136,7 @@ export function clearRemotes(sys: NetSystem): void {
   for (const id of Array.from(sys.remotes.keys())) sys.removeRemote(id);
   }
 
-/* ══ Phase 10 — 발사 준비 패널 crew cards ══════════════════════════════ */
+/* ══ Phase 10 — the ready panel's crew cards ═════════════════════ */
 /**
  * Last `crew card` seen for `id`, the local player included: hub/ owns *sending* the card and we snoop our own
  * broadcast in `send()`, so the READY panel reads every cell (ours and the squad's) through this one accessor.
@@ -152,7 +153,7 @@ export function requestCrewLoadout(sys: NetSystem, id: PeerId): void {
   sys.send({ t: 'crewq', ev: 'loadout' }, id);
   }
 
-/* ── 공용 함선 격납고 (2026-09-08) ─────────────────────────────────────── */
+/* ── the shared ship's hangar (2026-09-08) ──────────────────────── */
 /** Last `ship state` seen for `id` (our own included), or null. */
 export function getShipVisit(sys: NetSystem, id: PeerId): ShipVisitWire | null { return sys.shipVisits.get(id) ?? null; }
 

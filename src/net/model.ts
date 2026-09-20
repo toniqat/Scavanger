@@ -1,9 +1,9 @@
 /**
- * src/net/model.ts — 네트워크 폴더의 공용 어휘.
+ * src/net/model.ts — the network folder's shared vocabulary.
  *
- * `NetSystem` 에서 떼어낸 상수 · 타입(그리고 상태 없는 보조 클래스)만 있다. 클래스를 참조하지 않으므로
- * `parts/*` 모듈이 `NetSystem.ts` 를 되돌아 import 하지 않고 쓸 수 있다(순환 import 방지).
- * `NetSystem.ts` 가 `export *` 로 재수출하므로 기존 import 경로는 전부 유지된다.
+ * Only the constants · types (and the stateless helper classes) lifted out of `NetSystem`. It references no class,
+ * so a `parts/*` module can use it without importing `NetSystem.ts` back (no circular import). `NetSystem.ts`
+ * re-exports it with `export *`, so every existing import path keeps working.
  */
 import * as THREE from 'three';
 import type {
@@ -24,12 +24,12 @@ import { SocialSync } from './SocialSync';
 import { RemotePlayer } from './RemotePlayer';
 import { Snapshotter } from './Snapshotter';
 import type { CrewCardWire, ImplantId } from '@/shared';
-/* appended (2026-09-08): 공용 함선 격납고 — a visited member's ship layout */
+/* appended (2026-09-08): the shared ship's hangar — a visited member's ship layout */
 import type { PlacedBook, PlacedFurniture, RoomPurpose, ShipVisitWire } from '@/shared';
 import { COCKPIT_ROOM_INDEX, CULTURE_MAX_SLOTS, ROOM_PURPOSES, SHIP_ROOM_COUNT, SHIP_VISIT_MAX_FURNITURE, roomGridSize } from '@/shared';
 import { IMPLANT_IDS } from '@/shared';
-/* appended (Phase 11): 행성 선택 · 소셜 */
-/* appended (Phase 10): 발사 준비 패널 crew cards */
+/* appended (Phase 11): the planet pick · social */
+/* appended (Phase 10): the ready panel's crew cards */
 
 export const NAME_STORAGE_KEY = 'scav.playerName';
 export const SNAPSHOT_INTERVAL = 1 / NET_PLAYER_SNAPSHOT_HZ;
@@ -42,8 +42,9 @@ export const PEER_LINGER = 1.0;
  */
 export const MAX_LOBBYLESS_ATTEMPTS = NET_RECONNECT_BACKOFF_MS.length;
 /**
- * 2026-09-10: `설정 › 서버 설정` 의 연결 테스트가 기다리는 시간. 죽은 IP 는 OS 의 TCP 타임아웃(수십 초)까지
- * `onerror` 를 주지 않으므로 우리가 먼저 끊는다 — 버튼이 영원히 돌면 주소가 틀렸다는 답과 구별되지 않는다.
+ * 2026-09-10: how long the connection test in `설정 › 서버 설정` waits. A dead IP gives no `onerror` until the OS's
+ * TCP timeout (tens of seconds), so it is cut here first — a button that spins forever is indistinguishable from
+ * the answer "that address is wrong".
  */
 export const RELAY_PROBE_TIMEOUT_MS = 4000;
 export const TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -87,9 +88,9 @@ export function sameCard(a: CrewCardWire, b: CrewCardWire): boolean {
 }
 
 /*
- * 공용 함선 격납고 (2026-09-08): a peer's ship layout off the wire. Like `sanitizeCrewCard` this **never rejects the
- * whole document** — a room with a bad purpose falls back to `'empty'` and a malformed piece is dropped, so a ship
- * from an older or buggy peer still walks. Caps mirror what the personal ship can physically hold.
+ * The shared ship's hangar (2026-09-08): a peer's ship layout off the wire. Like `sanitizeCrewCard` this **never
+ * rejects the whole document** — a room with a bad purpose falls back to `'empty'` and a malformed piece is dropped,
+ * so a ship from an older or buggy peer still walks. Caps mirror what the personal ship can physically hold.
  */
 const ROOM_PURPOSE_SET: ReadonlySet<string> = new Set<RoomPurpose>(ROOM_PURPOSES);
 /** Hard cap on books accepted from a peer (the ship's own limit is far lower). Pieces use `SHIP_VISIT_MAX_FURNITURE`. */
@@ -123,15 +124,17 @@ export function sanitizeShipVisit(v: unknown): ShipVisitWire | null {
     const books = sanitizeShelved(w.books);
     if (books.length > 0) out.books = books;
   }
-  /* 2026-09-12 (A-3e): 디스크 전시대 · 레코드랙에 꽂힌 것 (`media`) 과 켜 둔 TV · 레코드 플레이어 (`toggled`). 이 함수는
-     새 객체를 만들어 필드를 하나씩 옮기므로, 여기서 받아 주지 않으면 보낸 쪽이 실어도 방문자에게는 사라진다. `books` 와
-     같은 규칙이고 **없으면 생략**한다. 매체와 보관함이 맞는지는 그리는 쪽(hub 의 `FurnitureSource`)이 def 로 가린다. */
+  /* 2026-09-12 (A-3e): what is shelved in the `디스크 전시대` · `레코드랙` (`media`) and the TV · record players left
+     on (`toggled`). This function builds a new object and moves the fields over one by one, so anything not accepted
+     here vanishes for the visitor even when the sender put it on the wire. Same rule as `books`, and **omitted when
+     empty**. Whether a medium fits its holder is screened by the def on the drawing side (hub `FurnitureSource`). */
   if (Array.isArray(w.media)) {
     const media = sanitizeShelved(w.media);
     if (media.length > 0) out.media = media;
   }
   if (Array.isArray(w.toggled)) {
-    // 켜짐은 배치된 조각에만 뜻이 있다 — 문서 안의 가구 목록에 없는 uid 는 버린다 (같은 uid 두 번도 한 번으로).
+    // Being switched on only means something for a placed piece — a uid missing from the document's furniture
+    // list is dropped (and the same uid twice counts once).
     const placed = new Set(furniture.map((f) => f.uid));
     const toggled: string[] = [];
     for (const u of w.toggled.slice(0, SHIP_VISIT_MAX_FURNITURE)) {
@@ -140,8 +143,9 @@ export function sanitizeShipVisit(v: unknown): ShipVisitWire | null {
     }
     if (toggled.length > 0) out.toggled = toggled;
   }
-  /* 2026-09-17: 배양조 칸의 겉모습 (`cultures` — 배지 id · 세포주 유무). 배치된 조각의 uid 만, (uid, 칸) 하나에 하나, 칸 번호는
-     `CULTURE_MAX_SLOTS` 안. 배지가 진짜 배지인지 · 조각이 배양조인지는 그리는 쪽(hub `FurnitureSource`)이 카탈로그로 가린다. */
+  /* 2026-09-17: a culture tank's slot appearance (`cultures` — the medium id · whether a strain is in it). Only uids
+     of placed pieces, one per (uid, slot), the slot number inside `CULTURE_MAX_SLOTS`. Whether the medium is really a
+     medium · the piece really a culture tank is screened by the drawing side's catalogue (hub `FurnitureSource`). */
   if (Array.isArray(w.cultures)) {
     const placed = new Set(furniture.map((f) => f.uid));
     const seen = new Set<string>();
@@ -160,7 +164,7 @@ export function sanitizeShipVisit(v: unknown): ShipVisitWire | null {
   return out;
 }
 
-/** 서재 보관함 한 목록 (`books` · `media`) — 모양이 깨진 항목만 버리고 칸 번호는 0 … 99 로 자른다. */
+/** One library holder list (`books` · `media`) — malformed entries are dropped, the slot number clamped to 0 … 99. */
 function sanitizeShelved(list: readonly unknown[]): PlacedBook[] {
   const out: PlacedBook[] = [];
   for (const b of list.slice(0, SHIP_VISIT_MAX_BOOKS)) {
@@ -179,7 +183,8 @@ function sanitizePlaced(f: unknown): PlacedFurniture | null {
   if (uid === null || defId === null) return null;
   if (!isNum(w.room) || !isNum(w.x) || !isNum(w.y)) return null;
   const room = Math.floor(w.room);
-  // 2026-09-12: 조종석 가구(`COCKPIT_ROOM_INDEX`)도 방문 문서에 실린다 — 방 번호 범위 밖의 고정값이라 따로 받는다
+  // 2026-09-12: cockpit furniture (`COCKPIT_ROOM_INDEX`) rides on the visit document too — a fixed value outside
+  // the room-number range, so it is accepted separately
   if (room !== COCKPIT_ROOM_INDEX && (room < 0 || room >= SHIP_ROOM_COUNT)) return null;
   const yaw = w.yaw === 1 || w.yaw === 2 || w.yaw === 3 ? w.yaw : 0;
   /*

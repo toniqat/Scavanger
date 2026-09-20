@@ -1,8 +1,8 @@
 /**
- * src/net/parts/Socket.ts — **연결 · 세션 토큰 · 자동 재접속**.
+ * src/net/parts/Socket.ts — **the connection · the session token · auto-reconnect**.
  *
- * 소켓이 끊기면 백오프로 다시 붙고, 같은 토큰이면 서버가 슬롯을 5분(레이드 중이면 레이드가 끝날 때까지)
- * 지켜 준다 → `net:reconnecting` → `net:resumed {seamless}`. 릴레이 주소 결정도 여기다.
+ * A dropped socket reattaches on a backoff and, with the same token, the server keeps the slot for 5 minutes (until
+ * the raid ends while one runs) → `net:reconnecting` → `net:resumed {seamless}`. The relay address is decided here.
  */
 import * as THREE from 'three';
 import type {
@@ -12,7 +12,7 @@ import type {
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, RelayProbe, SocialRef } from '@/shared';
 import { isPlanetId } from '@/shared';
-/* B-1 (2026-09-11): 링크 상태 · 배경 프로브 */
+/* B-1 (2026-09-11): the link state · the background probe */
 import type { GamePhase, NetLinkInfo, NetLinkState } from '@/shared';
 import { NET_PROBE_BACKOFF_MS } from '@/shared';
 import {
@@ -77,25 +77,26 @@ export function disconnect(sys: NetSystem): void {
   setLink(sys, 'idle');   // B-1: we chose to go offline — nothing to probe for
   }
 
-/* ── 릴레이 주소 (2026-09-10) ────────────────────────────────────────────
- * 우선순위는 `shared/net` 의 `RELAY_STORAGE_KEY` 주석에 적힌 네 단계이고, 렌더러가 아는 것은 그중 하나뿐이다
- * — **설정에 적어 둔 주소**. 나머지(플래그 · `SCAV_RELAY` · `server.txt` · 임베디드)는 데스크톱 셸이 골라
- * 같은 오리진 `/ws` 뒤에 숨겨 두므로 여기서는 그냥 같은 오리진으로 붙으면 된다.
+/* ── the relay address (2026-09-10) ─────────────────────────────────
+ * The order is the four steps written in `shared/net`'s `RELAY_STORAGE_KEY` comment, and the renderer knows exactly
+ * one of them — **the address written in the settings**. The rest (the flag · `SCAV_RELAY` · `server.txt` ·
+ * embedded) are picked by the desktop shell and hidden behind the same-origin `/ws`, so connecting to the same
+ * origin is all that is needed here.
  */
 
-/** 설정에 적어 둔 주소 원문 (없거나 저장소를 못 읽으면 빈 문자열). 슬롯 공용 키라 `slotKey` 를 타지 않는다. */
+/** The raw address written in the settings ('' with none / unreadable storage). A slot-shared key: no `slotKey`. */
 export function relayOverride(): string {
   try { return localStorage.getItem(RELAY_STORAGE_KEY)?.trim() ?? ''; } catch { return ''; }
   }
 
-/** 설정의 주소를 쓴다/지운다. 형식이 아니면 아무것도 저장하지 않고 false. */
+/** Writes / clears the settings address. A malformed address stores nothing and returns false. */
 export function setRelayOverride(sys: NetSystem, raw: string): boolean {
   const text = raw.trim();
   if (text && !relayUrlFrom(text)) return false;
   try {
     if (text) localStorage.setItem(RELAY_STORAGE_KEY, text);
     else localStorage.removeItem(RELAY_STORAGE_KEY);
-  } catch { /* storage unavailable → 이 페이지 동안만 유효 */ }
+  } catch { /* storage unavailable → valid for this page only */ }
   sys.ctx?.bus.emit('net:relayChanged', { url: defaultUrl(sys), custom: !!text });
   // B-1: still looking for a server → look for the new one, from the first backoff step.
   if (sys._link.state === 'unreachable') goUnreachable(sys);
@@ -113,16 +114,17 @@ export function defaultUrl(sys: NetSystem): string {
   }
 
 /**
- * 주소 하나를 **익명으로**(토큰 없이) 두드려 `welcome` 까지의 시간을 잰다. 토큰을 붙이면 서버가 같은 세션의
- * 중복 접속으로 보고 살아 있는 내 소켓을 `duplicate` 로 끊어 버린다 — 연결 테스트가 연결을 죽이면 안 된다.
- * `NetClient` 를 쓰지 않는 이유도 같다: 이 소켓은 상태 기계에 들어가지 않고 여기서 열고 여기서 닫는다.
+ * Knocks on one address **anonymously** (tokenless) and measures the time to `welcome`. With a token the server
+ * reads it as a duplicate connection of the same session and cuts the live socket with `duplicate` — a connection
+ * test must never kill the connection. `NetClient` is skipped for the same reason: this socket never enters the
+ * state machine, it is opened and closed right here.
  */
 export function probeRelay(sys: NetSystem, raw?: string): Promise<RelayProbe> {
   const url = relayUrlFrom(raw ?? relayOverride()) ?? (raw === undefined ? defaultUrl(sys) : null);
   if (!url) return Promise.resolve({ ok: false, url: '', ms: 0, error: '주소 형식이 아닙니다' });
   return new Promise<RelayProbe>((resolve) => {
     let ws: WebSocket;
-    // 형식은 이미 `relayUrlFrom` 이 봤으므로, 여기서 던지는 것은 사실상 혼합 콘텐츠(https 페이지 + ws://)다.
+    // `relayUrlFrom` already checked the format, so a throw here is in practice mixed content (https page + ws://).
     try { ws = new WebSocket(url); } catch { resolve({ ok: false, url, ms: 0, error: '이 주소를 열 수 없습니다 (https 페이지에서는 ws:// 를 쓸 수 없습니다)' }); return; }
     const t0 = performance.now();
     let done = false;
@@ -136,14 +138,15 @@ export function probeRelay(sys: NetSystem, raw?: string): Promise<RelayProbe> {
     const timer = setTimeout(() => finish({ ok: false, url, ms: 0, error: '응답이 없습니다 (방화벽 · 포트 확인)' }),
       RELAY_PROBE_TIMEOUT_MS);
     ws.onmessage = (ev) => {
-      // 첫 프레임이 곧 `welcome` 이다 — 릴레이가 말을 한다는 것만 확인한다.
+      // The first frame is the `welcome` — all this confirms is that the relay talks.
       const ms = Math.max(1, Math.round(performance.now() - t0));
       let frame: { t?: unknown; message?: unknown } | null = null;
       try { frame = typeof ev.data === 'string' ? JSON.parse(ev.data) as { t?: unknown; message?: unknown } : null; } catch { frame = null; }
       if (frame?.t === 'welcome') { finish({ ok: true, url, ms }); return; }
       /*
-       * 2026-09-11 (C-29): welcome 대신 `lobby:error` 가 먼저 오고 곧바로 끊기는 것은 **릴레이가 맞다** — 운영자가
-       * 인원 제한(`server_full`)을 걸어 둔 서버다. "릴레이가 아닙니다" 로 읽으면 맞는 주소를 틀렸다고 말하게 된다.
+       * 2026-09-11 (C-29): a `lobby:error` arriving instead of a welcome, followed at once by a close, means this
+       * **is** a relay — one whose operator capped the player count (`server_full`). Reading it as
+       * `릴레이가 아닙니다` would call a correct address wrong.
        */
       if (frame?.t === 'lobby:error') {
         const why = typeof frame.message === 'string' && frame.message ? frame.message : '서버가 접속을 거절했습니다';
@@ -157,7 +160,7 @@ export function probeRelay(sys: NetSystem, raw?: string): Promise<RelayProbe> {
   });
   }
 
-/** 저장된 주소로 다시 붙는다. 로비에 있었다면 떠난다 (서버가 바뀌면 그 로비는 존재하지 않는다). */
+/** Reattaches to the stored address. Any lobby is left (a different server does not have that lobby). */
 export async function reconnectRelay(sys: NetSystem): Promise<boolean> {
   disconnect(sys);
   sys.intentionalClose = false;
@@ -289,8 +292,9 @@ export function onWelcome(sys: NetSystem, msg: Extract<ServerToClient, { t: 'wel
       const me = sys.getLobbyPlayer(msg.id);
       if (me && me.inMission) {
         me.inMission = false; // optimistic mirror; the broadcast confirms it
-        // 2026-09-15 (타이틀 이어하기): `keep` — 새로고침은 레이드를 끝낸 것이 아니다. 릴레이가 blob 을 남겨 두어야 두 번째
-        // 새로고침에도 타이틀이 그것으로 이어하거나 포기한다 (자발적 귀환 · 탈출은 `leaveMission` · `endSession` 이 keep 없이 보낸다).
+        // 2026-09-15 (title `이어하기`): `keep` — a reload did not end the raid. The relay has to keep the blob so
+        // a second reload still lets the title resume or abandon it (the voluntary return · extraction send no
+        // `keep` — `leaveMission` · `endSession`).
         sys.client.send({ t: 'lobby:mission', inMission: false, keep: true });
       }
     }
@@ -307,25 +311,27 @@ export function onWelcome(sys: NetSystem, msg: Extract<ServerToClient, { t: 'wel
   sys.wasInSessionAtDrop = false;
   }
 
-/* ══ B-1 (2026-09-11): 링크 상태 · 배경 프로브 ═══════════════════════════
+/* ══ B-1 (2026-09-11): the link state · the background probe ════
  *
- * `ctx.net.link` 는 "지금 서버와 어떤 사이인가" 한 줄이다. 전이는 **이 파일의 `setLink` 로만** 일어나고
- * 바뀔 때마다 `net:linkChanged {link, prev}` 가 나간다 (그리는 쪽은 `ui/hud/NetBadge`).
+ * `ctx.net.link` is a one-line answer to "what terms is the client on with the server right now". Transitions
+ * happen **only through this file's `setLink`**, and every change emits `net:linkChanged {link, prev}`
+ * (`ui/hud/NetBadge` is what draws it).
  *
- *   idle ──connect()──▶ connecting ──welcome──▶ connected ──drop──▶ reconnecting ──(로비 없이 6회)──┐
- *                          │ fail / NET_CONNECT_TIMEOUT_MS                                          │
- *                          ▼                                                                         ▼
- *                     unreachable ◀──────────────────────────────────────────────────────────────────┘
- *                          │ 익명 probeRelay 를 NET_PROBE_BACKOFF_MS 로 (토큰 없이 — 같은 토큰은 duplicate 로 끊긴다)
- *                          ▼ 찾음
- *              함선 · 타이틀 → ensureConnected() · 레이드 · 훈련 → `found: true` 만 (함선으로 돌아오면 접속)
+ *   idle ──connect()──▶ connecting ──welcome──▶ connected ──drop──▶ reconnecting ──(no lobby, 6 tries)──┐
+ *                          │ fail / NET_CONNECT_TIMEOUT_MS                                              │
+ *                          ▼                                                                            ▼
+ *                     unreachable ◀─────────────────────────────────────────────────────────────────────┘
+ *                          │ anonymous probeRelay on NET_PROBE_BACKOFF_MS (tokenless — same token = duplicate)
+ *                          ▼ found
+ *              ship · title → ensureConnected() · raid · training → `found: true` only (connects back in the ship)
  *
- *   refused {kicked | server_full | duplicate} — 프로브도 자동 재접속도 없다. 명시적인 connect() 만 지운다.
+ *   refused {kicked | server_full | duplicate} — no probe, no auto-reconnect; an explicit connect() clears it.
  *
- * 2026-09-15: 데스크톱 셸의 같은 오리진 `/ws` 도 **언제나 프로브한다.** 예전에는 셸이 그것을 임베디드 릴레이로
- * 보내고 있으면(첫 `/ws` 가 그 릴레이를 켰다, C-28) 프로브를 껐는데, 빌드에서 서버를 뺐으므로(사용자 결정) 셸은
- * 이제 파이프일 뿐이다 — 아무 주소도 없으면 이 PC 의 start-server.bat 서버로 가고, 그 서버가 나중에 켜지는 것을
- * 찾아야 한다. `NetLinkInfo.embedded` 는 계약이라 남아 있지만 여기서 켜는 곳은 없다.
+ * 2026-09-15: the desktop shell's same-origin `/ws` is **always probed too.** It used to be skipped while the shell
+ * pointed it at an embedded relay (the first `/ws` started that relay, C-28), but the build ships no server any more
+ * (the user's decision), so the shell is only a pipe — with no address at all it goes to this PC's start-server.bat
+ * server, and that server coming up later has to be found. `NetLinkInfo.embedded` stays as part of the contract, but
+ * nothing here ever sets it.
  */
 
 /** The live `NetRef.link`: the stored state plus the remaining wait of a pending probe. */
