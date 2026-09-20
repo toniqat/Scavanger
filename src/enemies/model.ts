@@ -331,7 +331,7 @@ export function emitEnemyStep(e: Enemy, host: StepHost, gainMul = 1, pitchMul = 
   const now = ctx.time;
   if (now - e.stepAt < ENEMY_STEP_MIN_GAP) return false;
   const p = e.position;
-  // 2026-09-20 (`docs/PERF_PLAN.md` finding B5): the ear is `EnemyHost.camPos`, read once at the top of
+  // 2026-09-20 (`docs/DECISIONS.md` perf Phase C · B5): the ear is `EnemyHost.camPos`, read once at the top of
   // `EnemySystem.update`. This used to be a `getWorldPosition` per call — the camera's parent chain walked several
   // times a frame only for the result to be thrown away by the gate on the next line.
   // 2026-09-16: a bug is gated by its own footstep range — `stepAt` has to mean 「took a step within earshot」 for the crowd count to hold.

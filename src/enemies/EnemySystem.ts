@@ -168,7 +168,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** ctx.time when the spatial grid was last rebuilt (so `queryNear` knows it can trust it). */
   private gridTime = -1;
   /**
-   * 2026-09-20 (`docs/PERF_PLAN.md` Phase 1, widened in Phase C): the camera position, read **once** at the top of
+   * 2026-09-20 (`docs/DECISIONS.md` perf Phase 1, widened in Phase C): the camera position, read **once** at the top of
    * `update` and then shared by everything in the folder that needs the ear or the eye — the animation LOD, the AI
    * LOD and the footstep range gate (`EnemyHost.camPos` → `model.emitEnemyStep`). Beside it, the frame counter that
    * staggers the animation's half-rate band, so half the far bodies pose on one frame and the other half on the
@@ -177,7 +177,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   readonly camPos = new THREE.Vector3();
   private animFrame = 0;
   /**
-   * 2026-09-20 (`docs/PERF_PLAN.md` Phase C, finding B4): the AI LOD's frame counter (0..3) and the scratch list of
+   * 2026-09-20 (`docs/DECISIONS.md` perf Phase C · B4): the AI LOD's frame counter (0..3) and the scratch list of
    * **anchors** — every position an enemy could act on this frame. Refilled with references (no allocation) at the
    * top of the AI pass; see `collectAiAnchors`.
    */
@@ -502,7 +502,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
     if (this.authority) {
       if (ctx.isGameplayPhase()) {
-        // AI LOD (2026-09-20, `docs/PERF_PLAN.md` finding B4): a body far from everything it could act on ticks
+        // AI LOD (2026-09-20, `docs/DECISIONS.md` perf Phase C · B4): a body far from everything it could act on ticks
         // every other / every fourth frame, spending the skipped frames' dt in one piece when it does.
         this.collectAiAnchors();
         const aiFrame = (this.aiFrame = (this.aiFrame + 1) & 3);

@@ -1,4 +1,4 @@
-// No layout read inside a frame (CLAUDE.md §4.2), enforced (2026-09-20, `docs/PERF_PLAN.md` Phase B).
+// No layout read inside a frame (CLAUDE.md §4.2), enforced (2026-09-20, `docs/DECISIONS.md` perf Phase B).
 //
 // Why it exists: the rule 「a HUD widget never reads `clientWidth` / `getBoundingClientRect` on a per-frame path」
 // lived only in comments, and nothing failed when it was broken. `hud/ChatLog` broke it for a year — `measure()`
@@ -250,7 +250,7 @@ try {
   await page.evaluate(() => window.__layoutProbe.reset());
   const jobIdx = await page.evaluate(() => window.__layoutProbe.queue(`
     const bus = ctx.bus, p = ctx.player;
-    // three android callouts + a ping in one frame — exactly what first contact does (PERF_PLAN Phase B)
+    // three android callouts + a ping in one frame — exactly what first contact does (perf Phase B)
     for (let i = 0; i < 3; i++) {
       bus.emit('ally:chat', { id: 'android:' + i, name: '안드로이드 ' + i, slot: i, text: '적 발견' });
       bus.emit('ally:ping', { id: 'android:' + i, name: '안드로이드 ' + i, slot: i, kind: 'enemy', position: p.position.clone() });

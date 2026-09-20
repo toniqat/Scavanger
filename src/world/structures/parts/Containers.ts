@@ -180,7 +180,7 @@ export class ContainerSet {
       root.rotation.y = -spec.yaw;
       root.name = spec.id;
 
-      // 2026-09-20 (`docs/PERF_PLAN.md` Phase A2, user's decision 「작은 물체도 그림자 끄기」): a loot box
+      // 2026-09-20 (`docs/DECISIONS.md` perf Phase A2, user's decision 「작은 물체도 그림자 끄기」): a loot box
       // is waist-high and stands on open ground or a lit floor, so its own shadow reads as a smudge under it —
       // 138 casters in S2 for 12k triangles. It still **receives** shadow, which is what makes it sit on the ground.
       const body = new THREE.Mesh(bodies[spec.style], bodyMat);

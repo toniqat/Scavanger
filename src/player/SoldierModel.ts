@@ -307,7 +307,7 @@ export class SoldierModel {
   private readonly materials: THREE.Material[] = [];
   private readonly bodyGroup = new THREE.Group();
   /**
-   * 2026-09-20 (`docs/PERF_PLAN.md` Phase 1, user's decision): the body meshes that **cast a shadow**, and the ones
+   * 2026-09-20 (`docs/DECISIONS.md` perf Phase 1, user's decision): the body meshes that **cast a shadow**, and the ones
    * that get an **occlusion silhouette** — no longer all 43 of them.
    *
    * A soldier used to cost 43 shadow draws and 43 silhouette draws on top of its 43 visible meshes (an android, with

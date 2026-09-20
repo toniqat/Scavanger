@@ -960,7 +960,7 @@ everything else was prose brought back in line with code that already existed.
   leaving it as the scratchpad one-off `docs/COMMENT_I18N_PLAN.md` §3 step 4b describes — that one only ever sees
   the current diff, so a label an earlier pass retyped stays invisible forever.
 
-## 2026-09-19 — 성능 측정 방식 · How performance is measured (PERF_PLAN Phase 0)
+## 2026-09-19 — 성능 측정 방식 · How performance is measured (perf Phase 0)
 
 - **Headful Chrome on the real GPU**, not the smokes' headless one: a headless window does not present on a swap chain
   (the smokes drive `__game.frame` from a `setInterval` when its rAF stalls), so its frame cadence means nothing.
@@ -976,7 +976,7 @@ everything else was prose brought back in line with code that already existed.
   the same options. It asserts nothing, so `verify` never picks it.
 - **Scope: S1–S4 this session.** S5 (relay, two humans) was left out, which is why C1 · C3 · A6 stay unmeasured.
 
-## 2026-09-20 — 그리는 양 줄이기 · Cutting what gets drawn (PERF_PLAN Phase 1 · 2)
+## 2026-09-20 — 그리는 양 줄이기 · Cutting what gets drawn (perf Phase 1 · 2)
 
 - **Soldier / android shadows come from the torso, head and limbs only.** Every one of the 43 body meshes used to
   cast (65 on an android). Small plates, trim, the cape, armour plates and held items lose their own shadow, which
@@ -998,7 +998,7 @@ everything else was prose brought back in line with code that already existed.
   per frame at the top of `HudSystem.lateUpdate` and passing it down — still one forced layout inside the frame, and
   it leaves the trap open for the next widget.
 
-## 2026-09-20 — GPU 프레임 줄이기 · Cutting the GPU frame (PERF_PLAN Phase A)
+## 2026-09-20 — GPU 프레임 줄이기 · Cutting the GPU frame (perf Phase A)
 
 - **벌레 지오메트리: 전 타입 12~14 세그먼트.** One budget (`BUG_MESH_SEGMENTS` = 12 in `data/constants.csv`) clips
   every sphere a bug body is built from, so the per-part `seg` arguments keep reading as intent and the csv row
@@ -1014,10 +1014,10 @@ everything else was prose brought back in line with code that already existed.
   re-measuring: with the frame on vsync, bloom measured **free** (6.83 ms with it off vs 6.75–6.77 with it on).
 - **The phase's own 「below 6.0 ms」 target was dropped as arithmetically impossible, not missed.** Removing the
   *entire* shadow pass lands at 5.758 ms, so no body-side change can go under 6.0 with shadows on. What is left of the
-  render block is the world's own triangles and pixels — a separate decision, written up in `docs/PERF_PLAN.md`
-  under 「Still open after Phase A」 rather than guessed at here.
+  render block is the world's own triangles and pixels — a separate decision, taken up in the next section
+  (Phase A2) rather than guessed at here.
 
-## 2026-09-20 — 월드 렌더 비용 · Cutting the world's render cost (PERF_PLAN Phase A2)
+## 2026-09-20 — 월드 렌더 비용 · Cutting the world's render cost (perf Phase A2)
 
 Measured first: in S2 the world is 678k of the scene's 930k visible triangles, and its shadow casters are 158 meshes
 / 158k triangles — of which the **four boulder `InstancedMesh` are 92k (58 %)**, because a variant spans the map and
@@ -1054,7 +1054,7 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
   that the colour pass is untouched. *Rejected*: tuning the harness until the ms looks stable (the machine, not the
   harness, is what moves); calling A2 a regression and reverting it (the deterministic counters all improved).
 
-## 2026-09-20 — 프레임 안의 강제 레이아웃 · Forced layout inside a frame (PERF_PLAN Phase B)
+## 2026-09-20 — 프레임 안의 강제 레이아웃 · Forced layout inside a frame (perf Phase B)
 
 - **범위: 재현된 것 + 지연 생성 예방 + S2 스파이크까지** (user chose the widest of three). The measurement came first
   and it moved the scope by itself: of the four one-offs the plan listed, only the android first-contact frame
@@ -1109,7 +1109,7 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
   blast radius as the sweep retracted that morning, for an effect this machine cannot show); for B-69, a two-class
   helper in `src/shared` used by the three folders, or keeping the row open.
 
-## 2026-09-20 — 지속 CPU 비용 · The sustained CPU costs (PERF_PLAN Phase C)
+## 2026-09-20 — 지속 CPU 비용 · The sustained CPU costs (perf Phase C)
 
 - **범위: 측정 → B4 · B3 · B5** (user chose it over 「B4 만」, 「C 전부 + DOM 평탄화」 and 「측정만」). *Rejected*: the DOM
   flattening (`hud/ShipManage` + four faded `.menu` screens out of layout) — it is a real cut of a counter with no
@@ -1145,7 +1145,7 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
   (three.js's own render path, not ours), `u:world` 7.9, `u:enemies` 6.5, `l:hud` 4.2, `x:audioPlay` 2.8, everything
   else under 1. No fix follows from that, which is why the measurement was the whole scope.
 
-## 2026-09-20 — 멀티플레이 측정 · Measuring the squad (PERF_PLAN Phase D)
+## 2026-09-20 — 멀티플레이 측정 · Measuring the squad (perf Phase D)
 
 - **두 클라이언트를 한 대에서: 호스트만 headful, 피어는 headless d3d11** (user chose it over both headful side by
   side, and over a swiftshader peer). The host keeps exactly the conditions S1–S4 ran under, so its rows stay
@@ -1165,9 +1165,11 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
 - **C3 는 S5c 를 추가해 측정으로 닫는다** (asked after S5a · S5b came back: the two scenarios hold no androids, so
   `ally state` never reached the wire). *Rejected*: closing it by arithmetic from the contract (`AllyWire` field set ×
   `ALLY_NET_INTERVAL_S`) — a calculation is what this file keeps having to retract; and leaving C3 open, which would
-  keep PERF_PLAN alive for one unanswered row.
-- **Phase D 뒤 `docs/PERF_PLAN.md` 는 삭제하지 않고 남긴다** (the file's own rule was 「delete it once every phase is
-  done」; the user chose to keep it). It stopped being a plan and is now the **measurement record**: the machine's `ms`
+  keep the plan alive for one unanswered row.
+- **Phase D 뒤 `docs/PERF_PLAN.md` 는 삭제하지 않고 남긴다** — **뒤집혔다, 같은 날, 마지막 측정 뒤**
+  (the last section of this file: the file is deleted and its four surviving facts live there). The file's own rule
+  was 「delete it once every phase is done」; the user chose to keep it and then, once the pixel A/B closed the last
+  open row, to delete it after all. It stopped being a plan and is now the **measurement record**: the machine's `ms`
   noise floor, the A/B that refuted 「draw calls are the frame」, the three times the named suspect was not the owner,
   and the method that found the real one. `CLAUDE.md` §1 · §4.5 point at it for that. Its 「how to work this plan」
   section was rewritten to say so — new work still goes to `docs/TODO.md`, and only a **measurement** may be added
@@ -1187,3 +1189,75 @@ Measured first: in S2 the world is 678k of the scene's 930k visible triangles, a
   `.tut-controls` every frame; it measures from a `ResizeObserver` + window `resize` now, and `smoke-layout-reads` gained
   a fourth window that runs the tutorial. *Rejected*: fixing the code only — a rule that is 「counted, not commented」 has
   to count the screen it was being broken on (the old code fails the new window: 180 reads in 180 frames).
+
+## 2026-09-20 — 픽셀 측정, 그리고 계획서 폐기 · The pixel A/B, and retiring the plan (perf — the last measurement)
+
+- **마지막으로 남아 있던 빈칸을 측정으로 닫았다: 해상도 스케일은 이 기계에서 아무것도 움직이지 않는다.** S2, same
+  machine state, back to back, two runs per side, `--display scale=1` against `--display scale=0.75` (1280×720 →
+  960×540, **−44 % of the pixels**, bloom and shadows on in both):
+
+  | Run | `pixelRatio` | `x:rendererRender` | js/frame p50 | frame ms p50 / p95 | frames > 33 ms | Draw calls | Triangles |
+  |---|---|---|---|---|---|---|---|
+  | `px-s100-a` | 1.00 | 6.531 | 9.4 | 16.7 / 16.8 | 5 | 1 284 | 726k |
+  | `px-s100-b` | 1.00 | 6.777 | 9.3 | 16.7 / 16.8 | 5 | 1 313 | 732k |
+  | `px-s075-a` | **0.75** | 6.812 | 9.6 | 16.7 / 16.8 | 7 | 1 310 | 733k |
+  | `px-s075-b` | **0.75** | 6.729 | 9.3 | 16.7 / 16.8 | 17 | 1 299 | 728k |
+
+  The pixel-cut side is **0.12 ms higher**, and one side's own two runs differ by 0.25 ms — the cut is invisible
+  under the noise floor this whole plan has been fighting. Both sides sit on the 60 Hz vsync at p50 16.7 ms, which is
+  the honest reason: **S2 at 1280×720 is not fill-limited on an RTX 4080 SUPER**, so there is nothing for a pixel cut
+  to give back. The setting itself already exists for hardware where it would (`설정 › 화면 설정`), so **nothing was
+  built for this** — it is a measurement that closes a question.
+- **그래서 렌더 블록을 움직이는 것은 삼각형이지 픽셀이 아니다.** The plan's ranking after the draw-call A/B was
+  「pixels and triangles」; only the triangle half ever reproduced (the shadow pass, 1.07 ms — triangles and a second
+  camera), while both pixel probes came back free: bloom measured free in Phase A's re-split (~15 composer passes,
+  entered per frame), and now a 44 % cut of every one of those pixels measures free too. `CLAUDE.md` §4.5 says
+  **triangles move it; draw calls and pixels do not**.
+- **스파이크 프레임에는 주인이 없다 — A2 의 고아도 그 중 하나였다.** Across these four runs, 14 spike frames: **13 are
+  led by `x:rendererRender`** (9.5 – 64.1 ms in a single call) and **one by `u:enemies`** — 19.9 ms with no spawn mark
+  on the frame, the same shape as the 18.8 ms that finding **A2** had been left open for since Phase B. A cost that
+  lands on `x:rendererRender` twelve times, on `u:enemies` once, and never reproduces in the same place is not a fact
+  about the enemy system; it is whatever mark happens to be running when the machine stalls (GC at 63 MB/s with no
+  owner — B6 — or the driver). **A2 is closed as 「not an owner」**, not as fixed. *Rejected*: opening a phase to
+  instrument `u:enemies` for it (one frame in ~5 400, and the census says the mark is innocent).
+- **`docs/PERF_PLAN.md` 는 삭제한다**, reversing this same day's 「남긴다」 decision now that the last open measurement
+  is taken. Every phase is built or struck, every decision has a section in this file, the harness documents its own
+  method in `scripts/README.md`, and the surviving facts are the four bullets below. What the file held beyond them
+  was the narration of how they were found, which is `git log`'s job. The ~58 inbound references (`CLAUDE.md` §1 ·
+  §4.5, `scripts/README.md`, `scripts/verify.mjs`, `scripts/smoke-layout-reads.mjs`, `perf-measure.mjs` and ~20 code
+  comments across `core` · `enemies` · `player` · `ui` · `world` · `shared`) were rewired to this file, keeping the
+  phase name as the label (「성능 Phase A」). *Rejected*: keeping it as a measurement record (the record is four
+  bullets; an 851-line file that may only be appended to is a second place for the same facts to drift in);
+  shrinking it in place (the same drift, with a filename that still says 「plan」 over something that is not one).
+
+**측정 기록 — 이 기계가 남긴 네 가지 (the record the plan is being deleted for):**
+
+1. **`ms` 는 근거가 아니다.** The **same committed build** measured `x:rendererRender` **6.842 and 5.112 ms** back to
+   back (js/frame p50 9.6 vs 7.6), and two runs of one build gave **5 and 22** frames over 33 ms. A ±1.7 ms spread is
+   larger than every change this plan ever credited. **Judge by counters that repeat**: draw calls, scene nodes,
+   triangles, caster counts, bytes, call counts. A mark average over ~1 300 frames repeats; a p50 or a spike count
+   does not. Always take a fresh `before` (the logs are git-ignored), and **run it twice per side**.
+2. **세지 말고 재지 마라 — 세어라 (「count it, don't time it」).** Three phases running, the named suspect was not the
+   owner, and a **counter** found the real one each time: Phase B patched the layout-forcing accessors and counted
+   calls inside `Engine.frame` (7 in 637 frames, all in one file — `hud/ChatLog`, not `allies`); Phase C bounded its
+   own fix with a census before building it (60 bodies inside the full-rate band, 100 beyond 140 m); Phase D struck
+   all three multiplayer suspects with byte counts and a build counter, never needing a `ms` at all. **Never write a
+   fix against a mark name.**
+3. **렌더 블록은 드로우 콜도 픽셀도 아니다.** The 2026-09-20 A/B (two runs per side, `git stash` between them) removed
+   **31 % of the draw calls and 36 % of the scene nodes** — 1 890 → 1 300 calls, 5 940 → 3 800 nodes — and
+   `x:rendererRender` did not move (7.34 → 7.23, inside the spread). The 「≈ 4 µs per draw call」 of Phase 0 was a
+   correlation with scene size, not a cost per call. Pixels went the same way (the bullet above). What did reproduce:
+   the **shadow pass ≈ 1.07 ms** (−188 draws, −213k triangles). The cut is kept anyway — it is worth much more on a
+   weaker CPU — but it is not what the user feels.
+4. **유저가 느끼는 것에 대한 답 (symptom (a), measured):** a two-human raid through the relay, with and without two
+   androids, runs at **16.7 / 16.8 ms with zero frames over 33 ms on both clients** (S5a · S5c, two runs each). A
+   squadmate costs **one more body drawn** — 73 visible + 32 shadow draws, the same as the local soldier — plus
+   23–29 KB/s of wire that costs a replica 0.08 ms a frame **outside** the frame. It is not the network and not the
+   squadmate's simulation.
+
+**이 기계가 답할 수 없어 열려 있는 것 (not work — they need different hardware):** the flat DOM cut
+(`hud/ShipManage`'s 116 `visibility: hidden` boxes + four faded `.menu` screens, ~120 of `#ui-root`'s 1 085 laid-out
+boxes — a real cut of a deterministic counter with no demonstrable frame effect here) and the AI LOD's untouched
+near band both need a **weaker** machine to show anything; a replica's own frame time needs a **second** machine
+(S5 ran both clients on one GPU); and **terrain's 346k visible triangles**, 37 % of the scene, stay untouched because
+collision, `getSurfaceY` and the silhouette all hang off that one mesh.

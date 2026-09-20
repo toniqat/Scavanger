@@ -150,7 +150,7 @@ Box math is used only when `o.box` is set; cylinder code paths are separate.
   re-splits when the eye moves `PROP_SHADOW_REPACK_M`. Every instance is in exactly one of them, so the colour
   pass is unchanged; what changes is that a big boulder past that distance loses a long shadow on a low-sun
   planet. A new scattered prop needs nothing — `finalize` gives it the pair if any of its parts casts.
-  (2026-09-20 — `docs/PERF_PLAN.md` Phase A2.) — `Props.ts`
+  (2026-09-20 — `docs/DECISIONS.md` perf Phase A2.) — `Props.ts`
 - **Waist-high loot boxes do not cast**: crates, structure containers, rail containers and debris props
   (`castShadow = false`, `receiveShadow` kept — that is what sits them on the ground). 138 casters for 12k
   triangles, and their own shadow read as a smudge underneath. — `Crates.ts`, `structures/parts/Containers.ts`, `Props.ts`
@@ -443,7 +443,7 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world`.
-- 2026-09-20 — `docs/PERF_PLAN.md` Phase A2 (world render cost): scattered props cast only within `PROP_SHADOW_DIST_M` (near / far `InstancedMesh` pair per casting variant, re-split every `PROP_SHADOW_REPACK_M` of eye movement — `Props.repackShadowLod`); crates, containers and debris stopped casting; pebbles dropped to `PROP_PEBBLE_DETAIL` (80 → 20 triangles each, 137k → 34k in S2). `SUN_SHADOW_HALF_M` moved to csv so `core/Atmosphere` and `Props` read one number. `WorldSystem.update` now computes `eyeFor` once and shares it.
+- 2026-09-20 — `docs/DECISIONS.md` perf Phase A2 (world render cost): scattered props cast only within `PROP_SHADOW_DIST_M` (near / far `InstancedMesh` pair per casting variant, re-split every `PROP_SHADOW_REPACK_M` of eye movement — `Props.repackShadowLod`); crates, containers and debris stopped casting; pebbles dropped to `PROP_PEBBLE_DETAIL` (80 → 20 triangles each, 137k → 34k in S2). `SUN_SHADOW_HALF_M` moved to csv so `core/Atmosphere` and `Props` read one number. `WorldSystem.update` now computes `eyeFor` once and shares it.
 - 2026-09-19 — Comment corrections found while translating (B-20): 광맥 `kind` is `'mineral'` (`Gather.ts` + rule 4 here — no `addSkillXp` exception), `Fog.ts` toast list, the `BARRIER` / `PIT_WALL_H` / `PIT_NORTH_RIM_H` / slat checks re-derived from `fenceHeight` 2.025, retired `BACKSTOP` wording, `pollSafeGround` count, `Containers.markOpened` doc retargeted, tram `consolePos`. The unread `vein` flags on `Gather`'s `Spot` / `Node` went with it — nothing read them.
 - 2026-09-19 — Dead code removed (B-21): `Hazard.debugPlanFor` uses `HAZARD_FORK` instead of the literal, `Platform.buildStairs`'s unused `total`, `updateTramHit`'s unused `dt` parameter, `BASEMENT_KEY_DEF` (constant + `index.ts` re-export — nothing imported it; the id lives in `structures.csv`).
 - 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels kept verbatim in backticks, no string literal touched.

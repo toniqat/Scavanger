@@ -1148,7 +1148,7 @@ input { font: inherit; color: inherit; }
    `font-size × line-height` and both are numbers this file owns, so it is arithmetic and `calc()` does it. (The
    measurement was also wrong on a wrapped line — a two-row line made the closed box 3.5 × *that*.)
 
-   **The scroller pins its own bottom** (PERF_PLAN Phase B): it is `column-reverse` with exactly one child, so its
+   **The scroller pins its own bottom** (perf Phase B): it is `column-reverse` with exactly one child, so its
    flex-start edge — and therefore its scroll origin — is the **bottom**, and a taller `.chat-lines-inner` overflows
    upward with the newest line still in view. That survives open / close, a font swap and a resize, which is what
    `ChatLog.stick()`'s `scrollTop = scrollHeight` used to do from inside the frame at the cost of a full UI layout.

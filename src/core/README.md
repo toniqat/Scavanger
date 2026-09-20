@@ -49,7 +49,7 @@ atmosphere → `shaders.update()` → `shaders.beforeRender()` → `outline.warm
   was considered and **rejected**: point lights really do enter and leave the scene mid-raid (`extraction/Ship`,
   `player/Hellpod`, `game/parts/Leader`), and one frame with the count wrong is two recompiles — up and back. A
   cheaper exact recount would need a registry every light is created through, which is 11 call sites across seven
-  folders and a check script; it has never been worth 0.14 ms. (2026-09-20 — `docs/PERF_PLAN.md` finding B3.)
+  folders and a check script; it has never been worth 0.14 ms. (2026-09-20 — `docs/DECISIONS.md` perf Phase C · B3.)
 - **Compile through `ctx.shaders`, never `renderer.compile` mid-update.** The program key's colour space / tone mapping
   comes from the bound render target; compiling while the canvas is bound builds variants that are never used. — `ShaderWarmup.warm`
 - A shader hold freezes simulation exactly like `game:paused {freeze}` (systems run with dt 0, `ctx.time` still flows);
@@ -71,7 +71,7 @@ atmosphere → `shaders.update()` → `shaders.beforeRender()` → `outline.warm
 ## Recent changes
 
 Last 5 only — older: `git log -- src/core`.
-- 2026-09-20 — `countVisiblePointLights` walks an explicit stack instead of `traverseVisible` and skips the padding group it already counts; `x:lightBudget` 0.156–0.157 → 0.132–0.142 ms/frame in S2. The count stays exact and per-frame — see the rule above for why a flag or an interval was rejected (`docs/PERF_PLAN.md` finding B3).
+- 2026-09-20 — `countVisiblePointLights` walks an explicit stack instead of `traverseVisible` and skips the padding group it already counts; `x:lightBudget` 0.156–0.157 → 0.132–0.142 ms/frame in S2. The count stays exact and per-frame — see the rule above for why a flag or an interval was rejected (`docs/DECISIONS.md` perf Phase C · B3).
 - 2026-09-15 — `ShaderWarmup.holdFor(ready, timeoutS)` and `compileProgress` for the raid-entry loading gate.
 - 2026-09-12 — `outline.warm` runs even while a shader hold is active.
 - 2026-09-12 — `Outline.ts` / `ctx.outline`: hover/selected screen-space outlines for ship management.

@@ -2294,7 +2294,7 @@ export const CAMERA_BASE_FOV_DEG = K.num('CAMERA_BASE_FOV_DEG');
  * Beyond this distance (m) from the camera a living enemy's **pose** is recomputed every other frame, and beyond
  * `ENEMY_ANIM_LOD_FREEZE_M` not at all. Only the joints stop: position, facing and movement keep running every
  * frame, and a body that is flashing from a hit, burning, shocked or dead is animated at any distance — those are
- * the frames a sniper reads at 100 m. `docs/PERF_PLAN.md` Phase 1, user's decision 「40 m 절반 · 80 m 정지」.
+ * the frames a sniper reads at 100 m. `docs/DECISIONS.md` perf Phase 1, user's decision 「40 m 절반 · 80 m 정지」.
  */
 export const ENEMY_ANIM_LOD_HALF_M = K.num('ENEMY_ANIM_LOD_HALF_M');
 /** Beyond this distance (m) a living enemy's pose is not recomputed at all — see `ENEMY_ANIM_LOD_HALF_M`. */
@@ -2314,7 +2314,7 @@ export const ENEMY_ANIM_LOD_FREEZE_M = K.num('ENEMY_ANIM_LOD_FREEZE_M');
  * too low. The one longer reach in the game, `NAMED_SNIPER range` 320, belongs to a named rogue, and a named rogue
  * is never reduced at all.) So **an enemy that can fight anyone still runs every frame**. Skipped frames accumulate their `dt` and go into the
  * next tick in one piece, so speed, attack cadence and every timer are unchanged — what a distant body loses is one
- * frame of reaction. `docs/PERF_PLAN.md` Phase C / finding B4.
+ * frame of reaction. `docs/DECISIONS.md` perf Phase C · B4.
  */
 export const ENEMY_AI_LOD_HALF_M = K.num('ENEMY_AI_LOD_HALF_M');
 /**
@@ -2340,7 +2340,7 @@ export const ENEMY_AI_LOD_MAX_STEP_S = K.num('ENEMY_AI_LOD_MAX_STEP_S');
  * read as intent (thorax 18 · abdomen 16 · armour 14) and are clipped to this in one place; the ring count is always
  * 0.7 × the segments, floor 8, so a thorax goes from 18×13 to 12×8 and from 432 triangles to 168.
  *
- * Why triangles and not draw calls: the 2026-09-20 A/B (`docs/PERF_PLAN.md`) cut 31 % of the draw calls and
+ * Why triangles and not draw calls: the 2026-09-20 A/B (`docs/DECISIONS.md`, perf — the last measurement) cut 31 % of the draw calls and
  * `x:rendererRender` did not move — the render block on this machine is GPU time, which only pixels and triangles
  * touch. Phase A, user's decision 「전 타입 12~14 세그먼트」. Bug **bodies** only: eggs have `EGG_SEG_W`, and the
  * sandworm and the humanoid rig are built elsewhere.

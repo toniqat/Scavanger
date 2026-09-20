@@ -1,5 +1,5 @@
 /**
- * Phase 0 of `docs/PERF_PLAN.md` — the measurement harness. **Not a smoke** (`verify.mjs` only runs the files in its
+ * The performance measurement harness (`docs/DECISIONS.md`, the perf Phase 0 … last-measurement sections). **Not a smoke** (`verify.mjs` only runs the files in its
  * `SMOKES` table), and it asserts nothing: it plays a scenario and prints numbers.
  *
  * Why headful by default: the frame time is the thing being measured, and a headless Chrome does not present frames on
@@ -23,7 +23,7 @@
  *     --display k=v,…     apply `설정 › 화면 설정` before recording: `bloom` · `shadows` (0/1), `scale` (0.5…1).
  *                         The composer passes and the shadow map are part of the render block, so this is how a run
  *                         answers 「how much of `x:rendererRender` is the scene and how much is the post chain」.
- *     --alloc             count **allocation by owner** during each window. `docs/PERF_PLAN.md` finding B6 — S2
+ *     --alloc             count **allocation by owner** during each window. `docs/DECISIONS.md` perf Phase C · B6 — S2
  *                         allocates 63-65 MB/s and its spike frames have everything slow at once, so the question is
  *                         「who makes the garbage」, which is a count, not a timing. The answer comes from the
  *                         **per-mark `performance.memory` delta** (`markAlloc`, and the typed-array census): B6
@@ -31,11 +31,11 @@
  *                         **survives**, and reported 0.085 MB/s against the counter's 63. The CDP profile is still
  *                         taken for its call sites, but it is the weaker of the two numbers, not the answer. It also
  *                         costs time: a `--alloc` run's `ms` columns are **not** comparable with a plain one, and the
- *                         banner in PERF_PLAN applies twice over.
+ *                         「`ms` is not evidence」 rule applies twice over.
  *     --peer-headful      show S5's second client instead of running it headless (debugging the squad flow)
  *     --out <path>        json path (default scripts/logs/perf/<label>.json)
  *
- * Scenarios follow the PERF_PLAN table: S1 idle · S2 60 bugs · S3a a burrow group in one frame · S3b the natural patrol
+ * Scenarios: S1 idle · S2 60 bugs · S3a a burrow group in one frame · S3b the natural patrol
  * tick · S4 three androids in a fight.
  *
  * **S5 (Phase D) — two humans through the relay.** `--only s5a` (idle) · `s5b` (+ 60 bugs) · `s5` (both, one raid).
@@ -78,7 +78,7 @@ if (S5_ANDROIDS && ONLY.some((o) => o === 's5' || o === 's5a' || o === 's5b')) {
   process.exit(2);
 }
 const ALLOC = flag('--alloc');
-const PLANET = opt('--planet', 'tundra');   // threat 2, as PERF_PLAN's S1 asks for
+const PLANET = opt('--planet', 'tundra');   // threat 2, as S1 asks for
 const SEED = Number(opt('--seed', '7001'));
 // A frame whose JS runs past one 60 Hz interval is a frame the player can lose — that is what gets an autopsy.
 const SPIKE_MS = Number(opt('--spike', '16.7'));

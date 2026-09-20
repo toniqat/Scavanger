@@ -4,7 +4,7 @@
  * Eleven world-projecting widgets used to ask `ctx.uiRoot.clientWidth` / `clientHeight` themselves inside
  * `lateUpdate`. A layout **read** that follows a style **write** forces the browser to lay the whole UI out again,
  * and the widgets interleave the two: whichever one reads first pays for every style the frame has written so far.
- * Measured 2026-09-19 (`docs/PERF_PLAN.md`, Phase 2): 1.14 ms/frame with 160 bodies, 7.3 ms at worst — the second
+ * Measured 2026-09-19 (`docs/DECISIONS.md` perf Phase 2): 1.14 ms/frame with 160 bodies, 7.3 ms at worst — the second
  * biggest cost in the frame after the render block, for a number that only changes when the window does.
  *
  * **Never read `clientWidth` / `clientHeight` (or `getBoundingClientRect`) on a per-frame HUD path again.** If
