@@ -43,6 +43,14 @@ Delete this file once the queue below is empty.
 > (206) · `ui/` ×4 (174) · `parts/` ×4 (153), with the lead on `model.ts` (255). Read the folder's `README.md` first
 > either way — it is already English and it, not §7, is what settles this folder's nouns.
 
+> **`*.css` was invisible to this whole project until 2026-09-20.** Every script in this file filtered on
+> `/\.(ts|mjs|js|cjs)$/`, so twelve folders' stylesheets — **1,335 Korean prose comment lines in 34 files**, a
+> quarter of everything the queue had left — were never counted, never translated and never checked. `docs/TODO.md`
+> B-65 caught it, and the pass is done (§2, row 27). Two things to carry forward: the measuring script now takes
+> `.css` (§5), and so does `scripts/check-comment-labels.mjs`, which until then read a stylesheet **whole** as live
+> strings — a Korean label mistyped in a CSS comment registered as the real string and justified a near miss anywhere
+> else in the tree. The same hole is still open for a `data/*.csv` **comment** line (`docs/TODO.md` B-74).
+
 ---
 
 ## 1. Status
@@ -50,12 +58,13 @@ Delete this file once the queue below is empty.
 | | Lines | Files |
 |---|---:|---:|
 | Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`, `src/items`, `src/gadgets`, `src/allies`, `src/game`) | 22,060 | 553 |
+| Done — `.css`, every folder at once (2026-09-20, B-65) | 1,335 | 34 |
 | **Remaining** ([§2](#2-queue)) | **4,564** | **194** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 76 lines, because a comment whose entire substance is
+**Intended permanent exceptions.** A finished folder still prints 76 lines — and the finished stylesheets 14 more — because a comment whose entire substance is
 a quoted label, a quoted document heading or a verbatim user decision keeps its Korean (§3 rule 2 — the reader has to be
 able to grep it against the real string). So a raw run over everything prints 4,640 / 248, seventy-six more than the
 queue. `src/ui` alone contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice —
@@ -92,6 +101,7 @@ so its rows are grouped into one line instead of listed file by file:
 | `items/Loot.ts:552` | a verbatim user decision (`잠긴 방은 지금 그대로, 나머지는 서사 이상 절반`) |
 | `gadgets/GadgetDefs.ts:205` | a `docs/DECISIONS.md` section heading (`2026-09-15 — 땅굴벌레 · 진동 장치`) |
 | `game/parts/Death.ts:191` · `:345` · `:375` | verbatim user decisions: 「부활하면 서 있는 채로 나타나지 않고 쓰러졌다 일어난다」 and, twice, the wipe rule 「사람과 안드로이드가 모두 쓰러지거나 죽어야 레이드 실패」 — the same quote `ui/hud/SpectateOverlay.ts:76` keeps |
+| `*.css` — **14 lines in 7 files** | the same shapes, in the stylesheets (2026-09-20): `inventory.css` ×3 and `base.css` ×2 are English sentences whose letters are mostly a quoted label (`Panel order: ship = 창고 · 장비 · 가방 · 제작`) plus the verbatim user bug report the `.item-tip` text-flow pin was built from; `hub.css` ×2 the five equipment-slot labels and the two launch-warning buttons `[취소] / [그래도 준비]`; `mining.css` ×2 a verbatim 2026-09-17 user decision and a divider that is only the three tab labels; `messenger.css` a `docs/DECISIONS.md` heading; `named.css` ×2 and `social.css` ×2 dividers that are nothing but an on-screen string (`스캔에 노출되고 있음`, `대화 기록`) |
 | `game/parts/LoadGate.ts:3` | a `docs/DECISIONS.md` section heading (`2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩`), byte-identical to the one `allies/README.md:9` cites |
 | `allies/parts/` — **7 lines in 5 files** | verbatim user decisions, each the *whole* substance of its line: `Loot.ts:3` · `:5` (「먹고 있을 때 PC 가 그 상자를 열면 중단」, 「핑이 먼저고, 혼자 주워 담는 것은 한가할 때뿐」), `Rescue.ts:3-4` (the two-line rescue decision), `Commands.ts:271` (「일반 범위의 2배로 각자 일대를 수색, 일정 시간 뒤 자동 해제」), `Contract.ts:4` (the tail of 「계약에 따라 다르나, …」), `Support.ts:3` (the hand-over conditions). This folder is written almost entirely out of quoted decisions, which is why it keeps more than most |
 
@@ -129,8 +139,10 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | 24 | `server/` | 267 | 9 | `RelayServer.ts` 66 · `Lobby.ts` 55 · `selftest.ts` 53 · `Store.ts` 22 · `CryptoMarket.ts` 19 · `Economy.ts` 15 · `Rooms.ts` 14 · `Console.ts` 13 · `index.ts` 10. Verified by `npm run typecheck:server` + `net:selftest`, not by folder smokes. |
 | 25 | `electron/` | 52 | 2 | `main.ts` 50 · `wsProxy.ts` 2. Touching `electron/` makes `verify` run `smoke-desktop`. |
 | 26 | `scripts/` | 2,970 | 102 | Last on purpose — these are the verification harness. Changing a runner's comments cannot break the game, but a bad edit hides a real failure, so do this only once the game code is done and green. Biggest: `verify.mjs` 203 · `smoke-tutorial.mjs` 185 · `smoke-housing.mjs` 123 · `smoke-inventory-p6.mjs` 121 · `smoke-cooking.mjs` 95. |
+| ~~27~~ | ~~`src/**/*.css`~~ | 1,335 | 34 | **Done 2026-09-20** (lead + 5 agents, one pass, `docs/TODO.md` B-65). Not a queue folder — a **file type the whole project had been filtering out** (§1 banner). Cut by owning folder, not by size: `base.css` (200) alone · the rest of `src/ui/styles` + `hud/rescuePicker.css` (371) · `inventory.css` (329) · `housing/**` + `game/resume-gate.css` + `ui/styles/fall.css` (238) · `tutorial` + `meta` + `hub` ×2 + `progression/ui` (220). 14 quoted-only lines stay (§1). A stylesheet's nouns are settled by **its own folder's already-English `.ts`**, not by §7 — the CSS has to read as one voice with the code beside it. |
 
-`data/*.csv` is **out of scope** — its Korean columns are in-game display text.
+`data/*.csv` is **out of scope** — its Korean columns are in-game display text. Its `#` **comment** lines are a
+different thing, and `check-comment-labels.mjs` currently reads them as live strings (`docs/TODO.md` B-74).
 
 ---
 
@@ -158,6 +170,12 @@ Per folder:
      last Korean line of a block and its `*/` are replaced together by English prose that forgot the `*/`. The block
      then swallows the next declaration. `tsc` does **not** catch it (a missing interface field is not a type error),
      and neither did this file's original step 4. Step 4 below does.
+   - **A one-line `/* … */` divider is just as dangerous**, and less obviously so (2026-09-20, the CSS pass). An
+     agent's divider-rewrite helper ate the closing ` */` of `character.css`'s `/* ══ 2026-09-13 … ══ */`, and the
+     rest of the file was swallowed into the comment. Step 4 caught it. Treat a divider like a block's last line.
+   - **In a stylesheet, steps 4 and 4b are the same checks with the `//` branch removed** — CSS has no line comment,
+     and running one over it blanks half a rule or a `url(//…)`. Filter to `.css`, keep the string branch (a
+     `content:` value is a live string), and the rest of the method is unchanged.
 4. **Prove no code changed** before committing — **strip every comment from both sides and compare the whole text.**
 
    The line-by-line filter this file used to prescribe (grep the diff, drop lines starting with `*` · `//` · `/*`,
@@ -422,6 +440,11 @@ A plain `grep -P '[\x{AC00}-\x{D7A3}]'` over-counts by ~20 %: it also matches En
 label, and every Korean string literal. Count comment lines that are actually **Korean prose** instead — the comment
 is parsed out, and a line counts only when it holds ≥ 4 Hangul syllables *and* Hangul is ≥ 35 % of its letters.
 
+**The filter below is what hid `*.css` for the whole project** (`docs/TODO.md` B-65, fixed 2026-09-20): it takes
+`.ts|.mjs|.js|.cjs` only, so 1,335 Korean comment lines in 34 stylesheets were never once counted. When you extend
+this script to a new file type, extend the **comment parser** with it — a CSS comment is `/* … */` only, its
+continuation lines have no `*` gutter, and there is no `//` branch at all.
+
 Save as `<scratchpad>/kc.mjs` and run `node kc.mjs src server electron` (add `--files` for a per-file listing):
 
 ```js
@@ -550,6 +573,11 @@ few hundred, because a Korean **label** inside English prose is correct and stay
   made a whole `parts/Loot` branch and the guard justifying it unreachable — `B-60`. `B-62` is a second one reaching
   outside the folder: one 2 m-separation decision written three different ways across `parts/Nav.ts`,
   `data/constants.csv` and `docs/DECISIONS.md`, so rule 2's grep chain was already broken for it).
+  `B-74` · `B-75` (`src/**/*.css`, 1 + 3 — and far fewer than a folder of the same size gives, because a
+  stylesheet's comments describe layout, which the rule below it proves or disproves on the spot. `B-74` is the
+  richer one: `housing.css` quotes the analyzer rail tab as `해석 도감` where the drawn string is `분석 도감`, and
+  `check-comment-labels.mjs` **cannot see it** because `data/constants.csv`'s own comment says `해석 도감` too and a
+  csv is read whole as live strings).
   Reading a folder this closely is the most productive defect hunt in the project — expect five to ten per folder (`src/ui`
   gave 23 and `src/housing` 35, each with a live bug in it: a member row that is built and never appended, and a stir-fry
   score whose denominator is the number of clicks that were judged), and keep filing rather than fixing.
@@ -904,3 +932,15 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 재개 게이트 · 가라앉기 시계 · 복제 경로 | the **resume gate** (`ResumeGate`; its overlay text `좌측 클릭으로 게임 재개` stays Korean) · the **sink clock** (`emptiedAt` + the mission clock — deliberately not `enemies`' *lifetime*, a different mechanism) · the **duplication path** (the corpse-plus-bag dupe README calls "reload duplicates gear") | `game` (folder-wide) |
 | 밟을 수 있는 표면 | the **walkable surface** — already the repo's word (`world/tutorial`, `WorldSystem`, `gadgets/parts/Queries`), kept apart from §7's 발판 = *floor plate / platform* | `game/Corpses.ts`, `parts/CorpseNet.ts` |
 | 킬 자리 · 주인 없는 물건 · 계약 스텁 | the **kill site** (where `enemies/` adds `raidXp` into `stats.killXp`) · an **ownerless thing** (the squad-leader device left behind) · a **contract stub** (README's Rules) | `game/parts/Death.ts`, `Leader.ts` |
+| 신뢰도 (기업) vs 신뢰도 (NPC) | **reputation** for a corporation (`meta/README.md`, CLAUDE.md §3.4, `rep` · `getRep` · `.corp-rep`) vs **trust** for an NPC (`NpcRules.ts`). The row above binds 신뢰도 → *trust*; that is the NPC sense only. The on-screen label `신뢰도` stays Korean either way |
+| 매대 · 구매칸 / 판매칸 · 거래 테이블 | the **stock shelf** · the **buy tray** / **sell tray** (`meta/README.md`'s word) · the **trade table** (the middle column), kept apart from the README's **trade desk** = the whole page |
+| 즐겨찾기 (ui) vs 즐겨찾기 (inventory) | **favorite** in `src/ui` (its own English: `ItemFavoriteMenu`, "favorite menu") vs **favourite** in `src/inventory`. Deliberate — do not sed one into the other |
+| 전소 / 감전 (지도 표식) | **burn / shock** — the marker classes `.smarker.burn` / `.shock`; kept apart from `enemies`' 전소 → *incinerated*, which is the enemy **state** |
+| 준비 연출 · 지지직 · 칸 (휠) | the **ready presentation** (`.is-ready` glow + ring burst) · the **static** around the screen edge (`.dr-static`) · **sectors** (`.csector` / `.psector`), kept apart from a save-slot **empty slot** and the scan-warning **pips** |
+| 투명한 막 · 드래그 렉 규약 · 구분막 | a **transparent sheet** (a `pointer-events: none` overlay root) · the **drag-lag convention** (no transitions on a drag target, transform only) · the **divider** |
+| 금속 결 · 판정 안내원 · 옆 칸 · 자동 연출 | a **brushed-metal gradient** · the **judgement guide ring** · the **side column** (never inventory's *cell* / *pane*) · the **auto presentation** (the auto-appliance cook) |
+| 로제트 · 폴백 배치 플래시 · 아래 균형 칸 · 호스트 (임베드) | the **wheel rose** (never *rosette*) · the **fallback placement flash** · the **balancing box at the bottom** · the **host screen** (the embedding caller), kept apart from the network *host* |
+| 재료 요구 칩 · 칩 호버 카드 · 지속 사용 티커 | the **material cost chip** · the **chip hover card** · the **channel ticker** (`ui/README.md`'s own word) |
+| 피격 / 전투불능 / 실드 잔상 | the **damage ghost** · the **downed ghost** · the **shield ghost** |
+| 장비 판 · 가치 합계 · 초상 (매칭) vs 초상 (준비) | the **gear board** · the **value total** · a **face tile** in `MatchTab` vs a **portrait** in `ReadyPanel` |
+| 구간 (`--frac`) | **inside the current level's range** — a seventh sense of 구간 was *not* coined; *band* · *bucket* · *stretch* · *section* · *segment* are all taken |

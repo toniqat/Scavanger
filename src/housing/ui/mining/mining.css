@@ -1,24 +1,29 @@
 /* ============================================================================
- * SCAVANGER — 채굴 화면 (2026-09-14 통합: 채굴 · 클러스터 현황 · 지갑 · 거래소; housing/ui/mining). 접두사 `.mn-` 전용.
+ * SCAVANGER — the mining screen (merged 2026-09-14: `채굴` · `클러스터 현황` · `지갑` · `거래소`;
+ * housing/ui/mining). Prefix `.mn-` only.
  *
- * 한 창(`.mining-screen`)이 `StationShell` 카드 배치 위에 좌 패널 내용만 갈아 끼운다 (틀 · 레일 · 카드 모양은
- * housing.css 의 `.hs-*`). 결: 반투명 어두운 판 · 호박색 강조 · 모노 숫자 · 코인 색은 `--cc`.
- * 상승 = 성공색, 하락 = 위험색. 드래그 렉 규약: 진행 막대는 `transform: scaleX` 만, 전이 없음.
+ * One window (`.mining-screen`) swaps only the left pane's content over the `StationShell` card layout (the frame ·
+ * rail · card shapes are housing.css's `.hs-*`). The look: a translucent dark plate · amber accents · mono numerals
+ * · the coin colour is `--cc`. Up = the success colour, down = the danger colour.
+ * The drag-lag convention: a progress bar is `transform: scaleX` only, with no transition.
  * ========================================================================== */
 
-/* ── 상단 가로 탭 (2026-09-14 → 2026-09-17 자리 통일) ─────────────────────────
- * 2026-09-17 (사용자 결정 「채굴 · 메인 컴퓨터 화면의 탭이 Tab 화면(인벤토리/캐릭터/기업/함선)의 탭과 **같은 높이**에
- * 있어야 한다」): 탭 줄은 이제 **그 클래스 그대로**(`nav.scr-tabs.mn-tabs > button.scr-tab.mn-tab`, base.css)이고
- * 프레임 안의 첫 줄이 아니라 화면(`.menu` 루트)에 절대 배치로 뜬다 — `top: 22px`, 가로 가운데. 허브 터미널
- * (`.hub-tabs`)과 같은 길이다. `.mn-tab` 은 선택자 손잡이(스모크)로만 남는다.
- * 프레임은 그 알약(~42 px) 밑에서 시작한다 — Tab 화면의 `.inv-root.is-hub { padding-top: 74px }` 와 같은 값.
+/* ── The top horizontal tabs (2026-09-14 → position unified 2026-09-17) ──────
+ * 2026-09-17 (user's decision
+ * 「채굴 · 메인 컴퓨터 화면의 탭이 Tab 화면(인벤토리/캐릭터/기업/함선)의 탭과 **같은 높이**에
+ * 있어야 한다」): the tab strip is now **those classes exactly**
+ * (`nav.scr-tabs.mn-tabs > button.scr-tab.mn-tab`, base.css) and it is positioned absolutely on the screen (the
+ * `.menu` root) rather than being the first row inside the frame — `top: 22px`, horizontally centred. The same
+ * road the hub terminal (`.hub-tabs`) takes. `.mn-tab` survives only as a selector handle (for the smokes).
+ * The frame starts below those pill tabs (~42 px) — the same value as the Tab screen's
+ * `.inv-root.is-hub { padding-top: 74px }`.
  * ────────────────────────────────────────────────────────────────────────── */
 .menu.housing-menu.mining-screen .frame { height: min(810px, calc(100vh - 158px)); margin-top: 74px; }
 @media (max-width: 1279px) {
   .menu.housing-menu.mining-screen .frame { height: calc(100vh - 158px); }
 }
 
-/* ── 공용 조각 ─────────────────────────────────────────────────────────────── */
+/* ── Shared pieces ─────────────────────────────────────────────────────────── */
 .mn-glyph {
   --cc: var(--c-text-dim);
   flex: none; display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
@@ -61,19 +66,23 @@
 .mn-seg-btn:hover { color: var(--c-text); }
 .mn-seg-btn.is-active { color: #05070a; background: var(--c-accent); }
 
-/* ── 채굴 탭 (`ClusterPage`) ─────────────────────────────────────────────────
- * 위에서 아래로 [프로세서 9칸(중앙)] → [이번 주기] → [채굴 코인 드롭다운 + 현황 수치] (2026-09-14 사용자 결정).
- * 칸 모양은 꽂는 아이템의 **발자국**이 정한다 (`--mn-core-w/h`, JS 가 쓴다) — 프로세서 2×1 이라 가로로 긴 칸 아홉이다.
+/* ── The `채굴` tab (`ClusterPage`) ──────────────────────────────────────────
+ * Top to bottom: [the 9 processor cells (centred)] → [this cycle] → [the mining coin dropdown + the status numbers]
+ * (2026-09-14, user's decision).
+ * A cell's shape is decided by the **footprint** of the item mounted in it (`--mn-core-w/h`, written by JS) — a
+ * processor is 2×1, so these are nine cells that are wide from side to side.
  * ────────────────────────────────────────────────────────────────────────── */
 .mn-cl { gap: 16px; }
 .mn-corebox { flex: none; display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .mn-corebox .mn-sec-head { align-self: stretch; }
-/* 2026-09-16 (사용자 결정): 칸은 **아이템 격자 칸**이다 — 빈 칸은 인벤토리의 빈 칸처럼 점선 상자이고, 꽂힌 칸에는
-   가방에서 보던 타일(`.inv-tile.hs-tile`, `ui/ItemTile`)이 그대로 선다. 칸 상자(`--mn-core-w/h`)는 그 아이템의
-   발자국에서 나오므로(JS 가 쓴다) 아이템이 2×1 이든 1×1 이든 격자가 따라간다. */
+/* 2026-09-16 (user's decision): a cell **is an item grid cell** — an empty one is a dashed box like the
+   inventory's empty cell, and a filled one holds exactly the tile seen in the bag (`.inv-tile.hs-tile`,
+   `ui/ItemTile`). The cell box (`--mn-core-w/h`) comes from that item's footprint (written by JS), so the grid
+   follows whether the item is 2×1 or 1×1. */
 .mn-cores {
   --cc: #8fd0ff; --mn-core-w: 104px; --mn-core-h: 52px;
-  /* 2026-09-17: 칸 상자 = 발자국 상자 그대로 (테두리 없음 — 빈 칸은 `.hs-fcell` 격자 칸이, 꽂힌 칸은 타일이 스스로 테두리를 갖는다) */
+  /* 2026-09-17: the cell box = the footprint box exactly (no border — an empty cell gets one from the `.hs-fcell`
+     grid cells, a filled one from the tile itself) */
   display: grid; grid-template-columns: repeat(3, var(--mn-core-w)); grid-auto-rows: var(--mn-core-h);
   gap: 8px; padding: 12px;
   justify-content: center; margin-inline: auto;
@@ -86,7 +95,7 @@
 .mn-core.is-closed { opacity: 0.25; }
 .mn-core.is-on { cursor: grab; }
 .mn-cores.is-mining .mn-core.is-on { box-shadow: 0 0 12px color-mix(in srgb, var(--cc) 35%, transparent); }
-/* 드롭 강조 — 격자 뷰(`TradeGrids`)가 드롭 대상에 `.is-over` 를 붙인다 */
+/* The drop highlight — the grid view (`TradeGrids`) puts `.is-over` on the drop target */
 .mn-core.is-over, .mn-core.hs-drop-over, .mn-core.tg-drop-over { outline: 1px solid var(--c-accent); box-shadow: 0 0 14px rgba(255, 179, 71, 0.45); }
 .mn-core.is-over .hs-fcell, .mn-core.hs-drop-over .hs-fcell { background: rgba(255, 179, 71, 0.18); border-color: rgba(255, 179, 71, 0.5); }
 
@@ -100,13 +109,14 @@
 .mn-stat .v { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-family: var(--ui-mono); font-size: 12px; color: var(--c-text); }
 .mn-stat .v.good { color: var(--c-success); }
 .mn-stat .v.bad { color: var(--c-danger); }
-/* 첫 줄(채굴 코인)은 값 자리가 드롭다운이다 — 줄 높이가 버튼에 맞게 자란다 */
+/* On the first row (the mining coin) the value slot is a dropdown — the row height grows to fit the button */
 .mn-stat-coin { padding-block: 4px; }
 .mn-stat-coin .v { display: block; }
 
-/* ── 채굴 코인 드롭다운 (2026-09-14, `CoinPicker`) ───────────────────────────
- * 팝업은 `position: fixed` 다 — 좌 패널(`.hs-pane-left`)이 세로 스크롤 컨테이너라 그 안에 두면 잘린다
- * (우클릭 메뉴 `.hs-ctx` 와 같은 처리). 자리는 열 때 버튼 사각형에서 잰다.
+/* ── The mining coin dropdown (2026-09-14, `CoinPicker`) ────────────────────
+ * The popup is `position: fixed` — the left pane (`.hs-pane-left`) is a vertical scroll container, so a popup left
+ * inside it is clipped (the same treatment as the right-click menu `.hs-ctx`). Its place is measured from the
+ * button's rectangle as it opens.
  * ────────────────────────────────────────────────────────────────────────── */
 .mn-cp { position: relative; display: block; max-width: 340px; }
 .mn-cp-btn {
@@ -152,10 +162,10 @@
 .mn-cpi-sub.bad { color: var(--c-danger); }
 .mn-cpi-nums { flex: none; display: flex; flex-direction: column; align-items: flex-end; }
 .mn-cpi-nums .mn-num { font-size: 10px; }
-/* 잠긴 코인은 목록에 남되 딤드 (사용자 결정) — 사유는 부제 · title 툴팁 */
+/* A locked coin stays in the list but dimmed (user's decision) — the reason is the subtitle · the `title` tooltip */
 .mn-cpi.is-locked { opacity: 0.45; cursor: not-allowed; }
 
-/* ── 클러스터 현황 · 지갑 · 거래소 (`ComputerPages`) ─────────────────────────── */
+/* ── The `클러스터 현황` · `지갑` · `거래소` tabs (`ComputerPages`) ─────────────────────── */
 .mining-screen:not(.is-cluster) .hs-card-station { flex: 1 1 1180px; max-width: 1400px; }
 .mn-page { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .mn-page[hidden] { display: none; }
@@ -209,7 +219,7 @@
 .mn-wname { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .mn-wname > span:not(.mn-glyph):not(.mn-lock) { display: flex; flex-direction: column; min-width: 0; }
 
-/* 거래소 */
+/* The `거래소` tab */
 .mn-page-x { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 14px; align-items: start; }
 .mn-page-x[hidden] { display: none; }
 .mn-xlist { display: flex; flex-direction: column; gap: 4px; }
@@ -281,8 +291,8 @@
 .mn-quote-row { display: flex; flex-direction: column; gap: 2px; }
 .mn-quote-row .k { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-faint); }
 .mn-quote-row .v { font-family: var(--ui-mono); font-size: 13px; color: var(--c-text); }
-/* 2026-09-15 2차 (사용자 결정): 이 줄은 **막힌 사유**만 말한다 (홀드 안내는 버튼 안의 좌클릭 키캡).
-   사유가 없으면 `hidden` 이라 자리도 차지하지 않는다. */
+/* 2026-09-15, 2nd pass (user's decision): this line says **only the reason it is blocked** (the hold hint is the
+   left-click keycap inside the button). With no reason it is `hidden`, so it takes up no space either. */
 .mn-trade-block { font-size: 11px; letter-spacing: 0.03em; color: var(--c-text-faint); min-height: 16px; }
 .mn-trade-block[hidden] { display: none; }
 .mn-trade-block.bad { color: var(--c-danger); }

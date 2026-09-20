@@ -1,11 +1,13 @@
-/* ══ 2026-09-14: 메신저 (menus/messenger — 옛 커뮤니티 패널 대체, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) ══════════════════════
+/* ══ 2026-09-14: the messenger (menus/messenger — replaces the old community panel; docs/DECISIONS.md
+   「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) ═══════════════════════════════
    Imported by `menus/messenger/Messenger`. Prefix `ms-` (checked free). The panel shell (`.community-panel` · `.cp-frame` ·
    `.cp-head` · the thumbnail `.community`) keeps its base.css rules; this file widens the frame and draws the three tabs.
    Colours come from the base.css tokens; scrollbars inherit the dark `--sb-*` rule on `#ui-root`. */
 
-/* ── 틀 ── wider than the old 940 px community panel: a list column + a conversation fits side by side at 1280×720 */
-/* Top-anchored and short of the bottom edge: the bottom-right 키 가이드 (`hud/KeyGuide`) must never cover the input row's
-   보내기 (it did at 1280×720 while the frame was centred at 100vh − 48 px). */
+/* ── The frame ── wider than the old 940 px community panel: a list column + a conversation fit side by side
+   at 1280×720 */
+/* Top-anchored and short of the bottom edge: the bottom-right key guide (`hud/KeyGuide`) must never cover the
+   input row's `보내기` (it did at 1280×720 while the frame was centred at 100vh − 48 px). */
 .community-panel.ms-panel { align-items: flex-start; padding-top: max(20px, calc((100vh - 860px) / 2)); }
 .community-panel.ms-panel .cp-frame.ms-frame {
   width: min(1180px, calc(100vw - 48px));
@@ -16,7 +18,8 @@
 .ms-head { align-items: center; gap: 12px; }
 .ms-head .cp-title { font-size: 20px; }
 .ms-head .ui-btn { min-width: 0; width: auto; height: 30px; padding: 0 14px; font-size: 11px; }
-/* 친구 tab: a friend-request card carries 수락 / 거절 — the elastic request grid must not clip its buttons */
+/* The `친구` tab: a friend-request card carries `수락` / `거절` — the elastic request grid must not clip its
+   buttons */
 .ms-page.friends .sc-section.reqs { flex: none; }
 .ms-page.friends .sc-section.reqs .sc-grid { max-height: none; }
 .ms-tabs { display: flex; gap: 4px; margin-left: 6px; }
@@ -48,7 +51,7 @@
   font-size: 10px; line-height: 17px; font-style: normal; text-align: center; color: #fff; animation: none;
 }
 
-/* ── 공용 조각 ── */
+/* ── Shared pieces ── */
 .ms-btn {
   height: 28px; padding: 0 12px; flex: none;
   border: 1px solid var(--c-border-strong); background: rgba(255, 255, 255, 0.04);
@@ -82,10 +85,11 @@
 .ms-av.pres-ship::after { background: var(--c-success); }
 .ms-av.pres-raid::after, .ms-av.pres-training::after { background: var(--c-accent); }
 
-/* 신뢰도 radial 초상 (2026-09-14 3차, 사용자 결정 — `menus/messenger/Trust.buildNpcAvatar`).
-   고리는 conic-gradient 한 줄이다 (외부 에셋도 SVG 도 없다): `--frac` 은 **지금 레벨 구간 안의** 진행률이라
-   레벨이 오르면 한 바퀴 돌고 다시 찬다. `.no-trust` = 신뢰도를 못 읽는 자리(부팅 · 스모크) — 빈 테두리만.
-   대화창 머리 · 퀘스트 탭 상세 머리가 같이 쓴다. */
+/* The radial trust avatar (2026-09-14 3rd pass, user's decision — `menus/messenger/Trust.buildNpcAvatar`).
+   The ring is one conic-gradient (no external asset and no SVG): `--frac` is the progress **inside the current
+   level's range**, so a level-up sends it once round and it fills again. `.no-trust` = somewhere trust cannot be
+   read (boot · a smoke) — an empty border only.
+   The conversation header and the quest tab's detail header share it. */
 .ms-avwrap {
   --qc: var(--c-accent);
   --frac: 0;
@@ -107,7 +111,7 @@
 .ms-bar i { display: block; height: 100%; background: var(--qc, var(--c-accent)); transform-origin: left; transform: scaleX(0); }
 .ms-bar.big { height: 5px; flex: 1; }
 
-/* ── 대화 탭 ── */
+/* ── The conversation tab ── */
 .ms-chat { flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; }
 .ms-side { min-height: 0; display: flex; flex-direction: column; gap: 8px; padding-right: 14px; border-right: 1px solid var(--c-border); }
 .ms-side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -140,7 +144,8 @@
 .ms-row.is-offline .ms-row-title { color: var(--c-text-dim); }
 .ms-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ms-row-top, .ms-row-bot { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-/* 2026-09-14 3차: 줄은 **이름 + 마지막 대사**뿐이다 — 옛 `.ms-row-sub`(소속) · `.ms-row-time`(n분) 은 없어졌다 */
+/* 2026-09-14 3rd pass: a row is **the name + the last line** only — the old `.ms-row-sub` (affiliation) and
+   `.ms-row-time` (n minutes) are gone */
 .ms-row-title { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ms-row-prev { flex: 1; min-width: 0; font-size: 11px; color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ms-row.has-unread .ms-row-prev { color: var(--c-text); }
@@ -152,15 +157,17 @@
 .ms-thead-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ms-thead-title { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; }
 .ms-thead-sub { font-size: 11px; color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 2026-09-14 3차: 소속 아래의 `bio` 한 줄(`.ms-thead-bio`)은 없어졌다 — 소개는 첫 연락 대사가 한다 */
+/* 2026-09-14 3rd pass: the single `bio` row under the affiliation (`.ms-thead-bio`) is gone — the first-contact
+   lines do the introducing */
 .ms-thead-acts { display: flex; gap: 4px; flex: none; }
 .ms-thread-empty { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--c-text-faint); }
 .ms-thread-empty[hidden] { display: none; }
 .ms-tbody-wrap { flex: 1; min-height: 0; display: flex; gap: 10px; container-type: size; }
 .ms-thread.is-empty .ms-tbody-wrap { display: none; }
 .ms-tbody { position: relative; flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 4px; padding: 4px 6px 8px 0; scrollbar-width: thin; }
-/* 2026-09-17 (사용자 결정): 말풍선 뒤의 빈 꼬리 — 대화창 높이의 절반. 끝까지 내리면 마지막 말풍선이 창 가운데쯤에 온다.
-   높이는 `.ms-tbody-wrap` 컨테이너의 `cqh` 다. `position: relative` 는 `ChatTab.contentEnd` 가 꼬리의 `offsetTop` 을 body 기준으로 읽게 한다. */
+/* 2026-09-17 (user's decision): the empty tail behind the bubbles — half the conversation's height. Scrolled to
+   the end, the last bubble sits around the middle of the window. Its height is the `cqh` of the `.ms-tbody-wrap`
+   container. `position: relative` is what lets `ChatTab.contentEnd` read the tail's `offsetTop` against body. */
 .ms-tail { flex: none; height: 50cqh; pointer-events: none; }
 .ms-members { flex: none; width: 210px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-left: 10px; border-left: 1px solid var(--c-border); scrollbar-width: thin; }
 .ms-members[hidden] { display: none; }
@@ -192,9 +199,10 @@
 .ms-msg.cont.out .ms-bubble { border-top-right-radius: 12px; }
 .ms-bubble.sys { background: none; border: none; color: var(--c-text-faint); font-size: 11px; }
 .ms-state { font-size: 9px; letter-spacing: 0.04em; color: var(--c-text-faint); }
-/* 대사 선택지 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) — 첫 연락 말풍선 아래에 서는 **내 대답** 버튼 줄.
-   퀘스트 카드의 [수락] [생각해보지] 와 **같은 버튼**(`.ms-btn`)이고, 내 말풍선처럼 오른쪽에 붙는다.
-   대답은 한 줄보다 길 수 있어 `.ms-btn` 의 고정 높이 · nowrap 만 푼다. */
+/* The line choices (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) — the row of **my reply**
+   buttons standing under a first-contact bubble. They are **the same button** (`.ms-btn`) as the quest card's
+   [`수락`] [`생각해보지`] and hug the right edge the way my own bubbles do.
+   A reply can run longer than one row, so only `.ms-btn`'s fixed height and nowrap are released. */
 .ms-msg.choices { max-width: min(460px, 92%); margin-top: 8px; }
 .ms-choices { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; }
 .ms-btn.ms-choice {
@@ -203,10 +211,12 @@
   border-color: rgba(255, 179, 71, 0.28); background: rgba(255, 179, 71, 0.1);
 }
 .ms-btn.ms-choice:hover:not(:disabled) { background: rgba(255, 179, 71, 0.2); }
-/* 타이핑 `...` (2026-09-14 3차, 사용자 결정) — **새로 도착하는** 말풍선 앞에만 잠깐 선다 (`ChatTab.typingBubble`).
-   그리는 길이 말풍선과 같으므로(`.ms-msg.in`) 자리 · 초상 · 이어 붙이기 규칙을 그대로 탄다.
-   2026-09-17 (사용자 결정): 점 셋이 어긋난 박자로 천천히 작아졌다 커진다 — 움직임은 CSS `@keyframes` 가 아니라 ChatTab 의
-   Web Animations 다 (`base.css` 의 reduced-motion 규칙이 CSS 애니메이션을 0.01 ms 로 자른다). 여기 값은 애니메이션이 없을 때의 정지 모습. */
+/* The typing `...` (2026-09-14 3rd pass, user's decision) — it stands briefly before a bubble that is
+   **arriving**, and only there (`ChatTab.typingBubble`). It is drawn the way a bubble is (`.ms-msg.in`), so it
+   rides the place, avatar and run-on rules unchanged.
+   2026-09-17 (user's decision): the three dots shrink and grow slowly on offset beats — the motion is not a CSS
+   `@keyframes` but ChatTab's Web Animations (the reduced-motion rule in `base.css` clips a CSS animation to
+   0.01 ms). The values here are how it rests with no animation. */
 .ms-bubble.ms-typing { display: inline-flex; align-items: center; gap: 5px; padding: 11px 13px; }
 .ms-bubble.ms-typing i { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--c-text-dim); transform: scale(0.7); opacity: 0.6; will-change: transform, opacity; }
 .ms-msg.pending .ms-bubble { opacity: 0.55; }
@@ -227,13 +237,16 @@
 .ms-send { height: 34px; width: 80px; }
 .ms-note { font-size: 11px; color: var(--c-text-faint); padding-top: 4px; }
 .ms-note[hidden] { display: none; }
-/* 2026-09-14 3차: NPC 대화의 하단 안내(`NPC 에게는 퀘스트 카드로 답합니다`)는 없어졌다 — 그 자리의 테두리 규칙도 함께 */
+/* 2026-09-14 3rd pass: the hint under an NPC conversation (`NPC 에게는 퀘스트 카드로 답합니다`) is gone, and with
+   it the border rule for that place */
 
-/* ── NPC 개인 신뢰도 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」 — `menus/messenger/Trust`) ──
-   기업 화면의 신뢰도 게이지(`meta.css` 의 `.corp-rep`)와 **같은 계열**: `Lv.n` + 한 줄 게이지 + 누적/다음 숫자.
-   다른 것은 색뿐이다 — 기업 색(`--cc`) 대신 그 NPC 색을 `--qc` 로 받아 `.ms-bar i` 가 그대로 쓴다.
-   `.compact` = 좁은 자리용(숫자 없음 · 짧은 게이지), `.in-head` = 퀘스트 상세 머리용(이름 아래),
-   `.in-right` = 대화창 머리줄의 **중앙 우측**(2026-09-14 3차 — 초상 아래에서 옮겨 왔다. 초상의 고리가 같은 값을 그린다). */
+/* ── An NPC's personal trust (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」 — `menus/messenger/Trust`) ──
+   **The same family** as the corporation screen's reputation gauge (`.corp-rep` in `meta.css`): `Lv.n` + a one-row
+   gauge + the running / next numbers. Only the colour differs — instead of the corporation colour (`--cc`) it
+   takes that NPC's colour as `--qc`, which `.ms-bar i` then uses unchanged.
+   `.compact` = for a narrow place (no numbers · a short gauge), `.in-head` = for the quest detail header (under
+   the name), `.in-right` = **centre right** of the conversation header row (2026-09-14 3rd pass — moved up from
+   under the avatar, whose ring draws the same value). */
 .ms-trust { display: inline-flex; align-items: center; gap: 6px; flex: none; min-width: 0; }
 .ms-trust.in-head { margin-top: 3px; align-self: flex-start; max-width: 320px; width: 100%; }
 .ms-trust.in-right { flex: none; width: 210px; max-width: 36%; margin-left: auto; align-self: center; }
@@ -241,10 +254,10 @@
 .ms-trust-bar { flex: 1; min-width: 0; width: 100%; }
 .ms-trust.compact .ms-trust-bar { flex: none; width: 34px; }
 .ms-trust-num { flex: none; font-size: 10px; color: var(--c-text-faint); }
-/* 보상 칩 — 재화 칩(`base.css` 의 `.currency-chip`)과 같은 틀, 색만 NPC 색이다 */
-.ms-trust-chip { cursor: help; }   /* 2026-09-17: 기업 신뢰도 칩처럼 호버 카드가 뜬다 (`ItemTip` 글 카드) */
+/* The reward chip — the currency chip's frame (`.currency-chip` in `base.css`), only in the NPC's colour */
+.ms-trust-chip { cursor: help; }   /* 2026-09-17: hover card, like the corp trust chip (`ItemTip` text card) */
 
-/* ── 퀘스트 카드 (말풍선 · 상세 공용) ── */
+/* ── The quest card (shared by bubble and detail) ── */
 .ms-qcard {
   --qc: var(--c-accent);
   display: flex; flex-direction: column; gap: 9px; width: 100%; padding: 12px 14px;
@@ -285,7 +298,7 @@
 .ms-qwhy { font-size: 10px; color: var(--c-text-faint); }
 .ms-qfoot { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
 
-/* ── 퀘스트 탭 ── */
+/* ── The quest tab ── */
 .ms-quests { flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 14px; }
 .ms-qlist { min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 3px; padding-right: 12px; border-right: 1px solid var(--c-border); scrollbar-width: thin; }
 .ms-qgroup-head { display: flex; align-items: baseline; justify-content: space-between; margin: 8px 0 2px; padding-bottom: 4px; border-bottom: 1px solid var(--c-border); }
@@ -314,7 +327,7 @@
 .ms-qdetail-head { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--c-border); }
 .ms-qdetail .ms-qcard { max-width: 720px; }
 
-/* ── 팝오버 ── */
+/* ── The popover ── */
 .ms-pop {
   position: absolute; left: 50%; top: 84px; z-index: 5; transform: translateX(-50%);
   width: min(380px, calc(100% - 40px)); max-height: calc(100% - 120px);

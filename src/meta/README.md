@@ -212,9 +212,8 @@ but no content gates on it yet.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/meta`.
+- 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
 - 2026-09-18 — `ENEMY_TYPE_KO` gained `bug_egg: '벌레 알'` so an NPC kill goal that names the new nest egg reads as a word, not an id (`NpcRules.ts`).
 - 2026-09-17 — Contract columns `.cc-` → `.ctr-` (`meta.css`, `ui/CorpView.ts`): `ui/styles/title.css` owns `.cc-` for character creation, and a prefix belongs to one folder (`scripts/check-css-prefixes.mjs`).
-
 - 2026-09-17 — Corp access gate: Lv.0 corps are locked in the corp rail (`corpLock`, `resolveCorp`, `.corp-tab.is-locked`), `openCorpMenu` refuses while no corp is Lv.1 (`anyCorpAccessible`); every contract's `minRepLevel` +1; `q_ce_s1` / `q_nm_s1` grant 100 rep (→ Lv.1).
 - 2026-09-16 — Trade desk tile pass: the price badge is bottom-left everywhere (판매칸 no longer top-left), the 구매칸 got one at all, 매대 · 구매칸 hide the always-full durability gauge, and the 총 크레딧 변동 line lost its ▲ ▼ chevrons (sign + colour already say it).
-- 2026-09-16 — Ammo is sold as a full stack (`shopQtyOf`), trade tiles show 구매가 / 판매가 instead of 가치 (`data-tip-price`), shelf fixed at 10 columns, quest XP in `rewardSummary` uses the compact formatter.

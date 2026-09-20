@@ -1,10 +1,11 @@
 /*
- * 결과 창 몸통 (2026-09-15, 결과 창 개편) — `menus/ResultReport.ts` 가 import 한다.
- * 접두사 `.rs-` (`rg "\.rs-" src` 로 비어 있음을 확인했다). 결과 창의 틀 · 제목 · `.stats` 기본은 `styles/base.css` 에 있고
- * 여기서는 새 줄들만 그린다. 전이 · 애니메이션 없음 — 카운트업은 코드가 `update(dt)` 로 쓴다.
+ * The body of the results screen (2026-09-15, the results screen rework) — imported by `menus/ResultReport.ts`.
+ * Prefix `.rs-` (checked free with `rg "\.rs-" src`). The results screen's frame, title and `.stats` base live in
+ * `styles/base.css`; only the new rows are drawn here. No transitions and no animations — the count-up is written
+ * by code in `update(dt)`.
  */
 
-/* 제목 줄: 왼쪽 제목 · 오른쪽 임무 시간 */
+/* The title row: the title on the left, the mission clock on the right */
 .menu .rs-titlerow { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .menu .rs-titlerow .title { min-width: 0; }
 .menu .rs-time { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex: none; }
@@ -14,18 +15,20 @@
 }
 
 /*
- * 행성 줄 (2026-09-15, 사용자 결정) — 가운뎃점 대신 gap 으로 벌린 두 조각.
- * 라벨은 없앤 부제(`base.css` 의 `.menu .subtitle`: 12px · `--c-text-dim` · letter-spacing 0.1em)와 **같은 크기 · 같은 회색**이고
- * 이름만 조금 크고 흰색이다. 위 여백 8px 도 그 부제의 값이라, 탈출 성공처럼 부제가 숨어도 제목에 붙지 않는다.
+ * The planet row (2026-09-15, user's decision) — two pieces held apart by a gap instead of a middle dot.
+ * The label is **the same size and the same grey** as the subtitle that was dropped (`.menu .subtitle` in
+ * `base.css`: 12px · `--c-text-dim` · letter-spacing 0.1em), and only the name is a little larger and white. The
+ * 8px margin above is that subtitle's value too, so the row never sticks to the title where the subtitle is
+ * hidden, as on a successful extraction.
  */
 .menu .rs-planet { display: flex; align-items: baseline; gap: 12px; margin-top: 8px; }
 .menu .rs-planet-k { font-size: 12px; letter-spacing: 0.1em; color: var(--c-text-dim); }
 .menu .rs-planet-v { font-size: 15px; letter-spacing: 0.06em; color: var(--c-text); }
 
-/* 몸통 — base.css 의 2열 격자 대신 세로 줄 */
+/* The body — rows down the page instead of base.css's two-column grid */
 .menu .stats.rs-stats { display: flex; flex-direction: column; gap: 12px; }
 
-/* 전리품 줄: 라벨 왼쪽 · 값 오른쪽 */
+/* The loot row: the label on the left, the value on the right */
 .menu .rs-loot {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 12px 0; border-top: 1px solid var(--c-border); border-bottom: 1px solid var(--c-border);
@@ -36,7 +39,7 @@
 }
 .menu .rs-loot.lost .rs-loot-v { color: var(--c-danger); }
 
-/* 사망 원인 줄: 썸네일 · 캡션 · (이름 / 받은 피해) */
+/* The death cause row: thumbnail · caption · (name / damage taken) */
 .menu .rs-cause { display: flex; align-items: center; gap: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--c-border); }
 .menu .rs-cause-thumb {
   flex: none; width: 72px; height: 72px; display: grid; place-items: center; overflow: hidden;
@@ -61,11 +64,12 @@
   font-size: 30px; font-weight: 700; line-height: 1; color: var(--c-text);
 }
 
-/* 사망 모드의 탈출 결과 창 (분대가 탈출했을 때 쓰러져 있던 사람) — `.menu.death` 와 같은 틀 색 */
+/* The extraction results screen in its death look (someone who was down when the squad extracted) — the frame
+   colour of `.menu.death` */
 .menu.complete.rs-dead .frame { border-color: rgba(255, 77, 77, 0.35); }
 .menu.complete.rs-dead .frame::before, .menu.complete.rs-dead .frame::after { border-color: var(--c-danger); }
 .menu.death .frame { min-width: min(520px, calc(100vw - 48px)); }
 
-/* 획득 경험치는 사망 창에서도 또렷하게 (base.css 의 흐린 색을 덮는다) */
+/* The XP gained stays crisp on the death screen too (overriding base.css's dim colour) */
 .menu.death .rewards .xp-row .xp-gain,
 .menu.complete.rs-dead .rewards .xp-row .xp-gain { color: var(--c-accent); }

@@ -135,8 +135,8 @@ default (multiplier 1, bonus 0).
 ## Recent changes
 
 Last 5 only — older: `git log -- src/progression`.
+- 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
 - 2026-09-18 — Code comments translated to English (project-wide rule change, `CLAUDE.md` §4.1); Korean on-screen labels and csv skill names kept verbatim in backticks, no string literal touched.
 - 2026-09-17 — 단련 shares the stat-XP bar (`addStatXp` `source: 'minigame'` → crossing pays 단련 +1, cap holds the bar at 0.999999; `trainedProgress` dropped by `migrate`, `stepTrained` / `trainedXpFor` removed; `data/constants.csv` `GYM_SESSION_XP` 100 → 560 stat-XP units); sheet header = character name + buff thumbnails (hover card), `(+n)` without `단련`, 단련 / debuff lines under stats and 레이드 / 탈출 counts removed.
 - 2026-09-16 — `SheetBody` emits `progress:statPending {total}` when the pending ＋ total changes.
 - 2026-09-16 — The crafting skill no longer speeds up crafting: `craftSpeedMul` is pinned at 1 (field kept — `DerivedStats` is add-only) and dropped from `DERIVED_PANEL_KEYS` / the sheet, so the always-×1.0 `제작 속도` row is gone; `data/skills.csv` crafting has no `derived` key and describes the material refund instead.
-- 2026-09-16 — Character-sheet XP readouts are compact (`shared/numberFormat` `formatCompactNumber`): the level bar `x / y XP` and every stat row's `x / y XP` format both sides; stat values, 단련 bonuses, percentages and timers stay exact.

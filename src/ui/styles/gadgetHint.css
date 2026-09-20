@@ -1,12 +1,15 @@
 /*
- * src/ui/styles/gadgetHint.css — 손에 든 가젯 안내 (`hud/GadgetHandHint`, 2026-09-11).
+ * src/ui/styles/gadgetHint.css — the held-gadget hint (`hud/GadgetHandHint`, 2026-09-11).
  *
- *   `.gadget-hand-hint`  크로스헤어 아래 세로 줄 묶음. 홀드 링(`.hold`, 반지름 60px + 라벨)을 비켜 92px 아래에 선다.
- *     `.ghh-row`           키캡 + 문구 한 줄. 색 = 왼쪽 띠 `--gh`:
- *                          `.ok` 설치 가능 · 조종 / `.bad` 설치 불가 사유 · 신호 범위 밖 / `.det` 기폭 / `.info` 드론 배치
+ *   `.gadget-hand-hint`  a stack of rows under the crosshair. It stands 92px down, clear of the hold ring
+ *                        (`.hold`, radius 60px + its label).
+ *     `.ghh-row`           one row of keycap + text. The colour is the left band `--gh`:
+ *                          `.ok` placeable · control / `.bad` the refusal reason · out of signal range /
+ *                          `.det` detonate / `.info` drone deploy
  *
- * 꾹 누르는 키(`R 꾹 조종`)는 공용 `.keycap.kc-hold` chevron 을 쓴다. 2026-09-15 — chevron 이 키캡 **안**으로 들어가
- * 줄이 그 자리만큼 위를 띄우던 `:has(.kc-hold)` 여백을 걷어냈다. 마우스 버튼(`설치` · `기폭`)은 공용 키캡의 마우스 그림이다.
+ * A held key (`R 꾹 조종`) uses the shared `.keycap.kc-hold` chevron. 2026-09-15 — the chevron moved **inside** the
+ * keycap, so the `:has(.kc-hold)` margin that kept that much space above the row was taken down. A mouse button
+ * (`설치` · `기폭`) is the shared keycap's mouse glyph.
  */
 
 .gadget-hand-hint {
@@ -25,7 +28,7 @@
 .ghh-row[hidden] { display: none !important; }
 .ghh-row .keycap { min-width: 20px; height: 20px; padding: 0 5px; font-size: 10px; }
 .ghh-row .keycap[hidden], .ghh-row .pre[hidden] { display: none !important; }
-/* 기폭기 손 앞머리 (`기폭기 ·`) */
+/* The detonator hand's prefix (`기폭기 ·`) */
 .ghh-row .pre { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-accent); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
 .ghh-row .txt {
   font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: var(--c-text);
@@ -36,5 +39,5 @@
 .ghh-row.bad { --gh: var(--c-danger); }
 .ghh-row.bad .txt { color: var(--c-danger); }
 
-/* 관전 중에는 손이 없다 */
+/* While spectating there is no hand */
 .hud.spectating .gadget-hand-hint { opacity: 0 !important; visibility: hidden; }

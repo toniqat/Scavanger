@@ -1,30 +1,31 @@
 /* ═══════════════════════════════════════════════════════════════════════════
- * 타이틀 흐름 (2026-09-09) — 타이틀 · 캐릭터 선택 · 캐릭터 생성.
+ * The title flow (2026-09-09) — title · character select · character create.
  *
- * `ui/styles/base.css` 는 팔레트 · `.menu` 껍데기 · `.ui-btn` / `.ui-input` / `.ui-label` / `.keycap` 을 갖고
- * 이 파일은 **그 위에 얹히는 세 화면만** 갖는다. 색 · 여백 리듬 · 트랜지션은 전부 base 의 변수를 쓴다
- * (`--c-accent`, `--c-panel-strong`, `--t-med`, `--ease` …) — 여기서 새로 정의하지 않는다.
+ * `ui/styles/base.css` owns the palette, the `.menu` shell and `.ui-btn` / `.ui-input` / `.ui-label` / `.keycap`,
+ * and this file owns **only the three screens laid over it**. Colours, the spacing rhythm and transitions all use
+ * base's variables (`--c-accent`, `--c-panel-strong`, `--t-med`, `--ease` …) — none are defined again here.
  *
- * 스크롤바 · 포커스 링도 base 가 이미 전역으로 칠했다.
- * `TitleMenu.ts` 가 `import '../styles/title.css'` 로 끌어온다 (inventory.css · tutorial.css 와 같은 방식).
+ * Scrollbars and focus rings are already painted globally by base.
+ * `TitleMenu.ts` pulls it in with `import '../styles/title.css'` (the way inventory.css · tutorial.css do).
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── 타이틀 (.menu.title.home) ────────────────────────────────────────────
-   워드마크는 화면 **위쪽 가운데**, 그 아래 버튼 셋. 액자도 배경 패널도 없다 — 배경(함선 하늘)이 그대로 보이는
-   편이 조작 다이어그램을 걷어낸 이 화면에 맞는다. `.menu.title .frame` 의 900px 상자를 덮어써야 하므로
-   선택자에 `.home` 을 하나 더 얹는다 (base.css 는 다른 담당이라 건드리지 않는다). */
+/* ── Title (.menu.title.home) ─────────────────────────────────────────────
+   The wordmark sits **top centre** with the three buttons below it. No frame and no background panel — letting the
+   background (the ship sky) show through suits this screen now that the control diagram is gone. The 900px box of
+   `.menu.title .frame` has to be overridden, so the selector carries one more `.home` (base.css belongs to another
+   owner and is left alone). */
 .menu.title.home { align-items: flex-start; justify-content: center; }
 .menu.title.home .frame {
-  /* 상자는 **내용에 맞춘다**. 워드마크는 `clamp(46px, 7vw, 84px)` 라 폭이 화면에 따라 변하는데, 고정 px 를
-     적어 두면 넓은 화면에서 프레임이 넘치고(420 → 587, 720 → 737 …) 좁은 화면에서는 남는다. 액자도 배경도
-     없는 가운데 정렬 상자이므로 max-content 가 맞는 답이다 (2026-09-09). */
+  /* The box is **sized to its content**. The wordmark is `clamp(46px, 7vw, 84px)`, so its width follows the
+     screen; a fixed px overflows the frame on a wide screen (420 → 587, 720 → 737 …) and leaves slack on a narrow
+     one. For a centred box with no frame and no background, max-content is the right answer (2026-09-09). */
   min-width: 0; width: max-content; max-width: calc(100vw - 40px);
   margin-top: clamp(64px, 16vh, 190px);
   padding: 0; gap: 46px;
   background: none; border: none; overflow: visible;
   align-items: center; text-align: center;
 }
-/* 액자 모서리 브래킷도 없앤다 (`.menu .frame::before/::after`). */
+/* The frame's corner brackets go too (`.menu .frame::before/::after`). */
 .menu.title.home .frame::before,
 .menu.title.home .frame::after { content: none; }
 
@@ -39,9 +40,10 @@
 .title-actions .ui-btn.quit { border-color: rgba(255, 255, 255, 0.18); color: var(--c-text-dim); }
 .title-actions .ui-btn.quit:hover { border-color: var(--c-danger); color: var(--c-danger); }
 
-/* ── 공통: 전체화면 하위 스크린 (캐릭터 선택 · 생성) ──────────────────────
-   타이틀(`MenuBase`)이 `'menu'` blocker 와 커서 소유권을 계속 쥐고 있고, 이 둘은 그 위에 얹히는 **화면**이다
-   (설정 오버레이와 같은 규칙 — 자기 토큰을 갖지 않는다). z-index 는 일시정지(85) 아래, 지도(40)·커뮤니티(46) 위. */
+/* ── Shared: the full-screen sub-screens (character select · create) ──────
+   The title (`MenuBase`) keeps holding the `'menu'` blocker and cursor ownership, and these two are **screens**
+   laid over it (the same rule as the settings overlay — they hold no token of their own). The z-index is below the
+   pause menu (85) and above the map (40) and the community panel (46). */
 .title-screen {
   position: absolute; inset: 0; z-index: 84;
   display: flex; flex-direction: column; align-items: center;
@@ -73,9 +75,10 @@
 .title-screen .form-msg.danger { border-left-color: var(--c-danger); color: #ffb3b3; }
 .title-screen .form-msg.info { border-left-color: var(--c-info); }
 
-/* 바닥 줄 오른쪽 끝의 결과 메시지 (2026-09-15 2차, 사용자 결정 — 캐릭터 선택). `.form-msg` 와 달리 **패널이 아니라
-   글자**다: 테두리 · 배경 · 패딩이 없고 `kind` 는 글자 색으로만 남는다. `.ts-foot` 이 `space-between` 이라
-   숨어 있을 때(`display: none`)도 `뒤로` 는 왼쪽에 그대로 서 있다. */
+/* The result message at the right end of the foot row (2026-09-15 2nd pass, user's decision — character select).
+   Unlike `.form-msg` it is **text, not a panel**: no border, no background, no padding, and `kind` survives only as
+   the text colour. `.ts-foot` is `space-between`, so `뒤로` still stands on the left even while this is hidden
+   (`display: none`). */
 .title-screen .ts-msg {
   min-width: 0; margin-left: auto; text-align: right;
   font-size: 11px; line-height: 1.5; letter-spacing: 0.04em; color: var(--c-text-dim);
@@ -86,11 +89,11 @@
 .title-screen .ts-msg.warning { color: var(--c-accent); }
 .title-screen .ts-msg.danger { color: #ffb3b3; }
 
-/* ── 캐릭터 선택 ─────────────────────────────────────────────────────────── */
+/* ── Character select ────────────────────────────────────────────────────── */
 .char-select .csl-cards {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;
   width: 100%; max-width: 1040px;
-  /* `.ts-foot` 의 `margin-top: auto` 와 짝을 이뤄 카드 줄을 머리글과 바닥 사이 가운데로 민다. */
+  /* Pairs with `.ts-foot`'s `margin-top: auto` to push the card row to the centre between head and foot. */
   margin-top: auto;
 }
 @media (max-width: 900px) { .char-select .csl-cards { grid-template-columns: 1fr; max-width: 420px; } }
@@ -108,7 +111,7 @@
 .csl-card:nth-child(3) { animation-delay: 120ms; }
 .csl-card:hover { border-color: var(--ac); transform: translateY(-3px); background: rgba(16, 19, 24, 0.92); }
 .csl-card:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 3px; }
-/* 카드 위쪽의 악센트 띠 — 그 캐릭터의 색이 카드의 색이다. */
+/* The accent band across the top of the card — that character's colour is the card's colour. */
 .csl-card .csl-bar { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--ac); }
 .csl-card .csl-slot {
   font-family: var(--ui-mono); font-size: 10px; letter-spacing: 0.24em; color: var(--c-text-faint);
@@ -129,8 +132,8 @@
 }
 .csl-card .csl-divider { height: 1px; background: var(--c-border); }
 
-/* 능력치 다섯 — 캐릭터 시트(`progression/ui/character.css` 의 `.cs-stat`)와 같은 어휘의 축소판:
-   이름은 왼쪽, 값은 오른쪽 mono, 그 아래 얇은 바. */
+/* The five stats — a miniature of the character sheet's vocabulary (`.cs-stat` in
+   `progression/ui/character.css`): the name on the left, the value on the right in mono, a thin bar under them. */
 .cc-mini { display: flex; flex-direction: column; gap: 4px; }
 .cc-mini .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .cc-mini .n { font-size: 11.5px; letter-spacing: 0.04em; color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -150,7 +153,7 @@
 .csl-card.is-active { border-color: var(--ac); }
 .csl-card.is-active .csl-slot::after { content: " · 현재"; color: var(--ac); }
 
-/* 빈 칸 */
+/* An empty slot */
 .csl-card .csl-empty-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
 .csl-card.empty { border-style: dashed; }
 .csl-card.empty .csl-plus {
@@ -164,11 +167,12 @@
 .csl-card.empty .csl-slot { position: absolute; top: 16px; left: 20px; }
 .csl-card.busy { pointer-events: none; opacity: 0.5; }
 
-/* ── 캐릭터 생성 ─────────────────────────────────────────────────────────────
-   **두 열** (2026-09-14 개편 — 시작 임플란트 선택지가 화면에서 빠지면서 옛 왼쪽 설정 열에 이름만 남았다.
-   그 카드를 능력치 카드 위에 얹어 한 열 `.cc-main` 으로 합쳤다): [이름 + 능력치] [미리보기 + 악센트].
-   1280×720 에 스크롤 없이 들어가야 한다 — 가장 높은 열은 왼쪽(이름 ~90 px + 능력치 ~370 px)이고 오른쪽
-   열은 grid 의 stretch 로 같은 높이가 된다 (미리보기 무대가 남는 높이를 채운다). */
+/* ── Character create ──────────────────────────────────────────────────────
+   **Two columns** (the 2026-09-14 rework — once the starting-implant choice left the screen, the old left settings
+   column held nothing but the name, and that card was stacked over the stats card into one `.cc-main` column):
+   [name + stats] [preview + accent].
+   It has to fit 1280×720 without scrolling — the tallest column is the left one (name ~90 px + stats ~370 px) and
+   the right column reaches the same height through the grid's stretch (the preview stage fills what is left). */
 .char-create .cc-body {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(270px, 380px); gap: 20px;
   align-items: stretch;
@@ -176,9 +180,9 @@
 }
 @media (max-width: 980px) { .char-create .cc-body { grid-template-columns: 1fr; } }
 
-/* 왼쪽 열: 이름 카드 + 능력치 카드 (카드 사이 간격은 열 간격보다 좁게).
-   이름 카드는 제 높이만, 능력치 카드가 남는 높이를 먹는다 — 옛 가운데 열이 grid stretch 로 그랬던 그대로라
-   패널 배경이 오른쪽 미리보기 열과 같은 높이로 떨어진다. */
+/* Left column: the name card + the stats card (the gap between them is tighter than the column gap).
+   The name card takes only its own height and the stats card eats what is left — exactly what the old middle
+   column did through grid stretch, so the panel background ends level with the right-hand preview column. */
 .cc-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .cc-main > .cc-stats-wrap { flex: 1; }
 
@@ -190,7 +194,7 @@
 .cc-section { display: flex; flex-direction: column; gap: 9px; }
 .cc-section > .ui-label { margin-bottom: 1px; }
 
-/* 이름 + 주사위 */
+/* Name + dice */
 .cc-name-row { display: flex; gap: 8px; }
 .cc-name-row .ui-input { flex: 1; min-width: 0; }
 .ui-btn.cc-dice {
@@ -199,7 +203,7 @@
 }
 .ui-btn.cc-dice:hover { border-color: var(--c-accent); color: var(--c-accent); }
 
-/* 악센트 스와치 — 미리보기 바로 아래 (`.cc-side > .cc-accent`) */
+/* The accent swatches — directly under the preview (`.cc-side > .cc-accent`) */
 .cc-accent { flex: none; }
 .cc-swatches { display: flex; flex-wrap: wrap; gap: 9px; }
 .cc-sw {
@@ -212,14 +216,14 @@
 .cc-sw.is-on { box-shadow: 0 0 0 2px var(--c-panel-strong), 0 0 0 3px var(--c-text); }
 .cc-sw:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 3px; }
 
-/* 2026-09-14 (사용자 결정): **시작 임플란트 블록은 통째로 없어졌다** — 큰 타일(`.cc-imp-tile`) · 컨텍스트
-   메뉴(`.cc-imp-menu`, `.sc-menu` 껍데기 재사용) · `.cc-implants` 가 전부 여기 있었다. 새 캐릭터의 임플란트는
-   `CREATE_IMPLANT_IDS[0]` 고정이라 고를 화면이 없다. */
+/* 2026-09-14 (user's decision): **the whole starting-implant block is gone** — the big tile (`.cc-imp-tile`), its
+   context menu (`.cc-imp-menu`, reusing the `.sc-menu` shell) and `.cc-implants` all lived here. A new character's
+   implant is fixed at `CREATE_IMPLANT_IDS[0]`, so there is no screen left to choose one on. */
 
-/* 오른쪽 열: 미리보기 + 그 아래 악센트 */
+/* Right column: the preview + the accent swatches under it */
 .cc-side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 
-/* 3D 미리보기 — 열의 남는 높이를 채운다 (grid stretch). */
+/* The 3D preview — it fills the height left in the column (grid stretch). */
 .cc-preview {
   position: relative; display: flex; flex-direction: column;
   flex: 1; min-height: clamp(220px, 34vh, 400px);
@@ -228,7 +232,7 @@
 }
 .cc-preview .cc-stage { position: relative; flex: 1; min-height: 0; }
 .cc-preview .cc-stage canvas { display: block; width: 100%; height: 100%; }
-/* 바닥 원반 · 스캔라인 — 홀로그램 대좌처럼 읽히게 하는 순수 CSS 장식 */
+/* The floor disc and the scanlines — pure CSS decoration that makes the stage read as a hologram plinth */
 .cc-preview .cc-stage::before {
   content: ""; position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%);
   width: 62%; height: 46px; border-radius: 50%;
@@ -245,7 +249,8 @@
 }
 .cc-preview .cc-nogl[hidden] { display: none; }
 
-/* 능력치 (가운데 열, 세로 다섯 줄) — `progression/ui/character.css` 의 `.cs-stat` 을 그대로 옮긴 어휘 */
+/* The stats (middle column, five rows down) — the vocabulary of `.cs-stat` in `progression/ui/character.css`,
+   moved over as it is */
 .char-create .cc-stats-wrap {
   display: flex; flex-direction: column; gap: 12px;
   min-width: 0;
@@ -285,18 +290,18 @@
   min-width: 0; width: 30px; height: 30px; padding: 0; flex: none;
   font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
-/* ◀ 와 ▶ 는 같은 주황 — 못 누르는 쪽만 흐려진다. */
+/* ◀ and ▶ are the same amber — only the side that cannot be pressed dims. */
 .cc-stat .ui-btn.step.up,
 .cc-stat .ui-btn.step.down { border-color: var(--c-accent); color: var(--c-accent); background: rgba(255, 179, 71, 0.08); }
 .cc-stat .ui-btn.step:disabled { opacity: 0.26; pointer-events: none; border-color: var(--c-border); color: var(--c-text-dim); background: none; }
 
 .char-create .ts-foot .ui-btn.primary { min-width: 180px; }
-/* 점수가 남아 있는 동안 `확정` 은 잠긴다 — `title` 툴팁이 이유를 말한다. */
+/* While points remain, `확정` stays locked — the `title` tooltip says why. */
 .char-create .ts-foot .ui-btn.primary:disabled { opacity: 0.45; cursor: not-allowed; }
 
-/* ── 경고 / 확인 팝업 (`menus/askPopup`) ─────────────────────────────────────
-   `.pause-ask` 와 같은 모양·같은 규칙(Escape 취소 · **Enter 는 먹고 아무 일도 안 한다** · 위험한 확정은
-   1초 홀드)이되 자기 화면 위에 뜬다. */
+/* ── The warning / confirm popup (`menus/askPopup`) ─────────────────────────
+   The same shape and the same rules as `.pause-ask` (Escape cancels · **Enter is swallowed and does nothing** · a
+   dangerous confirm needs a 1 s hold), but it opens over its own screen. */
 .tm-ask {
   position: absolute; inset: 0; z-index: 5;
   display: flex; align-items: center; justify-content: center;
@@ -314,34 +319,37 @@
 .tm-ask-title { font-size: 16px; font-weight: 700; letter-spacing: 0.16em; }
 .tm-ask.danger .tm-ask-title { color: var(--c-danger); }
 .tm-ask-body { font-size: 12px; line-height: 1.75; letter-spacing: 0.02em; color: var(--c-text-dim); white-space: pre-line; }
-/* 2026-09-15 2차 (사용자 결정): 옛 안내 줄 `.tm-ask-hint` 는 없어졌다 — 「어떻게 누르는가」는 확인 버튼 안
-   라벨 왼쪽의 좌클릭 홀드 키캡(`.keycap.kc-btn`, `base.css`)이 말한다. 홀드 확인에만 붙는다. */
+/* 2026-09-15 2nd pass (user's decision): the old hint row `.tm-ask-hint` is gone — "how it is pressed" is said by
+   the left-click hold keycap (`.keycap.kc-btn`, `base.css`) left of the label inside the confirm button. It is
+   attached to a hold confirm only. */
 .tm-ask-foot { display: flex; gap: 8px; padding-top: 4px; }
-/* `.ui-btn` 의 `min-width: 220px` 를 되돌린다 — 되돌리지 않으면 440 px 짜리 한 쌍이 카드(440 px) 밖으로 밀린다
-   (`base.css` 의 `.pause-ask-foot` 가 2026-09-09 에 고친 것과 같은 함정). */
+/* Undoes `.ui-btn`'s `min-width: 220px` — without that a pair of 440 px buttons is pushed outside the card
+   (440 px), the same trap `.pause-ask-foot` in `base.css` fixed on 2026-09-09. */
 .tm-ask-foot .ui-btn {
   position: relative; overflow: hidden;
   flex: 1 1 0; min-width: 0; height: 38px; padding: 0 14px;
   font-size: 11px; letter-spacing: 0.14em; white-space: nowrap;
 }
-/* 1초 홀드 채움 (`UI_HOLD_CONFIRM_S`) — 제작 / 분해 / 파티 떠나기와 같은 어휘. */
+/* The 1 s hold fill (`UI_HOLD_CONFIRM_S`) — the same vocabulary as `제작` / `분해` / `파티 떠나기`. */
 .tm-ask-fill {
   position: absolute; left: 0; top: 0; bottom: 0; width: 0;
   background: color-mix(in srgb, var(--c-danger) 45%, transparent);
   pointer-events: none;
 }
-/* 2026-09-14: 붉지 않은 홀드 확인 (`AskSpec.hold` — 캐릭터 `만들기`). 채움만 악센트 색이다. */
+/* 2026-09-14: a hold confirm that is not red (`AskSpec.hold` — the character `만들기`). Only the fill takes the
+   accent colour. */
 .tm-ask:not(.danger) .tm-ask-fill { background: rgba(255, 179, 71, 0.3); }
 .tm-ask-body[hidden], .tm-ask-content[hidden] { display: none; }
 
-/* ── 캐릭터 확정 요약 카드 (2026-09-14, 사용자 결정 — `CharacterCreate.buildSummary`) ─────────────────────
-   왼쪽 = 이름 한 줄 + 능력치 다섯, 오른쪽 = 얼굴 정지 썸네일(`SoldierPreview.snapshotFace`,
-   캔버스 비율의 이미지를 `object-fit: cover` 로 정사각형으로 자른다). 카드가 두 열이라 폭만 넓힌다.
+/* ── The character confirm summary card (2026-09-14, user's decision — `CharacterCreate.buildSummary`) ─────
+   Left = the name on one row + the five stats, right = the still face thumbnail (`SoldierPreview.snapshotFace`,
+   a canvas-ratio image cropped square with `object-fit: cover`). The card is two columns, so only its width grows.
 
-   2026-09-15 2차 (사용자 결정): 능력치가 **가로 5열 → 세로 5행**이다. 한 행은 `[이름] [게이지] [값]` 세 칸
-   격자이고 `--cf-name` 하나가 첫 칸의 폭을 정한다 — 이름 줄의 `이름` 라벨도 같은 폭이라 왼쪽 모서리가 세로로
-   맞는다. 게이지가 `1fr` 로 남는 폭을 다 쓰고 값은 오른쪽에서 `tabular-nums` 로 서므로 자릿수가 바뀌어도
-   게이지 끝이 흔들리지 않는다. 세로로 서면서 왼쪽 열이 좁아져도 되므로 카드 폭을 620 → 560 으로 줄였다. */
+   2026-09-15 2nd pass (user's decision): the stats went **from five columns across to five rows down**. A row is a
+   three-cell grid `[name] [gauge] [value]` and `--cf-name` alone sets the first cell's width — the `이름` label on
+   the name row is the same width, so the left edges line up vertically. The gauge takes all the width left at
+   `1fr` and the value stands on the right in `tabular-nums`, so the gauge's end does not shift when the digit
+   count changes. Standing them vertically lets the left column be narrower, so the card width dropped 620 → 560. */
 .tm-ask-card.cc-confirm-card { width: min(560px, calc(100vw - 48px)); }
 .cc-confirm { --cf-name: 52px; display: flex; align-items: stretch; gap: 18px; }
 .cc-cf-main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
@@ -375,18 +383,19 @@
 }
 .cc-cf-face img { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; -webkit-user-drag: none; }
 
-/* 하위 화면(캐릭터 선택 · 생성)이 떠 있는 동안 타이틀 본체는 눈에서만 사라진다 — blocker 와 커서 소유권은
-   계속 `MenuBase` 가 쥐고 있어야 하므로 `hide()` 를 부르지 않고 프레임만 지운다. */
+/* While a sub-screen (character select · create) is up, the title body disappears from sight only — `MenuBase`
+   has to keep holding the blocker and cursor ownership, so `hide()` is never called and only the frame clears. */
 .menu.title.home.stacked .frame,
 .menu.title.home.stacked .version,
 .menu.title.home.stacked .kb-notice { opacity: 0; transition: opacity var(--t-fast) var(--ease); }
 .menu.title.home.stacked .kb-notice { pointer-events: none; }
 
-/* ── 옛 키 설정 알림 (2026-09-11, C-9 · X-8) ─────────────────────────────
-   `menus/keybindNotice` — 부팅 때 옛 `scav.keybinds` 가 새 기본 키와 겹치거나 없어진 기능의 줄을 들고 있으면 타이틀
-   아래쪽 가운데에 한 번 뜬다. 경고지만 빨강이 아니라 악센트(호박)다 — 고장이 아니라 "확인하세요" 다. */
+/* ── The old-keybind notice (2026-09-11, C-9 · X-8) ───────────────────────
+   `menus/keybindNotice` — at boot, if the saved `scav.keybinds` collides with a new default key or holds a row for
+   an action that is gone, this shows once at the bottom centre of the title. It is a warning, but amber rather
+   than red — nothing is broken, it only asks to be checked. */
 .kb-notice {
-  /* 가운데 정렬은 transform 이 아니라 margin auto — `menuIn` 이 transform 을 쓴다. */
+  /* Centring is margin auto, not transform — `menuIn` already uses transform. */
   position: absolute; left: 0; right: 0; margin: 0 auto; bottom: clamp(28px, 7vh, 72px);
   width: min(460px, calc(100vw - 40px));
   display: flex; flex-direction: column; gap: 8px;
@@ -409,9 +418,11 @@
 .kb-notice .kbn-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 .kb-notice .kbn-foot .ui-btn { height: 30px; padding: 0 14px; font-size: 11px; letter-spacing: 0.12em; }
 
-/* ── 이어하기 · 레이드 포기 (2026-09-15, 사용자 결정 — `menus/TitleMenu.paintResume` · `menus/raidResumeCard`) ──────────
-   레이드가 남아 있으면 `이어하기` 가 `게임 시작` 위에 **채워진 악센트**로 서고, `게임 시작` 은 붉은 경고색이 된다 (그 버튼은
-   포기 팝업만 연다). `.ui-btn` 이 `display` 를 세우므로 숨김에는 `[hidden]` 규칙이 따로 있어야 한다. */
+/* ── Title resume · abandon (2026-09-15, user's decision — `menus/TitleMenu.paintResume` ·
+   `menus/raidResumeCard`) ────────────────────────────────────────────────
+   With a raid remaining, `이어하기` stands above `게임 시작` in **filled accent** and `게임 시작` turns the red
+   warning colour (that button opens nothing but the abandon popup). `.ui-btn` sets `display`, so hiding one needs
+   a `[hidden]` rule of its own. */
 .title-actions .ui-btn[hidden] { display: none; }
 .title-actions .ui-btn.title-resume {
   background: rgba(255, 179, 71, 0.22); color: #ffd18a;
@@ -424,9 +435,11 @@
 }
 .title-actions .ui-btn.title-warn:hover { background: color-mix(in srgb, var(--c-danger) 20%, transparent); color: #ff8a8a; }
 
-/* 포기 팝업 (`.tm-ask` 카드 + `trs-card`) — 터미널 매칭 탭(`hub/intel.css` 의 `.hmt-`)과 같은 정사각 초상 4칸이다. 폴더마다
-   접두사가 달라 모양만 옮겨 적었다. 확인 줄은 오른쪽 아래에 `[닫기] [레이드 포기]` 로 모인다 (`AskPopup` 의 버튼 순서 그대로).
-   칸 크기는 창 너비 · 높이 둘 다에 묶는다 — 4칸 + 두 줄 경고 + 버튼 줄이 1280×720 에서 넘치지 않게. */
+/* The abandon popup (a `.tm-ask` card + `trs-card`) — the same four square face tiles as the terminal match tab
+   (`.hmt-` in `hub/intel.css`). Prefixes differ per folder, so only the shape was copied over. The confirm row
+   gathers at the bottom right as `[닫기] [레이드 포기]` (exactly `AskPopup`'s button order).
+   The tile size is tied to both the window's width and its height — four tiles + a two-row warning + the button
+   row must not overflow 1280×720. */
 .tm-ask-card.trs-card { width: min(760px, calc(100vw - 48px)); gap: 14px; }
 .trs-card .tm-ask-foot { justify-content: flex-end; }
 .trs-card .tm-ask-foot .ui-btn { flex: 0 0 auto; min-width: 150px; }

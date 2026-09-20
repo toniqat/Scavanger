@@ -1,15 +1,17 @@
 /*
- * 낙하 붉은 비네트 (hud/FallVignette, 2026-09-15, TODO B-14).
+ * The red fall vignette (hud/FallVignette, 2026-09-15, TODO B-14).
  *
- * 떨어져서 실제로 깎였을 때(`player:fell`) 화면 가장자리 · 아래쪽이 붉게 번졌다가 `FALL_VIGNETTE_S` 에 걸쳐 사라진다.
- * 세기 · 사라짐은 **전부 `update(dt)` 가 인라인 `opacity` 로** 쓴다 — CSS 전이를 쓰지 않는 이유는 둘이다: 시뮬레이션 시간을
- * 따라야 하고(일시정지 · 셰이더 hold 에 멈춘다), `prefers-reduced-motion` 에서 base.css 가 전이를 0 으로 자른다.
- * 0 이 되면 `hidden` 이라 합성 레이어도 없다.
+ * When a fall actually took HP (`player:fell`) the screen's edges · bottom bleed red and then fade out over
+ * `FALL_VIGNETTE_S`. Strength and fade are **written entirely by `update(dt)` as an inline `opacity`** — there are
+ * two reasons not to use a CSS transition: it has to follow simulation time (it stops on a pause · a shader hold),
+ * and under `prefers-reduced-motion` base.css cuts transitions to 0. At 0 it is `hidden`, so there is no
+ * compositing layer either.
  *
- * **z-index 25 의 근거**: HUD 레이어(`.hud` — z 없음, 오버레이 · 게임플레이 · 소셜) **위**, 그러나 재개 게이트(30) ·
- * 지도(40) · 커뮤니티(46) · 인벤토리 창(50 +) · 검은 페이드(82) · 메뉴류(83 +) **아래**다. 낙하는 레이드 한가운데의
- * 짧은 연출이라 크로스헤어 · 체력 위에 번져야 하지만, 열린 화면을 물들일 이유는 없다. 포인터를 먹지 않는다.
- * 접두사 `.fall-` 는 `rg "\.fall-" src` 로 비어 있음을 확인했다.
+ * **Why z-index 25**: **above** the HUD layers (`.hud` — no z, overlay · gameplay · social), but **below** the
+ * resume gate (30) · the map (40) · the community panel (46) · the inventory window (50 +) · the black fade (82) ·
+ * the menus (83 +). A fall is a short presentation in the middle of a raid, so it has to bleed over the crosshair ·
+ * the health bar, but there is no reason for it to colour an open screen. It eats no pointer events.
+ * The `.fall-` prefix was checked to be free with `rg "\.fall-" src`.
  */
 .fall-vignette {
   position: absolute; inset: 0; z-index: 25;

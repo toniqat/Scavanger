@@ -1,29 +1,32 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * 레이드 HUD 개편 (2026-09-10) — 네 위젯 전용 스타일시트.
+ * The raid HUD rework (2026-09-10) — a stylesheet for four widgets only.
  *
- *   hud/Objective    좌측 상단: 목표 문구를 버리고 **임무 시간만** 남긴 시계
- *   hud/WeaponPanel  우측 하단: 슬롯 칸 · 무기 이름을 버린 **가로로 긴 상자**(`.wbox`)
- *                    — 틀 없는 썸네일 ← → 큰 잔탄 `24 / 120` → 분류 태그, 바닥에 내구도 바,
- *                    상자 왼쪽 바깥에 다른 주무기 썸네일 + 키캡 (2026-09-16)
- *   hud/QuickStrip   그 바로 위: 54 px 썸네일 + `T` 키캡
- *   hud/Vitals       좌측 하단: 이름 · 실드 게이지(20 단위 칸, 방탄복 등급색) 위 · 체력 게이지 5등분 아래
+ *   hud/Objective    top left: the clock, with the objective text dropped and **the mission clock alone** left
+ *   hud/WeaponPanel  bottom right: a **wide box** (`.wbox`) with the slot cells and the weapon name dropped
+ *                    — a frameless thumbnail ← → the big `24 / 120` → the type tag, the durability bar along the
+ *                    bottom, the other primary's thumbnail + keycap outside the box on the left (2026-09-16)
+ *   hud/QuickStrip   directly above it: a 54 px thumbnail + the `T` keycap
+ *   hud/Vitals       bottom left: the name · the shield gauge (cells of 20, the armor's rarity colour) above · the
+ *                    hp gauge in five cells below
  *
- * `base.css` 는 건드리지 않는다 (`hazard.css` · `rescuePicker.css` 와 같은 규약). 같은 클래스를 다시 칠해야 하는
- * 자리는 전부 `.hud` 를 한 단계 더 붙여 **specificity 로** 이긴다 — 이 파일과 base.css 의 로드 순서에 기대지 않는다.
- * 색 · 트랜지션 변수는 전부 base.css `:root` 것을 쓰고 여기서 새 색을 정의하지 않는다.
+ * `base.css` is left alone (the same convention as `hazard.css` · `rescuePicker.css`). Everywhere a class has to be
+ * repainted, one more `.hud` is prefixed so it wins **on specificity** — nothing relies on the load order of this
+ * file and base.css.
+ * Colour and transition variables all come from base.css's `:root`; no new colour is defined here.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/* ── 튜토리얼 HUD 점진 노출 (2026-09-14) ─────────────────────────────────────
- * `ctx.tutorial?.hides('hud', <part>)` 가 true 인 동안 그 위젯을 통째로 접는다. 위젯마다 이미 쓰는 `hidden` ·
- * `.show` · `.off` 와 **싸우지 않도록** 클래스 하나로 가르고 `!important` 로 끝낸다 — 튜토리얼이 꺼져 있으면
- * 아무도 이 클래스를 달지 않으므로 평소 화면이 한 글자도 바뀌지 않는다.
- * 이름을 `.hud-tut-hidden` 으로 둔 것은 규약이다: HUD 위젯 클래스(`.hold` · `.weapon` …)와 겹치는 modifier 를
- * 만들지 않는다 (2026-09-10 `kc-hold` 사고).
+/* ── The gradual tutorial HUD reveal (2026-09-14) ──────────────────────────
+ * While `ctx.tutorial?.hides('hud', <part>)` is true, that widget folds away entirely. So as **not to fight** the
+ * `hidden` · `.show` · `.off` each widget already uses, one class decides it and `!important` ends the argument —
+ * with the tutorial off nobody puts this class on anything, so the ordinary screen does not change by one letter.
+ * Naming it `.hud-tut-hidden` is a convention: never make a modifier that collides with a HUD widget class
+ * (`.hold` · `.weapon` …) — the 2026-09-10 `kc-hold` incident.
  * ────────────────────────────────────────────────────────────────────────── */
 .hud-tut-hidden { display: none !important; }
 
-/* ── 임무 시간 (좌측 상단) ─────────────────────────────────────────────── */
-/* 목표 문구가 사라져 한 줄만 남았다 — 시계는 보조 텍스트가 아니라 이 블록의 주인공이므로 커진다. */
+/* ── The mission clock (top left) ──────────────────────────────────────── */
+/* The objective text is gone and one row is left — the clock is this block's subject rather than supporting text,
+   so it grows. */
 .hud .objective { gap: 0; }
 .hud .objective .head { gap: 10px; }
 .hud .objective .head::before { width: 7px; height: 7px; }
@@ -34,11 +37,14 @@
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 }
 
-/* ── 무기 패널 (우측 하단) ─────────────────────────────────────────────── */
-/* 슬롯 칸(1 · 2 · T)과 무기 이름이 빠진 만큼 남은 요소가 커진다: 썸네일 76 px · 잔탄 64 px.
-   2026-09-10 (2차): 그 총기 표시를 **가로로 긴 한 상자**(`.wbox`)로 감쌌다 — 아이콘만 떠 있지 않고
-   패널로 읽힌다. 상자 안 순서는 [등급색 썸네일] [24 / 120] … [분류 태그] 한 줄 + 바닥의 내구도 바.
-   `.modes`(유니크 사격 모드)는 상자 **밖**에 있다. 옛 소모품 모드(`.weapon.consumable` · `.cons`)는 2026-09-16 에 없앴다. */
+/* ── The weapon panel (bottom right) ───────────────────────────────────── */
+/* What is left grows by as much as the slot cells (1 · 2 · T) and the weapon name gave up: thumbnail 76 px,
+   ammo 64 px.
+   2026-09-10 (2nd pass): that gun readout was wrapped in **one wide box** (`.wbox`) — it reads as a panel instead
+   of a floating icon. Inside the box the order is one row of [rarity-coloured thumbnail] [24 / 120] … [type tag]
+   plus the durability bar along the bottom.
+   `.modes` (a unique's fire modes) is **outside** the box. The old consumable mode (`.weapon.consumable` ·
+   `.cons`) was removed on 2026-09-16. */
 .hud .weapon .wbox {
   position: relative;
   box-sizing: border-box;
@@ -47,8 +53,9 @@
   border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.32);
 }
 .hud .weapon .wbox .ammo-row { align-items: center; gap: 16px; }
-/* 2026-09-16 (사용자 결정): 썸네일은 **틀 없이** 아이템 칩만 — 옛 등급색 정사각 테두리 · 바탕 · 글로우를 걷어냈다
-   (칩 자신이 등급색이다). 빈 상태에서도 자리 폭은 그대로라 잔탄 숫자가 움직이지 않는다. */
+/* 2026-09-16 (user's decision): the thumbnail is the item chip **with no frame** — the old rarity-coloured square
+   border, background and glow were taken down (the chip carries the rarity colour itself). Its width is held even
+   in the empty state, so the ammo numbers never move. */
 .hud .weapon .wthumb {
   flex: none;
   width: 58px; height: 58px; padding: 0;
@@ -56,50 +63,56 @@
   border: none; background: none; box-shadow: none;
 }
 .hud .weapon .wthumb .wt-icon { width: 58px; height: 58px; }
-/* 2026-09-16: 주무기가 하나도 없다 — 패널은 남고 `—` · `주무기 없음` 만 흐리게. 내구도 바 · 예비탄은 읽을 것이 없다. */
+/* 2026-09-16: no primary at all — the panel stays and only `—` · `주무기 없음` are drawn dim. The durability bar
+   and the reserve have nothing to read. */
 .hud .weapon.wp-empty .mag { color: var(--c-text-faint); }
 .hud .weapon.wp-empty .reserve,
 .hud .weapon.wp-empty .wbox .dura { visibility: hidden; }
-/* 2026-09-16: 주무기가 아닌 것을 들었다(빠른 사용 · 근접 · 임플란트 · 전투불능) — 큰 패널은 마지막 주무기를 흐리게 보여 준다.
-   옆 썸네일(`.wp-side`)은 흐리지 않는다: 그 칸은 「누르면 뽑을 무기」라 손과 상관없다. */
+/* 2026-09-16: something other than a primary is in hand (quick use · melee · implant · downed) — the big panel
+   shows the last primary dimmed. The side thumbnail (`.wp-side`) is not dimmed: that cell is the weapon a press
+   would draw, which has nothing to do with the hand. */
 .hud .weapon.wp-dim .wbox > .ammo-row,
 .hud .weapon.wp-dim .wbox > .dura,
 .hud .weapon.wp-dim > .modes { opacity: 0.38; }
-/* 2026-09-16: 다른 주무기 — 상자의 **왼쪽 바깥**, 세로 가운데. 위에 그 슬롯의 키캡(`shared/keycap`), 아래 40 px 칩
-   (`hud/WeaponPanel` 의 `SIDE_THUMB_SIZE`). 상자 안의 절대 위치라 `.weapon` 의 자식 순서 · 상자 높이는 그대로다. */
+/* 2026-09-16: the other primary — **outside the box on the left**, vertically centred. That slot's keycap above
+   (`shared/keycap`), a 40 px chip below (`SIDE_THUMB_SIZE` in `hud/WeaponPanel`). It is absolutely positioned
+   inside the box, so `.weapon`'s child order and the box height are unchanged. */
 .hud .weapon .wp-side {
   position: absolute; right: calc(100% + 10px); top: 50%; transform: translateY(-50%);
   display: flex; flex-direction: column; align-items: center; gap: 4px;
 }
 .hud .weapon .wp-side .wp-side-key { min-width: 18px; height: 17px; padding: 0 5px; font-size: 10px; color: var(--c-text-dim); }
 .hud .weapon .wp-side .item-chip { pointer-events: none; }
-/* 잔탄 · 예비탄은 한 줄(`24 / 120`) — `예비` 라벨은 걷어내고 base.css 의 `/ ` 구분자로 돌아간다. */
+/* The magazine and the reserve are one row (`24 / 120`) — the `예비` label is taken down and base.css's `/ `
+   separator comes back. */
 .hud .weapon .wbox .ammo-nums { flex-direction: row; align-items: flex-end; gap: 10px; }
 .hud .weapon .mag { font-size: 64px; }
 .hud .weapon .reserve { font-size: 18px; margin-bottom: 8px; color: var(--c-text-dim); }
-/* 분류 태그는 상자의 **오른쪽 끝**으로 밀린다 — 가로로 긴 패널이라는 뜻이다. */
+/* The type tag is pushed to the **right end** of the box — which is what says it is a wide panel. */
 .hud .weapon .wbox .name-row { margin-left: auto; }
-/* 내구도 바는 상자 **바닥**의 게이지다. 상자 밖에 있을 때는 빠른 사용 칸과 패널을 가르는 흰 구분선으로 읽혔다. */
+/* The durability bar is the gauge along the **bottom** of the box. While it sat outside the box it read as a
+   white divider between the quick-use cell and the panel. */
 .hud .weapon .wbox .dura { width: 100%; height: 2px; }
 
-/* ── 퀵슬롯 썸네일 (무기 패널 바로 위) ─────────────────────────────────── */
-/* 60 → 90 px (1.5배) 로 키웠다가 **그 0.6배인 54 px** 로 되돌렸다 (2026-09-10 2차).
-   칸 번호 · 방향 화살표 대신 실제 바인딩된 빠른 사용 키캡을 단다.
-   칩 크기는 `hud/QuickStrip` 의 `THUMB` 라 **둘을 같이** 고친다. */
+/* ── The quick-slot thumbnail (directly above the weapon panel) ─────────── */
+/* It grew 60 → 90 px (×1.5) and then came back to **54 px, 0.6 of that** (2026-09-10 2nd pass).
+   Instead of a cell number and direction arrows it carries the real bound quick-use keycap.
+   The chip size is `THUMB` in `hud/QuickStrip`, so **the two are changed together**. */
 .hud .qstrip.is-single .qs-body { width: 54px; height: 54px; }
 .hud .qstrip.is-single .qs-cell { padding: 5px 5px 4px; }
 .hud .qstrip .qs-cell .qs-key { min-width: 18px; height: 17px; padding: 0 5px; font-size: 10px; color: var(--c-text-dim); }
 .hud .qstrip .qs-cell.is-hand .qs-key { color: var(--c-accent); border-color: var(--c-accent); }
 
-/* ── 체력 · 실드 (좌측 하단) ───────────────────────────────────────────── */
+/* ── Hp and shield (bottom left) ───────────────────────────────────────── */
 .hud .vitals { gap: 6px; min-width: 260px; }
-/* 이름: 실드 게이지 좌측 상단. 방탄복이 없으면 게이지가 접히고 이 줄만 남는다. */
+/* The name: top left of the shield gauge. With no armor the gauge folds away and only this row is left. */
 .hud .vitals .vt-name {
   font-size: 12px; font-weight: 600; letter-spacing: 0.14em;
   color: var(--c-text-dim); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px;
 }
-/* 실드 칸: 체력과 같은 폭 · 같은 눈금(한 칸 = 20). 칸 색은 방탄복 등급색(`--shc`). */
+/* The shield cells: the same width and the same scale as hp (one cell = 20). The cell colour is the armor's
+   rarity colour (`--shc`). */
 .hud .vitals .sh-bar {
   --sh-cells: 5;
   position: relative; width: 240px; height: 8px;
@@ -117,21 +130,27 @@
   transform-origin: left; will-change: transform;
   box-shadow: 0 0 8px -2px var(--shc, var(--r-common));
 }
-/* 체력: 5등분 (한 칸 = 20). 경계가 보이도록 칸 사이 간격은 base.css 의 2 px 를 그대로 쓴다. */
+/* Hp: five cells (one cell = 20). The gap between cells keeps base.css's 2 px so the boundaries stay visible. */
 .hud .vitals .hp-bar { width: 240px; height: 10px; margin-bottom: 0; }
-/* '생명력' 라벨은 사라졌다 — 라벨 자리는 전투불능 문구 전용이다. */
+/* The `생명력` label is gone — the label's place belongs to the downed caption alone. */
 .hud .vitals > .ui-label { display: none; }
 .hud .vitals.downed > .ui-label { display: block; }
 
-/* ── 이륙 연출 (2026-09-13 탈출 개편 → 2026-09-16 개편, `ui:cinematic` → HudSystem.setCinematic) ─────────────────────
-   2026-09-16 (사용자 결정): 이륙이 시작되면 **남은 HUD 가 전부** 사라진다 (옛 규칙의 「채팅 · 알림 · 분대 목록은 남는다」를 뒤집음).
-   ① 크로스헤어와 조준점 둘레의 링은 **즉시** — 「함선이 뜨는데 크로스헤어가 보인다」. 전이도 끈다 (`.reticle` 의 `--t-fast`).
-      `!important` 는 `.hud.spectating` 규칙과 같은 이유 — 크로스헤어가 인라인 opacity 를 쓴다.
-   ② 나머지는 `#ui-root.hud-cine` 아래의 목록이 **한꺼번에** 페이드한다. 값(`--cine-o` 1 → 0)은 CSS 전이가 아니라 HudSystem 이
-      `EXTRACTION_HUD_FADE_S` 에 걸쳐 프레임마다 쓴다 — reduced motion 이면 전이가 0.01 ms 로 잘린다(이 개발 PC). `opacity` 가 아니라
-      `filter: opacity()` 인 이유: 각 요소의 자기 opacity(`.hud.hidden` · 인라인)와 곱해져 숨은 것이 드러나지 않고, 어느 전이 목록에도
-      없어 늦게 따라가지 않는다. 다 사라지면 `.hud-cine-out` 이 visibility 까지 끈다.
-      목록에 없는 것은 그대로다: `.screen-fade` · `.ldg` 로딩 게이지 · `.menu`(일시정지 · 설정 · 결과 화면) · 지도 같은 화면. */
+/* ── The liftoff cinematic (the 2026-09-13 extraction rework → the 2026-09-16 rework, `ui:cinematic` →
+   HudSystem.setCinematic) ────────────────────────────────────────────────
+   2026-09-16 (user's decision): once liftoff starts, **all remaining HUD** disappears (reversing the old rule that
+   chat, notifications and the squad list stay).
+   ① The crosshair and the rings around the aim point go **at once** — "the ship is lifting off and the crosshair
+      is still there". Their transition is turned off too (`.reticle`'s `--t-fast`). `!important` is here for the
+      same reason as the `.hud.spectating` rule — the crosshair writes an inline opacity.
+   ② Everything else fades **together**, as the list under `#ui-root.hud-cine`. The value (`--cine-o` 1 → 0) is not
+      a CSS transition: HudSystem writes it every frame over `EXTRACTION_HUD_FADE_S`, because reduced motion clips a
+      transition to 0.01 ms (this development PC). It is `filter: opacity()` rather than `opacity` so that it
+      multiplies with each element's own opacity (`.hud.hidden` · inline) and never reveals something hidden, and
+      so that it is in no transition list and never lags behind. Once everything is gone, `.hud-cine-out` turns
+      visibility off as well.
+      What is not on the list is untouched: `.screen-fade` · the `.ldg` loading gauge · `.menu` (pause · settings ·
+      the results screen) · screens such as the map. */
 .hud.cinematic :is(.reticle, .hub-dot, .hold, .reload, .heal, .cook, .charge, .wcharge) {
   opacity: 0 !important; visibility: hidden; transition: none;
 }

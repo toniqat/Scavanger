@@ -1,5 +1,5 @@
 /* ============================================================================
- * SCAVANGER — 캐릭터 시트 (progression). Reuses .menu / .frame / .ui-* from ui/styles/base.css.
+ * SCAVANGER — the character sheet (progression). Reuses .menu / .frame / .ui-* from ui/styles/base.css.
  * ========================================================================== */
 
 /* Above the HUD and the inventory overlay (z-index 50) — the sheet is a full-screen modal. */
@@ -21,7 +21,7 @@
 .menu.char-sheet .frame::before { left: 0; top: 0; }
 .menu.char-sheet .frame::after { right: 0; bottom: 0; }
 
-/* ── embedded 캐릭터 tab (Phase 8) ────────────────────────────────────────────
+/* ── The embedded `캐릭터` tab (Phase 8) ──────────────────────────────────────
    `ProgressionRef.createSheetView(host)` builds the same body into the inventory Tab screen's host element.
    No `.menu` / `.frame` chrome here — the inventory window owns the panel, the blur and the tabs. */
 .cs-embed {
@@ -34,7 +34,8 @@
 .cs-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
 .cs-head .hl { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .cs-head .title { font-size: 26px; letter-spacing: 0.18em; }
-/* 2026-09-17 (사용자 결정): the name, large, where `캐릭터` was — the buff / debuff thumbnails (`ui/hud/BuffStrip`, interactive) follow it */
+/* 2026-09-17 (user's decision): the name, large, where `캐릭터` was — the buff / debuff thumbnails
+   (`ui/hud/BuffStrip`, interactive) follow it */
 .cs-head .pg-namerow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
 .cs-head .title.pg-name {
   font-size: 34px; font-weight: 700; letter-spacing: 0.06em; line-height: 1.1;
@@ -64,7 +65,7 @@
 
 /* ── body ────────────────────────────────────────────────────────────────── */
 /* 2026-09-07: three columns — 능력치 | 숙련도 | 전술 임플란트 (파생 능력치 keeps the full width underneath). */
-/* 2026-09-08: 임플란트 열이 인벤토리로 빠져 능력치 | 숙련도 두 열이 되었다. */
+/* 2026-09-08: the implant column moved into the inventory, leaving the two columns `능력치` | `숙련도`. */
 .cs-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 26px; }
 .cs-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .cs-col > .ui-label { display: flex; align-items: center; gap: 10px; }
@@ -147,11 +148,13 @@
 .cs-stat .v .ib { font-size: 12px; font-weight: 600; color: #e39cff; }
 .cs-stat.has-bonus .v { min-width: 0; white-space: nowrap; }
 
-/* A-3a 헬스장: `10 (+2) (+1)` — the 단련 span after the implant one, in its own colour.
-   2026-09-17: the `.gy` 단련 progress / debuff countdown line under the stat is gone (stat-XP bar + name-row thumbnails). */
+/* A-3a gym: `10 (+2) (+1)` — the training span after the implant one, in its own colour.
+   2026-09-17: the `.gy` training progress / debuff countdown line under the stat is gone (the stat-XP bar and
+   the name-row thumbnails replaced it). */
 .cs-stat .v .tb { font-size: 12px; font-weight: 600; color: var(--c-info); }
 
-/* ══ 2026-09-13 — 배분 확정 · 툴팁 · 연결 강조 · 임플란트 썸네일 (`.pg-*`, 이 폴더의 새 접두사) ══════════════════════ */
+/* ══ 2026-09-13 — allocation confirm · tooltip · linked-row highlight · implant thumbnails
+   (`.pg-*`, this folder's new prefix) ══════════════════════════════════════════════════════════════════ */
 /* hover names carry the in-game tooltip */
 .cs-stat .n, .cs-skill .n {
   cursor: help; text-decoration: underline dotted rgba(255, 255, 255, 0.22); text-underline-offset: 3px;
@@ -172,10 +175,12 @@
 .pg-alloc .ui-btn { min-width: 0; height: 32px; padding: 0 14px; font-size: 11px; letter-spacing: 0.1em; overflow: hidden; }
 .pg-alloc .ui-btn:disabled { opacity: 0.32; pointer-events: none; }
 .pg-confirm .pg-label { position: relative; }
-/* 2026-09-15 (사용자 결정): 확정 버튼 안의 좌클릭 홀드 키캡은 **마우스 그림이 흰색, chevron 만 강조색**이다.
-   그림(`shared/keycap.mouseGlyphSvg`)은 누르는 칸을 `var(--c-accent)` 로, 윤곽을 `currentColor` 로 칠하고 버튼이
-   `.primary` 라 둘 다 주황이 된다 — 그래서 SVG 요소 안에서만 두 값을 흰색으로 바꾼다. chevron 은 키캡 자신의
-   `::before`(`base.css` `.keycap.kc-hold::before`)라 키캡의 강조색을 그대로 본다. 다른 홀드 버튼은 손대지 않았다. */
+/* 2026-09-15 (user's decision): in the left-click hold keycap inside the confirm button **the mouse glyph is
+   white and only the chevron takes the accent colour**. The glyph (`shared/keycap.mouseGlyphSvg`) paints the
+   pressed button in `var(--c-accent)` and its outline in `currentColor`, and this button is `.primary`, so
+   both came out orange — the two values are therefore turned white inside the SVG element only. The chevron is
+   the keycap's own `::before` (`base.css` `.keycap.kc-hold::before`), so it keeps the keycap's accent colour.
+   No other hold button was touched. */
 .pg-confirm .keycap.kc-btn .kcm-glyph { --c-accent: #fff; color: #fff; }
 .pg-fill {
   position: absolute; inset: 0; transform: scaleX(0); transform-origin: left; pointer-events: none;
@@ -191,7 +196,7 @@
 }
 .cs-derived .cell.pg-linked .k { color: var(--c-text); }
 
-/* 파생 능력치 preview while points are pending — 2026-09-13 (사용자 결정): only the resulting value, in green
+/* `파생 능력치` preview while points are pending — 2026-09-13 (user's decision): only the resulting value, in green
    (the player compares by toggling ＋ / －). The value never wraps: `SheetBody.fitDerived` shrinks its inline font-size
    when it would overflow the cell (floor `DERIVED_FONT_MIN_PX`); only then may the label ellipsize. Fixed line-height so
    a shrunk value never changes the row height (the grid's ResizeObserver must not loop). */
@@ -200,7 +205,7 @@
 .cs-derived .k { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .cs-derived .v { flex: 0 0 auto; line-height: 18px; }
 
-/* equipped implant thumbnails under 숙련도 (read-only) */
+/* equipped implant thumbnails under `숙련도` (read-only) */
 .pg-imps { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .pg-imps-head { display: flex; align-items: center; gap: 10px; }
 .pg-imps-head .line { flex: 1; height: 1px; background: var(--c-border); }
@@ -235,7 +240,7 @@
 .pg-tip-rows .k { color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pg-tip-rows .v { text-align: right; color: var(--c-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pg-tip-rows .v.good { color: var(--c-success); }
-/* 2026-09-13: a row's second line (서재 시리즈 `책 · 4 / 5권 · 40 % · 보조 가구 적용`) */
+/* 2026-09-13: a row's second line (a library series — `책 · 4 / 5권 · 40 % · 보조 가구 적용`) */
 .pg-tip-rows .n { grid-column: 1 / -1; margin-top: -2px; font-size: 10px; letter-spacing: 0.02em; color: var(--c-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 2026-09-13: the `시설 ×n` badge carries the 서재 breakdown tooltip */
+/* 2026-09-13: the `시설 ×n` badge carries the library breakdown tooltip */
 .cs-skill .bonus { cursor: help; }

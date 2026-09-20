@@ -1,19 +1,24 @@
 /* ─── SCAVANGER inventory — Arc Raiders-inspired panels over a Diablo grid ─── */
-/* 스크롤바 (2026-09-09): 색은 `ui/styles/base.css` 의 `--sb-thumb` / `--sb-track` 하나뿐이다. 이 파일은 그
-   스타일시트를 import 하지 않으므로 fallback 을 함께 적는다 — 값이 바뀌면 base.css 쪽만 고친다. */
+/* Scrollbars (2026-09-09): the colours have one source, `--sb-thumb` / `--sb-track` in `ui/styles/base.css`. This
+   file does not import that stylesheet, so every use writes a fallback beside it — change a value in base.css
+   only. */
 
-/* 2026-09-12 (E1 · E2): 즐겨찾기 파랑 — 타일 띠(`.inv-tile.is-favorite`)와 칩 표식(`shared/itemChip`, ui/ 스타일)이 **같은 변수**를
-   읽는다. 창 밖에 끼우는 타일(TradeGrids · 기업 상점 · 크루 카드)도 있어 `.inv-root` 가 아니라 `:root` 에 둔다. */
+/* 2026-09-12 (E1 · E2): the favourite blue — the tile ribbon (`.inv-tile.is-favorite`) and the chip mark
+   (`shared/itemChip`, ui/ styles) read the **same variable**. Tiles are also mounted outside the window
+   (TradeGrids · the corp shop · crew cards), so it lives on `:root`, not on `.inv-root`. */
 :root { --c-favorite: #4a90ff; }
-/* 2026-09-14 (사용자 결정): 내구도 게이지 팔레트 — 가득 초록 → 노랑 → 주황 → 빔 빨강. `ui/GridView.setDurabilityColorVars` 가 남은 비율로
-   이웃한 두 색(`--dur-a` · `--dur-b`)과 그 사이 비율(`--dur-t`)을 고르고, 채움은 `color-mix` 로 칠한다. 색은 여기서만 고친다. */
+/* 2026-09-14 (user's decision): the durability gauge palette — full green → yellow → orange → empty red.
+   `ui/GridView.setDurabilityColorVars` picks the two neighbouring colours (`--dur-a` · `--dur-b`) and the ratio
+   between them (`--dur-t`) from the remaining fraction, and the fill is painted with `color-mix`. Colours are
+   changed here only. */
 :root { --dur-c-full: #4fd17e; --dur-c-mid: #f2d34b; --dur-c-low: #f28a2c; --dur-c-empty: #ff5c5c; }
 
 .inv-root {
-  /* ⚠ 칸 한 변의 **원본은 이 줄이 아니다** (2026-09-14, 사용자 결정 「작은 화면에서 칸을 줄인다」):
-     `ui/labels.ts` 의 `CELL` 이 원본이고 창 높이(`data/tuning.csv` 의 `INV_CELL_*`)를 탄다. JS 가 격자 상자의
-     px 폭 · 드래그 보폭(`STEP`)을 그 값으로 정하므로 CSS 가 따로 미디어 쿼리를 갖지 못한다 — 두 값이 갈라지면
-     놓은 자리가 커서 밑 칸이 아니게 된다. 여기 54px 은 `applyGridCellVar` 가 인라인으로 덮기 전의 기본값일 뿐이다. */
+  /* ⚠ **This line is not the source** of a cell's side (2026-09-14, user's decision 「작은 화면에서 칸을 줄인다」):
+     `CELL` in `ui/labels.ts` is the source and follows the window height (`INV_CELL_*` in `data/tuning.csv`). JS
+     sets the grid box's px width and the drag pitch (`STEP`) from that value, so CSS cannot hold a media query of
+     its own — once the two drift apart, the cell an item lands in is no longer the one under the cursor. The 54px
+     here is only the default before `applyGridCellVar` overrides it inline. */
   --inv-cell: 54px;
   --inv-gap: 2px;
   --inv-bg: rgba(9, 11, 15, 0.78);
@@ -35,23 +40,26 @@
   flex-direction: column;
   align-items: center;
   /*
-   * 세로 자리 (2026-09-14, 사용자 결정 — 「가방이 너무 위로 가 있다」).
+   * Vertical placement (2026-09-14, user's decision — 「가방이 너무 위로 가 있다」).
    *
-   * 2026-09-12 에 `justify-content: center` 를 `flex-start` + `padding-top` 으로 바꿨는데, 그러면 남는 높이가
-   * **전부 아래로** 간다 — 1920×1080 함선 창은 위 76 px · 아래 112 px, 작업대 제작 창은 위 76 px · 아래 285 px 로
-   * 눈에 띄게 위에 붙었다. 그렇다고 예전 `center` 로 되돌릴 수는 없다: 창이 화면보다 길면 가운데 정렬은 **위쪽도**
-   * 밀어내 `.scr-tabs` 밑으로 들어가고 윗줄을 영영 못 본다 (그것이 2026-09-12 에 `flex-start` 로 간 이유다).
+   * On 2026-09-12 `justify-content: center` became `flex-start` + `padding-top`, and that sends the spare height
+   * **all to the bottom** — at 1920×1080 the ship window stood 76 px from the top and 112 px from the bottom, the
+   * workbench craft window 76 px and 285 px, noticeably stuck to the top. Going back to the old `center` is no
+   * answer either: when the window is taller than the screen, centring pushes the **top** out as well, under
+   * `.scr-tabs`, and the first row is gone for good (that is why 2026-09-12 went to `flex-start`).
    *
-   * 그래서 **`safe center`** 다 — 남는 높이가 있으면 가운데, 넘치면 `flex-start` 와 **완전히 같게** 동작한다.
-   * 위아래 여백을 **같은 값**으로 두는 것이 나머지 절반이다: `padding-top` 만 있으면 가운데 정렬이 그 값의 절반만큼
-   * 아래로 치우친다. 그 여백은 위에 절대 배치로 떠 있는 `.scr-tabs`(base.css, `top: 22px`) · 크레딧 알약이
-   * 설 자리이고, 그 줄이 없는 레이드 화면은 8 px 만 띄운다.
+   * Hence **`safe center`** — centred while there is spare height, and **exactly like** `flex-start` once it
+   * overflows. Keeping the top and bottom spacing at the **same value** is the other half: with `padding-top`
+   * alone, centring leans down by half of it. That spacing is where the absolutely positioned `.scr-tabs`
+   * (base.css, `top: 22px`) and the credits pill stand; the raid screen has no such row and leaves only 8 px.
    *
-   * ⚠ **높이 예산(`.inv-bag-scroll` 의 `max-height`)은 손대지 않았다.** 그 식들은 창이 화면 안에 서는지를 정하는
-   *   상한이고, 넘치는 순간 `safe` 가 `flex-start` 로 떨어지므로 2026-09-12 에 재 둔 1280×760 수치가 그대로 산다.
-   * ⚠ 아래 여백을 `padding-bottom` 으로 주면 **안 된다.** padding 은 줄어들지 않아서 자리가 모자라면 flex 가
-   *   `.inv-layout` 을 대신 찌그러뜨린다 — 실측(1280×760 함선)에서 패널이 669 → 596 px 로 눌려 장비 열이 짜부라지고
-   *   창고 줄이 사라졌다. 그래서 **줄어드는 칸**(`.inv-root::after`)을 쓴다. 아래 규칙 참고.
+   * ⚠ **The height budgets (`.inv-bag-scroll`'s `max-height`) were left alone.** Those formulas are the cap that
+   *   decides whether the window stands inside the screen, and the moment it overflows `safe` falls back to
+   *   `flex-start`, so the 1280×760 numbers measured on 2026-09-12 still hold.
+   * ⚠ The bottom spacing **must not** be a `padding-bottom`. Padding does not shrink, so when room runs out flex
+   *   squeezes `.inv-layout` instead — measured (1280×760, ship) the panel was pressed from 669 to 596 px, the
+   *   equipment column collapsed and a stash row disappeared. So a **shrinking box** (`.inv-root::after`) is used
+   *   instead. See the rule below.
    */
   justify-content: safe center;
   padding-top: 8px;
@@ -70,26 +78,29 @@
   -webkit-user-select: none;
 }
 .inv-root.is-visible { opacity: 1; }
-/* 함선 화면에는 `.scr-tabs`(top 22px · 높이 ~42px)와 크레딧 알약이 절대 배치로 떠 있다 — 그 아래에서 시작한다. */
+/* The ship screen floats `.scr-tabs` (top 22px · ~42px tall) and the credits pill absolutely — start below them. */
 .inv-root.is-hub { padding-top: 74px; }
 /*
- * 2026-09-14: **아래 균형 칸.** `padding-top` 만 있으면 `safe center` 가 그 절반만큼 아래로 치우치므로 같은 높이를
- * 아래에도 둬야 창이 화면 한가운데 선다. 다만 padding 이 아니라 **줄어드는 flex 칸**이다:
- *   • `flex-basis` = 위 여백과 같은 값 → 자리가 넉넉하면 위아래가 대칭이다.
- *   • `flex-shrink: 1000` → 자리가 모자라면 이 칸이 (거의) 전부 줄어들고 `.inv-layout` 은 그대로 선다.
- *     1280×760 함선처럼 창이 화면을 꽉 채우는 배치에서 패널이 눌리지 않는다 (`.inv-layout` 몫 < 1 px).
- *   • `margin-top` 이 `.inv-root` 의 `gap: 12px` 을 상쇄한다 — 이것은 항목이 아니라 여백이다.
+ * 2026-09-14: **the balancing box at the bottom.** With `padding-top` alone, `safe center` leans down by half of
+ * it, so the same height has to sit below for the window to stand in the middle of the screen. It is not padding
+ * but a **shrinking flex box**:
+ *   • `flex-basis` = the same value as the top padding → with room to spare, top and bottom are symmetric.
+ *   • `flex-shrink: 1000` → when room runs out this box gives up (almost) all of it and `.inv-layout` stands
+ *     unchanged. In a layout that fills the screen, like 1280×760 in the ship, the panel is not pressed
+ *     (`.inv-layout`'s share < 1 px).
+ *   • `margin-top` cancels `.inv-root`'s `gap: 12px` — this is spacing, not an item.
  */
 .inv-root::after { content: ''; display: block; flex: 0 1000 8px; min-height: 0; margin-top: -12px; }
 .inv-root.is-hub::after { flex-basis: 74px; }
-/* Fallback only: while the game cursor is applied (`body.cursor-ui`) `ui/hud/GameCursor` paints its own 잡기 art over
+/* Fallback only: while the game cursor is applied (`body.cursor-ui`) `ui/hud/GameCursor` paints its own grab art over
    a drag with a more specific rule. This keeps a sane cursor if the canvas art could not be generated. */
 .inv-root.is-dragging, .inv-root.is-dragging * { cursor: grabbing; }
 
 .inv-layout {
   display: flex;
   align-items: flex-start;
-  /* 2026-09-16: 패널 간격은 변수 하나 — 맞닿는 카드의 이음매(`margin-right: calc(-1 * var(--inv-panel-gap))`)가 같은 값을 읽는다 */
+  /* 2026-09-16: one variable for the panel gap — the seam between touching cards
+     (`margin-right: calc(-1 * var(--inv-panel-gap))`) reads the same value */
   --inv-panel-gap: 24px;
   gap: var(--inv-panel-gap);
   transform: translateY(10px) scale(0.985);
@@ -119,9 +130,11 @@
 }
 .inv-panel-container { animation: inv-slide-in 200ms var(--inv-ease) both; }
 .inv-panel-container.is-empty .inv-grid { opacity: 0.55; }
-/* 2026-09-11 (C-60): 행이 늘어난 시체 격자는 패널 안에서 세로로 스크롤한다. 높이 상한은 화면 기준 — 임무 창의 하단
-   안내/버리기 띠(66) + 간격 + 패널 머리 · 여백을 뺀 값이다 (컨테이너 창은 함선에서도 `is-hub` 가 아닌 배치로 뜬다). 상자처럼
-   상한에 못 미치는 격자는 이 상자가 격자와 똑같은 크기라 모양이 그대로다; 넘칠 때만 JS 가 `.is-scroll` 로 스크롤바 자리를 낸다. */
+/* 2026-09-11 (C-60): a corpse grid that grew rows scrolls vertically inside the panel. The height cap is measured
+   against the screen — the mission window's bottom hint / drop strip (66) + the gap + the panel header and padding
+   subtracted (a container window opens in the non-`is-hub` layout even in the ship). A grid that stays under the
+   cap, a crate for instance, keeps its shape because this box is exactly the grid's size; only on overflow does JS
+   reserve the scrollbar's room with `.is-scroll`. */
 .inv-cont-scroll {
   max-height: max(166px, calc(100vh - 240px));
   overflow-y: auto; overflow-x: hidden;
@@ -148,7 +161,7 @@
   min-height: 40px;
 }
 .inv-head-titles { display: flex; flex-direction: column; gap: 3px; }
-/* 2026-09-08: the 가방 header lost its INVENTORY / 가방 titles, so only the actions are left — pin them right. */
+/* 2026-09-08: the bag header lost its INVENTORY / `가방` titles, so only the actions are left — pin them right. */
 .inv-head.is-bare { justify-content: flex-end; min-height: 0; }
 .inv-eyebrow {
   font-size: 10px;
@@ -169,7 +182,8 @@
   letter-spacing: 0.08em;
   color: var(--inv-muted);
 }
-/* 2026-09-16 (사용자 결정): 바닥 한 줄 = 왼쪽 끝 작은 `가방 내 가치 1,000 C`(숫자만 흰색) · 오른쪽 끝 보유 크레딧 글자 */
+/* 2026-09-16 (user's decision): the bottom row = a small `가방 내 가치 1,000 C` at the far left (only the number
+   white) · the credits held, as text, at the far right */
 .inv-foot {
   display: flex;
   align-items: baseline;
@@ -250,11 +264,12 @@
     rgba(12, 14, 19, 0.9);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   cursor: grab;
-  /* 2026-09-12 (사용자 결정): 아이템은 **즉시** 옮겨진다 — `transform`(칸 위치) · `opacity` 에는 전환이 없고, 새 격자에 들어온
-     타일의 `.is-new` 팝도 없앴다. 남은 전환은 호버 강조뿐이다. */
+  /* 2026-09-12 (user's decision): an item moves **instantly** — `transform` (the cell position) and `opacity`
+     have no transition, and the `.is-new` pop a tile got on entering a new grid is gone. The only transition left
+     is the hover highlight. */
   transition: box-shadow 140ms var(--inv-ease), border-color 140ms var(--inv-ease), filter 140ms var(--inv-ease);
 }
-/* 2026-09-12: 필터 칩이 거른 타일 — 자리는 그대로, 끌기도 된다 */
+/* 2026-09-12: a tile the filter chip screened out — it keeps its cell and can still be dragged */
 .inv-tile.is-filtered-out { opacity: 0.22; filter: grayscale(0.85); }
 .inv-tile.is-filtered-out.is-hover, .inv-tile.is-filtered-out:hover { opacity: 0.7; }
 
@@ -335,8 +350,9 @@
   border-radius: 2px;
 }
 
-/* 2026-09-13 (요리 품질): 품질이 붙은 요리의 `★n` — 좌하단. 수량 배지(우하단) · 휠 방향 배지(좌상단) · 사선 띠(우상단)와
-   모서리가 겹치지 않는다. 1×1 타일이라도 수량 배지와 가로로 나란히 들어가도록 작게. 포인터를 먹지 않는다. */
+/* 2026-09-13 (meal quality): the `★n` on a meal that carries a quality — bottom left. Its corner never collides
+   with the qty badge (bottom right), the wheel direction badge (top left) or the ribbon (top right). Small enough
+   to sit beside the qty badge even on a 1×1 tile. It eats no pointer. */
 .inv-tile-quality {
   position: absolute;
   left: 3px; bottom: 3px;
@@ -355,7 +371,7 @@
   pointer-events: none;
 }
 .inv-tile-quality[data-quality="5"] { color: #fff1b8; border-color: rgba(255, 230, 150, 0.8); box-shadow: 0 0 6px rgba(255, 200, 80, 0.45); }
-/* 격자 툴팁의 `품질  ★★★☆☆ +15 %` 줄 — 배지와 같은 별 색 */
+/* The grid tooltip's `품질  ★★★☆☆ +15 %` row — the same star colour as the badge */
 .inv-tooltip .inv-tt-stats .v.is-quality { color: #ffd66b; letter-spacing: 0.02em; }
 
 /* weapon tiles: socket pips (top-right) + durability bar (bottom edge) */
@@ -392,9 +408,11 @@
   overflow: hidden;
   pointer-events: none;
 }
-/* 2026-09-14 (사용자 결정): 내구도가 있는 **모든** 타일의 바닥 게이지. 채움은 자식 `i.inv-dur-fill`(폭 `--p`)이고 색은 남은 비율로
-   초록 → 노랑 → 주황 → 빨강 사이를 잇는다 (`:root` 의 `--dur-c-*` 팔레트, `GridView.setDurabilityColorVars`). 숫자는 타일에 없다.
-   (`is-low` 는 의미로만 남는다 — 색은 연속이다.) 장비칸 카드의 `.inv-slot-dur` 도 같은 채움을 쓴다. */
+/* 2026-09-14 (user's decision): the bottom-edge gauge on **every** tile that has durability. The fill is the
+   child `i.inv-dur-fill` (width `--p`) and its colour runs green → yellow → orange → red by the remaining
+   fraction (the `--dur-c-*` palette on `:root`, `GridView.setDurabilityColorVars`). No number on the tile.
+   (`is-low` survives as meaning only — the colour is continuous.) The equipment slot card's `.inv-slot-dur` uses
+   the same fill. */
 .inv-dur > .inv-dur-fill {
   position: absolute;
   inset: 0 auto 0 0;
@@ -412,10 +430,11 @@
 .inv-tile.is-broken .inv-tile-icon { color: color-mix(in srgb, var(--inv-bad) 70%, white 20%); text-shadow: 0 0 10px color-mix(in srgb, var(--inv-bad) 55%, transparent); }
 .inv-tile.is-weapon .inv-tile-qty { display: none; }
 
-/* ── 2026-09-12 (사용자 결정): 내게 **필요한 탄약**의 사선 띠 ──────────────────────────────────────────────
-   지금 장착한 주무기 I · II 가 쓰는 탄종의 탄약 타일에만, 우측 상단 모서리에 대각선 리본이 선다 (`is-ammo-needed`,
-   판정은 `ui/GridView` 의 `isNeededAmmo`). 순수 CSS 한 겹이고 포인터를 먹지 않는다 — 그 모서리는 무기 타일의
-   소켓 핍 자리이지만 탄약은 무기가 아니라 핍이 없으므로 겹치지 않는다. */
+/* ── 2026-09-12 (user's decision): the ribbon for the **ammo I need** ────────────────────────────────────────
+   Only an ammo tile of the calibre the equipped 주무기 I · II use gets a diagonal ribbon in its top-right corner
+   (`is-ammo-needed`; `isNeededAmmo` in `ui/GridView` judges it). One pure-CSS layer that eats no pointer — that
+   corner is where a weapon tile's socket pips sit, but ammo is not a weapon and has no pips, so they never
+   collide. */
 .inv-tile.is-ammo-needed::after {
   content: "";
   position: absolute;
@@ -430,14 +449,19 @@
   z-index: 2;
 }
 
-/* ── 2026-09-12 (E1, 사용자 결정): 즐겨찾기 — 우측 상단 **파란 사선 띠** ─────────────────────────────────────────
-   `.is-favorite` 는 `buildTileContent` / `buildSlotCardContent` 가 건다 (격자 · 장비칸 · 휠 · 고스트 · 카탈로그 · 제작 썸네일 ·
-   TradeGrids · `buildItemTile`). 필요한 탄약이면서 즐겨찾기면 파란 띠가 모서리를 차지하고 **노란 띠가 그 아래(안쪽)**로
-   물러난다 — 둘 다 보인다. 둘 다 포인터를 먹지 않는다. */
-/* 2026-09-12 (아이템 회수 계약, 사용자 결정): 이번 레이드에서 얻은 계약 아이템(`.is-recovery-item`, 레이드 중에만)은 **같은 띠** —
-   선택자만 나란히 둔다 (구분할 수 없고, 둘 다면 띠는 하나). 글로우 · 필터 · 정렬은 `.is-favorite` 만의 것이다. */
-/* 2026-09-13 (서재 시리즈, 사용자 결정): 보관함은 있는데 아직 어디에도 꽂지 않은 책 · 비디오 · 레코드(`.is-shelf-wanted`)도 **같은 띠** —
-   즐겨찾기 · 회수 계약과 겹쳐도 `::before` 는 하나라 띠는 하나다. 글로우 · 필터 · 정렬은 여전히 `.is-favorite` 만의 것이다. */
+/* ── 2026-09-12 (E1, user's decision): favourite — a **blue ribbon** in the top-right corner ─────────────────
+   `buildTileContent` / `buildSlotCardContent` set `.is-favorite` (grid · equipment slot · wheel · ghost ·
+   catalog · craft thumbnail · TradeGrids · `buildItemTile`). An item that is needed ammo **and** a favourite
+   gives the corner to the blue ribbon and the yellow one steps back below (inside) it — both stay visible.
+   Neither eats a pointer. */
+/* 2026-09-12 (recovery contract items, user's decision): a contract item found in this raid
+   (`.is-recovery-item`, only during a raid) gets the **same ribbon** — only the selector is placed beside it
+   (they cannot be told apart, and an item that is both still draws one ribbon). The glow · filter · sort belong
+   to `.is-favorite` alone. */
+/* 2026-09-13 (library series, user's decision): a book · video · record that has a holder but is not shelved
+   anywhere yet (`.is-shelf-wanted`) gets the **same ribbon** too — overlapping favourite and recovery contract
+   still draws one ribbon, because there is only one `::before`. The glow · filter · sort are still
+   `.is-favorite`'s alone. */
 .inv-tile.is-favorite::before,
 .inv-tile.is-recovery-item::before,
 .inv-tile.is-shelf-wanted::before {
@@ -462,7 +486,8 @@
     color-mix(in srgb, var(--inv-accent, #f0c46a) 92%, white 8%) 12px 19px,
     transparent 19px);
 }
-/* 상자 · 시체 창에서는 즐겨찾기한 종류가 한눈에 — 테두리 글로우 (전설 등급의 숨쉬기 그림자가 덮어도 outline 은 남는다) */
+/* In a crate / corpse window a favourited kind reads at a glance — a border glow (the legendary rarity's
+   breathing shadow may cover it, but the outline stays) */
 .inv-panel-container .inv-tile.is-favorite {
   border-color: var(--c-favorite, #4a90ff);
   outline: 1px solid color-mix(in srgb, var(--c-favorite, #4a90ff) 75%, transparent);
@@ -470,9 +495,9 @@
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 14px color-mix(in srgb, var(--c-favorite, #4a90ff) 55%, transparent),
     inset 0 0 10px color-mix(in srgb, var(--c-favorite, #4a90ff) 25%, transparent);
 }
-/* 2026-09-15 3차: 「즐겨찾기」 필터가 칩에서 **드롭다운 항목**이 되면서 칩 색 규칙 두 줄은 없어졌다
-   (항목 목록은 OS 가 그린다 — 켜진 것은 컨트롤의 `.is-on` 이 말한다). */
-/* 즐겨찾기 분해 확인 카드 (`ui/DisassemblePanel`) — 확정은 빨간 버튼 1초 홀드 */
+/* 2026-09-15, 3rd pass: the 「즐겨찾기」 filter became a **dropdown entry** instead of a chip, so the two
+   chip-colour rules went away (the OS draws the entry list — `.is-on` on the control says which one is on). */
+/* The favourite salvage confirm card (`ui/DisassemblePanel`) — confirming is a 1 s hold on the red button */
 .inv-dis-confirm {
   display: flex; flex-direction: column; gap: 6px;
   padding: 10px 12px;
@@ -483,8 +508,9 @@
 .inv-dis-confirm[hidden] { display: none; }
 .inv-dis-confirm-title { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--c-favorite, #4a90ff); }
 .inv-dis-confirm-body { font-size: 12px; color: var(--inv-text, #e9ecef); }
-/* `.inv-dis-confirm-hint`(「분해 버튼을 N초 동안 누르고 있어야 …」)는 2026-09-15 2차에 없어졌다 (사용자 결정) —
-   그 말은 이제 확정 버튼 **안**의 좌클릭 홀드 키캡(`shared/keycap.createHoldButtonCap`)이 한다. */
+/* `.inv-dis-confirm-hint` (「분해 버튼을 N초 동안 누르고 있어야 …」) went away on 2026-09-15, 2nd pass (user's
+   decision) — the left-click hold keycap **inside** the confirm button says it now
+   (`shared/keycap.createHoldButtonCap`). */
 .inv-dis-confirm-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; }
 .inv-dis-confirm-ok {
   position: relative; overflow: hidden;
@@ -518,8 +544,9 @@
   0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35), 0 0 10px color-mix(in srgb, var(--rc) 25%, transparent); }
   50% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35), 0 0 22px color-mix(in srgb, var(--rc) 55%, transparent); }
 }
-/* 2026-09-16: 신화는 전설보다 한 단계 더 세게 맥동한다 — 없으면 신화 유니크가 등급 V 총보다 **덜** 화려해진다.
-   색은 타일이 이미 들고 있는 `--rc` 를 그대로 쓴다 (등급색의 단일 출처). */
+/* 2026-09-16: mythic pulses one step harder than legendary — without it a mythic unique would look **less**
+   showy than a grade V gun. The colour is the `--rc` the tile already carries (the single source of the rarity
+   colour). */
 .inv-tile.rarity-mythic { animation: inv-mythic 1.8s ease-in-out infinite; }
 @keyframes inv-mythic {
   0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35), 0 0 14px color-mix(in srgb, var(--rc) 40%, transparent); }
@@ -585,8 +612,9 @@
 }
 /* 2026-09-08: one box for every slot. The footprint (4×2 vs 5×1) is a bag-packing property, so sizing the box by it
    made a 저격소총 look like a smaller gun than a 돌격소총. `--inv-cell` keeps it on the same rhythm as the grids. */
-/* 2026-09-12 (사용자 결정): 상자는 `border-box` 다. 예전 `content-box` + `padding: 6px` 은 겉 크기가
-   `3칸 + 22px` / `2칸 + 8px` 이었으므로 그 값을 그대로 못 박아 **크기는 한 픽셀도 바뀌지 않는다**. */
+/* 2026-09-12 (user's decision): the box is `border-box`. The old `content-box` + `padding: 6px` came out at
+   `3 cells + 22px` / `2 cells + 8px` on the outside, so those values are nailed down here and **not one pixel of
+   the size changes**. */
 .inv-slot-body {
   position: relative;
   box-sizing: border-box;
@@ -601,9 +629,10 @@
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
   transition: border-color 140ms var(--inv-ease), background 140ms var(--inv-ease), box-shadow 140ms var(--inv-ease);
 }
-/* 2026-09-12 (사용자 결정) — **테두리는 한 겹.** 아이템이 든 칸은 상자의 여백(6px)과 테두리를 내주고 카드가
-   칸을 꽉 채운다: 예전에는 상자 테두리(등급색) + 6px 틈 + 카드 테두리로 두 겹이 보였다. 상자 테두리는 지우지
-   않고 **투명**으로만 두므로 아래 드롭 하이라이트 두 줄이 그 자리를 그대로 쓴다 (뒤에 오니 색을 이긴다). */
+/* 2026-09-12 (user's decision) — **one border, not two.** A slot holding an item gives up the box's padding
+   (6px) and its border, and the card fills the slot: it used to show the box border (rarity colour) + a 6px gap +
+   the card border, two borders deep. The box border is not removed, only made **transparent**, so the two drop
+   highlight rules below keep using that same edge (they come later, so they win the colour). */
 .inv-slot.has-item .inv-slot-body {
   padding: 0;
   border-style: solid;
@@ -612,10 +641,12 @@
 }
 .inv-slot.is-target-ok .inv-slot-body { border-color: var(--inv-ok); background: color-mix(in srgb, var(--inv-ok) 14%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--inv-ok) 35%, transparent); }
 .inv-slot.is-target-bad .inv-slot-body { border-color: var(--inv-bad); background: color-mix(in srgb, var(--inv-bad) 14%, transparent); }
-/* ── 2026-09-14 (사용자 결정): 폴백 배치 플래시 ───────────────────────────────────────────────────────────────
-   상자 · 시체 더블클릭이 가방 대신 **장비칸 · 임플란트 칸 · 퀵슬롯**으로 밀어 넣었을 때, 토스트 대신 그 칸이
-   한 번 번쩍인다 (`InventoryUI.flashSlot` / `flashQuick` / `flashImplant` 가 `.is-flash` 를 걸고 `animationend` 에 뗀다).
-   드래그 프리뷰의 `is-target-ok` 와 **다른 클래스**여야 한다 — 프리뷰는 매 프레임 그 클래스를 지운다. */
+/* ── 2026-09-14 (user's decision): the fallback placement flash ──────────────────────────────────────────────
+   When a crate / corpse double-click pushed the item into an **equipment slot · implant slot · quick slot**
+   instead of the bag, that slot flashes once instead of raising a toast (`InventoryUI.flashSlot` / `flashQuick` /
+   `flashImplant` set `.is-flash` and drop it on `animationend`).
+   It has to be a **different class** from the drag preview's `is-target-ok` — the preview clears that class every
+   frame. */
 @keyframes inv-slot-flash {
   0%   { border-color: var(--inv-ok); background: color-mix(in srgb, var(--inv-ok) 42%, transparent); box-shadow: 0 0 26px color-mix(in srgb, var(--inv-ok) 70%, transparent); }
   55%  { border-color: var(--inv-ok); background: color-mix(in srgb, var(--inv-ok) 16%, transparent); box-shadow: 0 0 18px color-mix(in srgb, var(--inv-ok) 40%, transparent); }
@@ -652,8 +683,9 @@
   pointer-events: none;
 }
 .inv-slot-ammo { left: 8px; font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, 0.92); }
-/* 2026-09-14 (사용자 결정): the `120/300` durability number (`.inv-slot-durnum`) is gone — the gauge along the bottom edge
-   carries it by colour (`.inv-dur > .inv-dur-fill`, green → yellow → orange → red) and the tooltip keeps the numbers. */
+/* 2026-09-14 (user's decision): the `120/300` durability number (`.inv-slot-durnum`) is gone — the gauge along
+   the bottom edge carries it by colour (`.inv-dur > .inv-dur-fill`, green → yellow → orange → red) and the
+   tooltip keeps the numbers. */
 .inv-slot-dur {
   position: absolute; left: 0; right: 0; bottom: 0;
   height: 3px;
@@ -677,8 +709,9 @@
 .inv-slot-empty svg { width: 72px; height: 28px; }
 /* 2026-09-08: `.inv-slot-meta` is gone — the card inside the box says all of it (see `.inv-slot-card`). */
 
-/* 2026-09-14 (사용자 결정): 중앙 하단 안내 알약 바(`.inv-hints` / `.inv-hint`)는 삭제됐다 — 우측 하단 키 가이드와
-   다섯 항목이 겹쳤고, 겹치지 않던 Shift · Ctrl 드래그는 `InventoryUI.guideKeys` 로 옮겼다. */
+/* 2026-09-14 (user's decision): the bottom-centre hint pill bar (`.inv-hints` / `.inv-hint`) was deleted — five
+   of its entries duplicated the bottom-right key guide, and the Shift · Ctrl drags that did not moved into
+   `InventoryUI.guideKeys`. */
 kbd {
   display: inline-block;
   min-width: 18px;
@@ -757,7 +790,7 @@ kbd {
 .inv-tt-stats .v.is-low { color: var(--inv-accent); }
 .inv-tt-stats .v.is-broken { color: var(--inv-bad); font-weight: 600; }
 .inv-tt-stats .v.is-bonus { color: var(--inv-ok); font-weight: 600; }
-/* Phase 12: 임플란트 tooltip — perk description, 망가짐 line + repair-cost chips */
+/* Phase 12: the implant tooltip — perk description, the `망가짐` line + repair-cost chips */
 .inv-tt-perk { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--inv-line); font-size: 11px; line-height: 1.45; color: rgba(233, 236, 239, 0.8); }
 .inv-tt-perk .k { display: block; margin-bottom: 2px; font-size: 10px; letter-spacing: 0.08em; color: var(--inv-muted); }
 .inv-tt-perk .n { color: var(--inv-accent); font-weight: 600; }
@@ -812,9 +845,11 @@ kbd {
 .inv-tt-gauge .bonus { border-radius: 0 3px 3px 0; background: var(--c-success, #5ee08a); box-shadow: 0 0 6px color-mix(in srgb, var(--c-success, #5ee08a) 60%, transparent); }
 .inv-tt-gauge .reduced { box-sizing: border-box; border: 1px solid var(--c-success, #5ee08a); border-radius: 0 3px 3px 0; background: transparent; }
 
-/* 2026-09-12 (사용자 결정): **내구도도 게이지다.** 무기 2×2 게이지와 같은 `.track` / `.fill` 을 쓰되 한 줄 전체 폭이고,
-   채움 색만 남은 비율이 정한다 (기본 초록 · `is-low` 30 % 미만 호박 · `is-broken` 0 빨강). 무기 · 가방 · 방탄복 ·
-   회복 스프레이가 전부 이 한 줄을 쓴다 — 예전의 `내구도  120 / 300` 텍스트 행과 그 아래 `구간` 줄을 대신한다. */
+/* 2026-09-12 (user's decision): **durability is a gauge too.** It uses the same `.track` / `.fill` as the weapon
+   2×2 gauges but spans the full width of one row, and only the fill colour is decided by the remaining fraction
+   (green by default · amber under 30 % with `is-low` · red at 0 with `is-broken`). Weapons · bags · armor ·
+   repair sprays all use this one row — it replaces the old `내구도  120 / 300` text row and the `구간` row under
+   it. */
 .inv-tt-durbar {
   margin-top: 8px;
   padding-top: 8px;
@@ -830,8 +865,8 @@ kbd {
 
 /* 2026-09-09: the five sockets as a row of small squares — attachment glyph (its colour) with a rarity border,
    or a dashed empty square with the two-letter socket caption. Hover title = `조준경: 없음` / `총구: 소음기`. */
-/* 2026-09-14 (사용자 결정): the row is **centred** and holds only the sockets the weapon accepts; an empty square shows
-   the socket's full Korean name (`개머리판`), so the squares grew to fit four syllables. */
+/* 2026-09-14 (user's decision): the row is **centred** and holds only the sockets the weapon accepts; an empty
+   square shows the socket's full Korean name (`개머리판`), so the squares grew to fit four syllables. */
 .inv-tt-sockets {
   display: flex;
   justify-content: center;
@@ -853,11 +888,14 @@ kbd {
 }
 .inv-tt-sock .cap { font-size: 8.5px; letter-spacing: 0; white-space: nowrap; color: rgba(233, 236, 239, 0.4); }
 
-/* ── 2026-09-14 (사용자 결정): 고정한 툴팁 (`ui/TipPin`) ─────────────────────────────────────────────────────────────
-   1초 꾹 눌러 고정한 카드는 커서를 따라가지 않고 포인터를 받는다 — 우상단 모서리에 튀어나온 마름모(`.inv-tt-pin`)를 누르거나
-   카드 바깥을 누르면 풀린다. 떠다니는 호버 카드(70)보다 z 가 한 칸 낮아(69) 고정한 채 다른 아이템에 올린 카드가 그 위에 뜬다 — DOM 순서는
-   떠다니는 카드 **뒤**라 `document.querySelector('.inv-tooltip')` 는 여전히 떠다니는 카드다.
-   고정한 무기 카드의 소켓 썸네일: 올리면 부착물 카드, 끌 수 있으면(`.can-detach`) grab 커서 · 강조 테두리. */
+/* ── 2026-09-14 (user's decision): the pinned tooltip (`ui/TipPin`) ──────────────────────────────────────────
+   A card pinned by a 1 s hold does not follow the cursor and takes the pointer — pressing the diamond that sticks
+   out of its top-right corner (`.inv-tt-pin`), or pressing outside the card, unpins it. Its z is one step under
+   the floating hover card (69 vs 70), so a card hovered over another item while this one is pinned draws above
+   it — in DOM order it sits **after** the floating card, so `document.querySelector('.inv-tooltip')` is still the
+   floating one.
+   Socket thumbnails on a pinned weapon card: hovering shows the attachment card, and one that can be dragged out
+   (`.can-detach`) gets the grab cursor and a highlighted border. */
 .inv-tooltip.is-pinned {
   z-index: 69;
   pointer-events: auto;
@@ -890,8 +928,9 @@ kbd {
 .inv-ghost.inv-sock-ghost { transition: none; }
 .inv-ghost.inv-sock-ghost.is-ok, .tg-ghost.inv-sock-ghost.is-ok { outline: 2px solid var(--inv-ok, #4fd17e); outline-offset: 1px; }
 .inv-ghost.inv-sock-ghost.is-bad, .tg-ghost.inv-sock-ghost.is-bad { outline: 2px solid var(--inv-bad, #ff5c5c); outline-offset: 1px; }
-/* `TradeGrids` (기업 화면 · 함선 스테이션) mounts its pinned card and the socket hover card on `#ui-root`, outside `.inv-root` —
-   so the card carries the palette tokens itself and floats above `ui/hud/ItemTip` (200) and the favourite menu (210). */
+/* `TradeGrids` (the corp screen · ship stations) mounts its pinned card and the socket hover card on `#ui-root`,
+   outside `.inv-root` — so the card carries the palette tokens itself and floats above `ui/hud/ItemTip` (200) and
+   the favourite menu (210). */
 .inv-tooltip.tg-tip {
   --inv-line: rgba(255, 255, 255, 0.12); --inv-line-strong: rgba(255, 255, 255, 0.26);
   --inv-text: #e9ecef; --inv-muted: rgba(233, 236, 239, 0.55);
@@ -987,7 +1026,8 @@ kbd {
 }
 
 /* ── context menu ───────────────────────────────────────────────────────── */
-/* 2026-09-12: TradeGrids(기업 거래 · 가구 화면)의 우클릭 메뉴는 `#ui-root` 에 붙는다 — 그 화면들보다 위, 아이템 호버 카드(200) 아래. */
+/* 2026-09-12: TradeGrids' right-click menu (the corp trade · furniture screens) is mounted on `#ui-root` — above
+   those screens, below the item hover card (200). */
 .inv-menu.tg-menu { z-index: 190; }
 .inv-menu {
   position: fixed;
@@ -1032,7 +1072,8 @@ kbd {
   background: var(--inv-line);
 }
 .inv-menu-item kbd { font-size: 9px; color: var(--inv-muted); }
-/* 2026-09-15: 마우스 버튼 힌트(`휠클릭` → MMB)는 공용 마우스 그림 (`ui/ContextMenu`) — 글자 kbd 와 같은 높이 */
+/* 2026-09-15: the mouse-button hint (`휠클릭` → MMB) is the shared mouse glyph (`ui/ContextMenu`) — the same
+   height as a text kbd */
 .inv-menu-item kbd.inv-menu-kmouse { display: inline-flex; align-items: center; justify-content: center; padding: 1px 4px; }
 .inv-menu-item kbd.inv-menu-kmouse .kcm-glyph { display: block; width: 13px; height: 13px; flex: none; }
 
@@ -1094,9 +1135,10 @@ kbd {
 }
 .inv-btn.is-primary:hover { background: var(--inv-accent); }
 
-/* ── 주머니 격자 (2026-09-11, A-15): 퀵슬롯 패널 **바로 아래** ──────────────
-   장착한 주머니가 없으면 이 블록은 `hidden` 이라 자리조차 없다 (`InventoryUI.refreshPouch`).
-   스크롤바 색은 `src/ui/styles/base.css` 의 변수 하나가 원본이다 — 여기서는 fallback 과 함께 참조만 한다. */
+/* ── The pouch grid (2026-09-11, A-15): **directly under** the wheel panel ──
+   With no pouch equipped this block is `hidden` and takes no room at all (`InventoryUI.refreshPouch`).
+   The scrollbar colours have one source, a variable in `src/ui/styles/base.css` — referenced here with a
+   fallback only. */
 .inv-pouch {
   display: flex;
   flex-direction: column;
@@ -1200,7 +1242,8 @@ kbd {
 .inv-quick-cell.is-target-ok { border-color: var(--inv-ok) !important; background: color-mix(in srgb, var(--inv-ok) 16%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--inv-ok) 40%, transparent) !important; opacity: 1; }
 .inv-quick-cell.is-target-swap { border-color: var(--inv-swap) !important; background: color-mix(in srgb, var(--inv-swap) 16%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--inv-swap) 40%, transparent) !important; opacity: 1; }
 .inv-quick-cell.is-target-bad { border-color: var(--inv-bad) !important; background: color-mix(in srgb, var(--inv-bad) 16%, transparent); box-shadow: none !important; }
-/* 2026-09-14: 폴백 배치 플래시 (위 `.inv-slot.is-flash` 와 같은 규약 — 드래그 프리뷰 클래스와 섞이지 않는 자기 클래스). */
+/* 2026-09-14: the fallback placement flash (the same contract as `.inv-slot.is-flash` above — its own class,
+   never mixed with the drag preview's). */
 @keyframes inv-quick-flash {
   0%   { border-color: var(--inv-ok); background: color-mix(in srgb, var(--inv-ok) 44%, transparent); box-shadow: 0 0 26px color-mix(in srgb, var(--inv-ok) 70%, transparent); opacity: 1; }
   55%  { border-color: var(--inv-ok); background: color-mix(in srgb, var(--inv-ok) 18%, transparent); box-shadow: 0 0 18px color-mix(in srgb, var(--inv-ok) 40%, transparent); opacity: 1; }
@@ -1231,7 +1274,7 @@ kbd {
 
 /* ═══ tactical kit: gear slots, weight, quick bar, crafting, durability ═════ */
 
-/* keep the wider layouts (가방 V = 12칸) on screen */
+/* keep the wider layouts (가방 V = 12 rows) on screen */
 .inv-layout { max-width: calc(100vw - 24px); overflow-x: auto; overflow-y: hidden; padding: 2px; }
 .inv-head-actions { display: flex; align-items: center; gap: 10px; }
 
@@ -1240,7 +1283,7 @@ kbd {
    the one rule set near `.inv-tile-sockets` — the gauge now has one definition. */
 .inv-tile-dur { bottom: 3px; }
 
-/* ── crate search (감정) mask (Phase 7) ─────────────────────────────────── */
+/* ── crate search mask (Phase 7) ────────────────────────────────────────── */
 /* An unsearched container item shows only its footprint: neutral colour, `?` icon, `???` name, no qty / pips / bar. */
 .inv-tile.is-hidden-item {
   cursor: progress;
@@ -1301,10 +1344,12 @@ kbd {
 .inv-weight.is-over .inv-weight-state { color: var(--inv-bad); animation: inv-weight-pulse 1.1s ease-in-out infinite; }
 @keyframes inv-weight-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
-/* ── 2026-09-18 (사용자 결정): 격자 오른쪽 열 (퀵슬롯 · 주머니 · 무게 · 가치 · 크레딧) ─────────────────────
-   무게 두 줄과 가치 한 줄은 예전에 카드 너비를 통째로 먹으며 격자 **아래**에 있었다 — 퀵슬롯 옆이 비는 만큼 카드만
-   길어졌다. 이제 셋은 이 열의 **맨 아래**(`margin-top: auto`)에 붙고, 카드 높이는 격자 · 장비 열이 정한다.
-   좁은 배치에서는 이 열이 격자 아래로 내려가므로(`.inv-bag-body` 가 세로) 예전 적층과 같은 모습이다. */
+/* ── 2026-09-18 (user's decision): the grid's right-hand column (wheel · pouch · 무게 · 가치 · credits) ───────
+   The two 무게 rows and the one 가치 row used to sit **under** the grid and take the card's whole width — the
+   card only grew longer while the space beside the wheel stayed empty. The three now sit at the **bottom** of
+   this column (`margin-top: auto`), and the card's height is set by the grid and the equipment column.
+   In the narrow layout this column drops below the grid (`.inv-bag-body` goes vertical), so it reads as the old
+   stack did. */
 .inv-bag-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; flex: 1 1 auto; }
 .inv-bag-readouts { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
 
@@ -1313,30 +1358,35 @@ kbd {
 .inv-slot-armor .inv-slot-body, .inv-slot-backpack .inv-slot-body { align-items: center; justify-content: center; }
 
 /* ── craft panel ────────────────────────────────────────────────────────── */
-/* 2026-09-12 (사용자 결정): 제작 열은 **[작업대 목록][제작품 목록] 두 열**이다 — 4열 배치의 왼쪽 둘.
-   (`max-width` 를 걷어낸 이유: 예전 `max-width: 380px` 이 아래의 `width` 를 계속 눌러 실제 폭을 정하고 있었다.) */
+/* 2026-09-12 (user's decision): the craft column is **two columns, [bench list][recipe list]** — the left two of
+   the four-column layout. (Why `max-width` was taken out: the old `max-width: 380px` kept beating the `width`
+   below and was what really set the panel's width.) */
 .inv-panel-craft {
   min-width: 340px; max-width: none;
   flex-direction: row; align-items: stretch; gap: 16px;
-  /* 목록 격자의 칸 사이 간격과 **그 격자의 폭** — 칸 수는 `ui/CraftPanel.CRAFT_LIST_COLS`(`--inv-craft-cols`),
-     칸 크기는 창 높이를 타는 `--inv-cell` 이다. 빈 작업대가 같은 폭을 지키는 근거이기도 하다 (`.inv-craft-empty`). */
+  /* The gap between the list grid's cells and **that grid's width** — the column count is
+     `ui/CraftPanel.CRAFT_LIST_COLS` (`--inv-craft-cols`) and the cell size is `--inv-cell`, which follows the
+     window height. It is also what makes an empty bench keep the same width (`.inv-craft-empty`). */
   --inv-craft-gap: 8px;
   --inv-craft-list-w: calc(
     var(--inv-craft-cols, 5) * (var(--inv-cell, 54px) + 2px) + (var(--inv-craft-cols, 5) - 1) * var(--inv-craft-gap)
   );
 }
 .inv-craft-main { display: flex; flex-direction: column; gap: 14px; flex: 1; min-width: 0; }
-/* ── 2026-09-15 2차 (사용자 결정): 제작 = **조합 목록 + 상세** ───────────────────────────────────────────────
-   2026-09-15 4차: 상세는 이 패널 안이 아니라 오른쪽의 **별도 카드** `.inv-panel-craft-detail` 이다 (아래 「제작 배치」).
-   그래서 body 는 목록 하나다. */
+/* ── 2026-09-15, 2nd pass (user's decision): craft = **the recipe list + the detail** ────────────────────────
+   2026-09-15, 4th pass: the detail is not inside this panel but a **separate card** to its right,
+   `.inv-panel-craft-detail` (see 「the craft layout」 below). So the body is the list alone. */
 .inv-craft-body { display: flex; flex-direction: row; align-items: stretch; gap: 16px; min-width: 0; min-height: 0; flex: 1; }
 .inv-craft-body[hidden] { display: none; }
-/* 목록은 산출물 썸네일만의 격자 — 칸 수의 원본은 `ui/CraftPanel.CRAFT_LIST_COLS` 하나다 (`--inv-craft-cols`, 패널 루트에 찍힌다).
-   2026-09-15 4차 (사용자 결정): 4 → **5칸**. 패널 폭은 `auto` 라 이 격자가 곧 폭을 정한다 — 스크롤바 자리는 `scrollbar-gutter`
-   로 미리 잡아 두어 줄이 넘칠 때 격자가 밀리지 않는다. */
+/* The list is a grid of output thumbnails only — the one source of the column count is
+   `ui/CraftPanel.CRAFT_LIST_COLS` (`--inv-craft-cols`, stamped on the panel root).
+   2026-09-15, 4th pass (user's decision): 4 → **5 columns**. The panel's width is `auto`, so this grid is what
+   sets it — the scrollbar's room is reserved up front with `scrollbar-gutter`, so an overflowing list does not
+   shift the grid. */
 .inv-craft-list {
   display: grid;
-  /* 칸의 **내용**이 정확히 한 격자 칸(`--inv-cell`)이어야 한다 — 전역이 `border-box` 라 테두리 2 px 를 더한다 */
+  /* A cell's **content** has to be exactly one grid cell (`--inv-cell`) — everything is `border-box`, so the
+     2 px of border is added on */
   grid-template-columns: repeat(var(--inv-craft-cols, 5), calc(var(--inv-cell, 54px) + 2px));
   align-content: start; justify-content: start; gap: var(--inv-craft-gap, 8px);
   flex: none; overflow-y: auto; overflow-x: hidden; padding-right: 4px;
@@ -1360,28 +1410,32 @@ kbd {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--inv-accent) 45%, transparent);
 }
 .inv-craft-cell.is-crafting { border-color: var(--inv-accent); }
-/* Phase 8 UI pass: 어두워지는 칸은 **색으로** 어두워진다 — `opacity` 로 낮추면 흐려진 월드가 비쳐 읽히지 않는다.
-   2026-09-16 (사용자 보고 「제작 가능 · 불가가 한눈에 구분되지 않는다」): 딤드를 훨씬 진하게 내렸다. 예전 값
-   (`saturate(.5) brightness(.8)`)은 밝은 칸과 거의 같아 보였다. 색은 거의 다 빼고(≈흑백) 밝기를 절반 아래로
-   내리되 **실루엣은 남긴다** — 무엇이 나오는 레시피인지는 여전히 읽혀야 한다.
-   ⚠ 아래 `.is-bench-locked` 는 같은 명시도로 뒤에 오므로 잠긴 칸(= 항상 `.is-locked` 도 붙는다)에서 이긴다.
-      두 줄은 함께 움직여야 한다 — 레벨 잠금이 재료 부족보다 더 진하다. */
+/* Phase 8 UI pass: a dimmed cell is dimmed **by colour** — lowering it with `opacity` lets the blurred world
+   show through and it stops being readable.
+   2026-09-16 (user's report 「제작 가능 · 불가가 한눈에 구분되지 않는다」): the dimming was taken much deeper. The
+   old values (`saturate(.5) brightness(.8)`) looked almost the same as a bright cell. Nearly all colour is taken
+   out (≈ greyscale) and brightness dropped below half, but the **silhouette stays** — which recipe's output it is
+   must still read.
+   ⚠ `.is-bench-locked` below has the same specificity and comes later, so it wins on a locked cell (which always
+      carries `.is-locked` too). The two rules move together — a level lock is darker than missing materials. */
 .inv-craft-cell.is-locked { background: rgba(6, 7, 10, 0.96); border-color: rgba(255, 255, 255, 0.06); }
 .inv-craft-cell.is-locked .inv-tile { filter: saturate(0.12) brightness(0.42); }
 .inv-craft-cell.is-bench-locked .inv-tile { filter: saturate(0.06) brightness(0.34); }
-/* 고를 것이 하나도 없는 작업대 (사용자 결정): 목록 · 상세 대신 **가운데 한 줄**.
-   2026-09-16 (사용자 보고 「빈 작업대는 창이 쪼그라든다」): 목록이 `hidden` 이 되어도 **틀은 그대로**다 — 폭은
-   썸네일 5칸(`--inv-craft-list-w`, 목록 격자와 같은 식). 높이는 아래 `.inv-panel-craft .inv-craft-empty`. */
+/* A bench with nothing to pick (user's decision): **one centred line** instead of the list and the detail.
+   2026-09-16 (user's report 「빈 작업대는 창이 쪼그라든다」): even with the list `hidden` the **frame stays** — the
+   width is 5 thumbnail cells (`--inv-craft-list-w`, the same formula as the list grid). The height is
+   `.inv-panel-craft .inv-craft-empty` below. */
 .inv-craft-empty {
   flex: 1; display: flex; align-items: center; justify-content: center;
   min-width: var(--inv-craft-list-w);
   color: var(--inv-muted); font-size: 12px; padding: 40px 12px; text-align: center;
 }
 .inv-craft-empty[hidden] { display: none; }
-/* ── 2026-09-12 (사용자 결정): 맨 왼쪽 **세로 작업대 리스트** ─────────────────────────────────
-   2026-09-10 의 가로 탭(`.inv-craft-tabs`)을 대신한다. 맨 위가 `빠른제작`, 그 아래로 이 함선에 실제로 설치된
-   작업대만 (`ctx.housing.getBenchLevel > 0`). 글리프는 함선 관리 화면(`ui/hud/ShipManage`)이 쓰는 것과 같다 —
-   같은 작업대를 같은 그림으로 알아보게. 고를 것이 하나뿐이면 열 자체가 숨는다(레이드의 야전 제작). */
+/* ── 2026-09-12 (user's decision): the **vertical bench list** at the far left ────────────────
+   It replaces 2026-09-10's horizontal tabs (`.inv-craft-tabs`). `빠른제작` sits at the top, and under it only the
+   benches actually installed on this ship (`ctx.housing.getBenchLevel > 0`). The glyphs are the ones the ship
+   management screen (`ui/hud/ShipManage`) uses — so the same bench is recognised by the same picture. With only
+   one thing to pick the column hides itself (field crafting in a raid). */
 .inv-craft-benches {
   flex: none; width: 128px; min-height: 0;
   display: flex; flex-direction: column; gap: 4px;
@@ -1412,12 +1466,16 @@ kbd {
 .inv-craft-bench-ico { font-style: normal; font-size: 14px; line-height: 1; flex: none; opacity: 0.9; }
 .inv-craft-bench-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inv-craft-bench-lv { flex: none; font-size: 9px; letter-spacing: 0.04em; opacity: 0.75; font-variant-numeric: tabular-nums; }
-/* ── 2026-09-15 2차 (사용자 결정): **상세 패널**. `.inv-craft-row` 라는 이름을 함께 갖는 이유는 튜토리얼
-   스포트라이트 선택자(`.inv-craft-row[data-recipe="…"] .inv-craft-btn`)가 계속 맞아야 하기 때문이다. 세로 한 줄로
-   ① 썸네일 + 이름 · 종류 ② 설명 · 스펙(툴팁 카드) ③ 보유 수 ④ 재료 썸네일 ⑤ 수량 ⑥ 홀드 버튼.
-   2026-09-15 4차 (사용자 결정): 이 본문은 작업대 패널 오른쪽의 **별도 카드** `.inv-panel-craft-detail` 안에 산다 — 카드가
-   테두리 · 배경 · 상태색(`is-locked` · `is-nospace` · `is-crafting`, `CraftPanel.syncDetailCard`)을 그리므로 본문은 틀이 없다.
-   머리는 아이템 툴팁과 같은 틀: 아이콘 좌상단 · 오른쪽 이름(등급색) · 그 아래 종류 · 등급 (`.inv-tt-name` · `.inv-tt-sub` 의 짝). */
+/* ── 2026-09-15, 2nd pass (user's decision): the **detail panel**. It also carries the name `.inv-craft-row`
+   because the tutorial spotlight selector (`.inv-craft-row[data-recipe="…"] .inv-craft-btn`) has to keep
+   matching. One vertical run: ① thumbnail + name · kind ② description · spec (the tooltip card) ③ how many are
+   held ④ material thumbnails ⑤ quantity ⑥ the hold button.
+   2026-09-15, 4th pass (user's decision): this body lives inside the **separate card**
+   `.inv-panel-craft-detail` right of the bench panel — the card draws the border, the background and the state
+   colours (`is-locked` · `is-nospace` · `is-crafting`, `CraftPanel.syncDetailCard`), so the body has no frame of
+   its own.
+   The header uses the item tooltip's frame: the icon at the top left · the name to its right (rarity colour) ·
+   kind and rarity under it (the twins of `.inv-tt-name` · `.inv-tt-sub`). */
 .inv-craft-row {
   --rc: #9aa3ad;
   display: flex; flex-direction: column; align-items: stretch; gap: 10px;
@@ -1426,15 +1484,17 @@ kbd {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.03);
 }
-/* 2026-09-16 (사용자 보고 「제작 아이템 패널에 가로 스크롤이 생긴다」): 이 칸은 **세로로만** 흐른다.
-   `overflow-y: auto` 만 적으면 가로축은 `visible` 이 아니라 `auto` 로 계산돼(CSS 규칙), 한 조각이라도 삐져나오면
-   가로 막대가 생긴다 — 실제 범인은 아래 `.inv-tt-value` 의 음수 마진이었고, 여기서는 축을 못박아 둔다. */
+/* 2026-09-16 (user's report 「제작 아이템 패널에 가로 스크롤이 생긴다」): this pane scrolls **vertically only**.
+   With `overflow-y: auto` alone the horizontal axis computes to `auto` rather than `visible` (a CSS rule), so one
+   piece sticking out is enough to grow a horizontal bar — the real culprit was `.inv-tt-value`'s negative margin
+   below, and the axis is nailed down here. */
 .inv-craft-detail { flex: 1 1 0px; min-width: 240px; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
 .inv-craft-detail[hidden] { display: none; }
 .inv-craft-dhead { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .inv-craft-dtitles { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-top: 2px; }
 .inv-craft-dkind { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--inv-muted); }
-/* 상세 카드 (2026-09-15 4차): 툴팁처럼 등급색 윗줄, 안의 본문 · 스펙 카드는 틀을 벗는다 (카드 하나가 곧 툴팁이다) */
+/* The detail card (2026-09-15, 4th pass): a rarity-coloured top edge like the tooltip, and the body and spec
+   card inside drop their frames (the one card *is* the tooltip) */
 .inv-panel-craft-detail {
   --rc: #9aa3ad;
   width: 340px; min-width: 0;
@@ -1442,29 +1502,31 @@ kbd {
   transition: border-color 120ms var(--inv-ease);
 }
 .inv-panel-craft-detail[hidden] { display: none; }
-.inv-panel-craft-detail::before { display: none; }   /* 패널 윗줄 하이라이트 대신 등급색 선 */
+.inv-panel-craft-detail::before { display: none; }   /* the rarity-coloured line, not the panel's top highlight */
 .inv-panel-craft-detail > .inv-craft-row { padding: 0; border: 0; border-radius: 0; background: none; }
 .inv-panel-craft-detail .inv-tt-card { padding: 0; border: 0; border-radius: 0; background: none; }
-/* ⚠ 2026-09-16 (가로 스크롤의 진짜 원인): 떠다니는 툴팁에서 `.inv-tt-value`(무게 · 가치 띠)는 카드의 좌우 패딩
-   14 px 를 **음수 마진으로 뚫고** 끝까지 닿는 띠다. 임베드 카드는 바로 위 줄에서 그 패딩을 버리므로(`padding: 0`)
-   음수 마진만 남아 띠가 카드 밖으로 28 px 삐져나갔고, 상세 칸이 그만큼 가로로 흘렀다. 패딩을 지운 곳에서는
-   마진도 지운다 (카드가 이미 폭 전체다). */
+/* ⚠ 2026-09-16 (the real cause of the horizontal scroll): in a floating tooltip `.inv-tt-value` (the 무게 · 가치
+   strip) **breaks through** the card's 14 px side padding with a negative margin to reach both edges. The
+   embedded card drops that padding one rule above (`padding: 0`), so only the negative margin was left, the strip
+   stuck 28 px outside the card, and the detail pane scrolled sideways by exactly that. Where the padding is
+   removed, the margin is removed too (the card is already full width). */
 .inv-panel-craft-detail .inv-tt-card .inv-tt-value { margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; }
 .inv-panel-craft-detail.is-crafting { border-color: var(--inv-accent); }
 .inv-panel-craft-detail.is-nospace { border-color: color-mix(in srgb, var(--inv-bad) 55%, var(--inv-line)); }
 .inv-panel-craft-detail.is-locked,
 .inv-panel-craft-detail.is-bench-locked { background: linear-gradient(180deg, rgba(10, 12, 16, 0.96), rgba(8, 9, 12, 0.96)); }
 .inv-panel-craft-detail.is-bench-locked { border-style: dashed; border-top-style: solid; }
-/* 현재 보유 수 — 재료를 세는 범위와 같은 수 (함선 = 가방 + 창고, 현장 = 가방) */
+/* How many are held right now — the same count as the material scope (ship = bag + stash, field = bag) */
 .inv-craft-owned {
   font-size: 11px; letter-spacing: 0.06em; color: var(--inv-muted); font-variant-numeric: tabular-nums;
 }
-/* ② 설명 · 스펙: `ui/Tooltip` 의 아이템 카드를 그 자리에 붙인다 — 떠다니는 카드가 아니라 패널의 한 블록이다.
-   ⚠ 클래스는 `.inv-tooltip` 이 아니라 **`.inv-tt-card`** 다 (`ui/CraftPanel` 의 이유 주석 참고: 이 카드가 DOM
-   앞에 있어 `querySelector('.inv-tooltip')` 를 가로채면 안 된다). 그래서 떠다니는 카드의 **틀**만 여기 한 번 더
-   적고, 카드 **안쪽**(`.inv-tt-*`)은 한 벌을 그대로 쓴다. `Tooltip.move()` 가 인라인 `transform` 을 쓰므로
-   `!important` 로 눌러야 하고, 이름 줄은 위의 `.inv-craft-dhead` 가 이미 말하므로 머리 글자는 숨긴다
-   (탄종 썸네일은 남는다). */
+/* ② description · spec: `ui/Tooltip`'s item card is mounted in place — a block of the panel, not a floating
+   card.
+   ⚠ The class is **`.inv-tt-card`**, not `.inv-tooltip` (see the reason comment in `ui/CraftPanel`: this card
+   comes first in the DOM and must not intercept `querySelector('.inv-tooltip')`). So only the floating card's
+   **frame** is written out a second time here, while the card's **inside** (`.inv-tt-*`) reuses the one set of
+   rules. `Tooltip.move()` writes an inline `transform`, so it has to be beaten with `!important`, and the header
+   text is hidden because `.inv-craft-dhead` above already says the name (the calibre thumbnail stays). */
 .inv-craft-spec { min-width: 0; }
 .inv-tt-card {
   --rc: #9aa3ad;
@@ -1477,21 +1539,22 @@ kbd {
   border-radius: 4px;
 }
 .inv-tt-card[hidden] { display: none; }
-/* 격자 툴팁의 `품질  ★★★☆☆ +15 %` 줄과 같은 별 색 (`.inv-tooltip` 쪽 규칙의 짝) */
+/* The same star colour as the grid tooltip's `품질  ★★★☆☆ +15 %` row (the twin of the `.inv-tooltip` rule) */
 .inv-tt-card .inv-tt-stats .v.is-quality { color: #ffd66b; letter-spacing: 0.02em; }
 .inv-tt-card.is-embedded .inv-tt-head-text { display: none; }
 .inv-tt-card.is-embedded .inv-tt-head:not(:has(.inv-tt-ammo)) { display: none; }
-/* 산출물 썸네일 — `buildTileContent` 가 그린 `.inv-tile` 하나를 담는다 (드래그 · 메뉴 없음, 호버 카드만). */
+/* The output thumbnail — holds one `.inv-tile` drawn by `buildTileContent` (no drag, no menu, hover card
+   only). */
 .inv-craft-thumb { position: relative; flex: none; display: flex; cursor: help; }
 .inv-craft-thumb .inv-tile { position: static; cursor: help; }
-/* 겹치지 않는 아이템을 여러 개 만드는 레시피의 개수 (겹치는 것은 타일이 스스로 수량을 그린다) */
+/* The count for a recipe that makes several non-stacking items (a stacking one draws its own qty on the tile) */
 .inv-craft-thumb-qty {
   position: absolute; right: -3px; bottom: -4px;
   padding: 0 4px; height: 15px; line-height: 14px;
   border: 1px solid var(--inv-line-strong); background: rgba(6, 7, 9, 0.94);
   font-size: 10px; font-variant-numeric: tabular-nums; color: var(--inv-text);
 }
-/* 우측 칸: 수량 스테퍼 위, 홀드 버튼 아래 */
+/* The right-hand pane: the quantity stepper on top, the hold button under it */
 .inv-craft-act { display: flex; flex-direction: column; align-items: stretch; gap: 6px; flex: none; }
 .inv-craft-count {
   display: flex; align-items: center; justify-content: space-between; gap: 4px;
@@ -1522,15 +1585,18 @@ kbd {
 .inv-craft-row.is-locked .item-chip-thumb { filter: saturate(0.5) brightness(0.8); }
 .inv-craft-row.is-locked .inv-craft-thumb { filter: saturate(0.5) brightness(0.8); }
 .inv-craft-row.is-crafting { border-color: var(--inv-accent); }
-/* 2026-09-09: 재료는 있는데 **넣을 자리**가 없는 줄. `.is-locked` 와 달리 레시피 자체는 멀쩡하므로 줄을 어둡게
- * 깔지 않고 테두리 · 썸네일만 경고색으로 짚어 준다 — 눌러도 안 되는 이유는 버튼 라벨이 글자로 말한다. */
+/* 2026-09-09: a row that has the materials but **no room** for the output. Unlike `.is-locked` the recipe itself
+ * is fine, so the row is not laid out dark — only the border and the thumbnail are marked in the warning colour,
+ * and the button's label says in words why pressing it does nothing. */
 .inv-craft-row.is-nospace { border-color: color-mix(in srgb, var(--inv-bad) 55%, var(--inv-line)); }
 .inv-craft-row.is-nospace .inv-craft-thumb { filter: saturate(0.55) brightness(0.85); }
 .inv-craft-row.is-nospace .inv-craft-btn { color: var(--inv-bad); }
 .inv-craft-info { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
-/* 2026-09-15 4차: 이름은 툴팁의 `.inv-tt-name` 과 같은 등급색 (`--rc` 는 `CraftDetail.show` 가 찍는다) */
+/* 2026-09-15, 4th pass: the name takes the tooltip's `.inv-tt-name` rarity colour (`CraftDetail.show` stamps
+   `--rc`) */
 .inv-craft-name { font-size: 14px; font-weight: 600; color: color-mix(in srgb, var(--rc) 80%, white 30%); }
-/* `.inv-craft-desc` (레시피 설명 줄) 은 2026-09-09 에 마크업에서 빠졌다 — 썸네일과 `이름 ×n` 이 그 자리를 한다. */
+/* `.inv-craft-desc` (the recipe description row) left the markup on 2026-09-09 — the thumbnail and `이름 ×n` do
+   its job. */
 .inv-craft-inputs { display: flex; flex-wrap: wrap; gap: 5px; }
 .inv-craft-chip {
   font-size: 10px; letter-spacing: 0.02em;
@@ -1541,20 +1607,23 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 .inv-craft-chip.is-missing { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); border-color: color-mix(in srgb, var(--inv-bad) 45%, transparent); }
-/* 2026-09-14 3차 (사용자 결정 — 누르는 중에 버튼이 좁아지지 않는다): 라벨이 바뀌면서 버튼이 좁아지면 누르고
- * 있던 커서가 버튼 밖으로 나가 홀드가 스스로 풀린다. 그래서 **긴 쪽에 맞춰 폭을 고정**한다 — `flex: none`
- * 이라 폭을 정하는 것은 이 값뿐이다.
- * 2026-09-15 2차 (사용자 결정 — 버튼 안의 좌클릭 홀드 키캡): 라벨이 `길게 눌러 제작` → **`제작`** 으로 짧아졌고
- * 그 왼쪽에 키캡이 섰다. 두 라벨의 폭을 다시 잰다 (11 px · letter-spacing 0.14em ≈ 1.54 px/자 · padding 28 · border 2):
- *   키캡 = min-width 20 ↔ 그림 1.5em(16.5) + padding 6 + border 2 ≈ 24.5 + margin-right 8 = **약 33 px**
+/* 2026-09-14, 3rd pass (user's decision — the button must not narrow while it is held): if the button narrows as
+ * the label changes, the cursor holding it ends up outside the button and the hold releases itself. So the
+ * **width is fixed to the longer label** — with `flex: none` this value is the only thing that sets it.
+ * 2026-09-15, 2nd pass (user's decision — a left-click hold keycap inside the button): the label shrank from
+ * `길게 눌러 제작` to **`제작`** and a keycap took its left side. The two labels are measured again (11 px ·
+ * letter-spacing 0.14em ≈ 1.54 px per character · padding 28 · border 2):
+ *   keycap = min-width 20 ↔ glyph 1.5em (16.5) + padding 6 + border 2 ≈ 24.5 + margin-right 8 = **about 33 px**
  *   `제작`     = 22 + 3.1  ≈ 25  → 25 + 33 + 30 ≈  88 px
- *   `제작 중…` = 49 + 7.7  ≈ 57  → 57 + 33 + 30 ≈ 120 px  ← 긴 쪽
- * 그래서 **124 px** (대체 글꼴이 조금 넓어도 두 라벨이 같은 폭을 쓴다).
- * 더 긴 `가방·창고 공간 부족`은 **비활성 상태**라 홀드 중에 나타나지 않는다 (그때는 키캡도 숨는다 — `CraftPanel.paint`).
- * 같은 클래스를 쓰는 분해 버튼(`.inv-dis-btn`)은 아래에서 `width: 100%` + `min-width: 0` 으로 제 칸을 꽉 채우므로
- * 이 값에 걸리지 않고, 이미 라벨과 무관하게 폭이 고정이다. */
+ *   `제작 중…` = 49 + 7.7  ≈ 57  → 57 + 33 + 30 ≈ 120 px  ← the longer one
+ * Hence **124 px** (a fallback font runs a little wider and both labels still use one width).
+ * The longer `가방·창고 공간 부족` only appears in the **disabled** state, never during a hold (the keycap hides
+ * then too — `CraftPanel.paint`).
+ * The salvage button (`.inv-dis-btn`), which uses the same class, fills its own pane below with `width: 100%` +
+ * `min-width: 0`, so this value never reaches it and its width is already independent of the label. */
 .inv-craft-btn { position: relative; overflow: hidden; min-width: 124px; flex: none; }
-/* 상세 패널에서는 버튼 · 스테퍼가 칸을 꽉 채운다 (폭이 라벨을 따라 흔들리지 않는다는 위 규약은 그대로) */
+/* In the detail panel the button and the stepper fill the pane (the contract above — the width never follows the
+   label — still holds) */
 .inv-craft-detail .inv-craft-btn { width: 100%; }
 .inv-craft-detail .inv-craft-count { width: 100%; }
 .inv-craft-btn:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -1575,23 +1644,25 @@ kbd {
 .inv-tt-dur.is-broken .inv-tt-dur-label { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
 .inv-tt-foot { margin-top: 8px; font-size: 10px; letter-spacing: 0.08em; color: var(--inv-muted); }
 
-/* ═══ ship screen (hub Tab, 2026-09-06): 창고 · 장착 장비 (+ 임플란트) · 가방 + 퀵슬롯 ═══ */
+/* ═══ ship screen (hub Tab, 2026-09-06): 창고 · equipped gear (+ implants) · 가방 + the wheel ═══ */
 
 /* Phase 9 UI pass: the mission window now uses the **ship** layout minus the 창고 panel, so a raid bag looks and
    works exactly like the one in the ship (장비 left, 가방 right, quick rose beside the grid).
    Panel order: ship = 창고 · 장비 · 가방 · 제작; mission = 상자 · 장비 · 가방 · 제작.
-   2026-09-16 (사용자 결정): 함선 Tab 은 **창고 | 장비 | 가방** — 창고는 `.inv-layout` 의 직속 카드다 (`InventoryUI.mount`). */
+   2026-09-16 (user's decision): the ship Tab is **창고 | 장비 | 가방** — 창고 is a direct card of `.inv-layout`
+   (`InventoryUI.mount`). */
 .inv-panel-stash { order: 0; }
 .inv-panel-container { order: 0; }
 .inv-equip { order: 1; }
 .inv-panel-bag { order: 2; }
 .inv-panel-craft { order: 3; }
 
-/* ── 2026-09-15 2차 → 2026-09-16: **가방 카드** ────────────────────────────────────────────────────────────────
-   `.inv-panel-grids`(= 옛 `.inv-col-right`)는 2026-09-15 2차에 창고 + 가방 두 칸을 담던 카드였고, 2026-09-16 부터
-   창고가 밖으로 나가 **가방 칸 하나**를 담는다 (선택자 호환으로 이름은 그대로). 안쪽 패널은 자기 테두리 · 배경 · 여백을
-   버리고 칸 역할만 한다. 창고 · 가방은 자기 세로 스크롤 · 정렬 · 필터를 갖는다
-   (⚠ 한 스크롤에 세로로 이어 붙이지 않는다 — 2026-09-12 경고 그대로). */
+/* ── 2026-09-15, 2nd pass → 2026-09-16: **the bag card** ────────────────────────────────────────────────────
+   `.inv-panel-grids` (= the old `.inv-col-right`) was the card that held the two panes 창고 + 가방 on
+   2026-09-15, 2nd pass; since 2026-09-16 창고 has moved out and it holds **one pane, 가방** (the name stays for
+   selector compatibility). The panel inside drops its own border · background · padding and only acts as a pane.
+   창고 and 가방 each keep their own vertical scroll · sort · filter
+   (⚠ never joined vertically into one scroll — the 2026-09-12 warning stands). */
 .inv-panel-grids {
   order: 2;
   display: flex; flex-direction: row; align-items: stretch; gap: 20px;
@@ -1615,11 +1686,13 @@ kbd {
 .inv-layout:not(.is-craft) .inv-panel-grids {
   border-top-left-radius: 0; border-bottom-left-radius: 0;
 }
-/* 2026-09-16 (사용자 결정): 함선 Tab = **창고 | 장비 | 가방** 한 장의 패널. 창고 카드가 오른쪽 이웃(평소 = 장비 열,
-   무한 상자 배치 = 장비가 숨으므로 가방 카드)에 같은 방식으로 붙는다 — 간격을 지우고 맞닿는 모서리를 깎고, 구분선은
-   **이웃의 왼쪽 테두리**가 긋는다 (창고 쪽 오른쪽 테두리는 지운다: 두 줄이 겹치면 굵어 보인다).
-   ⚠ 이웃이 늘 장비 열 / 가방 카드가 되도록 DOM 에서 창고는 상자 창 **뒤**다 (`InventoryUI.mount`). 레이드에는 창고가
-   `hidden` 이라 이 규칙이 닿지 않는다. */
+/* 2026-09-16 (user's decision): the ship Tab = **창고 | 장비 | 가방** as one panel. The 창고 card joins its right
+   neighbour (normally the equipment column; in the 무한 상자 layout the bag card, because the equipment column
+   hides) the same way — the gap is cancelled, the touching corners are squared off, and the divider is drawn by
+   the **neighbour's left border** (the 창고 side's right border is removed: two lines on top of each other look
+   thick).
+   ⚠ So that the neighbour is always the equipment column / the bag card, 창고 sits **after** the container window
+   in the DOM (`InventoryUI.mount`). In a raid 창고 is `hidden`, so this rule never reaches it. */
 .inv-root.is-hub .inv-layout:not(.is-craft) .inv-panel-stash {
   margin-right: calc(-1 * var(--inv-panel-gap, 24px));
   border-right: none;
@@ -1629,59 +1702,71 @@ kbd {
   border-top-left-radius: 0; border-bottom-left-radius: 0;
 }
 
-/* ── 제작 4열 (2026-09-12, 사용자 결정) ──────────────────────────────────────
-   제작 중의 창은 좌 → 우로 **[함선 작업대 목록] [제작품 목록] [함선 창고] [내 가방]** 이다. 왼쪽 두 열은
-   `.inv-panel-craft` 하나가 가로로 품고 (`.inv-craft-benches` + `.inv-craft-main`), 오른쪽 두 열은
-   `.inv-col-right` 가 **가로**로 세운다 — 2026-09-07 의 「가방 위 · 창고 아래」 세로 적층을 뒤집은 것이다
-   (12줄 가방 틀이 생기면서 세로로 쌓으면 창고가 화면 밖으로 밀렸다).
-   레이드에는 창고가 없으므로 오른쪽은 가방 하나이고 줄은 제작 · 가방이 된다. */
-/* 2026-09-15 2차: `.inv-col-right` 는 이제 `.inv-panel-grids` 카드 그 자체다 (위의 규칙이 배치를 갖는다) —
-   제작 열이 열려도 같은 카드이고 순서만 오른쪽 끝으로 간다. */
+/* ── The four craft columns (2026-09-12, user's decision) ───────────────────
+   While crafting, the window runs left → right as **[the ship's bench list] [the recipe list] [함선 창고]
+   [my 가방]**. One `.inv-panel-craft` holds the left two horizontally (`.inv-craft-benches` +
+   `.inv-craft-main`), and `.inv-col-right` stands the right two **side by side** — the reverse of 2026-09-07's
+   「bag above · stash below」 vertical stack (once the 12-row bag frame existed, stacking vertically pushed the
+   stash off screen).
+   A raid has no stash, so the right side is the bag alone and the row becomes craft · bag. */
+/* 2026-09-15, 2nd pass: `.inv-col-right` is now the `.inv-panel-grids` card itself (the rule above carries the
+   layout) — the same card with the craft column open, only its order moves to the far right. */
 .inv-layout.is-craft .inv-col-right { order: 2; }
 .inv-layout.is-craft .inv-panel-craft { order: -1; }
 .inv-layout.is-craft .inv-panel-catalog { order: -2; }
-/* ── 2026-09-15 4차 (사용자 결정): 제작 배치 = **[작업대 목록 · 조합 목록] [상세 카드]** ─────────────────────────
-   창고 · 가방 격자 카드는 제작 중 **숨는다** — 재료는 격자가 아니라 인벤토리 모델에서 센다 (`craftCountDef`). 상세 카드는
-   작업대 패널 바로 오른쪽(order 0)이고 `align-self: stretch` 로 그 패널의 위 · 아래에 맞춘다 (줄의 높이 = 작업대 패널;
-   `.inv-layout` 은 `align-items: flex-start` 라 나머지는 그대로다). 안의 본문(`.inv-craft-detail`)이 남는 높이를 받아 스크롤한다. */
+/* ── 2026-09-15, 4th pass (user's decision): the craft layout = **[bench list · recipe list] [detail card]** ──
+   The 창고 and 가방 grid cards **hide** while crafting — materials are counted from the inventory model, not from
+   the grids (`craftCountDef`). The detail card sits immediately right of the bench panel (order 0) and matches
+   its top and bottom with `align-self: stretch` (the row's height = the bench panel; `.inv-layout` is
+   `align-items: flex-start`, so everything else is unchanged). The body inside (`.inv-craft-detail`) takes the
+   remaining height and scrolls. */
+/* 2026-09-16: 창고 is now a direct card outside the bag card, so it is hidden separately from the grids card */
 .inv-layout.is-craft .inv-panel-grids,
-.inv-layout.is-craft .inv-panel-stash { display: none; }   /* 2026-09-16: 창고는 이제 가방 카드 밖의 직속 카드라 따로 숨긴다 */
+.inv-layout.is-craft .inv-panel-stash { display: none; }
 .inv-layout.is-craft .inv-panel-craft-detail { order: 0; align-self: stretch; max-height: calc(100vh - 140px); }
-/* 나란히 서므로 두 격자 모두 평소 창고 높이를 그대로 쓴다 (예전에는 위아래로 쌓느라 둘 다 잘라야 했다) */
-/* 2026-09-13: 창고 격자는 평소 창고 높이를 **바닥**으로 두고(`min-height`) 가방 패널이 더 길면 남는 자리를 채운다
-   (`flex: 1 1 0px` — 격자 24행이 패널 높이를 밀어 올리지 않는다). 가방이 짧으면 가방 패널이 창고에 맞춰 늘어난다. */
+/* Standing side by side, both grids keep the usual 창고 height (stacking them used to force cutting both) */
+/* 2026-09-13: the 창고 grid takes the usual 창고 height as its **floor** (`min-height`) and fills the leftover
+   room when the bag panel is longer (`flex: 1 1 0px` — the grid's 24 rows do not push the panel's height up).
+   When the bag is shorter, the bag panel stretches to match 창고. */
 .inv-layout.is-craft .inv-stash-scroll { flex: 1 1 0px; min-height: min(560px, calc(100vh - 330px)); max-height: none; }
-/* 2026-09-12: 제작 중에는 가방 틀의 빈 여백 줄을 쓰지 않는다 (`parts/Screens.setCraftOpen` → `setFrameRows(null)`).
-   긴 가방은 이 높이 안에서 스크롤한다. */
+/* 2026-09-12: while crafting the bag frame's empty padding rows are not used
+   (`parts/Screens.setCraftOpen` → `setFrameRows(null)`). A long bag scrolls inside this height. */
 .inv-layout.is-craft .inv-bag-scroll { max-height: min(560px, calc(100vh - 330px)); }
 
-/* 2026-09-08 — **제작 중에는 제작에 쓰는 것만.** 장착 장비 + 임플란트 열 · 퀵슬롯 로즈 · 가방 헤더의 `제작`/용량 ·
-   하단 가치 · 상단 화면 탭은 레시피와 아무 상관이 없다. 장비 칸이 사라지므로 만든 무기를 장착하려면 제작 창을
-   닫아야 하고, 튜토리얼 `openBag` 단계가 그 순서를 그대로 안내한다 (사용자 결정). */
+/* 2026-09-08 — **while crafting, only what crafting uses.** The equipped gear + implant column · the wheel rose ·
+   the bag header's `제작` / capacity · the 가치 at the bottom · the screen tabs at the top have nothing to do with
+   a recipe. The equipment slots are gone, so equipping a weapon you just made means closing the craft window
+   first, and the tutorial's `openBag` step guides exactly that order (user's decision). */
 .inv-root.is-craft .scr-tabs { display: none; }
 .inv-layout.is-craft .inv-equip { display: none; }
 .inv-layout.is-craft .inv-quick { display: none; }
-/* 가방 헤더는 남기되(용량은 만든 것이 들어갈 자리가 있는지 알려 준다) `제작` 버튼과 하단 가치만 뺀다 */
+/* The bag header stays (its capacity says whether there is room for what you make) — only the `제작` button and
+   the 가치 at the bottom are taken out */
 .inv-layout.is-craft .inv-bag-craft { display: none; }
 .inv-layout.is-craft .inv-panel-bag .inv-foot { display: none; }
-/* 2026-09-15 2차: 제작 열이 [작업대 목록][조합 목록 4칸][상세] 셋이 되면서 폭이 늘었다.
-   2026-09-15 4차: 상세가 옆 카드로 나가고 목록이 5칸이 되면서 폭은 **내용이 정한다** (`width: auto`, `flex: none`) —
-   작업대 목록 128 + 간격 + 격자 5칸(+ 스크롤바 자리). 칸 크기(`--inv-cell`)가 창 높이를 타므로 px 를 적지 않는다. */
+/* 2026-09-15, 2nd pass: the craft column grew wider when it became three — [bench list][4-column recipe
+   list][detail].
+   2026-09-15, 4th pass: with the detail moved out into the card beside it and the list at 5 columns, **the
+   content decides** the width (`width: auto`, `flex: none`) — bench list 128 + gap + 5 grid cells (+ the
+   scrollbar's room). The cell size (`--inv-cell`) follows the window height, so no px is written here. */
 .inv-panel-craft { width: auto; flex: none; max-height: calc(100vh - 140px); }
-/* 2026-09-12 (사용자 결정): 제작품 목록은 **고정 높이 + 세로 스크롤**이고, 그 높이는 오른쪽 창고 격자와 같은
-   식이다 (`.inv-stash-scroll`) — 창이 짧아도 패널이 아니라 목록만 움직인다. */
+/* 2026-09-12 (user's decision): the recipe list is **a fixed height + a vertical scroll**, and that height is
+   the same formula as the 창고 grid on the right (`.inv-stash-scroll`) — in a short window the list moves, not
+   the panel. */
 .inv-panel-craft .inv-craft-body {
   flex: none; height: min(560px, calc(100vh - 330px)); max-height: none;
 }
-/* 2026-09-16: 빈 작업대도 목록과 **같은 높이**의 틀을 지킨다 (위 `.inv-craft-empty` 의 폭과 한 짝) */
+/* 2026-09-16: an empty bench keeps a frame of the **same height** as the list (the twin of the
+   `.inv-craft-empty` width above) */
 .inv-panel-craft .inv-craft-empty { flex: none; height: min(560px, calc(100vh - 330px)); }
 .inv-panel-craft .inv-craft-list::-webkit-scrollbar,
 .inv-panel-craft-detail .inv-craft-detail::-webkit-scrollbar { width: 6px; }
 .inv-panel-craft .inv-craft-list::-webkit-scrollbar-thumb,
 .inv-panel-craft-detail .inv-craft-detail::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 .inv-panel-craft .inv-craft-benches { max-height: min(560px, calc(100vh - 330px)); }
-/* 좁은 창(1280 급)에서는 작업대 목록 · 상세 카드를 줄여 다른 열이 조금이라도 더 들어오게 한다 — 그래도 모자라면
-   `.inv-layout` 의 가로 스크롤이 받는다 (격자를 찌그러뜨리지 않는다는 기존 규칙). */
+/* In a narrow window (the 1280 class) the bench list and the detail card shrink so the other columns get a
+   little more room — and if that is still not enough, `.inv-layout`'s horizontal scroll takes it (the standing
+   rule: a grid is never squeezed). */
 @media (max-width: 1560px) {
   .inv-craft-benches { width: 104px; }
   .inv-panel-craft-detail { width: 300px; }
@@ -1700,31 +1785,36 @@ kbd {
 .inv-stash-scroll::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 .inv-stash-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--inv-muted); }
 
-/* ── 2026-09-12: 가방 틀 · 정렬 · 필터 ─────────────────────────────────────────────────────────────────────────
-   가방 격자는 늘 가장 긴 가방(`BAG_FRAME_ROWS`) 높이로 그려지고 모자라는 줄은 빈 여백이다(`GridView.setFrameRows`).
-   창이 짧으면 그 틀이 `.inv-bag-scroll` 안에서 세로로 스크롤된다. */
+/* ── 2026-09-12: the bag frame · sort · filter ───────────────────────────────────────────────────────────────
+   The bag grid is always drawn at the tallest bag's height (`BAG_FRAME_ROWS`) and the rows it is short of are
+   empty padding (`GridView.setFrameRows`). In a short window that frame scrolls vertically inside
+   `.inv-bag-scroll`. */
 .inv-bag-scroll {
   flex: none;
-  /* stacked layout (퀵슬롯 로제트가 가방 **아래** — 함선 1600 px 미만 · 레이드 1280 px 미만): 로제트 · 주머니 · 하단 가치 몫을
-     비워야 1280×760 에서도 패널이 화면 안에 선다. 넓은 배치는 아래 미디어 쿼리가 되돌린다. */
+  /* stacked layout (the wheel rose sits **below** the bag — under 1600 px in the ship · under 1280 px in a
+     raid): the shares of the rose · pouch · bottom 가치 have to be left free for the panel to stand inside the
+     screen at 1280×760 too. The wide arrangement is restored by the media query below. */
   max-height: max(168px, calc(100vh - 430px));
   overflow-y: auto; overflow-x: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--sb-thumb, rgba(52, 58, 66, 0.95)) var(--sb-track, rgba(4, 6, 9, 0.55));
 }
-/* 2026-09-12 — **함선 화면은 위를 74 px 비우므로 격자 몫이 그만큼 적다.** `.inv-root.is-hub` 가 `.scr-tabs` 자리로
-   `padding-top: 74px` 을 잡는데(레이드는 8 px), 위 한 줄은 그 차이를 모르는 하나의 예산이었다 — 1280×760 함선
-   Tab 창에서 가방 패널이 76 → 811 px 로 서서 바닥 51 px(무게 · 가치 줄)이 화면 밖으로 나갔다. 예전
-   `justify-content: center` 에서는 남는 높이가 위아래로 갈라져 드러나지 않던 자리다. 66 px(74 − 8)을 더 뺀다. */
+/* 2026-09-12 — **the ship screen leaves 74 px free at the top, so the grid's share is that much smaller.**
+   `.inv-root.is-hub` reserves `padding-top: 74px` for `.scr-tabs` (a raid takes 8 px), while the rule above was
+   one budget that knew nothing of the difference — in the 1280×760 ship Tab window the bag panel stood from 76 to
+   811 px and the bottom 51 px (the 무게 · 가치 rows) fell off the screen. Under the old
+   `justify-content: center` the spare height split top and bottom and it never showed. 66 px (74 − 8) is
+   subtracted on top. */
 .inv-root.is-hub .inv-layout:not(.is-craft) .inv-bag-scroll { max-height: max(168px, calc(100vh - 496px)); }
 .inv-bag-scroll::-webkit-scrollbar { width: 6px; }
 .inv-bag-scroll::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
-/* 2026-09-15 2차 (사용자 결정): 필터는 **정렬 버튼 오른쪽의 드롭다운 하나**다 — 열 개짜리 글리프 칩 줄
-   (`.inv-filters` · `.inv-filter-chip`)은 격자 위 한 줄을 통째로 먹으면서도 어느 칩이 무엇인지 글자로 말하지
-   못했다.
-   2026-09-16 (사용자 결정): 네이티브 `<select>` 는 공용 드롭다운(`src/shared/dropdown.ts`, `.dd-*` 는
-   `ui/styles/base.css`)으로 갈아 끼웠다 — 펼친 목록까지 우리가 그린다. 여기 남는 것은 **이 도구 줄에 맞춘 크기**뿐이다:
-   `.dd-trigger` 기본값(26 px · 12 px)은 20 px 짜리 `모두 수리` · `정렬` 과 나란히 서기에 크다. */
+/* 2026-09-15, 2nd pass (user's decision): the filter is **one dropdown right of the sort button** — the row of
+   ten glyph chips (`.inv-filters` · `.inv-filter-chip`) ate a whole row above the grid and still could not say in
+   words which chip was which.
+   2026-09-16 (user's decision): the native `<select>` was swapped for the shared dropdown
+   (`src/shared/dropdown.ts`; `.dd-*` lives in `ui/styles/base.css`) — we draw the open list too. All that is left
+   here is **the size that fits this tool row**: `.dd-trigger`'s defaults (26 px · 12 px) are large standing next
+   to the 20 px `모두 수리` · `정렬`. */
 .inv-filter-sel { flex: none; max-width: 132px; }
 .inv-filter-sel .dd-trigger {
   height: 22px; padding: 0 18px 0 7px;
@@ -1735,7 +1825,8 @@ kbd {
   border-radius: 2px;
 }
 .inv-filter-sel .dd-trigger::after { right: 6px; font-size: 9px; }
-/* 「전체」가 아닌 것을 고르면 컨트롤 자체가 켜진 것처럼 보인다 — 어느 격자가 걸러져 있는지 한눈에 보이게 */
+/* Picking anything other than 「전체」 makes the control itself look switched on — so which grid is filtered
+   reads at a glance */
 .inv-filter-sel.is-on .dd-trigger {
   color: var(--inv-accent, #f0c46a);
   border-color: color-mix(in srgb, var(--inv-accent, #f0c46a) 70%, transparent);
@@ -1743,16 +1834,19 @@ kbd {
 }
 .inv-sort-btn { padding: 4px 9px; font-size: 10px; letter-spacing: 0.08em; }
 
-/* 2026-09-16 (사용자 결정): 창고 머리 왼쪽의 조용한 제목 `함선 창고` + 오른쪽 끝의 `업그레이드`.
-   `.is-bare` 는 도구 줄 하나뿐이라 오른쪽에 붙이는 규칙인데, 창고 머리는 제목이 생겨 양 끝으로 갈라진다. */
+/* 2026-09-16 (user's decision): the quiet title `함선 창고` at the left of the 창고 header + `업그레이드` at the
+   far right. `.is-bare` is the rule that pins a header right because it holds nothing but the tool row, but the
+   창고 header gained a title and so splits to both ends. */
 .inv-panel-stash .inv-head.is-bare { justify-content: space-between; align-items: center; }
 .inv-stash-name { flex: none; white-space: nowrap; }
 .inv-stash-upgrade-btn { flex: none; padding: 4px 9px; font-size: 10px; letter-spacing: 0.08em; }
 
-/* 2026-09-14 → 2026-09-15 2차: 가방 머리의 도구 줄 = `모두 수리` + `정렬` + 필터 드롭다운 한 줄. */
+/* 2026-09-14 → 2026-09-15, 2nd pass: the bag header's tool row = `모두 수리` + `정렬` + the filter dropdown, one
+   row. */
 .inv-bag-tools { flex: none; display: flex; align-items: center; gap: 6px; min-width: 0; }
-/* ⚠ 클래스 이름은 `.inv-repair-open-btn` 이다 — `.inv-repair-all` 은 `RepairPanel` 팝업의 실행 버튼이 이미 쓰고 있고
-   스타일시트는 전역이라 같은 이름을 쓰면 그쪽 규칙(세로로 늘어나는 큰 버튼)이 이 칩 줄에 그대로 온다. */
+/* ⚠ The class name is `.inv-repair-open-btn` — `.inv-repair-all` is already taken by the `RepairPanel` popup's
+   run button, and stylesheets are global, so reusing the name would bring that rule (a big button that stretches
+   vertically) straight into this chip row. */
 .inv-repair-open-btn {
   flex: none; height: 20px; padding: 0 9px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -1768,8 +1862,9 @@ kbd {
 }
 .inv-repair-open-btn:disabled { opacity: 0.42; cursor: not-allowed; }
 .inv-repair-open-btn[hidden] { display: none; }
-/* 2026-09-16 (사용자 결정): `모두 수리` 와 `정렬` 사이의 `모두 창고로 이동` (함선 전용). 같은 줄 높이 · 글자지만 색은
-   평범한 도구 버튼이다 — 주황은 「고칠 것이 있다」의 몫이다. ⚠ 이름은 전역에서 유일해야 한다 (`rg "\.inv-stash-all"`). */
+/* 2026-09-16 (user's decision): `모두 창고로 이동` between `모두 수리` and `정렬` (ship only). The same row height
+   and type, but an ordinary tool button's colour — the amber belongs to 「there is something to repair」.
+   ⚠ The name has to be unique tree-wide (`rg "\.inv-stash-all"`). */
 .inv-stash-all-btn {
   flex: none; height: 20px; padding: 0 9px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -1781,7 +1876,8 @@ kbd {
 /* bag body + equipment column: the wide arrangement (rose right of the grid, two-column gear) needs room. The ship
    also carries the 창고 panel, so it asks for 1600 px; a mission has one panel fewer and gets it from 1280 px. */
 .inv-bag-body { display: flex; flex-direction: column; gap: 14px; }
-/* 2026-09-18: 카드가 장비 열 높이로 늘어나면 본문이 그 높이를 받는다 — 바닥의 무게 · 가치 줄이 카드 바닥에 선다 */
+/* 2026-09-18: when the card stretches to the equipment column's height the body takes that height — so the
+   무게 · 가치 rows stand at the bottom of the card */
 .inv-panel-bag > .inv-bag-body { flex: 1 1 auto; min-height: 0; }
 .inv-equip-grid { display: flex; flex-direction: column; gap: 14px; }
 
@@ -1797,10 +1893,12 @@ kbd {
   .inv-root:not(.is-hub) .inv-equip-grid {
     display: grid; gap: 12px 18px; align-items: start;
     grid-template-columns: auto auto;
-    /* 2026-09-10: 보조무기 칸이 없어져 3행 → 2행. 방탄복이 첫 줄, 가방이 둘째 줄 오른쪽.
-       2026-09-11 (A-15): 주머니 칸이 셋째 줄 왼쪽에 붙었다.
-       2026-09-12 (사용자 결정 A안): 셋째 줄은 **전술 임플란트 | 주머니** — 임플란트가 주무기 II 바로 아래,
-       주머니가 가방 바로 아래다. 순서의 원본은 `model.LOADOUT_SLOTS` 주석. */
+    /* 2026-09-10: the secondary weapon slot went away, so 3 rows → 2. 방탄복 on the first row, 가방 at the right
+       of the second.
+       2026-09-11 (A-15): the 주머니 slot joined at the left of the third row.
+       2026-09-12 (user's decision, option A): the third row is **전술 임플란트 | 주머니** — the implant directly
+       under 주무기 II, the pouch directly under 가방. The source of the order is the `model.LOADOUT_SLOTS`
+       comment. */
     grid-template-areas: "primary armor" "primary2 bag" "implant pouch";
   }
   .inv-root:not(.is-hub) .inv-slot-primary { grid-area: primary; }
@@ -1810,14 +1908,15 @@ kbd {
   .inv-root:not(.is-hub) .inv-slot-pouch { grid-area: pouch; }
   .inv-root:not(.is-hub) .inv-implants { grid-area: implant; }
   .inv-root:not(.is-hub) .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
-  /* 2026-09-18: 세로 구분선은 퀵슬롯이 아니라 **열 전체**가 긋는다 (무게 · 가치까지 한 열이다) */
+  /* 2026-09-18: the vertical divider is drawn by the **whole column**, not by the wheel (무게 · 가치 belong to
+     that column too) */
   .inv-root:not(.is-hub) .inv-bag-side { flex: none; align-self: stretch; padding-left: 18px; border-left: 1px solid var(--inv-line); }
   .inv-root:not(.is-hub) .inv-layout:not(.is-craft) .inv-bag-scroll { max-height: calc(100vh - 300px); }
   .inv-root:not(.is-hub) .inv-quick {
     flex-direction: column; align-items: stretch; gap: 12px;
     padding-top: 0; border-top: none;
   }
-  /* 넓은 배치에서는 로제트와 같은 열에 세로로 이어 붙는다 (가방 격자 옆) */
+  /* In the wide arrangement it joins vertically in the same column as the rose (beside the bag grid) */
   .inv-root:not(.is-hub) .inv-pouch { padding-top: 12px; }
 }
 
@@ -1826,9 +1925,10 @@ kbd {
   .inv-root.is-hub .inv-equip-grid {
     display: grid; gap: 12px 18px; align-items: start;
     grid-template-columns: auto auto;
-    /* 2026-09-10: 보조무기 칸이 없어져 3행 → 2행 (미션 화면과 같은 배치).
-       2026-09-11 (A-15): 주머니 칸이 셋째 줄 왼쪽.
-       2026-09-12 (사용자 결정 A안): 셋째 줄 = **전술 임플란트 | 주머니**. */
+    /* 2026-09-10: the secondary weapon slot went away, so 3 rows → 2 (the same arrangement as the mission
+       screen).
+       2026-09-11 (A-15): the 주머니 slot at the left of the third row.
+       2026-09-12 (user's decision, option A): the third row = **전술 임플란트 | 주머니**. */
     grid-template-areas: "primary armor" "primary2 bag" "implant pouch";
   }
   .inv-root.is-hub .inv-slot-primary { grid-area: primary; }
@@ -1838,7 +1938,8 @@ kbd {
   .inv-root.is-hub .inv-slot-pouch { grid-area: pouch; }
   .inv-root.is-hub .inv-implants { grid-area: implant; }
   .inv-root.is-hub .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
-  /* 2026-09-18: 세로 구분선은 퀵슬롯이 아니라 **열 전체**가 긋는다 (무게 · 가치까지 한 열이다) */
+  /* 2026-09-18: the vertical divider is drawn by the **whole column**, not by the wheel (무게 · 가치 belong to
+     that column too) */
   .inv-root.is-hub .inv-bag-side { flex: none; align-self: stretch; padding-left: 18px; border-left: 1px solid var(--inv-line); }
   .inv-root.is-hub .inv-layout:not(.is-craft) .inv-bag-scroll { max-height: calc(100vh - 300px); }
   .inv-root.is-hub .inv-quick {
@@ -1848,7 +1949,7 @@ kbd {
   .inv-root.is-hub .inv-pouch { padding-top: 12px; }
 }
 
-/* ═══ Phase 6 (2026-09-06): 무한 상자 catalog · 작업실 bench crafting · repair list ═══ */
+/* ═══ Phase 6 (2026-09-06): the 무한 상자 catalog · workshop bench crafting · repair list ═══ */
 
 /* ── 무한 상자: leftmost panel, uniform 2×2 tiles in a scrolling grid ────── */
 .inv-panel-catalog { order: -1; width: 486px; animation: inv-slide-in 200ms var(--inv-ease) both; }
@@ -1912,23 +2013,29 @@ kbd {
 /* dragging out of the catalog: no world drop, no wheel targets */
 .inv-root.is-catalog-drag .inv-dropzone { display: none !important; }
 
-/* ── 2026-09-13 (사용자 결정): 창고 칸 = 가방 칸 높이 (함선 인벤토리 탭) ───────────────────────────────────
-   2026-09-15 2차부터 창고 · 가방은 `.inv-panel-grids` 한 카드 안의 두 칸이고 카드가 `align-items: stretch` 라
-   두 칸은 언제나 같은 높이다. 여기서 하는 일은 **카드와 장비 열**이 `.inv-layout` 의 줄 높이를 함께 받게 하는 것과,
-   창고 격자 스크롤러가 자기 24행으로 줄을 밀어 올리지 않은 채(`flex: 1 1 0px`) 남는 높이를 채우게 하는 것뿐이다.
-   레이드에는 창고가 없으므로 `.is-hub` 로만 건다.
-   2026-09-16: 창고가 가방 카드 밖의 직속 카드(창고 | 장비 | 가방)가 되면서 창고 카드도 같은 줄 높이를 받는다. */
+/* ── 2026-09-13 (user's decision): the 창고 pane = the 가방 pane's height (the ship inventory tab) ────────────
+   Since 2026-09-15, 2nd pass, 창고 and 가방 are two panes inside the one `.inv-panel-grids` card, and the card is
+   `align-items: stretch`, so the two panes are always the same height. All this rule does is make **the card and
+   the equipment column** take `.inv-layout`'s row height together, and let the 창고 grid's scroller fill the
+   leftover height without pushing the row up with its own 24 rows (`flex: 1 1 0px`).
+   A raid has no 창고, so it is bound to `.is-hub` only.
+   2026-09-16: 창고 became a direct card outside the bag card (창고 | 장비 | 가방), so the 창고 card takes the same
+   row height. */
 .inv-root.is-hub .inv-layout:not(.is-craft) .inv-panel-stash,
 .inv-root.is-hub .inv-layout:not(.is-craft) .inv-panel-grids,
 .inv-root.is-hub .inv-layout:not(.is-craft) .inv-equip { align-self: stretch; }
-/* 2026-09-18 (사용자 결정): **창고가 함께 설 때(= 함선 Tab)는 예전 높이 그대로.** 그 전에는 가장 긴 가방 틀이
-   줄 높이를 밀어 올려 창고가 덤으로 길었다 — 틀이 없어지면 줄 높이가 장비 열로 내려앉아 창고가 보여 주는 줄 수까지
-   줄어든다. 그래서 **옛 줄 높이를 창고 격자의 바닥**으로 옮겨 적는다: 가방 틀 `N`줄(`--inv-bag-frame-rows`,
-   `InventoryUI.mount` 가 `BAG_FRAME_ROWS` 에서 적어 준다) + 그때 그 아래에 있던 무게 · 가치 띠와 카드 머리 몫(86 px).
-   실측(2026-09-18, HEAD 워크트리): 1920×1080 창고 격자 758 px = 12×56 + 86, 1920×900 은 662 px = 12×48 + 86.
-   `is-hub` 는 곧 창고가 보인다는 뜻이다 (`InventoryUI.setPanels` 가 같은 플래그로 둘을 켠다) — 레이드 · 상자 창은
-   이 규칙에 닿지 않는다. 바닥 높이는 **넓은 배치(1600 px 이상 = 창고 | 장비 | 가방이 나란히 서는 함선 Tab)에서만**
-   건다: 그보다 좁으면 퀵슬롯 로제트가 가방 아래로 내려가 옛 줄 높이도 틀이 아니라 그 적층이 정했다. */
+/* 2026-09-18 (user's decision): **where 창고 stands beside it (= the ship Tab), the old height is kept.** Before
+   this the tallest bag frame pushed the row height up and 창고 got the extra length for free — without the frame
+   the row height settles onto the equipment column and even the number of rows 창고 shows would shrink. So the
+   **old row height is written onto the 창고 grid as its floor**: the bag frame's `N` rows
+   (`--inv-bag-frame-rows`, which `InventoryUI.mount` writes from `BAG_FRAME_ROWS`) + the share of the
+   무게 · 가치 strip that sat under it and of the card header (86 px).
+   Measured (2026-09-18, a HEAD worktree): at 1920×1080 the 창고 grid is 758 px = 12×56 + 86, at 1920×900 it is
+   662 px = 12×48 + 86.
+   `is-hub` means 창고 is on screen (`InventoryUI.setPanels` turns both on from the same flag) — raid and
+   container windows never reach this rule. The floor height is bound **only to the wide arrangement (1600 px and
+   up = the ship Tab where 창고 | 장비 | 가방 stand side by side)**: any narrower and the wheel rose drops below
+   the bag, so even the old row height was set by that stack, not by the frame. */
 .inv-root.is-hub .inv-layout:not(.is-craft) .inv-stash-scroll { flex: 1 1 0px; max-height: none; }
 @media (min-width: 1600px) {
   .inv-root.is-hub .inv-layout:not(.is-craft) .inv-stash-scroll {
@@ -1936,37 +2043,43 @@ kbd {
   }
 }
 
-/* ── 2026-09-18 (사용자 결정): 레이드 Tab 도 가방 카드 = 장비 열 높이 ──────────────────────────────────────
-   줄 높이는 그 줄에서 가장 긴 칸이 정한다 — 평소에는 장비 열, 긴 가방(전설 12줄)이나 시체 격자가 더 길면 그쪽이다.
-   가방 격자는 자기 칸 수 그대로 그리므로(`InventoryUI.mount` — 12줄 고정 틀 폐지) 남는 자리는 빈 격자 줄이 아니라
-   카드 여백이고, 바닥의 무게 · 가치 줄이 그 여백 아래 카드 바닥에 선다. */
+/* ── 2026-09-18 (user's decision): the raid Tab too — the bag card = the equipment column's height ───────────
+   The row height is set by the tallest pane in that row — normally the equipment column, or a long bag (a
+   legendary's 12 rows) or a corpse grid when either is longer.
+   The bag grid is drawn with exactly its own row count (`InventoryUI.mount` — the fixed 12-row frame is gone), so
+   the leftover room is card padding rather than empty grid rows, and the 무게 · 가치 rows at the bottom stand
+   under that padding at the card's bottom. */
 .inv-root:not(.is-hub) .inv-layout:not(.is-craft) .inv-panel-grids { align-self: stretch; }
 
-/* ── 2026-09-13 (사용자 결정): 무한 상자 배치 — 무한 상자 · 함선 창고(함선) · 가방만 ─────────────────────────
-   장착 장비 열(주무기 · 방탄복 · 가방 칸 · 전술 임플란트 · 주머니 칸) · 퀵슬롯 로즈 · 주머니 격자를 감춘다
-   (`parts/Screens.setCatalog` 가 `.is-catalog` 를 건다). 감춘 칸은 드롭 대상에서도 빠진다 (`Drag.updateDragTarget`).
-   무한 상자 패널도 가방 높이에 맞춰 늘고 목록 스크롤러가 남는 높이를 채운다. */
+/* ── 2026-09-13 (user's decision): the 무한 상자 layout — 무한 상자 · 함선 창고 (in the ship) · 가방 only ──────
+   The equipped gear column (주무기 · 방탄복 · the 가방 slot · 전술 임플란트 · the 주머니 slot), the wheel rose and
+   the pouch grid are hidden (`parts/Screens.setCatalog` sets `.is-catalog`). A hidden slot also drops out of the
+   drop targets (`Drag.updateDragTarget`). The 무한 상자 panel stretches to the bag's height too, and its list
+   scroller fills the leftover height. */
 .inv-root .inv-layout.is-catalog .inv-equip,
 .inv-root .inv-layout.is-catalog .inv-quick,
 .inv-root .inv-layout.is-catalog .inv-pouch { display: none; }
-/* 장비 열과 이어 붙이느라 깎았던 격자 카드의 왼쪽 모서리를 되돌린다.
-   2026-09-16: 함선에서는 창고 카드가 가방 카드에 붙으므로(창고 | 가방) 창고가 없는 창에서만 되돌린다. */
+/* Restores the grid card's left corners, squared off to join the equipment column.
+   2026-09-16: in the ship the 창고 card joins the bag card (창고 | 가방), so this is only restored in a window
+   that has no 창고. */
 .inv-root:not(.is-hub) .inv-layout.is-catalog .inv-panel-grids { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
 .inv-root .inv-layout.is-catalog:not(.is-craft) .inv-panel-catalog,
 .inv-root .inv-layout.is-catalog:not(.is-craft) .inv-panel-stash,
 .inv-root .inv-layout.is-catalog:not(.is-craft) .inv-panel-grids { align-self: stretch; }
 .inv-root .inv-layout.is-catalog:not(.is-craft) .inv-cat-scroll { flex: 1 1 0px; min-height: 240px; max-height: none; }
-/* 퀵슬롯 로즈 · 주머니가 가방 아래에서 빠졌으므로 가방 격자는 넓은 배치의 높이 예산을 그대로 쓴다 */
+/* The wheel rose and the pouch are out from under the bag, so the bag grid uses the wide arrangement's height
+   budget as it is */
 .inv-root .inv-layout.is-catalog:not(.is-craft) .inv-bag-scroll { max-height: calc(100vh - 300px); }
-/* 가로 스크롤 없음 (1920 · 1600 · 1440): 무한 상자 486 + 창고 610 + 가방 353 + 간격이 1440 급에서 85 px 넘쳤다 —
-   좁은 창에서는 무한 상자 격자를 3열(→ 1280 급은 2열)로 줄이고 패널 간격을 16 px 로 좁힌다. 격자 · 창고 · 가방은
-   찌그러뜨리지 않는다. 패널 폭은 「격자 + 스크롤러 여백 · 스크롤바 + 패널 안쪽 여백」이다 — 예전 486 px 는 4열 격자의
-   마지막 열을 잘랐다. */
+/* No horizontal scroll (1920 · 1600 · 1440): 무한 상자 486 + 창고 610 + 가방 353 + the gaps overflowed by 85 px
+   in the 1440 class — in a narrow window the 무한 상자 grid drops to 3 columns (→ 2 in the 1280 class) and the
+   panel gap narrows to 16 px. The grid · 창고 · 가방 are never squeezed. A panel's width is 「the grid + the
+   scroller's padding and scrollbar + the panel's own padding」 — the old 486 px cut the last column off a
+   4-column grid. */
 .inv-panel-catalog { width: 528px; }
 @media (max-width: 1560px) {
   .inv-panel-catalog { width: 412px; }
   .inv-cat-grid { grid-template-columns: repeat(3, calc(2 * var(--inv-cell) + var(--inv-gap))); }
-  .inv-root .inv-layout.is-catalog { --inv-panel-gap: 16px; }   /* `gap` 과 창고 이음매가 함께 따라온다 */
+  .inv-root .inv-layout.is-catalog { --inv-panel-gap: 16px; }   /* `gap` and the 창고 seam follow together */
 }
 @media (max-width: 1360px) {
   .inv-panel-catalog { width: 296px; }
@@ -1983,17 +2096,18 @@ kbd {
 .inv-craft-row.is-bench-locked .inv-craft-name { color: var(--inv-muted); }
 .inv-craft-row.is-bench-locked .item-chip-thumb { filter: saturate(0.5) brightness(0.8); }
 .inv-craft-row.is-bench-locked .inv-craft-thumb { filter: saturate(0.5) brightness(0.8); }
-/* 2026-09-15 3차: 레벨이 모자란 상세에서 **수량 줄만** 자리를 지킨다. 버튼은 그대로 두되 비활성이고
-   라벨이 `작업대 Lv.n 필요` 를 적는다 (`CraftDetail.paint`) — 하나뿐인 상세에서 버튼까지 사라지면
-   왜 못 만드는지 말할 자리가 없다. */
+/* 2026-09-15, 3rd pass: in a detail whose level is short, **only the quantity row** keeps its space. The button
+   stays but is disabled and its label reads `작업대 Lv.n 필요` (`CraftDetail.paint`) — in the one detail card,
+   losing the button as well would leave nowhere to say why it cannot be crafted. */
 .inv-craft-row.is-bench-locked .inv-craft-count { visibility: hidden; }
-/* 2026-09-16 (사용자 보고): `.inv-craft-locktag` 규칙 두 벌은 지웠다 — 목록 칸의 썸네일 위에 찍던
-   `작업대 Lv.n 필요` 띠가 산출물 그림을 가려 없앴고(`ui/CraftPanel.build`), 그 클래스를 만드는 곳이
-   더는 없다. 이유는 상세의 홀드 버튼 라벨이 말한다. */
+/* 2026-09-16 (user's report): the two `.inv-craft-locktag` rule sets were deleted — the `작업대 Lv.n 필요` strip
+   stamped over a list cell's thumbnail hid the output's picture and was removed (`ui/CraftPanel.build`), and
+   nothing creates that class any more. The detail's hold button label says the reason. */
 
-/* ── 장비 수리 팝업 (2026-09-08) ───────────────────────────────────────────
-   수리는 작업대 패널 아래의 목록이 아니라 헤더의 `모두 수리` 가 여는 **모달 팝업**이다. 한 줄이 가로로 긴 패널이고
-   (슬롯 · 이름 + 내구도 막대 · 재료 칩 · ×), 그 아래에 제외를 뺀 재료 합계, 맨 아래에 실행 버튼이 온다. */
+/* ── The gear repair popup (2026-09-08) ────────────────────────────────────
+   Repair is not a list under the bench panel but a **modal popup** opened by `모두 수리` in the header. One row is
+   a wide panel (slot · name + durability bar · material chips · ×), under the rows comes the material total minus
+   the excluded ones, and the run button sits at the very bottom. */
 .inv-rep-host { display: contents; }
 .inv-rep-scrim { position: fixed; inset: 0; background: rgba(4, 6, 10, 0.55); pointer-events: auto; animation: inv-tt-in 150ms var(--inv-ease) both; }
 .inv-modeless-repair { width: min(620px, calc(100vw - 64px)); max-height: calc(100vh - 120px); }
@@ -2009,13 +2123,15 @@ kbd {
 }
 .inv-rep-total-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .inv-rep-total-none { font-size: 11px; color: var(--inv-muted); }
-/* 2026-09-10: 두 줄 — 개별 수리가 어디에 있는지, 그리고 왜 값이 매번 다른지 (내구도 구간) */
+/* 2026-09-10: two lines — where a single repair lives, and why the cost differs every time (the durability
+   bucket) */
 .inv-rep-hint { display: flex; flex-direction: column; gap: 2px; font-size: 10px; letter-spacing: 0.06em; color: var(--inv-muted); }
 .inv-rep-hint em { font-style: normal; color: color-mix(in srgb, var(--inv-accent) 55%, var(--inv-muted)); }
 .inv-repair-all { align-self: stretch; padding: 9px 12px; }
 .inv-repair-all:disabled { opacity: 0.4; cursor: not-allowed; }
-/* 2026-09-14: `.inv-repair-open` (작업대 헤더의 `모두 수리`) 은 마크업과 함께 없어졌다 — 버튼은 가방 필터 줄의
-   `.inv-repair-open-btn` 이다. 규칙만 남겨 둔다 (클래스 이름은 지우지 않는다는 결). */
+/* 2026-09-14: `.inv-repair-open` (`모두 수리` in the bench header) went away together with its markup — the
+   button is `.inv-repair-open-btn` in the bag filter row. Only the rule is left behind (in keeping with the
+   practice of never deleting a class name). */
 .inv-repair-open { padding: 6px 12px; }
 .inv-repair-row {
   display: grid;
@@ -2027,7 +2143,8 @@ kbd {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.03);
 }
-/* 제외한 줄은 alpha 가 아니라 **색**으로 흐린다 (Phase 8 규칙: 알파는 뒤의 흐린 세계를 비쳐 읽을 수 없게 만든다) */
+/* An excluded row is dimmed by **colour**, not by alpha (the Phase 8 rule: alpha lets the blurred world behind
+   show through and makes the row unreadable) */
 .inv-repair-row.is-excluded {
   background: rgba(10, 12, 16, 0.92);
   border-color: rgba(255, 255, 255, 0.07);
@@ -2058,7 +2175,8 @@ kbd {
 .inv-repair-bar.warn i { background: var(--inv-accent); }
 .inv-repair-bar.low i { background: var(--inv-bad); }
 .inv-repair-dur { font-size: 10px; font-variant-numeric: tabular-nums; color: var(--inv-muted); }
-/* 2026-09-10: 그 줄의 재료가 왜 그만큼인지 — 남은 내구도 구간과 그 구간의 배수 (`61~80 % · 제작 재료의 20 %`) */
+/* 2026-09-10: why that row's materials come to that much — the remaining durability bucket and that bucket's
+   multiplier (`61~80 % · 제작 재료의 20 %`) */
 .inv-repair-bucket { margin-left: 8px; letter-spacing: 0.03em; color: color-mix(in srgb, var(--inv-accent) 60%, var(--inv-muted)); }
 /* Phase 8: the cost cell holds `renderItemCost` chips (or the 정비 완료 text) */
 .inv-repair-cost { font-size: 10px; letter-spacing: 0.02em; color: var(--inv-text); white-space: nowrap; }
@@ -2068,14 +2186,15 @@ kbd {
 .inv-repair-msg.is-ok { color: var(--inv-ok); }
 .inv-repair-msg.is-bad { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
 
-/* 2026-09-16: 우측 상단의 `CREDITS` 알약(`.inv-credits`)은 없어졌다 — 그 모서리는 메신저 버튼 자리다.
-   보유 크레딧은 가방 바닥 줄의 `.inv-credits-value` 글자다 (위 `.inv-foot`). */
+/* 2026-09-16: the `CREDITS` pill in the top-right corner (`.inv-credits`) is gone — that corner belongs to the
+   messenger button. The credits held are the `.inv-credits-value` text in the bag's bottom row (`.inv-foot`
+   above). */
 
-/* ═══ Phase 8 (2026-09-06): Tab 화면 호스트 · 모달리스 팝업 · 분해 다이얼로그 · 요구 아이템 칩 ═══ */
+/* ═══ Phase 8 (2026-09-06): the Tab screen host · modeless popups · the 분해 dialog · required-item chips ═══ */
 
 /* ── embedded screens (캐릭터 / 기업 / 함선 inside the Tab window) ─────────── */
-/* The blurred `.inv-root` backdrop is the 배경 블러; the host itself carries the same panel chrome as `.inv-panel`
- * (Phase 8 UI pass — the embedded screens used to float straight on the blur and read badly). */
+/* The blurred `.inv-root` backdrop is the background blur; the host itself carries the same panel chrome as
+ * `.inv-panel` (Phase 8 UI pass — the embedded screens used to float straight on the blur and read badly). */
 .inv-screen {
   position: relative;
   display: flex;
@@ -2101,7 +2220,7 @@ kbd {
   color: color-mix(in srgb, var(--inv-bad) 75%, white 25%);
 }
 
-/* ── modeless popups (임플란트 / 필드 제작 / 분해) ────────────────────────── */
+/* ── modeless popups (implant / field craft / 분해) ───────────────────────── */
 /* Children of the inventory window: no blocker, no pointer-lock change — the grid stays live behind them. */
 .inv-modeless-layer { position: fixed; inset: 0; z-index: 70; pointer-events: none; }
 .inv-modeless {
@@ -2124,7 +2243,7 @@ kbd {
 .inv-modeless-close { padding: 6px 12px; }
 .inv-modeless-disassemble { width: 340px; }
 
-/* ── 아이템 분해 dialog ─────────────────────────────────────────────────── */
+/* ── The item 분해 dialog ───────────────────────────────────────────────── */
 .inv-dis-preview {
   display: flex; align-items: center; justify-content: center; gap: 16px;
   padding: 14px 6px;
@@ -2133,13 +2252,14 @@ kbd {
   background: rgba(255, 255, 255, 0.03);
 }
 .inv-dis-col { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; flex: 1; }
-/* 2026-09-08: 결과물이 둘 이상인 분해(기계 부품)도 있어 항상 줄바꿈을 허용한다 */
+/* 2026-09-08: some salvages yield more than one output (기계 부품), so wrapping is always allowed */
 .inv-dis-side { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; min-width: 0; }
 .inv-dis-side.item-chips { flex-wrap: wrap; }
 .inv-dis-arrow { flex: none; font-size: 18px; color: var(--inv-muted); }
-/* ── 2026-09-10: 남은 내구도 구간 한 줄 (분해 팝업 밑) ─────────────────────────
-   수리 재료 · 분해 산출이 `제작 재료 × 구간 배수` 라서, 위의 칩이 왜 그 숫자인지를 말하는 줄이다.
-   `em` 은 "구간이 바뀌면 숫자가 바뀐다" 를 말하는 안내라 한 단계 더 흐리다. */
+/* ── 2026-09-10: one row for the remaining durability bucket (under the 분해 popup) ──
+   Repair materials and salvage yield are `craft materials × the bucket multiplier`, so this row says why the
+   chips above hold those numbers.
+   The `em` is the hint that says "the numbers change when the bucket changes", so it is one step dimmer. */
 .inv-dur-note {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   padding: 8px 6px;
@@ -2153,7 +2273,7 @@ kbd {
 .inv-dis-msg { font-size: 11px; letter-spacing: 0.04em; text-align: center; }
 .inv-dis-msg.is-ok { color: var(--inv-ok); }
 .inv-dis-msg.is-bad { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
-/* 2026-09-08: the 분해 button *is* the 게이지 (`.inv-craft-fill`) — the `1회 분해 · n s` hint line and the second
+/* 2026-09-08: the 분해 button *is* the gauge (`.inv-craft-fill`) — the `1회 분해 · n s` hint line and the second
    horizontal bar that used to live under it are gone. */
 .inv-dis-btn { width: 100%; min-width: 0; justify-content: center; }
 
@@ -2164,15 +2284,18 @@ kbd {
 .inv-menu-item.has-costs { flex-direction: column; align-items: stretch; gap: 6px; }
 .inv-menu-costs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 
-/* ══ Phase 9 UI pass: embedded 가방 / 함선 창고 grids (ui/TradeGrids, used by the 기업 거래 screen) ════════════ */
-/* 2026-09-12 (사용자 결정): **창고가 왼쪽, 가방이 오른쪽**으로 나란히 선다 — `.tg-scroll` 하나가 가로 2열이자
-   유일한 스크롤러다(블록은 자기 스크롤을 갖지 않는다). 가방 5칸 · 창고 10칸 너비는 격자 자신이 정한다 —
-   호스트는 열 폭 · 높이만 준다. 칩 줄은 스크롤 밖 맨 위에 선다.
-   ⚠ 폭이 모자라면 `flex-wrap` 이 **가방을 아랫줄로** 내리는데, 창고 격자는 24행 = 1381 px · 가방 틀은 12행 =
-   709 px 이고 스크롤 창은 600 px 남짓이라 **세로로 이어 붙이면 늘 한 쪽이 화면 밖**이다 (끌고 있는 동안에는
-   스크롤할 수 없으므로 그 방향의 드래그가 통째로 막힌다). 이 파일은 끼워 넣는 화면의 열 폭을 모르므로 여기서
-   breakpoint 를 정하지 않는다 — **두 열이 안 들어가는 화면이 스스로 해결한다**: 가구 화면(`housing.css` 의
-   `.hs-inv`)은 블록마다 자기 스크롤을 주고 좁을 때 세로로 반씩 쌓는다. 기업 거래 화면은 이 기본값 그대로다. */
+/* ══ Phase 9 UI pass: embedded 가방 / 함선 창고 grids (ui/TradeGrids, used by the corp trade screen) ══════════ */
+/* 2026-09-12 (user's decision): **창고 on the left, 가방 on the right**, side by side — the one `.tg-scroll` is
+   both the two-column row and the only scroller (a block has no scroll of its own). The widths, 5 cells for the
+   bag and 10 for the stash, are set by the grids themselves — the host screen gives only the column width and
+   height. The chip row stands at the very top, outside the scroller.
+   ⚠ When the width runs short `flex-wrap` drops **the bag to the next line**, and since the stash grid is 24 rows
+   = 1381 px, the bag frame 12 rows = 709 px and the scroll window barely 600 px, **joining them vertically always
+   leaves one of them off screen** (a grid cannot be scrolled while a drag is in flight, so dragging in that
+   direction is blocked outright). This file does not know the column width of the screen it is embedded in, so it
+   sets no breakpoint here — **a screen that cannot fit two columns solves it itself**: the furniture screens
+   (`.hs-inv` in `housing.css`) give each block its own scroll and stack them half and half when narrow. The corp
+   trade screen keeps this default. */
 .trade-grids {
   --inv-cell: 54px; --inv-gap: 2px;
   --inv-line: rgba(255, 255, 255, 0.12); --inv-line-strong: rgba(255, 255, 255, 0.26);
@@ -2180,15 +2303,18 @@ kbd {
   --inv-accent: #f0c46a; --inv-ok: #4fd17e; --inv-bad: #ff5c5c; --inv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0;
 }
-/* `chips: 'shared'` 로 부른 화면의 한 줄 (기본값은 칸마다 자기 드롭다운이므로 이 줄이 없다) */
+/* The one row for a screen that asked for `chips: 'shared'` (the default gives each block its own dropdown, so
+   this row does not exist) */
 .tg-tools { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; }
-/* 가로 2열 — 다만 `flex-wrap: wrap` 이라 **자리가 모자라면 가방이 스스로 아랫줄로 내려간다**. 끼워 넣는 화면의
-   열 폭은 이 파일이 모르므로(기업 거래 · 재배 스테이션 · 분석기 · 배양조 · 식탁이 제각각이다) 폭을 뷰포트
-   미디어 쿼리로 추측하는 대신 줄바꿈에 맡긴다 — 어떤 폭에서도 가로로 잘리지 않는다. 스크롤은 예전처럼
-   이 상자 하나가 맡는다.
-   ⚠ 줄바꿈으로 세로가 되면 두 격자가 **한 스크롤에 이어 붙으므로** 순서와 무관하게 한 쪽이 화면 밖으로 나간다
-   (창고 1381 px + 가방 709 px vs 스크롤 창 600 px). 두 열이 못 들어가는 화면은 그래서 스스로 해결한다 —
-   가구 화면은 블록마다 자기 스크롤을 준다 (`housing.css` 의 `.hs-inv`). */
+/* Two columns side by side — but with `flex-wrap: wrap`, **the bag drops to the next line by itself when room
+   runs short**. This file does not know the column width of the screen it is embedded in (the corp trade desk ·
+   the grow station · the analyzer · the culture tank · the dining table all differ), so instead of guessing the
+   width with a viewport media query it leaves it to wrapping — nothing is ever cut off horizontally. As before,
+   this one box owns the scroll.
+   ⚠ Once wrapping makes it vertical the two grids are **joined into one scroll**, so whatever their order one of
+   them ends up off screen (창고 1381 px + 가방 709 px vs a 600 px scroll window). A screen that cannot fit two
+   columns therefore solves it itself — the furniture screens give each block its own scroll (`.hs-inv` in
+   `housing.css`). */
 .tg-scroll {
   flex: 1 1 auto; min-height: 0;
   overflow-y: auto; overflow-x: hidden;
@@ -2201,13 +2327,16 @@ kbd {
 .tg-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
 .tg-scroll::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 .tg-block { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: none; }
-/* 격자를 감싸는 자리 — **기본값은 아무 일도 하지 않는다**(기업 거래 화면은 옛 배치 그대로). 세로 스크롤을 여기에
-   거는 것은 가구 화면(`housing.css` 의 `.hs-inv`)이고, 격자가 아니라 이 상자여야 하는 이유는 하나다: 격자는 자기
-   폭을 px 로 못박은 상자라(`GridView.syncDims`) 스크롤바가 그 폭 안에서 마지막 열을 갉아먹는다. */
+/* The wrapper around a grid — **by default it does nothing** (the corp trade screen keeps the old layout). It is
+   the furniture screens (`.hs-inv` in `housing.css`) that put a vertical scroll here, and there is one reason it
+   has to be this box rather than the grid: a grid is a box whose width is nailed down in px
+   (`GridView.syncDims`), so a scrollbar would eat its last column from inside that width. */
 .tg-gridwrap { min-width: 0; min-height: 0; }
-/* 2026-09-15 2차: 머리 한 줄 = (가방만) 라벨 · 칸 readout · 정렬 · 필터 드롭다운. 창고 쪽 라벨은 없앴다 (사용자 결정).
-   2026-09-16 (사용자 결정): readout 은 종류 수 `N점` 이 아니라 **`사용칸 / 전체칸`** 이다 (Tab 창 창고 머리의
-   `.inv-capacity` 와 같은 문구 — `ui/labels.capacityLabel`). `flex: 1` 이 정렬 버튼 · 필터를 오른쪽 끝으로 민다. */
+/* 2026-09-15, 2nd pass: the header row = (bag only) label · cell readout · sort · the filter dropdown. The stash
+   side's label was removed (user's decision).
+   2026-09-16 (user's decision): the readout is **`사용칸 / 전체칸`**, not the kind count `N점` (the same wording
+   as `.inv-capacity` in the Tab window's 창고 header — `ui/labels.capacityLabel`). `flex: 1` pushes the sort
+   button and the filter to the far right. */
 .tg-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tg-label { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; color: var(--inv-muted, #8b94a0); }
 .tg-count {
@@ -2224,12 +2353,16 @@ kbd {
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55);
 }
 .tg-ghost.is-ok { outline: 2px solid var(--inv-ok, #4fd17e); outline-offset: 1px; }
-/* ── 2026-09-13: `layout: 'split'` — 블록마다 자기 스크롤 (기업 화면: 함선 창고 카드 · 가방 카드에 격자 하나씩) ──
-   `.tg-scroll` 은 틀 · 스크롤이 없는 한 줄(`nowrap`)이 되고, 블록은 뷰 높이까지 늘어나며 `.tg-gridwrap` 이 스크롤한다.
-   `flex-wrap: nowrap` 이 요점이다 — 여러 줄 flex 의 `stretch` 는 상자가 아니라 *그 줄* 높이까지만 늘린다. 스크롤바는
-   격자가 아니라 감싸는 상자에 걸고 `scrollbar-gutter: stable` 로 자리를 예약한다(격자는 폭이 px 로 못박혀 마지막 열을 잃는다).
-   머리줄 · 칩 줄은 `width: 0; min-width: 100%` 라 **블록 폭을 넓히지 않는다** — 블록 폭 = 격자 폭 + 스크롤바 자리.
-   바깥 틀(배경 · 테두리)은 호출자의 카드가 갖는다. */
+/* ── 2026-09-13: `layout: 'split'` — one scroll per block (the corp screen: one grid each in the 함선 창고 card
+   and the 가방 card) ──
+   `.tg-scroll` becomes one row with no frame and no scroll (`nowrap`), a block stretches to the view's height and
+   `.tg-gridwrap` is what scrolls. `flex-wrap: nowrap` is the point — in a multi-line flex, `stretch` grows an
+   item only to *its own line's* height, not the box's. The scrollbar goes on the wrapper, not on the grid, and
+   its room is reserved with `scrollbar-gutter: stable` (a grid's width is nailed down in px and would lose its
+   last column).
+   The header row and the chip row are `width: 0; min-width: 100%`, so they **never widen the block** — block
+   width = grid width + the scrollbar's room.
+   The outer frame (background · border) belongs to the caller's card. */
 .trade-grids.is-split { gap: 8px; }
 .trade-grids.is-split > .tg-scroll {
   flex: 1 1 auto; min-height: 0;
@@ -2246,12 +2379,14 @@ kbd {
 }
 .tg-head .tg-label { white-space: nowrap; }
 .tg-head .tg-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 좁은 블록(가방 5칸 · 40 px 칸 = 208 px)에서는 머리 도구가 둘째 줄로 내려간다 — 한 줄이면 칸 readout 이 사라진다. */
+/* In a narrow block (a 5-cell bag at 40 px per cell = 208 px) the header tools drop to a second line — on one
+   line the cell readout disappears. */
 .tg-block.is-narrow .tg-count { flex: 1 0 100%; }
 .tg-block.is-narrow .tg-head { gap: 6px 8px; }
 .tg-block.is-narrow .inv-filter-sel { max-width: 104px; }
-/* ── 2026-09-13: 칸이 기본(54)보다 작은 뷰(`.tg-compact`) — 타일 내용이 칸 크기를 따라 줄어든다 (54 에서의 값과 같은 비율).
-   드래그 고스트는 <body> 에 붙으므로 자기 `--inv-cell` · `.tg-compact` 를 달고 다닌다. */
+/* ── 2026-09-13: a view whose cell is smaller than the default 54 (`.tg-compact`) — a tile's contents shrink
+   with the cell size (the same ratio as at 54).
+   The drag ghost is mounted on <body>, so it carries its own `--inv-cell` and `.tg-compact` with it. */
 .trade-grids.tg-compact .inv-tile-icon, .tg-ghost.tg-compact .inv-tile-icon { font-size: calc(var(--inv-cell) * 0.41); }
 .trade-grids.tg-compact .inv-tile.is-wide .inv-tile-icon, .trade-grids.tg-compact .inv-tile.is-tall .inv-tile-icon,
 .tg-ghost.tg-compact.is-wide .inv-tile-icon, .tg-ghost.tg-compact.is-tall .inv-tile-icon { font-size: calc(var(--inv-cell) * 0.48); }
@@ -2271,7 +2406,7 @@ kbd {
   position: relative; left: auto; top: auto; cursor: default; flex: none;
 }
 
-/* ── Phase 10: 분대원 장비 열람 (`ui/CrewLoadoutView.ts`) ─────────────────────
+/* ── Phase 10: viewing a squadmate's loadout (`ui/CrewLoadoutView.ts`) ───────
    The view is embedded in a `hub/`-owned popup, i.e. OUTSIDE `.inv-root`, so it re-declares the palette tokens the
    reused `.inv-slot` / `.inv-quick` / `.inv-tile` rules read. Read-only: no cursors, no hover lift. */
 .crew-loadout {
@@ -2313,16 +2448,19 @@ kbd {
 .crew-loadout .inv-slot-body { cursor: default; }
 .crew-loadout .inv-tile:hover { border-color: color-mix(in srgb, var(--rc) 60%, transparent); box-shadow: none; filter: none; }
 
-/* ══ 임플란트 칸 (2026-09-08, owner: inventory/ui/ImplantPanel) ═══════════════════════════════════════════════════
-   캐릭터 시트(`progression/ui/character.css`)에서 그대로 옮겨온 두 블록. 임플란트는 레이드에 들고 나가는 장비이고
-   로드아웃 프리셋에 함께 저장되므로 장착 장비 칸(`.inv-equip`) 아래에 산다.
-   두 피커(`.inv-imp-pop` · `.inv-impi-pop`)는 `#ui-root` 직속 자식이다 — `.inv-root` 의 열림 애니메이션이 남기는
-   `scale:` 이 `position: fixed` 팝업의 컨테이닝 블록이 되어 버리기 때문이다. */
-/* `width: 0` + `min-width: 100%`: 장착 장비 칸은 `flex: none` 이라 **max-content** 로 넓어진다. 임플란트 설명 줄이
-   그 계산에 들어가면 칸이 800 px 까지 벌어져 가방 격자를 화면 밖으로 밀어낸다. 퍼센트 min-width 는 고유 크기
-   계산에서 0 으로 취급되므로, 칸의 폭은 예전처럼 장비 슬롯이 정하고 이 블록은 거기에 맞춰 줄바꿈한다. */
-/* 2026-09-12 (사용자 결정 A안): 이 블록은 장비칸 **그리드 안의 한 칸**이다 (`grid-area: implant` — 위의 두
-   미디어 쿼리). 좁은 폭에서는 그리드가 한 줄 세로로 풀리므로 예전처럼 위아래 구분선을 갖는다. */
+/* ══ The implant block (2026-09-08, owner: inventory/ui/ImplantPanel) ════════════════════════════════════════
+   Two blocks moved over unchanged from the character sheet (`progression/ui/character.css`). An implant is gear
+   carried into a raid and is saved with the loadout preset, so it lives under the equipped gear column
+   (`.inv-equip`).
+   The two pickers (`.inv-imp-pop` · `.inv-impi-pop`) are direct children of `#ui-root` — the `scale:` left behind
+   by `.inv-root`'s open animation would otherwise become the containing block of a `position: fixed` popup. */
+/* `width: 0` + `min-width: 100%`: the equipped gear column is `flex: none`, so it grows to **max-content**. Let
+   an implant description line into that calculation and the column opens to 800 px and pushes the bag grid off
+   screen. A percentage `min-width` counts as 0 in the intrinsic size calculation, so the column's width is set by
+   the equipment slots as before and this block wraps to fit it. */
+/* 2026-09-12 (user's decision, option A): this block is **one cell inside the equipment grid**
+   (`grid-area: implant` — the two media queries above). At a narrow width the grid unfolds into a single vertical
+   column, so it keeps the dividers above and below as it used to. */
 .inv-implants {
   display: flex; flex-direction: column; gap: 8px;
   width: 0; min-width: 100%;
@@ -2335,9 +2473,11 @@ kbd {
 }
 .inv-implants .hint { font-size: 11px; color: var(--c-text-dim); }
 
-/* 전술 임플란트 — **2026-09-12 (사용자 결정): 정사각 썸네일.** 다른 장비칸(`.inv-slot-body`)과 같은 높이의
-   정사각형이고 아이콘이 크게 가운데, 이름은 하단 캡션, 구동 방식은 우상단 태그다 (설명은 `title` 과 교체 피커의
-   카드에만 있다 — 2026-09-08 규칙 그대로). 예전 가로 바(`display: flex` + `.body` / `.line`)를 대신한다. */
+/* 전술 임플란트 — **2026-09-12 (user's decision): a square thumbnail.** A square the same height as the other
+   equipment slots (`.inv-slot-body`), with a large icon in the centre, the name as a caption at the bottom and
+   how it is triggered as a tag in the top-right corner (the description is only in `title` and on the swap
+   picker's card — the 2026-09-08 rule, unchanged). It replaces the old horizontal bar (`display: flex` +
+   `.body` / `.line`). */
 .inv-imp-slot {
   --ic: rgba(255, 255, 255, 0.35);
   position: relative;
@@ -2381,7 +2521,7 @@ kbd {
 }
 .inv-imp-slot .tag[hidden] { display: none; }
 
-/* 전술 임플란트 피커 */
+/* The 전술 임플란트 picker */
 .inv-imp-pop {
   position: fixed; left: 0; top: 0; z-index: 90;
   display: flex; flex-direction: column; gap: 10px;
@@ -2428,10 +2568,11 @@ kbd {
 }
 .inv-implants.is-empty .inv-imp-slot { display: none; }
 
-/* 임플란트 아이템: `임플란트 n / m칸` + 핍 줄, 장착한 것 한 줄씩, `+ 장착` 이 피커를 띄운다. */
+/* Implant items: `임플란트 n / m칸` + the pip row, one row per equipped item, `+ 장착` opens the picker. */
 .inv-impitems { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--c-border); }
-/* 2026-09-14: 폴백 배치 플래시 — `equipImplant` 는 어느 칸에 꽂혔는지 안 알려 주므로 블록 전체가 번쩍인다.
-   장비칸 · 퀵슬롯과 달리 테두리를 건드리면 위 `border-top` 이 사라지므로 **배경 · 글로우만** 쓴다. */
+/* 2026-09-14: the fallback placement flash — `equipImplant` does not say which slot it went into, so the whole
+   block flashes. Unlike an equipment slot or a quick slot, touching the border would lose the `border-top` above,
+   so **only the background and the glow** are used. */
 @keyframes inv-implant-flash {
   0%   { background: color-mix(in srgb, var(--inv-ok) 30%, transparent); box-shadow: 0 0 26px color-mix(in srgb, var(--inv-ok) 55%, transparent); }
   55%  { background: color-mix(in srgb, var(--inv-ok) 12%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--inv-ok) 30%, transparent); }
@@ -2447,8 +2588,9 @@ kbd {
   transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .inv-impi-pips i.on { background: #e39cff; border-color: #e39cff; box-shadow: 0 0 8px rgba(227, 156, 255, 0.5); }
-/* 2026-09-08: 장착한 임플란트는 **정사각 썸네일 가로 나열**이다 (세로 카드 목록이 아니라).
-   이름 · 퍽 · 능력치는 셀에 `data-item-tip` 을 찍어 `ui/hud/ItemTip` 의 hover 카드가 대신 말한다. */
+/* 2026-09-08: equipped implants are **square thumbnails laid out horizontally** (not a vertical card list).
+   The name · perk · stats are stamped onto the cell as `data-item-tip` and said instead by `ui/hud/ItemTip`'s
+   hover card. */
 .inv-impi-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
 .inv-impi-empty { font-size: 11px; line-height: 1.45; color: var(--c-text-faint); padding: 6px 2px; }
 .inv-impi-cell {
@@ -2496,7 +2638,7 @@ kbd {
 .inv-impi-add.is-open { border-style: solid; border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.08); }
 .inv-impi-add.is-locked { opacity: 0.55; cursor: not-allowed; }
 
-/* 임플란트 아이템 피커 — `.inv-imp-pop` 과 같은 크롬 */
+/* The implant item picker — the same chrome as `.inv-imp-pop` */
 .inv-impi-pop {
   position: fixed; left: 0; top: 0; z-index: 90;
   display: flex; flex-direction: column; gap: 10px;
@@ -2514,5 +2656,5 @@ kbd {
 .inv-impi-opt .why { font-size: 10px; letter-spacing: 0.06em; color: var(--c-danger); }
 .inv-impi-opt.is-broken .why { color: #d6a24a; }
 
-/* 승무원 로드아웃 카드는 읽기 전용 미리보기라 임플란트 칸을 쓰지 않는다. */
+/* The crew loadout card is a read-only preview, so it uses no implant block. */
 .crew-loadout .inv-implants { display: none; }

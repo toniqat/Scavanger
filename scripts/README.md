@@ -237,6 +237,12 @@ after touching `damageSource.ts` is checked by restarting vite, not by debugging
   volumes 1–3.
 - Nothing compares `extraction`'s `GROUND_DRAW_LIFT_MAX` with a world's drawn ground lift (`world/tutorial` `TOP_LIFT`) —
   `smoke-extraction` checks the ship-side inequality only.
+- **`check-comment-labels.mjs` cannot see a label mistyped in a `data/*.csv` comment.** A csv is read whole as live
+  strings (its Korean columns *are* display text), so a `#` comment line's Korean is registered as live too and
+  **justifies a near miss anywhere else**. That is how `housing.css`'s `해석 도감` stayed quiet although the real rail
+  tab is `분석 도감` (`housing/ui/Analyzer.ts:109`) — `data/constants.csv:818` says `해석 도감` in prose. `.css` itself
+  joined the comment side on 2026-09-20 (B-65); splitting a csv's comment lines from its data rows is the other half
+  (`docs/TODO.md` B-74).
 
 ### Runner options (`node scripts/verify.mjs --help`)
 

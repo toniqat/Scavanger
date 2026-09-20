@@ -1,27 +1,30 @@
 /* ============================================================================
- * SCAVANGER — 터미널의 탭 · 자식 화면 · 정보상 (2026-09-14 정보상 · 2026-09-15 분대 · 도킹 매칭).
+ * SCAVANGER — the terminal's tabs · child screens · intel broker (2026-09-14 the intel broker · 2026-09-15
+ * squads · docking matchmaking).
  *
- * 접두사 — 이 폴더 **밖에서는 아무도 선언하지 않는** 것만 골랐다 (CLAUDE.md 「CSS 클래스 접두사는 폴더마다
- * 달라야 한다」 — `.ct-` 충돌 사고와 같은 뿌리). 스타일시트는 전역이라 접두사가 겹치면 남의 화면이 조용히
- * 망가진다: 정보상 화면은 2026-09-14 에 `.it-` 를 골랐는데 그것은 `ui` 의 아이템 카드가 Phase 8 부터 쓰던
- * 접두사였고, 여기서 선언한 `.it-head { align-items: flex-end }` 가 세로 flex 인 그 카드의 이름 · 종류를
- * 오른쪽으로 밀었다 (기업 거래 · 제작 재료칩 · 서재 전시대 · 연산 클러스터). 2026-09-17 에 이 화면은 `.his-`
- * 로, 카드는 `.itip-` 로 갈라 `.it-` 를 아무도 안 쓰게 비웠다:
+ * Prefixes — only ones **nobody outside this folder declares** were picked (CLAUDE.md 「a CSS class prefix must
+ * differ from folder to folder」 — the same root as the `.ct-` collision). Stylesheets are global, so a shared
+ * prefix silently breaks someone else's screen: the intel screen picked `.it-` on 2026-09-14, which was the
+ * prefix `ui`'s item card had been using since Phase 8, and the `.it-head { align-items: flex-end }` declared
+ * here pushed that vertical-flex card's name and category to the right (corp trade · craft material chips ·
+ * library holders · the compute cluster). On 2026-09-17 this screen moved to `.his-` and the card to `.itip-`,
+ * which emptied `.it-` so that nobody uses it:
  *
- *   .hmt-  매칭 탭          (hub/ui/MatchTab.ts)        — 터미널 `매칭` 탭 (옛 `.hm-` 매칭 팝업은 2026-09-15 에 지웠다)
- *   .hinv- 분대 초대 창     (hub/ui/InviteModal.ts)     — 매칭 탭 빈 칸의 `초대`
- *   .htc-  훈련장 입장 확인 (hub/ui/TrainingConfirm.ts) — 행성 탭 우하단 `시뮬레이션 훈련장`
- *   .hi-   정보상 패널      (hub/ui/HubMenu.ts)         — 행성 탭 오른쪽 칸
- *   .his-  정보상 화면      (hub/ui/IntelMenu.ts + IntelMap.ts) — 2026-09-17 에 `.it-` 에서 옮겼다
+ *   .hmt-  match tab        (hub/ui/MatchTab.ts)        — the terminal's `매칭` tab (`.hm-` popup gone 2026-09-15)
+ *   .hinv- squad invite     (hub/ui/InviteModal.ts)     — the `초대` in an empty match-tab cell
+ *   .htc-  training confirm (hub/ui/TrainingConfirm.ts) — `시뮬레이션 훈련장`, bottom right of the `행성` tab
+ *   .hi-   intel panel      (hub/ui/HubMenu.ts)         — the right column of the `행성` tab
+ *   .his-  intel screen     (hub/ui/IntelMenu.ts + IntelMap.ts) — moved off `.it-` on 2026-09-17
  *
- * `.menu` · `.frame` · `.ui-btn` · `.ui-label` · `.hub-section` · `.hub-head` · `.hub-foot` 같은 틀은
- * `ui/styles/base.css` · `hub.css` 것을 그대로 쓴다. 색은 전부 `:root` 토큰이고 외부 에셋은 하나도 없다
- * (지도는 절차 캔버스, 초상은 `PlayerRef.snapshotFace` 의 data URL).
+ * Frames such as `.menu` · `.frame` · `.ui-btn` · `.ui-label` · `.hub-section` · `.hub-head` · `.hub-foot` are
+ * used exactly as `ui/styles/base.css` · `hub.css` give them. Every colour is a `:root` token and there is not
+ * one external asset (the map is a procedural canvas, a face is a data URL from `PlayerRef.snapshotFace`).
  * ========================================================================== */
 
-/* ── 매칭 탭 (.hmt-) ──────────────────────────────────────────────────────────
-   가운데 가로 한 줄의 정사각 초상 4칸 (나 → 분대원 → 빈 칸) + 그 아래 왼쪽 `비공개 매칭` · 오른쪽 `공개 매칭`.
-   칸 크기는 창 너비 · 높이 둘 다에 묶는다 — 1280×760 에서 4칸 + 버튼 줄이 프레임을 넘지 않게. */
+/* ── The match tab (.hmt-) ─────────────────────────────────────────────────
+   One horizontal row of four square face tiles in the centre (me → squadmates → empty tiles), and below it
+   `비공개 매칭` on the left · `공개 매칭` on the right. The tile size is tied to both the window width and its
+   height — so that four tiles plus the button row do not overflow the frame at 1280×760. */
 .hmt-tab {
   --hmt-tile: clamp(120px, min(17vw, 34vh), 248px);
   --hmt-gap: 16px;
@@ -36,7 +39,7 @@
   border: 1px solid color-mix(in srgb, var(--sc) 45%, var(--c-border));
   background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--sc) 16%, transparent), rgba(6, 8, 11, 0.95) 72%);
 }
-/* 칸 윗변의 악센트 줄 */
+/* The accent line along the tile's top edge */
 .hmt-tile::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 2; background: var(--sc); box-shadow: 0 0 10px color-mix(in srgb, var(--sc) 60%, transparent); }
 .hmt-tile.is-me { border-color: color-mix(in srgb, var(--sc) 70%, var(--c-border)); box-shadow: inset 0 0 22px color-mix(in srgb, var(--sc) 16%, transparent); }
 .hmt-tile.is-off { opacity: 0.6; }
@@ -45,7 +48,7 @@
 .hmt-face { position: absolute; inset: 0; }
 .hmt-face img { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; -webkit-user-drag: none; }
 .hmt-face img[hidden] { display: none; }
-/* 얼굴 스냅숏이 없을 때(GL 컨텍스트 없음)의 대체 — 이름 첫 글자 */
+/* The fallback when there is no face snapshot (no GL context) — the name's initial */
 .hmt-initial {
   position: absolute; left: 0; right: 0; top: 0; bottom: 28%;
   display: none; place-items: center;
@@ -61,7 +64,8 @@
 .hmt-badge { left: 8px; color: var(--c-accent); border: 1px solid rgba(255, 179, 71, 0.55); }
 .hmt-state { right: 8px; color: var(--c-danger); border: 1px solid rgba(255, 90, 70, 0.5); }
 .hmt-badge[hidden], .hmt-state[hidden] { display: none; }
-/* 안드로이드 분대원 (2026-09-15): 꼬리표는 `연결 끊김` 자리를 쓰지만 경고가 아니다 — 시안색으로 갈라 둔다 */
+/* Android squadmates (2026-09-15): the tag uses the `연결 끊김` spot but is not a warning — it is kept apart
+   in cyan */
 .hmt-tile.is-bot .hmt-state { color: #9be8ff; border-color: rgba(155, 232, 255, 0.5); }
 .hmt-tile.is-bot .hmt-name { color: #9be8ff; }
 .hmt-info {
@@ -73,13 +77,15 @@
 .hmt-tile.is-me .hmt-name::after { content: " (나)"; color: var(--c-text-dim); font-weight: 400; font-size: 10px; }
 .hmt-lv { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--c-accent); white-space: nowrap; }
 .hmt-tile.is-empty .hmt-info { display: none; }
-/* 빈 칸 가운데의 `초대` — `translate` 속성이라 `.ui-btn:active` 의 `transform` 과 섞이지 않는다 */
+/* The `초대` in the centre of an empty tile — it uses the `translate` property, so it never mixes with
+   `.ui-btn:active`'s `transform` */
 .ui-btn.hmt-invite {
   position: absolute; left: 50%; top: 50%; translate: -50% -50%; z-index: 1;
   min-width: 0; height: 36px; padding: 0 20px; font-size: 11px; letter-spacing: 0.14em;
 }
 .ui-btn.hmt-invite[hidden] { display: none; }
-/* 2026-09-15: 네 칸이 가득 찼을 때 `swap` 안드로이드 칸이 드는 초대 버튼 — 얼굴을 가리지 않게 아래로 내린다 */
+/* 2026-09-15: the invite button an android `swap` tile carries once all four tiles are full — moved down so
+   it does not cover the face */
 .ui-btn.hmt-invite.hmt-swap { top: auto; bottom: 10px; translate: -50% 0; height: 26px; padding: 0 12px; font-size: 10px; }
 
 .hmt-actions {
@@ -88,16 +94,18 @@
 }
 .hmt-actions .ui-btn { min-width: 0; width: calc(var(--hmt-tile) * 1.3); max-width: 48%; }
 .hmt-actions .ui-btn.hmt-undock { margin: 0 auto; }
-/* 2026-09-15 2차 (사용자 결정): 접속이 없으면 매칭 두 버튼 자리에 같은 크기의 `다시 연결` 하나가 가운데 선다
-   (그날 먼저는 사유 줄 밑의 작은 `hmt-small` 버튼이었다). */
+/* 2026-09-15 2nd pass (user's decision): with no connection, one `다시 연결` of the same size stands in the
+   centre where the two matchmaking buttons were (earlier that day it was a small `hmt-small` button under the
+   reason line). */
 .hmt-actions .ui-btn.hmt-reconnect { margin: 0 auto; }
 .hmt-actions .ui-btn[hidden] { display: none; }
 .hmt-under { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 18px; }
 .hmt-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--c-text-dim); }
 .hmt-hint[hidden] { display: none; }
-/* 접속이 없을 때의 `초대` (2026-09-15 2차): 잠긴 것처럼 흐리지만 **눌린다** — 누르면 창 대신 사유 줄이 깜박인다
-   (`MatchTab.flashHint` 가 `.is-flash` 를 HINT_FLASH_MS 동안 붙인다). 이 PC 처럼 reduced-motion 이면 애니메이션은
-   0.01 ms 로 잘리지만(`base.css`), 클래스가 붙어 있는 동안의 강조색은 그대로 보인다. */
+/* The `초대` with no connection (2026-09-15 2nd pass): dimmed as if locked but it **does press** — pressing
+   it flashes the reason line instead of opening the window (`MatchTab.flashHint` adds `.is-flash` for
+   HINT_FLASH_MS). On a PC like this one, with reduced motion, the animation is cut to 0.01 ms (`base.css`),
+   but the accent colour still shows for as long as the class is on. */
 .ui-btn.hmt-invite.is-offline { opacity: 0.45; }
 .ui-btn.hmt-invite.is-offline:hover { opacity: 0.7; }
 .hmt-hint.is-flash { color: var(--c-accent); animation: hmt-hint-flash 0.6s ease-out; }
@@ -109,7 +117,7 @@
 .ui-btn.hmt-small[hidden] { display: none; }
 .ui-btn.hmt-leave { color: var(--c-text-dim); }
 
-/* ── 분대 초대 창 (.hinv-) — 터미널 위에 뜬다 (hub 팝업 층 72 — 일시정지 메뉴 85 아래) ── */
+/* ── The squad invite window (.hinv-) — rises over the terminal (hub popup layer 72 — below the pause menu 85) ── */
 .menu.hub-menu.hinv-modal { z-index: 72; }
 .menu.hub-menu.hinv-modal .frame {
   min-width: 0; width: min(640px, calc(100vw - 48px)); max-width: 640px;
@@ -139,14 +147,14 @@
 .hinv-empty, .hinv-note { font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-faint); padding: 14px 0; text-align: center; border: 1px dashed var(--c-border); }
 .hinv-note { font-size: 12px; color: var(--c-text-dim); }
 
-/* ── 시뮬레이션 훈련장 입장 확인 (.htc-) — 클릭 확정 카드 (되돌릴 수 있는 일이라 홀드가 아니다) ── */
+/* ── `시뮬레이션 훈련장` entry confirm (.htc-) — a tap-confirm card (it can be undone, so not a hold) ── */
 .menu.hub-menu.htc-confirm { z-index: 72; }
 .menu.hub-menu.htc-confirm .frame { min-width: 0; width: min(440px, calc(100vw - 48px)); max-width: 440px; gap: 18px; }
 .htc-confirm .hub-head .title { font-size: 20px; }
 .htc-body { font-size: 13px; line-height: 1.6; color: var(--c-text); }
 .htc-confirm .hub-foot .ui-btn { min-width: 96px; }
 
-/* ── 정보상 패널 (.hi-), 터미널 우측 열 ───────────────────────────────────── */
+/* ── The intel panel (.hi-), the terminal's right column ───────── */
 .hub-section.hub-intel { gap: 8px; }
 .hi-body { display: flex; flex-direction: column; gap: 6px; }
 .hi-intro { font-size: 11.5px; line-height: 1.6; color: var(--c-text-dim); }
@@ -165,12 +173,14 @@
 .hi-note { font-size: 11px; color: var(--c-accent); letter-spacing: 0.04em; }
 .hub-section.hub-intel.is-mismatch { border-left: 2px solid rgba(255, 90, 70, 0.5); padding-left: 10px; }
 
-/* ── 정보상 화면 (.his-) ───────────────────────────────────────────────────── */
-/* 전체 화면이므로 뒤의 터미널이 비쳐 보이면 유령 버튼이 읽힌다 — `.menu` 기본보다 훨씬 어둡게 덮는다. */
+/* ── The intel screen (.his-) ─────────────────────────────────────────── */
+/* It is full-screen, so the terminal showing through behind would read as phantom buttons — it covers much
+   darker than the `.menu` default. */
 .menu.his-menu { background: radial-gradient(ellipse at 50% 40%, rgba(6, 8, 12, 0.94), rgba(2, 3, 5, 0.985)); }
 .menu.his-menu.fullscreen .frame {
   min-width: 0; max-width: none; width: 100vw; height: 100vh; max-height: 100vh;
-  /* 아래 여백 48px = 우측 하단 키 가이드(`ui/hud/KeyGuide`) 자리 — 요약 줄이 그 밑으로 들어가지 않게 */
+  /* Bottom padding 48px = the bottom-right key guide's spot (`ui/hud/KeyGuide`) — so the summary rows never
+     slide under it */
   padding: 24px 32px 62px; gap: 14px;
   box-sizing: border-box;
 }
@@ -196,9 +206,10 @@
 .his-pane.right { overflow: hidden; }
 .his-eyebrow { font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--c-text-faint); }
 
-/* 지도 — 캔버스 + 범례 한 줄 (색은 IntelMap.INTEL_MAP_LEGEND 가 인라인으로 넣는다) */
-/* 지도는 **정사각형**이다 (맵이 정사각형이라 종횡비를 왜곡하면 거짓말이 된다). 패널을 다 채우면 칸이 커져
-   좌표가 또렷하게 읽히므로 위쪽 크기를 묶어 둔다 — 흐릿함이 이 화면의 요점이다. */
+/* The map — canvas + one legend row (the colours are put in inline by IntelMap.INTEL_MAP_LEGEND) */
+/* The map is **square** (the world map is square, so distorting the aspect ratio would be a lie). Filling
+   the whole panel would enlarge the cells until coordinates read sharply, so its upper size is tied down —
+   blurriness is the point of this screen. */
 .his-map { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-width: 0; min-height: 0; flex: 1; width: 100%; }
 .his-map-stage { position: relative; width: min(100%, 60vh, 620px); max-width: 100%; aspect-ratio: 1 / 1; border: 1px solid rgba(95, 215, 255, 0.16); }
 .his-map-canvas { display: block; width: 100%; height: 100%; }
@@ -206,10 +217,10 @@
 .his-map-leg { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .his-map-leg i { width: 9px; height: 9px; display: inline-block; opacity: 0.8; }
 
-/* 고르는 국면: 기믹 7줄 */
+/* The pick phase: seven gimmick rows */
 .his-rows-wrap { display: flex; flex-direction: column; gap: 10px; min-height: 0; flex: 1; }
 .his-rows-head { font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--c-text-faint); }
-/* 줄 목록이 남은 높이를 먹고 총액 · 확정이 **우측 하단**에 앉는다 (설계안 §4.2) */
+/* The row list eats the leftover height and the total · confirm sit **at the bottom right** (design note §4.2) */
 .his-rows { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-gutter: stable; padding-right: 2px; }
 .his-row {
   display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-rows: auto auto; align-items: center;
@@ -233,14 +244,14 @@
 .his-named .ui-btn.his-named-btn { min-width: 0; height: 26px; padding: 0 12px; font-size: 10px; letter-spacing: 0.08em; }
 .his-named .ui-btn.his-named-btn.on { border-color: var(--c-accent); color: var(--c-accent); background: rgba(255, 179, 71, 0.1); }
 
-/* 우하단: 총액(큰 폰트) · 사유 · 취소 / 확정(1초 홀드) */
+/* Bottom right: the total (large font) · the reason · `취소` / `확정` (a 1 s hold) */
 .his-foot { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--c-border); }
 .his-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .his-total-label { font-size: 10px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--c-text-faint); }
 .his-total-val { font-family: var(--ui-mono); font-size: 34px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-accent); text-shadow: 0 0 18px rgba(255, 179, 71, 0.3); line-height: 1.1; }
 .his-total-note { font-size: 10px; color: var(--c-text-faint); letter-spacing: 0.04em; }
-/* 2026-09-15 2차 (사용자 결정): 이 줄은 **막힌 사유**만 말한다 (홀드 안내는 `확정` 버튼 안의 좌클릭 키캡).
-   사유가 없으면 `hidden` 이라 자리도 차지하지 않는다. */
+/* 2026-09-15 2nd pass (user's decision): this line says only **why it is blocked** (how to hold it is the
+   left-click keycap inside the `확정` button). With no reason it is `hidden` and takes up no space. */
 .his-reason { font-size: 11px; color: var(--c-text-dim); letter-spacing: 0.02em; min-height: 15px; }
 .his-reason[hidden] { display: none; }
 .his-reason.bad { color: var(--c-danger); }
@@ -253,7 +264,7 @@
 }
 .his-confirm-label { position: relative; }
 
-/* 확정 국면: 좌 홀로그램(락온) · 우 지도 + 요약 */
+/* The confirmed phase: the hologram (lock-on) left · the map + summary right */
 .his-holo-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .his-holo {
   position: relative;
@@ -278,7 +289,7 @@
 
 .menu.his-menu .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
 
-/* 좁은 창 (1440×900 아래): 두 패널이 세로로 쌓인다 — 지도는 줄고 줄 목록이 스크롤한다 */
+/* A narrow window (below 1440×900): the two panes stack vertically — the map shrinks, the row list scrolls */
 @media (max-width: 1180px) {
   .his-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(160px, 0.9fr) minmax(0, 1.4fr); gap: 14px; }
   .his-holo { width: 220px; height: 220px; max-width: 30vh; max-height: 30vh; }

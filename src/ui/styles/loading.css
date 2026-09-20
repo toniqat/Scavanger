@@ -1,13 +1,15 @@
 /* ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
- * 레이드 진입 로딩 게이지 (2026-09-15, `hud/LoadingGauge.ts`) — 우측 하단의 원형 게이지.
+ * The raid-entry loading gauge (2026-09-15, `hud/LoadingGauge.ts`) — the radial gauge at the bottom right.
  *
- * z 87: **검은 페이드(`.screen-fade` 82) 위**에 그려야 한다 — 발사 카운트다운이 끝나면 화면이 암전되고, 그 암전
- * 위에서 이 게이지만 돌기 때문이다 (사용자 결정 「암전된 상태에서 화면 우측 하단에 로딩 표시용 돌아가는 Radial
- * 게이지」). 일시정지 메뉴(85)보다도 위인 것은 일부러다 — 로딩 중에 무엇이 떠도 진행도는 보여야 한다.
+ * z 87: it has to draw **over the black fade** (`.screen-fade` 82) — once the launch countdown ends the screen
+ * goes black, and this gauge alone turns over that black (the user's decision 「암전된 상태에서 화면 우측 하단에
+ * 로딩 표시용 돌아가는 Radial 게이지」). Being above the pause menu (85) as well is deliberate — whatever is up
+ * during the load, the progress still has to be visible.
  *
- * 링의 채움은 `--p` (0…1) 의 conic-gradient 이고, 도는 호는 `.ldg-spin` 의 인라인 transform 이다. 둘 다 JS 가
- * **실시간(`performance.now()`)으로** 쓴다 — 로딩 게이트 동안 시뮬레이션 dt 가 0 이라 CSS 애니메이션도, dt 기반
- * 보간도 멈추기 때문이다. OS 가 애니메이션 효과를 끄면(`prefers-reduced-motion`) 도는 호만 숨고 채움은 남는다.
+ * The ring's fill is a conic-gradient on `--p` (0…1) and the turning arc is an inline transform on `.ldg-spin`.
+ * Both are written by JS **in real time (`performance.now()`)**, because the simulation dt is 0 while the loading
+ * gate holds, which stops CSS animations and dt-based interpolation alike. When the OS turns animation effects off
+ * (`prefers-reduced-motion`) only the turning arc hides and the fill stays.
  * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 .ldg {
@@ -27,7 +29,7 @@
   mask: radial-gradient(circle, transparent 0 21px, #000 22px);
 }
 
-/* 도는 호 — 링과 같은 지름의 얇은 테두리에서 한 변만 남긴 고전적인 스피너 */
+/* The turning arc — the classic spinner: a thin border of the ring's own diameter with only one side left */
 .ldg-spin {
   position: absolute; inset: -5px;
   border: 2px solid transparent;
@@ -45,11 +47,14 @@
   .ldg-spin { display: none; }
 }
 
-/* ── 결과 화면 → 함선 귀환 암전 (2026-09-16, `menus/ShipReturn.ts`) ────────────────────────────────────────────
- * 로딩 게이지와 같은 연출이라 여기 있다. 값은 전부 JS 가 프레임마다 쓴다 (reduced motion 이면 CSS 전이가 잘린다).
- * - 결과 창(z 84)은 검은 판(82) **위**라 판만으로는 사라지지 않는다 → `--shipret-menu-o` 로 따로 민다.
- * - 판 위의 서버 배지(83) · 키 가이드(84)는 함선이 지어지는 순간 검은 화면 위로 튀어나온다 → 판 불투명도의 보수
- *   `--shipret-o` 를 따라간다. `filter: opacity()` 라서 위젯 자신의 opacity · `.hud-cine` 와 곱해지지 않고 덮어쓰지만,
- *   이 클래스가 붙는 결과 화면 · 함선 진입에서는 이륙 연출이 이미 꺼져 있다. */
+/* ── Results screen → the fade to black on the return to the ship (2026-09-16, `menus/ShipReturn.ts`) ─────────
+ * It lives here because it is the same presentation as the loading gauge. Every value is written by JS each frame
+ * (reduced motion clips a CSS transition).
+ * - The results screen (z 84) is **above** the black plate (82), so the plate alone does not make it disappear →
+ *   it is pushed separately with `--shipret-menu-o`.
+ * - The server badge (83) and the key guide (84) over the plate pop out onto the black screen the moment the ship
+ *   is being built → they follow `--shipret-o`, the complement of the plate's opacity. Being `filter: opacity()`
+ *   it overwrites rather than multiplies with a widget's own opacity or `.hud-cine`, but on the results screen and
+ *   the ship entry this class goes on, the liftoff cinematic is already off. */
 #ui-root.ui-shipret > .menu:is(.complete, .death) { filter: opacity(var(--shipret-menu-o, 1)); }
 #ui-root.ui-shipret > :is(.key-guide, .net-badge) { filter: opacity(var(--shipret-o, 1)); }

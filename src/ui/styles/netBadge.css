@@ -1,11 +1,13 @@
 /*
- * src/ui/styles/netBadge.css — 서버 연결 배지 (`hud/NetBadge`, 2026-09-11 B-1).
+ * src/ui/styles/netBadge.css — the server link badge (`hud/NetBadge`, 2026-09-11 B-1).
  *
- *   `.net-badge(.show)`   #ui-root 직계, 우측 상단. 타이틀 = 모서리, 함선(`.nb-ship`) = 커뮤니티 썸네일(64px) 왼쪽.
- *     `.nb-body`            점(`.nb-dot`) + 두 줄(`.nb-main` 상태 · `.nb-sub` 사유 / 주소).
- *     `.nb-actions`         타이틀에서만: `다시 시도` · `서버 설정` (`.ui-btn.nb-btn`).
- *   색조 modifier: `.nb-info` 연결 중 · `.nb-ok` 연결됨 / 서버 발견 · `.nb-warn` 찾는 중 / 재연결 · `.nb-bad` 거절.
- *   z 83: 타이틀(`.menu`, z 없음) 위 · 캐릭터 선택(84) · 일시정지(85) · 설정(86) 아래.
+ *   `.net-badge(.show)`   a direct child of #ui-root, top right. On the title = the corner; in the ship
+ *                         (`.nb-ship`) = left of the community thumbnail (64px).
+ *     `.nb-body`            the dot (`.nb-dot`) + two rows (`.nb-main` the state · `.nb-sub` the reason / address).
+ *     `.nb-actions`         on the title only: `다시 시도` · `서버 설정` (`.ui-btn.nb-btn`).
+ *   Tint modifiers: `.nb-info` connecting · `.nb-ok` connected / server found · `.nb-warn` searching /
+ *   reconnecting · `.nb-bad` refused.
+ *   z 83: above the title (`.menu`, no z) · below character select (84), the pause menu (85) and settings (86).
  */
 
 .net-badge {
@@ -18,7 +20,7 @@
   pointer-events: none;
 }
 .net-badge.show { opacity: 1; visibility: visible; transform: none; }
-/* 함선: 커뮤니티 썸네일(`.community`, right 32 · top 28 · 64px)의 왼쪽에 선다. */
+/* In the ship: it stands left of the community thumbnail (`.community`, right 32 · top 28 · 64px). */
 .net-badge.nb-ship { right: 112px; top: 28px; }
 
 .net-badge.nb-info { --nb: var(--c-info); }

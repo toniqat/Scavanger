@@ -15,7 +15,8 @@
 .hub-head .hl { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
 .hub-head .title { font-size: 26px; letter-spacing: 0.18em; }
 .hub-head .subtitle { margin-top: 0; }
-/* 상태 알약은 머리줄 오른쪽 끝 (2026-09-15: 옛 `📡 매칭` 버튼은 상단 `매칭` 탭이 됐다) */
+/* The status pill sits at the right end of the header row (2026-09-15: the old `📡 매칭` button became the
+   top `매칭` tab) */
 .hub-head .status-pill { margin-left: auto; }
 
 .hub-section { display: flex; flex-direction: column; gap: 10px; }
@@ -28,10 +29,11 @@
 .hub-section .ui-btn.wide { min-width: 0; width: 100%; }
 .hub-section .ui-btn.on { border-color: var(--c-success); color: var(--c-success); background: rgba(79, 209, 126, 0.08); }
 .hub-section .hint.warn { color: var(--c-accent); }
-/* 2026-09-15: 매칭 팝업(`MatchPanel`)의 코드 입력 · 함선 코드 · 승무원 줄(`.code-input` · `.hub-code` · `.hub-crew` ·
-   `.crew-row`)과 쓰이지 않던 `.hub-page` · `.hub-crew-name` 을 지웠다 — 매칭은 터미널 `매칭` 탭(`.hmt-`, intel.css)이다. */
+/* 2026-09-15: the matchmaking popup's (`MatchPanel`) code input · ship code · crew rows (`.code-input` ·
+   `.hub-code` · `.hub-crew` · `.crew-row`) and the unused `.hub-page` · `.hub-crew-name` were removed —
+   matchmaking is the terminal's `매칭` tab (`.hmt-`, intel.css). */
 
-/* ── full-screen terminal + 행성 선택 (Phase 11 · 2026-09-15 상단 탭) ─────────────────────
+/* ── full-screen terminal + planet selection (Phase 11 · 2026-09-15 top tabs) ──────
    `.fullscreen` makes the frame fill the viewport (no 680px card). The frame itself never scrolls (`overflow: hidden`
    above) — each column scrolls on its own if the window is short. */
 .menu.hub-menu.fullscreen .frame {
@@ -39,15 +41,18 @@
   padding: 26px 34px 22px; gap: 14px;
   box-sizing: border-box;
 }
-/* 2026-09-15 (사용자 결정): 상단 탭 `행성` / `매칭` — 인벤토리 Tab 화면과 같은 `.scr-tabs` (base.css, 절대 배치 ·
-   가로 가운데)가 머리줄 한가운데에 뜬다. 머리줄은 왼쪽 제목 · 오른쪽 상태 알약이라 가운데가 비어 있고, 탭 알약 높이
-   (~40px)만큼 머리줄 최소 높이를 잡아 두어 아래 탭 내용이 알약 밑으로 들어가지 않는다. */
+/* 2026-09-15 (user's decision): the top tabs `행성` / `매칭` — the same `.scr-tabs` as the inventory Tab
+   screen (base.css, absolutely placed, horizontally centred) rise in the middle of the header row. The header
+   row is title left · status pill right, so its centre is empty, and its minimum height is set to the tab
+   pills' height (~40px) so the tab content below never slides under them. */
 .menu.hub-menu.fullscreen .scr-tabs.hub-tabs { top: 26px; }
 .menu.hub-menu.fullscreen .hub-head { min-height: 48px; }
-/* 탭 한 장 = `.hub-pane` (남는 높이를 다 먹는다) */
+/* One tab = `.hub-pane` (it eats all the leftover height) */
 .menu.hub-menu.fullscreen .hub-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-/* 행성 탭 (2026-09-15): 3칸 — 빈 왼쪽 · **가운데 행성 카드** · 오른쪽 정보상. 양옆이 같은 `1fr` 이라 행성이 프레임
-   한가운데에 선다 (옛 2열은 행성이 왼쪽으로 치우쳤다). 시뮬레이션 훈련장은 칸이 아니라 푸터 위 우하단 버튼(`.hub-train-row`)이다. */
+/* The `행성` tab (2026-09-15): three columns — an empty left one · **the planet card in the centre** · the
+   intel broker on the right. Both sides are the same `1fr`, so the planet stands in the middle of the frame
+   (the old two-column layout leaned it to the left). `시뮬레이션 훈련장` is not a column but the bottom-right
+   button above the footer (`.hub-train-row`). */
 .menu.hub-menu.fullscreen .hub-grid {
   flex: 1; min-height: 0;
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 560px) minmax(0, 1fr); gap: 24px;
@@ -57,7 +62,7 @@
 .hub-col.right { justify-content: center; align-items: flex-end; }
 .hub-col.right > .hub-intel { width: min(360px, 100%); }
 
-/* the planet card: hologram, name / 지형 / 위협 badge / brief, then 행성 이동 */
+/* the planet card: hologram, name / terrain / threat badge / brief, then `행성 이동` */
 .hub-planet { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
 .hp-eyebrow { font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--c-text-faint); }
 .hp-stage { position: relative; display: flex; align-items: center; justify-content: center; gap: 10px; }
@@ -90,7 +95,8 @@
 .hp-threat[data-threat="3"] { color: var(--c-danger); border-color: rgba(255, 90, 70, 0.5); }
 .hp-terrain { font-size: 12px; letter-spacing: 0.16em; color: var(--c-text-dim); }
 .hp-brief { font-size: 12.5px; line-height: 1.6; color: var(--c-text-dim); text-align: center; max-width: 620px; }
-/* 행성 상시 환경 (A-13, 2026-09-11). `--env-c` = ENV_COLOR; `.warn` = 준비물이 없다 (막지는 않는다 — 소프트 게이트) */
+/* The planet's permanent environment (A-13, 2026-09-11). `--env-c` = ENV_COLOR; `.warn` = no preparation is
+   held (it does not block — a soft gate) */
 .hp-env {
   font-size: 11px; line-height: 1.5; text-align: center; max-width: 480px;
   color: var(--env-c, var(--c-text-dim)); border: 1px solid currentColor; padding: 4px 10px;
@@ -100,12 +106,14 @@
 .ui-btn.hp-travel { min-width: 240px; margin-top: 6px; }
 .ui-btn.hp-travel.locked { letter-spacing: 0.04em; font-size: 11px; }
 
-/* 낮은 창 (2026-09-15 2차): 훈련장 줄이 푸터 위에 제 줄을 차지하면서 세로가 62px 줄었다 — 홀로그램을 조금 줄여
-   행성 카드(`행성 이동` 버튼까지)가 가운데 칸에서 잘리지 않게 한다 (`smoke-planets` 1280×760). */
+/* A short window (2026-09-15 2nd pass): the training-range row taking its own line above the footer cost
+   62px of height — the hologram shrinks a little so the planet card (down to the `행성 이동` button) is not
+   clipped in the centre column (`smoke-planets` 1280×760). */
 @media (max-height: 820px) {
   .hp-holo { max-width: min(40vh, 34vw); max-height: min(40vh, 34vw); }
 }
-/* 좁은 창: 행성이 위, 정보상이 아래로 쌓인다 (빈 왼쪽 칸은 사라진다) — 2026-09-14 · 2026-09-15 */
+/* A narrow window: the planet stacks on top, the intel broker below (the empty left column disappears) —
+   2026-09-14 · 2026-09-15 */
 @media (max-width: 1180px) {
   .menu.hub-menu.fullscreen .hub-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: 16px; }
   .menu.hub-menu.fullscreen .hub-col.left { display: none; }
@@ -113,15 +121,17 @@
   .menu.hub-menu.fullscreen .hub-col.right > * { flex: 1; min-width: 0; width: auto; }
 }
 
-/* 훈련장 줄 + 푸터 (2026-09-15, 사용자 결정): `시뮬레이션 훈련장` 은 푸터 **위** 제 줄(`.hub-train-row`)의 오른쪽 끝에 서고,
-   그 아래 푸터 윗선(구분선), 그 아래 푸터 오른쪽에 `닫기 (E)` 만 남는다 (그날 먼저는 둘이 푸터 한 줄이었다 — 훈련장이
-   닫기 오른쪽에 붙어 있어 「닫기」 옆의 큰 버튼이 눈에 걸렸다). 행성 탭에서만 보인다 (`HubMenu.setTab` 이 줄째 감춘다).
-   왼쪽 아래 구석은 함선 HUD 의 분대 목록 · 이름 줄이 터미널 위에 그려지는 자리라 비워 둔다. */
+/* The training-range row + the footer (2026-09-15, user's decision): `시뮬레이션 훈련장` stands at the right
+   end of its own row **above** the footer (`.hub-train-row`), below it the footer's top line (a divider), and
+   below that only `닫기 (E)` at the footer's right (earlier that day the two shared one footer row — the
+   training range sat right of 닫기 and the big button next to 「닫기」 caught the eye). It shows on the `행성`
+   tab only (`HubMenu.setTab` hides the whole row). The bottom-left corner is kept empty because the ship HUD's
+   squad list and name rows are drawn there over the terminal. */
 .hub-train-row { display: flex; justify-content: flex-end; align-items: center; }
 .hub-foot { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 6px; border-top: 1px solid var(--c-border); }
 .hub-foot .right { display: flex; align-items: center; gap: 10px; }
 .hub-foot .ui-btn { min-width: 0; padding: 0 18px; }
-/* 이름 줄 + 상태 줄(`시작` · `합류 (n명 훈련 중)` · `임무 진행 중` · `분대 대기 중`) 두 줄 버튼 */
+/* A two-line button: the name line + the state line (`시작` · `합류 (n명 훈련 중)` · `임무 진행 중` · `분대 대기 중`) */
 .hub-train-row .ui-btn.hub-train { min-width: 220px; height: 48px; padding: 0 22px; flex-direction: column; align-items: flex-end; justify-content: center; gap: 2px; }
 .hub-train-name { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; }
 .hub-train-state { font-size: 10px; font-weight: 500; letter-spacing: 0.08em; color: var(--c-text-dim); }
@@ -156,9 +166,10 @@
 .wb-row .ui-btn { min-width: 0; height: 34px; padding: 0 16px; font-size: 11px; }
 .wb-empty { font-size: 12px; color: var(--c-text-faint); letter-spacing: 0.06em; padding: 18px 0; text-align: center; border: 1px dashed var(--c-border); }
 
-/* ── 발사 준비 패널 (Phase 10 · 2026-09-14 대개편) ─────────────────────────────
-   Four cells across the MIDDLE of the ship screen (화면 세로 56 % — 2026-09-14 2차, 70 % 에서 줄였다), shown while
-   any launch slot is filled. Each cell is 초상(남는 높이) + 장비 판(`--hr-body-h`) 이다.
+/* ── The launch ready panel (Phase 10 · 2026-09-14 big rework) ────────
+   Four cells across the MIDDLE of the ship screen (56 % of the screen height — 2026-09-14 2nd pass, cut down
+   from 70 %), shown while any launch slot is filled. Each cell is the portrait (the leftover height) + the
+   gear board (`--hr-body-h`).
 
    ⚠ `grid-template-columns: repeat(4, 1fr)` + `gap: 0` is a **contract with `player/Portraits`**: that renderer
    slices ONE canvas into `HUB_READY_CELLS` equal columns, so an uneven column or a gap would slide every body
@@ -167,15 +178,17 @@
 
    The root only becomes `.interactive` while the local player is boarded (see `ui/ReadyPanel`).
 
-   ⚠ 2026-09-14 2차: `--hr-body-h` 는 이제 **퍼센트가 아니라 장비 판 내용의 실제 높이**다 — 인셋 식
-   (`.hr-portraits { bottom: var(--hr-body-h) }` · `.hr-body { flex-basis: var(--hr-body-h) }`)은 그대로이고
-   값만 바뀌었다. 45 % 는 내용보다 한참 커서 홀드 바 **아래에 죽은 여백**이 남았다(그리고 패널이 화면을
-   너무 먹었다). 식은 장비 판을 위에서 아래로 그대로 더한 것이다:
-     패딩 10 + 12 · 썸네일 한 줄 · gap 8 · 가치 줄 14 · gap 8 · 홀드 줄(`--hr-hold-h`).
-   썸네일 한 줄은 정사각(`aspect-ratio: 1/1`)이라 칸 너비에서 나온다 — 칸 = 패널 폭 ÷ 4, 좌우 패딩 24,
-   열 간격 4 × 4 = 16 → `(패널폭 / 4 − 40px) / 5`. 그래서 어느 창 너비에서도 여백이 0 이다.
-   장비 판이 얇아진 만큼 초상 층이 넓어지므로(`bottom` 이 같은 변수를 쓴다) `player/Portraits` 와의 계약
-   (`repeat(4, 1fr)` · `gap: 0`)은 한 줄도 안 바뀐다. */
+   ⚠ 2026-09-14 2nd pass: `--hr-body-h` is now **the real height of the gear board's content, not a
+   percentage** — the inset formulas (`.hr-portraits { bottom: var(--hr-body-h) }` ·
+   `.hr-body { flex-basis: var(--hr-body-h) }`) are unchanged and only the value moved. 45 % was far larger
+   than the content, which left **dead space below the hold bar** (and the panel ate too much of the screen).
+   The formula simply adds the gear board up from top to bottom:
+     padding 10 + 12 · one thumbnail row · gap 8 · the value line 14 · gap 8 · the hold row (`--hr-hold-h`).
+   A thumbnail row is square (`aspect-ratio: 1/1`), so it comes out of the cell width — cell = panel width ÷ 4,
+   side padding 24, column gaps 4 × 4 = 16 → `(panel width / 4 − 40px) / 5`. That is why the leftover space is
+   0 at any window width.
+   The portrait layer grows by exactly as much as the gear board thins (`bottom` uses the same variable), so
+   the contract with `player/Portraits` (`repeat(4, 1fr)` · `gap: 0`) does not change by a line. */
 .hub-ready {
   --hr-hold-h: 40px;
   --hr-gear-h: calc((min(1120px, 100vw - 40px) / 4 - 40px) / 5);
@@ -183,8 +196,9 @@
   position: absolute; left: 50%; top: 48%; transform: translate(-50%, -50%);
   width: min(1120px, calc(100vw - 40px));
   height: 56vh;
-  /* 출격 준비 경고(`.launch-warn`, z 74)가 이 카드 위로 올라오도록 자리를 명시한다 — 둘 다 `ctx.uiRoot` 의
-     형제이고 ReadyPanel 이 DOM 상 뒤라, z 가 없으면 카드가 팝업을 덮어 버튼이 가려졌다 (2026-09-14 2차) */
+  /* The place is stated so the launch warning (`.launch-warn`, z 74) rises above this card — both are
+     siblings under `ctx.uiRoot` and ReadyPanel comes later in the DOM, so without a z the card covered the
+     popup and hid its buttons (2026-09-14 2nd pass) */
   z-index: 20;
   pointer-events: none;
 }
@@ -215,20 +229,22 @@
 .hr-cell.is-off { opacity: 0.6; }
 .hr-cell.is-off .hr-state { color: var(--c-danger); }
 .hr-cell.is-local .hr-name::after { content: " (나)"; color: var(--c-text-dim); font-weight: 400; font-size: 10px; }
-/* 준비를 마친 카드는 슬롯 색 테두리가 또렷해진다 */
+/* A cell that has finished readying sharpens its slot-coloured border */
 .hr-cell.is-confirmed { border-color: color-mix(in srgb, var(--sc) 70%, var(--c-border)); box-shadow: inset 0 0 22px color-mix(in srgb, var(--sc) 14%, transparent); }
 .hr-cell.is-confirmed .hr-state { color: color-mix(in srgb, var(--sc) 75%, #fff); }
-/* 「지금 네 차례」 — 앉았지만 아직 준비하지 않은 내 카드 (2026-09-14) */
+/* 「your turn now」 — my cell, seated but not yet ready (2026-09-14) */
 .hr-cell.needs-ready { border-color: var(--c-accent); animation: hrNeedsReady 1.5s ease-in-out infinite; }
 @keyframes hrNeedsReady {
   0%, 100% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 30%, transparent), 0 0 12px color-mix(in srgb, var(--c-accent) 22%, transparent); }
   50% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 72%, transparent), 0 0 28px color-mix(in srgb, var(--c-accent) 48%, transparent); }
 }
 
-/* 안드로이드 분대원: 이름만 안드로이드 색이다 (2026-09-16 — 몸은 사람과 같은 전신 초상이라 얼굴 한 장이 없다) */
+/* Android squadmates: only the name takes the android colour (2026-09-16 — the body is the same full-body
+   portrait as a human's, so there is no single face) */
 .hr-cell.is-bot .hr-name { color: #9be8ff; }
 
-/* 위 55 %: 초상이 비쳐 보이는 층 — 이름 · 레벨은 맨 위, 상태 줄은 장비 판 바로 위 */
+/* Top 55 %: the layer the portrait shows through — name · level at the very top, the state line directly
+   above the gear board */
 .hr-head {
   position: relative; z-index: 1;
   flex: 1 1 auto; min-height: 0;
@@ -240,7 +256,7 @@
 .hr-lv { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.08em; color: var(--c-accent); white-space: nowrap; }
 .hr-state { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-dim); text-shadow: 0 0 8px rgba(0, 0, 0, 0.85); }
 
-/* 아래 45 %: 장비 판 — 여기부터는 초상이 비치지 않는다 */
+/* Bottom 45 %: the gear board — from here down the portrait does not show through */
 .hr-body {
   position: relative; z-index: 1;
   flex: 0 0 var(--hr-body-h);
@@ -249,7 +265,7 @@
   border-top: 1px solid color-mix(in srgb, var(--sc) 24%, var(--c-border));
   background: linear-gradient(180deg, rgba(8, 10, 14, 0.86), rgba(6, 8, 11, 0.95));
 }
-/* 주무기 I · II · 가방 · 방탄복 · 전술 임플란트 — 다섯 칸 균등 */
+/* 주무기 I · II · 가방 · 방탄복 · 전술 임플란트 — five equal cells */
 .hr-gear { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; pointer-events: auto; }
 .hr-slot {
   --rc: var(--c-border); --ic: var(--c-text-dim);
@@ -264,18 +280,21 @@
 .hr-slot-icon { font-size: 17px; line-height: 1; color: var(--ic); }
 .hr-slot.is-empty .hr-slot-icon, .hr-slot.is-unknown .hr-slot-icon { color: var(--c-text-faint); }
 .hr-slot-key { font-size: 8px; letter-spacing: 0.1em; color: var(--c-text-faint); text-transform: uppercase; white-space: nowrap; }
-/* 소켓 핍 — 인벤토리 무기 카드(`.inv-slot-sockets`)와 같은 읽기: 윤곽 = 빈 칸, 채움 = 부착물 */
+/* Socket pips — read as on the inventory weapon card (`.inv-slot-sockets`): an outline = empty, a fill = an
+   attachment */
 .hr-slot-socks { position: absolute; right: 3px; top: 3px; display: flex; gap: 2px; }
 .hr-slot-socks.is-unknown { opacity: 0.45; }
 .hr-pip { width: 4px; height: 4px; border: 1px solid color-mix(in srgb, var(--c-text-dim) 70%, transparent); background: transparent; }
 .hr-pip.is-filled { background: var(--c-accent); border-color: var(--c-accent); }
-/* 착용 장비 가치 합계 — `line-height` 는 `--hr-body-h` 식이 세는 14px 이다 (기본 normal 이면 폰트마다 달라진다) */
+/* The worn gear's value total — `line-height` is the 14px the `--hr-body-h` formula counts (with the default
+   `normal` it would vary by font) */
 .hr-value { font-family: var(--ui-mono); font-size: 10px; line-height: 14px; letter-spacing: 0.06em; color: var(--c-text-dim); text-align: right; }
-/* 준비 홀드 줄 — `Space` 키캡 + 게이지 (2026-09-14 2차). `margin-top: auto` 는 안전핀이다: `--hr-body-h` 식이
-   맞으면 남는 높이가 0 이지만, 어긋나도 여백은 **홀드 바 위**로 가고 아래는 늘 패딩뿐이다. */
+/* The ready hold row — a `Space` keycap + the gauge (2026-09-14 2nd pass). `margin-top: auto` is a pin: when
+   the `--hr-body-h` formula is right the leftover height is 0, and when it is off the space goes **above the
+   hold bar** while below it there is always only padding. */
 .hr-holdrow { display: flex; align-items: center; gap: 8px; margin-top: auto; }
 .hr-holdrow .keycap { flex: none; min-width: 46px; height: 26px; font-size: 10px; }
-/* 준비 홀드 게이지 — 내 카드 하단 (크로스헤어 홀드 링이 아니다) */
+/* The ready hold gauge — at the bottom of my cell (not the crosshair hold ring) */
 .hr-hold {
   flex: 1 1 auto; min-width: 0;
   position: relative; height: var(--hr-hold-h);
@@ -294,7 +313,7 @@
 .hr-hold.is-confirmed { border-color: color-mix(in srgb, var(--sc) 55%, var(--c-border)); }
 .hr-hold.is-confirmed .hr-hold-fill { background: color-mix(in srgb, var(--sc) 32%, transparent); }
 
-/* ── 분대원 장비 popup (right-click a cell) ──────────────────────────────── */
+/* ── The crew loadout popup (right-click a cell) ────────────────────── */
 .hub-crew-loadout {
   position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
   z-index: 72;
@@ -316,11 +335,12 @@
 .hcl-body { display: flex; min-width: 0; }
 
 /* 2026-09-14: the panel moved to the middle of the screen (`top: 48%`), so the status line no longer has to
-   step over it — its own `bottom: 14%` (= 화면 위에서 86 %) clears the panel's lower edge.
-   2026-09-14 2차: 56vh 로 줄었으니 그 모서리는 48 % + 28 % = 76 % 다 (여유가 더 생겼다). */
+   step over it — its own `bottom: 14%` (= 86 % from the top of the screen) clears the panel's lower edge.
+   2026-09-14 2nd pass: it shrank to 56vh, so that edge is 48 % + 28 % = 76 % (more room still). */
 
 @media (max-width: 900px) {
-  /* 폭이 좁아지면 패널도 넓어지므로(`100vw - 16px`) 썸네일 식의 분자가 바뀐다 — `--hr-gear-h` 를 같이 고친다 */
+  /* As the width narrows the panel widens too (`100vw - 16px`), so the numerator of the thumbnail formula
+     changes — `--hr-gear-h` is fixed along with it */
   .hub-ready { height: 64vh; width: calc(100vw - 16px); --hr-gear-h: calc(((100vw - 16px) / 4 - 40px) / 5); }
   .hr-slot-key { display: none; }
   .hr-slot { max-height: 46px; }
@@ -351,13 +371,16 @@
   .hub-code .code { font-size: 30px; }
 }
 
-/* ── 출격 준비 경고 (2026-09-08, owner: hub/ui/LaunchWarnPanel) ────────────────
-   발사 슬롯 탑승 직전에 뜨는 확인 카드. 막지 않는 경고이므로 위험색은 표식과 표제까지만 쓰고
-   버튼은 평소의 [취소] / [그래도 준비] 두 개다. */
-/* 2026-09-14 2차: **발사 준비 패널 위에** 뜬다. 둘 다 `ctx.uiRoot` 의 형제인데 ReadyPanel 이 DOM 상 뒤라
-   (`HubSystem.init` 의 등록 순서), z 가 없으면 4칸 카드가 팝업을 덮어 `취소` · `그래도 준비` 가 가려졌고
-   카드가 `.interactive` 일 때는 클릭까지 먹었다. 74 = `.hub-crew-loadout`(72) 바로 위 · `.sm-confirm`(79) 아래.
-   딤은 `.menu` 기본 규칙(radial-gradient … rgba(3,4,6,0.9))이 `inset: 0` 에 깔아 주므로 따로 두지 않는다. */
+/* ── The launch warning (2026-09-08, owner: hub/ui/LaunchWarnPanel) ──────
+   A confirm card raised just before boarding a launch slot. It is a warning that does not block, so the
+   danger colour reaches only the mark and the headline and the buttons are the usual two,
+   [취소] / [그래도 준비]. */
+/* 2026-09-14 2nd pass: it rises **above the launch ready panel**. Both are siblings under `ctx.uiRoot` and
+   ReadyPanel comes later in the DOM (the registration order in `HubSystem.init`), so without a z the four-cell
+   card covered the popup and hid `취소` · `그래도 준비` — and while the card was `.interactive` it ate the
+   clicks too. 74 = directly above `.hub-crew-loadout` (72) and below `.sm-confirm` (79).
+   The dim is laid over `inset: 0` by the default `.menu` rule (radial-gradient … rgba(3,4,6,0.9)), so none is
+   added here. */
 .menu.hub-menu.launch-warn { z-index: 74; }
 .menu.hub-menu.launch-warn .frame { min-width: 460px; max-width: 560px; width: min(560px, calc(100vw - 48px)); }
 .menu.hub-menu.launch-warn .hub-head .title { color: var(--c-accent); }
@@ -384,10 +407,12 @@
   .menu.hub-menu.launch-warn .frame { min-width: 0; }
 }
 
-/* ── 분대 도킹 카운트다운 (2026-09-15, owner: hub/ui/SquadDockCountdown · 규칙은 hub/parts/SquadDock) ────────────
-   분대장이 공용 함선에 도킹한 뒤 분대원 화면 **오른쪽**에 뜨는 작은 판. 연출이지 화면이 아니다 — 포인터를 먹지 않고
-   blocker 도 없다. 우측 중앙의 토스트 스택(`.notifs`)과 겹치지 않게 그보다 위에 둔다. 숫자는 발사 카운트다운과 같은
-   `hubPulse` 를 새 숫자마다 다시 튼다(`.tick`). 접두사 `hsd-` 는 이 판 전용이다. */
+/* ── The squad dock countdown (2026-09-15, owner: hub/ui/SquadDockCountdown · rules in hub/parts/SquadDock) ───
+   A small panel that rises on the **right** of a squadmate's screen once the squad leader has docked at the
+   shared ship. It is presentation, not a screen — it eats no pointer and holds no blocker. It sits above the
+   toast stack at the right centre (`.notifs`) so the two never overlap. The number replays the same
+   `hubPulse` as the launch countdown on every new number (`.tick`). The prefix `hsd-` belongs to this panel
+   alone. */
 .hub-squad-dock {
   position: absolute; right: 40px; top: 16%;
   display: flex; flex-direction: column; align-items: flex-end; gap: 6px;

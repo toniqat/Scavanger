@@ -1,17 +1,22 @@
 /* ============================================================================
- * SCAVANGER — 조리대 화면 · 조리 오버레이 (2026-09-13; housing/ui/cook). 접두사 `.cook-` 전용.
+ * SCAVANGER — the cook bench screen · the cook overlay (2026-09-13; housing/ui/cook). Prefix `.cook-` only.
  *
- * 오버레이(`.cook-ovl`)는 **화면 전체를 덮지 않는다** — hub 가 비추는 조리대 앞 자세가 위쪽에 보여야 한다. 루트는 투명한 막
- * (`pointer-events: none`)이고 패널(`.cook-panel`)만 화면 아래 가운데에서 입력을 받는다. 결은 `ui/gym/gym.css` 와 같다
- * (반투명 판 · 호박색 모서리 · 모노 숫자). 판정 색: 완벽 = 강조색 · 좋음 = 본문색 · 실패 = 위험색.
- * 조리대 화면(`.cook-station`)은 `StationShell` 카드 배치 위에 레일 · 좌 패널 내용만 더한다.
+ * The overlay (`.cook-ovl`) **does not cover the whole screen** — the pose in front of the cook bench that hub
+ * stages has to stay visible above it. The root is a transparent sheet (`pointer-events: none`) and only the panel
+ * (`.cook-panel`) takes input, at the bottom centre. The look is the same as `ui/gym/gym.css` (a translucent plate ·
+ * amber corners · mono numerals). Judgement colours: perfect = the accent colour · good = the body colour ·
+ * miss = the danger colour.
+ * The cook bench screen (`.cook-station`) only adds the rail · the left pane content over the `StationShell` card
+ * layout.
  * ========================================================================== */
 
-/* 2026-09-17: 루트 이름은 `.cook-ovl` 이다 — `.cook` 은 `ui/styles/base.css` 의 수류탄 쿠킹 게이지(`opacity: 0`, 120 px 상자) 것이라
-   같은 이름을 쓰면 오버레이 전체가 투명해져 미니게임이 보이지 않는다. 접두사 `.cook-` 의 다른 이름도 `.cook` 하나로는 쓰지 않는다. */
+/* 2026-09-17: the root is named `.cook-ovl` — `.cook` belongs to the grenade cook gauge in `ui/styles/base.css`
+   (`opacity: 0`, a 120 px box), so reusing that name turns the whole overlay transparent and the minigame is not
+   seen. No other name under the `.cook-` prefix is ever written as a bare `.cook` either. */
 .cook-ovl { position: absolute; inset: 0; z-index: 44; pointer-events: none; }
 .cook-ovl[hidden] { display: none; }
-/* 2026-09-14 (사용자 결정): 미니게임 도중에는 **판 전체**가 입력을 받는다 — 패널 여백을 눌러도 칼질이 먹는다 */
+/* 2026-09-14 (user's decision): while a minigame runs **the whole plate** takes input — a click on the panel's
+   padding still lands as a knife stroke */
 .cook-ovl.is-playing { pointer-events: auto; cursor: pointer; }
 
 .cook-panel {
@@ -40,7 +45,7 @@
 .cook-body { position: relative; min-height: 190px; display: flex; flex-direction: column; justify-content: center; }
 .cook-hint { font-size: 11px; line-height: 1.5; letter-spacing: 0.03em; color: var(--c-text-faint); min-height: 16px; }
 
-/* 단계 진행 바 (2026-09-14, 사용자 결정 「라벨 없이 바만」) — 처음 빠르고 점점 느려진다 (ease-out) */
+/* The step progress bar (2026-09-14, user's decision 「라벨 없이 바만」) — fast at first, slowing down (ease-out) */
 .cook-prog { position: relative; height: 6px; background: var(--c-fill); border: 1px solid var(--c-border); overflow: hidden; }
 .cook-prog.is-off { visibility: hidden; }
 .cook-prog-fill {
@@ -77,7 +82,7 @@
   100% { opacity: 0; }
 }
 
-/* 공용 조각 — 가로 바 · 옆 칸 */
+/* Shared pieces — the horizontal bar · the side column */
 .cook-hbar { --f: 0; position: relative; height: 10px; background: var(--c-fill); border: 1px solid var(--c-border); overflow: hidden; }
 .cook-hbar-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; transform-origin: left; transform: scaleX(var(--f)); background: var(--c-accent); }
 .cook-hbar.hit-perfect { animation: cookHitPerfect 320ms var(--ease); }
@@ -90,7 +95,7 @@
 
 .cook-stage { display: flex; align-items: center; justify-content: center; gap: 22px; min-height: 180px; cursor: pointer; }
 
-/* 도마 · 칼 (썰기 · 다지기) */
+/* The board · the knife (`썰기` · `다지기`) */
 .cook-board {
   position: relative; flex: none; width: 190px; height: 130px; border-radius: 10px;
   background: linear-gradient(160deg, #6b4a2f, #4a321f); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.35), 0 6px 14px rgba(0, 0, 0, 0.45);
@@ -124,13 +129,14 @@
 .cook-clock.is-slow { color: var(--c-accent); }
 .cook-clock.is-late { color: var(--c-danger); }
 
-/* 썰기 — 흘러오는 박자 표식 */
+/* `썰기` — the beat markers flowing in */
 .cook-track { flex: 1; min-width: 0; }
 .cook-lane {
   --judge: 10%; --half: 0; --good-half: 0;
   position: relative; height: 46px; overflow: hidden; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border);
 }
-/* 판정 띠 — 폭이 판정 값에서 나온다 (`CookViews`): 표식이 완벽 띠를 덮으면 완벽이다 (2026-09-14) */
+/* The judgement bands — their width comes from the judgement values (`CookViews`): a marker that covers the
+   perfect band is perfect (2026-09-14) */
 .cook-window { position: absolute; top: 0; bottom: 0; left: var(--judge); transform: translateX(-50%); pointer-events: none; }
 .cook-window.is-good { width: calc(var(--good-half) * 2 * (100% - var(--judge))); background: rgba(232, 230, 225, 0.07); }
 .cook-window.is-perfect {
@@ -155,7 +161,7 @@
 .cook-note.is-good { border-color: var(--c-text); background: rgba(232, 230, 225, 0.18); }
 .cook-note.is-miss { border-color: var(--c-danger); opacity: 0.55; }
 
-/* 다지기 — 좌 · 우 세로 게이지 */
+/* `다지기` — the left · right vertical gauges */
 .cook-gauge { --f: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .cook-gauge-bar { position: relative; width: 22px; height: 130px; background: var(--c-fill); border: 1px solid var(--c-border-strong); overflow: hidden; }
 .cook-gauge-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; transform-origin: bottom; transform: scaleY(var(--f)); background: var(--c-accent); }
@@ -165,7 +171,7 @@
 .cook-gauge-key { min-width: 38px; height: 22px; font-size: 11px; }
 .cook-gauge.is-down .cook-gauge-key { background: var(--c-accent); border-color: var(--c-accent); color: #111; }
 
-/* 굽기 — 그릴 위 조각 · 진행 링 */
+/* `굽기` — the pieces on the grill · the progress ring */
 .cook-grillplate {
   display: flex; gap: 26px; padding: 18px 26px 26px; border-radius: 8px;
   background: repeating-linear-gradient(90deg, #2a2d31 0 10px, #1a1c1f 10px 16px); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.5), 0 0 22px rgba(255, 110, 40, 0.15);
@@ -177,7 +183,8 @@
   display: flex; align-items: center; justify-content: center;
 }
 .cook-ring::before { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: #16181b; }
-/* 판정 호 — 폭이 곧 COOK_GRILL_*_PERFECT · _GOOD (2026-09-14). 링 안쪽 원판은 마스크로 뚫는다 */
+/* The judgement arc — its width is exactly COOK_GRILL_*_PERFECT · _GOOD (2026-09-14). The disc inside the ring is
+   punched out with a mask */
 .cook-arc {
   --a0: 0turn; --a1: 0turn; --ac: rgba(232, 230, 225, 0.22);
   position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
@@ -205,7 +212,7 @@
 .cook-piece-label.is-perfect { color: var(--c-accent); }
 .cook-piece-label.is-miss { color: var(--c-danger); }
 
-/* 볶기 — 팬 · 박자 링 */
+/* `볶기` — the pan · the beat rings */
 .cook-stove { position: relative; width: 170px; height: 170px; display: flex; align-items: center; justify-content: center; }
 .cook-pan {
   position: relative; z-index: 1; width: 132px; height: 132px; border-radius: 50%;
@@ -223,7 +230,8 @@
 }
 .cook-beatring.is-lead { border-color: rgba(255, 255, 255, 0.35); }
 .cook-beatring.is-used { border-color: rgba(255, 255, 255, 0.2); }
-/* 판정 안내원 — 반지름이 판정 띠에서 나온다 (2026-09-14): 박자 링이 이 안으로 들어오면 완벽 */
+/* The judgement guide ring — its radius comes from the judgement band (2026-09-14): a beat ring that comes inside
+   it is perfect */
 .cook-beatguide {
   --s: 1;
   position: absolute; z-index: 1; width: 132px; height: 132px; border-radius: 50%;
@@ -232,7 +240,7 @@
 }
 .cook-beatguide.is-good { border-color: rgba(232, 230, 225, 0.22); }
 
-/* 젓기 — 냄비 · 온도계 */
+/* `젓기` — the pot · the thermometer */
 .cook-pot {
   --boil: 0;
   position: relative; width: 170px; height: 120px; border-radius: 0 0 40px 40px;
@@ -262,7 +270,7 @@
 .cook-thermo.is-cold .cook-mercury { background: #7fb8ff; }
 .cook-thermo-label { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-dim); }
 
-/* 붓기 — 계량 비커 · 붓는 비커 · 줄기 */
+/* `붓기` — the measuring beaker · the jug · the stream */
 .cook-pour { --flow: 0; --lc: #8fd0ff; }
 .cook-pourscene { position: relative; width: 250px; height: 180px; }
 .cook-beaker { --lvl: 0; position: absolute; left: 50%; bottom: 0; width: 96px; height: 128px; margin-left: -48px; }
@@ -287,7 +295,7 @@
 .cook-stream.is-on { opacity: 0.85; }
 .cook-amount.is-over { color: var(--c-danger); }
 
-/* 선택 카드 · 자동 연출 */
+/* The choice card · the auto presentation */
 .cook-choose, .cook-auto { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 0; }
 .cook-choose-title { font-size: 22px; font-weight: 700; letter-spacing: 0.14em; }
 .cook-choose-sub { font-size: 12px; color: var(--c-text-dim); letter-spacing: 0.04em; }
@@ -299,7 +307,7 @@
 .cook-auto-bar { width: min(360px, 80%); }
 .cook-auto-score { font-family: var(--ui-mono); font-size: 12px; color: var(--c-text-dim); }
 
-/* 결과 */
+/* The result */
 .cook-result { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 10px 22px; align-items: start; }
 .cook-result-main { display: flex; flex-direction: column; gap: 6px; }
 .cook-stars { font-size: 30px; letter-spacing: 0.08em; color: var(--c-accent); line-height: 1; }
@@ -329,10 +337,12 @@
 .cook-again.is-blocked { opacity: 0.45; }
 .cook-again-reason { margin-right: auto; font-size: 11px; color: var(--c-text-faint); }
 
-/* ── 조리대 화면 (`CookStation`) ─────────────────────────────────────────────────────────────────────────────
- * 2026-09-15 3차 (사용자 결정 — 「모든 제작 관련 UI」를 한 모양으로): 조리대 카드 안이 **왼쪽 목록 + 오른쪽 상세**다.
- * 2026-09-17 (사용자 결정): 목록은 4칸 썸네일 격자가 아니라 **세로로 쌓인 넓은 줄**(썸네일 · 이름)이고 티어 배지 · 초록 점은
- * 없다. 넘치면 목록만 세로로 스크롤한다. `.cook-rail*` 이름 몇 개(숙련 잠김 배지)는 줄 안에서 그대로 쓴다. */
+/* ── The cook bench screen (`CookStation`) ──────────────────────────────────────────────────────────────────
+ * 2026-09-15, 3rd pass (user's decision — 「모든 제작 관련 UI」 in one shape): inside the cook bench card it is
+ * **a list on the left + the detail on the right**.
+ * 2026-09-17 (user's decision): the list is not a 4-column thumbnail grid but **wide rows stacked vertically**
+ * (thumbnail · name), with no tier badge and no green dot. On overflow only the list scrolls vertically. A few
+ * `.cook-rail*` names (the skill-lock badge) are still used inside a row. */
 .cook-station .hs-pane-left { overflow: hidden; padding-right: 0; }
 .cook-split { display: flex; flex-direction: row; gap: 16px; flex: 1; min-width: 0; min-height: 0; }
 .cook-list {
@@ -357,22 +367,23 @@
 .cook-cell-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; pointer-events: none; }
 .cook-cell-name { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cook-cell-locks { display: flex; gap: 3px; font-size: 9px; line-height: 1.5; }
-/* 상세 = 남은 폭 전부 (자기 스크롤) */
+/* The detail = all the remaining width (scrolls on its own) */
 .cook-detail { flex: 1 1 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
 .cook-sel-desc { font-size: 12px; line-height: 1.6; color: var(--c-text-dim); letter-spacing: 0.02em; }
 .cook-sel-desc[hidden] { display: none; }
 .cook-sel-owned { font-family: var(--ui-mono); font-size: 12px; color: var(--c-text); letter-spacing: 0.04em; }
 .cook-sel-owned.is-none { color: var(--c-text-faint); }
-.cook-rail { width: 196px; }   /* 2026-09-15 3차: 조리대는 레일을 쓰지 않는다 — 규칙만 남긴다 */
+.cook-rail { width: 196px; }   /* 2026-09-15, 3rd pass: unused by the cook bench — the rule is only kept */
 .cook-rail-tier { flex: none; padding: 8px 2px 2px; font-size: 10px; font-weight: 600; letter-spacing: 0.16em; color: var(--c-text-faint); }
 .cook-rail-tier:first-child { padding-top: 0; }
 .cook-rail-lv { flex: none; font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-faint); }
 .cook-rail-item.is-locked { opacity: 0.5; }
-/* 잠김 배지 묶음 — 조리대 `Lv.n` · 숙련 `제작 20` (둘 다 모자라면 나란히). 2026-09-16: `skillRequired` 가 전부 0 이라
-   지금은 숙련 배지가 뜨지 않지만, csv 숫자를 올리면 그대로 산다. */
+/* The lock badge cluster — the cook bench's `Lv.n` · the skill's `제작 20` (side by side when both are short).
+   2026-09-16: every `skillRequired` is 0, so the skill badge never shows today, but raise the csv number and it
+   comes back as it is. */
 .cook-rail-locks { flex: none; display: flex; align-items: center; gap: 5px; }
 .cook-rail-skill { padding: 0 4px; border: 1px solid var(--c-border); white-space: nowrap; }
-/* 2026-09-13 (H3): 레시피 책 잠김 · 요리 숙련 / 서재 보너스 */
+/* 2026-09-13 (H3): the recipe-book lock · the cooking skill / library bonus */
 .cook-rail-book { padding: 0 4px; border: 1px solid var(--c-border); color: var(--c-accent); }
 .cook-stepchip-bonus { font-family: var(--ui-mono); font-size: 10px; color: var(--c-accent); white-space: nowrap; }
 .cook-stepscore-bonus { margin-left: 8px; font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
@@ -398,7 +409,7 @@
 .cook-sel-reason { font-size: 12px; color: var(--c-danger); letter-spacing: 0.03em; }
 .cook-sel-reason[hidden] { display: none; }
 
-/* 식탁 — 품질 별 (DiningTable) */
+/* The dining table — the quality stars (DiningTable) */
 .dt-row .cook-dt-chip { position: relative; flex: none; }
 .cook-dt-stars { color: var(--c-accent); letter-spacing: 0.04em; }
 .cook-dt-stars.q-0 { color: var(--c-text-faint); }

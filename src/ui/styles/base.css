@@ -25,18 +25,20 @@
   --r-rare: #5aa9ff;
   --r-epic: #c77dff;
   --r-legendary: #ffb347;
-  /* 2026-09-16 (사용자 결정): 신화는 분홍. `RARITY_COLORS.mythic` 와 같은 값이어야 한다 — 3D 쪽은 그 표를,
-     DOM 쪽은 이 토큰을 읽으므로 둘이 어긋나면 같은 아이템이 화면마다 다른 색이 된다. */
+  /* 2026-09-16 (user's decision): mythic is pink. It must be the same value as `RARITY_COLORS.mythic` — the 3D
+     side reads that table and the DOM side reads this token, so if the two go out of step the same item reads a
+     different colour on every screen. */
   --r-mythic: #ff6fd0;
 
   --t-fast: 150ms;
   --t-med: 260ms;
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
 
-  /* 스크롤바 (2026-09-09) — 인게임 UI 는 어두운 판이므로 스크롤바도 그 결이어야 한다. 예전에는 패널마다
-     `rgba(255,255,255,0.22)` 흰 막대를 따로 적어 밝은 줄이 튀었다. 지금은 이 세 값이 단일 원본이고
-     `#ui-root` 아래의 모든 스크롤러가 아래 규칙 하나로 같은 모양을 쓴다 (`inventory/inventory.css` 는
-     같은 이름을 fallback 과 함께 참조한다 — 그 파일은 이 스타일시트를 import 하지 않는다). */
+  /* Scrollbars (2026-09-09) — the in-game UI is a dark panel, so the scrollbar has to read the same way. Each
+     panel used to write its own `rgba(255,255,255,0.22)` white bar and the bright line stood out. These three
+     values are the single source now, and every scroller under `#ui-root` takes the same look from the one rule
+     below (`inventory/inventory.css` references the same names with fallbacks — that file does not import this
+     stylesheet). */
   --sb-track: rgba(4, 6, 9, 0.55);
   --sb-thumb: rgba(52, 58, 66, 0.95);
   --sb-thumb-hover: rgba(78, 86, 96, 1);
@@ -68,8 +70,9 @@ html, body {
 }
 #ui-root .interactive { pointer-events: auto; }
 
-/* 모든 스크롤러의 기본값 (2026-09-09). 개별 패널은 폭만 바꾸면 되고 색은 다시 적지 않는다. Firefox 는
-   `scrollbar-width`/`scrollbar-color`, Chromium 계열은 `::-webkit-scrollbar-*` 를 본다 — 둘 다 적는다. */
+/* The default for every scroller (2026-09-09). A single panel only changes the width and never re-states the
+   colour. Firefox reads `scrollbar-width`/`scrollbar-color`, Chromium-based engines read `::-webkit-scrollbar-*`
+   — both are written. */
 #ui-root, #ui-root * { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) var(--sb-track); }
 #ui-root ::-webkit-scrollbar, #ui-root::-webkit-scrollbar { width: 6px; height: 6px; }
 #ui-root ::-webkit-scrollbar-track, #ui-root::-webkit-scrollbar-track { background: var(--sb-track); }
@@ -142,21 +145,24 @@ input { font: inherit; color: inherit; }
   color: var(--c-text);
   background: rgba(255, 255, 255, 0.06);
 }
-/* 꾹 누르기 keycap (2026-09-09): an accent **chevron pointing down** — "this key is held, not tapped".
-   One rule for every place a hold key is shown: the 키 가이드 (`KeyGuideEntry.hold`), the E 프롬프트 of a hold
-   interactable (`interact:promptChanged.hold` — 발사 포드 탑승), 발사 슬롯의 `Space`, 드론 `R 꾹 복귀`, any future popup.
+/* The hold keycap (2026-09-09): an accent **chevron pointing down** — "this key is held, not tapped".
+   One rule for every place a hold key is shown: the key guide (`KeyGuideEntry.hold`), the E prompt of a hold
+   interactable (`interact:promptChanged.hold` — boarding a launch pod), the launch slot's `Space`, the drone's
+   `R 꾹 복귀`, any future popup.
    Drawn with two borders of a rotated square (crisp at any HUD size, no glyph font dependency). Every keycap is made by
    `shared/keycap` (`createKeycap` / `paintKeycap`) — never write `class="keycap kc-hold"` by hand.
 
-   2026-09-15 (사용자 결정 — 키캡 다듬기): ① the cap no longer gets an accent border / inset glow — **only the chevron**
-   carries the accent colour. ② the chevron no longer nods (`holdChevron` keyframes are gone — 2026-09-12 had already
-   slowed it to 1.8 s because it pulled the eye; now it is still). ③ rows holding a hold key no longer need the
-   `:has(.kc-hold)` top padding that made room for the old overhanging chevron (key guide · E prompt · 가젯 안내 ·
-   드론 안내 — all removed); the cap keeps its height (the context's `height` wins as before).
+   2026-09-15 (user's decision — keycap polish): ① the cap no longer gets an accent border / inset glow — **only
+   the chevron** carries the accent colour. ② the chevron no longer nods (`holdChevron` keyframes are gone —
+   2026-09-12 had already slowed it to 1.8 s because it pulled the eye; now it is still). ③ rows holding a hold key
+   no longer need the `:has(.kc-hold)` top padding that made room for the old overhanging chevron (key guide ·
+   E prompt · gadget hint · drone hint — all removed); the cap keeps its height (the context's `height` wins as
+   before).
    The `:not(.kc-mouse)` makes the padding rule (0,3,0) outrank the `.ctx .keycap { padding: 0 5px }` rules (0,2,0) that
    size caps per widget.
-   ⚠ 그날 안에 적어 둔 「the chevron moved **inside the cap**」 · 「mouse glyph caps draw their chevron inside the SVG」 는
-   바로 아래 2026-09-15 2차가 뒤집었다 — 지금은 **둘 다** 윗변에 걸친 `::before` 하나로 그린다.
+   ⚠ The two notes written the same day — 「the chevron moved **inside the cap**」 · 「mouse glyph caps draw their
+   chevron inside the SVG」 — were reversed by the 2026-09-15 2nd pass right below: **both** now draw one `::before`
+   hanging over the top edge.
 
    2026-09-10 — the modifier class is `kc-hold`, **not** `hold`. `.hold` was already taken by the hold ring at the
    crosshair (`hud/HoldGauge`, further down this file: `position:absolute; width:120px; height:120px; margin:-60px;
@@ -164,18 +170,21 @@ input { font: inherit; color: inherit; }
    turned the cap into a **120x120 fully transparent box**: the E prompt lost its keycap altogether and the panel
    only grew taller (the `:has()` padding still applied). Never name a keycap modifier after an existing widget class
    (2026-09-15: `kc-mouse` · `kc-inline` · `kcm-glyph` were checked free with `rg`). */
-/* 2026-09-15 2차 (사용자 결정 — 「눌린 키캡」): 꾹 누르는 키는 **눈으로 눌려 있다**.
-     ① 아래 테두리가 다른 세 면과 같은 1px 로 얇어지고 (기본 키캡은 `border-bottom-width: 2px` — 떠 있는 키의 두께이다),
-     ② 그만큼 내용을 아래로 밀어 내린다 (`padding-top: 1px` — `align-items: center` 라 정확히 1px 내려앉는다:
-       테두리 1/2 일 때 중심 (h−1)/2, 테두리 1/1 + 패딩 1 일 때 (h+1)/2).
-     ③ chevron 은 예전처럼 키캡 안에 들어있지 않고 **윗변에 걸쳐** 절반은 안 · 절반은 밖으로 솟아 있다
-       (보이는 V 의 세로 가운데가 윗 테두리 선 위에 온다 — 6px 정사각형을 45° 돌렸으므로 V 의 가운데 = `top` + 3 + 2.12,
-       그것이 윗 테두리(패딩 상자 기준 −0.5px)에 오도록 `top: -5.6px`).
-     ④ **마우스 그림 키캡도 같다** — 예전에 `.kc-mouse.kc-hold` 는 chevron 을 SVG 안(누르는 버튼 위)에 그리고 이
-       `::before` 를 꺼 두었는데, 두 종류의 키캡이 같은 모습이어야 하므로 그 예외를 걷어냈다 (`shared/keycap.mouseGlyphSvg`
-       는 칠하는 색만 강조색으로 바꿀 뿐 chevron 을 그리지 않는다).
-     chevron 이 키캡 밖으로 솟아나오면서 윗줄과 살짝 겹칠 수 있다 — 의도된 모습이다 (「키와 밖에 걸치게」).
-     키캡은 `overflow` 를 정하지 않으므로(= visible) 잘리지 않는다. */
+/* 2026-09-15 2nd pass (user's decision — 「눌린 키캡」): a hold key **looks pressed down**.
+     ① the bottom border thins to the same 1px as the other three sides (a plain keycap has
+       `border-bottom-width: 2px` — the thickness of a key that stands proud),
+     ② and the content is pushed down by that much (`padding-top: 1px` — with `align-items: center` it settles
+       exactly 1px lower: with borders 1/2 the centre is (h−1)/2, with borders 1/1 plus padding 1 it is (h+1)/2).
+     ③ the chevron no longer sits inside the cap as it used to — it **hangs over the top edge**, half in and half
+       out (the vertical centre of the visible V lands on the top border line: a 6px square rotated 45° puts the
+       V's centre at `top` + 3 + 2.12, and `top: -5.6px` is what places that on the top border, −0.5px measured
+       from the padding box).
+     ④ **the mouse glyph caps are the same** — `.kc-mouse.kc-hold` used to draw the chevron inside the SVG (over
+       the pressed button) and switch this `::before` off; the two kinds of keycap have to look alike, so that
+       exception was taken out (`shared/keycap.mouseGlyphSvg` only repaints in the accent colour and draws no
+       chevron).
+     Rising out of the cap, the chevron can overlap the line above it a little — that is the intended look
+     (「키와 밖에 걸치게」). The keycap sets no `overflow` (= visible), so nothing is clipped. */
 .keycap.kc-hold { position: relative; border-bottom-width: 1px; }
 .keycap.kc-hold:not(.kc-mouse) { padding-top: 1px; }
 .keycap.kc-mouse.kc-hold { padding-top: 1px; }
@@ -188,11 +197,13 @@ input { font: inherit; color: inherit; }
   pointer-events: none;
 }
 
-/* 꾹 누르는 **버튼** 안의 좌클릭 힌트 (2026-09-15 2차, 사용자 결정 — `shared/keycap.createHoldButtonCap`).
-   라벨 왼쪽에 서고, 버튼이 `inline-flex`(`.ui-btn`)이든 그냥 글줄이든 같은 자리에 서도록 `vertical-align: middle` 과
-   오른쪽 여백을 직접 갖는다 (`.ui-btn` 은 `gap: 10px` 이라 그쪽에서는 여백이 겹치지 않게 0 이다).
-   `pointer-events: none` 은 필수다 — 홀드는 버튼의 `pointerdown` · `pointerleave` 로 재는데 그 위를 가리는 자식이
-   포인터를 가로채면 어느 화면에서는 홀드가 시작되지 않는다. 글자색 변화(hover · danger)는 `currentColor` 로 따라간다. */
+/* The left-click hint inside a hold **button** (2026-09-15 2nd pass, user's decision —
+   `shared/keycap.createHoldButtonCap`). It stands left of the label and carries `vertical-align: middle` and its
+   own right margin, so it lands in the same place whether the button is an `inline-flex` (`.ui-btn`) or a plain
+   line of text (`.ui-btn` has `gap: 10px`, so there the margin is 0 and the two never stack).
+   `pointer-events: none` is required — the hold is measured from the button's `pointerdown` · `pointerleave`, and
+   a child covering it that intercepts the pointer means the hold never starts on some screens. Text colour changes
+   (hover · danger) follow through `currentColor`. */
 .keycap.kc-btn {
   flex: none; min-width: 20px; height: 20px; padding: 0 4px;
   margin-right: 8px; vertical-align: middle;
@@ -201,20 +212,23 @@ input { font: inherit; color: inherit; }
 }
 .ui-btn .keycap.kc-btn { margin-right: 0; }
 .keycap.kc-btn .kcm-glyph { width: 1.5em; height: 1.5em; }
-/* 홀드 채움 게이지는 버튼 안의 `position: absolute` 한 장이다 (`.pause-ask-fill` · `.tm-ask-fill` · `.sm-hold-fill` ·
-   `.cv-ask-fill` · `.sh-ask-fill`). 키캡은 `.kc-hold` 라 이미 `position: relative` 지만 z-index 가 auto 라 **DOM
-   순서**로 칠해진다 — 키캡이 라벨 왼쪽(= 채움 바보다 앞)에 서므로 그대로 두면 채움이 키캡을 덮는다. 라벨 span 이
-   같은 이유로 `z-index: 1` 을 갖는 그 규약(`.pause-ask-ok-t` · `.cv-ask-label` · `.sm-confirm-ok-t`)을 따른다. */
+/* The hold fill gauge is one `position: absolute` sheet inside the button (`.pause-ask-fill` · `.tm-ask-fill` ·
+   `.sm-hold-fill` · `.cv-ask-fill` · `.sh-ask-fill`). The keycap is `.kc-hold`, so it is already
+   `position: relative`, but its z-index is auto and it therefore paints in **DOM order** — the cap stands left of
+   the label (= before the fill bar), so left alone the fill covers it. It follows the same contract the label span
+   keeps for the same reason (`.pause-ask-ok-t` · `.cv-ask-label` · `.sm-confirm-ok-t`, all `z-index: 1`). */
 .keycap.kc-btn { z-index: 1; }
 
-/* 마우스 버튼 키캡 (2026-09-15, 사용자 결정): `LMB` · `MMB` · `RMB` 글자 대신 마우스 윗부분 그림 (`shared/keycap.mouseGlyphSvg` —
-   누를 칸 흰색, 꾹 누르기면 강조색 + 그 칸 안의 chevron). 그림 크기는 **키캡 글자 크기의 1.45 배**(`em`)라 위젯마다 정한
-   `font-size`(10 px 키 가이드 → 14.5 px · 11 px 기본 → 16 px)를 그대로 따르고, `max-height: 100%` 로 낮은 키캡(갈고리 칩 15 px)
-   안에서도 넘치지 않는다. 키캡 높이 · 너비는 글자 키캡과 같은 위젯 규칙이 정하므로 한 줄에 섞여도 줄이 들썩이지 않는다.
-   꺼진 칸의 윤곽은 `currentColor` = 키캡 글자색이다. */
+/* Mouse button keycaps (2026-09-15, user's decision): the top of a mouse drawn instead of the words `LMB` ·
+   `MMB` · `RMB` (`shared/keycap.mouseGlyphSvg` — the pressed cell white, or the accent colour plus a chevron in
+   that cell for a hold). The glyph is **1.45× the keycap's font size** (`em`), so it follows whatever `font-size`
+   a widget sets (10 px key guide → 14.5 px · 11 px default → 16 px), and `max-height: 100%` keeps it inside a low
+   keycap (the 15 px grapple chip). Keycap height and width come from the same per-widget rules as a text keycap,
+   so a line that mixes the two never shifts. The outline of an unpressed cell is `currentColor` = the keycap's
+   text colour. */
 .keycap.kc-mouse { padding-left: 3px; padding-right: 3px; }
 .keycap.kc-mouse .kcm-glyph { display: block; flex: none; width: 1.45em; height: 1.45em; max-height: 100%; overflow: visible; }
-/* 문장 안에 끼운 키캡 (`shared/keycap.renderKeyText` 의 `{ACTION}` 토큰 — 미니게임 안내 등) */
+/* A keycap set inside a sentence (the `{ACTION}` token of `shared/keycap.renderKeyText` — minigame hints etc.) */
 .keycap.kc-inline { vertical-align: middle; margin: 0 0.25em; }
 
 /* ── HUD layer ─────────────────────────────────────────────────────────── */
@@ -230,7 +244,8 @@ input { font: inherit; color: inherit; }
   width: 0; height: 0;
   transition: opacity var(--t-fast) var(--ease);
 }
-/* 기상 연출의 나타남은 코드가 밟는다 (`hud/Reticle.updateReveal`) — 그 동안 전이가 겹치면 시작 프레임에 크로스헤어가 깜빡인다 */
+/* The intro wake's reveal is stepped in code (`hud/Reticle.updateReveal`) — a transition overlapping it would
+   make the crosshair flicker on the starting frame */
 .reticle.reveal-step { transition: none; }
 .reticle .tick {
   position: absolute; left: 0; top: 0;
@@ -259,15 +274,17 @@ input { font: inherit; color: inherit; }
 .reticle .hitmarker span:nth-child(3) { transform: rotate(225deg) translate(4px, 0); }
 .reticle .hitmarker span:nth-child(4) { transform: rotate(315deg) translate(4px, 0); }
 .reticle .hitmarker.kill span { background: var(--c-danger); }
-/* 2026-09-09 — 헤드샷: 같은 X 를 1.6배로 그린다 (색은 그대로, 처치의 빨강만 따로다).
-   팝인 배율 1.4 도 같이 곱해 등장 애니메이션은 일반 타격과 똑같이 보인다. */
+/* 2026-09-09 — headshot: the same X drawn at 1.6× (the colour is unchanged; only a kill has its own red).
+   The 1.4 pop-in scale multiplies in as well, so the entry animation looks exactly like a normal hit. */
 .reticle .hitmarker.head { transform: scale(2.24); }
 .reticle .hitmarker.head.show { transform: scale(1.6); }
-/* 소모품 모드 (2026-09-09, hud/Reticle): a grenade / gadget / 회복 소모품 in hand → dot only, the four ticks fade out,
-   and a small mono readout sits to the **right** of the dot (`×3`, or `×1 · 62%` for a 회복 스프레이 gauge). */
+/* Consumable mode (2026-09-09, hud/Reticle): a grenade / gadget / healing consumable in hand → dot only, the four
+   ticks fade out, and a small mono readout sits to the **right** of the dot — `×3`, or `×1 · 62%` when a
+   `회복 스프레이` adds its gauge. */
 .reticle .tick { transition: opacity var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease); }
-/* 2026-09-12 — 총구 막힘 (hud/Reticle ← `weapon:aimBlocked`): 총구가 앞의 벽 · 창틀에 걸려 크로스헤어대로 나가지 않는다.
-   벽에 뜨는 빨간 원(weapons/fx/AimBlockMarker)과 같은 색이다. */
+/* 2026-09-12 — blocked muzzle (hud/Reticle ← `weapon:aimBlocked`): the muzzle catches on the wall or window frame
+   ahead and the shot does not follow the crosshair. The same colour as the red circle drawn on the wall
+   (weapons/fx/AimBlockMarker). */
 .reticle .dot { transition: background-color var(--t-fast) var(--ease); }
 .reticle.blocked .tick, .reticle.blocked .dot { background: var(--c-danger); box-shadow: 0 0 3px rgba(0, 0, 0, 0.95); }
 .reticle.consumable .tick { opacity: 0; }
@@ -279,17 +296,20 @@ input { font: inherit; color: inherit; }
   text-shadow: 0 0 3px rgba(0, 0, 0, 0.95), 0 1px 2px rgba(0, 0, 0, 0.9);
 }
 .reticle.consumable .qinfo { display: block; }
-/* 2026-09-14 — 활 모드 (hud/Reticle, `.reticle.bowmode` — 손에 든 무기가 활 「롱혼」): 네 틱이 숨고 점은 남는다.
-   점 아래 짧은 가로 안내선 두 단(`.rbow-tier`, 위치는 Reticle.ts 의 BOW_TIER_Y 가 transform 으로 준다 — 여기는 폭만)과
-   움직이는 가로 바(`.rbow-draw`, 가운데가 비어 있어 점 위에 닿아도 점이 보인다). 바는 평소 아래 단에 흐리게 서 있고
-   시위를 당기면(`.drawing`) 밝아지며 올라가 완전히 당긴 순간(`.full`) 점 위에서 흰 글로우를 낸다.
-   소모품 모드가 이기므로 `.consumable` 이면 숨긴다. 총구 막힘(`.blocked`)의 빨강은 안내선 · 바에도 같이 든다. */
+/* 2026-09-14 — bow mode (hud/Reticle, `.reticle.bowmode` — the weapon in hand is the bow 「롱혼」): the four ticks
+   hide and the dot stays. Under the dot sit two short horizontal guide lines (`.rbow-tier`, placed by Reticle.ts's
+   BOW_TIER_Y through a transform — only the width is set here) and a moving horizontal bar (`.rbow-draw`, hollow in
+   the middle so the dot still shows when the bar reaches it). The bar normally rests dim on the lower tier; drawing
+   the string (`.drawing`) brightens it and lifts it, and at full draw (`.full`) it glows white over the dot.
+   Consumable mode wins, so `.consumable` hides it. The blocked-muzzle red (`.blocked`) reaches the guide lines and
+   the bar too. */
 .reticle .rbow-tier, .reticle .rbow-draw { display: none; position: absolute; left: 0; top: 0; }
 .reticle.bowmode .rbow-tier, .reticle.bowmode .rbow-draw { display: block; }
 .reticle.bowmode .tick { opacity: 0; }
 .reticle.consumable .rbow-tier, .reticle.consumable .rbow-draw { display: none; }
-/* 2026-09-15 (사용자 결정): 활 크로스헤어는 **가로로 두 배** — 안내선 14 → 28 · 20 → 40 px, 바 26 → 52 px(끝 조각
-   10 → 20 px, 가운데 틈 6 → 12 px 라 점 위에 닿아도 점이 보인다). 전부 `margin-left: −폭/2` 로 가운데에 선다. */
+/* 2026-09-15 (user's decision): the bow crosshair is **twice as wide** — guide lines 14 → 28 · 20 → 40 px, the bar
+   26 → 52 px (end pieces 10 → 20 px, the middle gap 6 → 12 px, so the dot still shows under the bar). All of them
+   are centred with `margin-left: −width/2`. */
 .reticle .rbow-tier {
   height: 1.5px; margin-top: -0.75px; width: 28px; margin-left: -14px;
   background: rgba(255, 255, 255, 0.7); box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
@@ -315,11 +335,13 @@ input { font: inherit; color: inherit; }
 .reticle.blocked .rbow-tier, .reticle.blocked .rbow-draw::before, .reticle.blocked .rbow-draw::after {
   background: var(--c-danger); box-shadow: 0 0 3px rgba(0, 0, 0, 0.95);
 }
-/* 2026-09-15 — 제세동기 모드 (hud/Reticle, `.reticle.defibmode` — 손에 든 소모품이 제세동기): 네 틱이 숨고
-   가운데에 **작은 하얀 원**(`.rdf-inner`)과 **큰 반투명 원**(`.rdf-outer`)이 선다. 둘의 실제 지름은 같고,
-   작은 쪽만 `transform: scale()` 로 줄어 있다 (Reticle.ts 의 DEFIB_MIN_SCALE → 1) — 배율이 테두리도 함께
-   키우므로 「커지면서 두께가 굵어진다」가 전이 없이 그대로 나온다 (reduced-motion 에 잘리지 않는다).
-   충전이 끝나면 `.defib-armed`(작은 원이 큰 원과 겹쳐 밝아진다), 겨누면 `.defib-target`(둘 다 강조색). */
+/* 2026-09-15 — defib mode (hud/Reticle, `.reticle.defibmode` — the consumable in hand is the `제세동기`): the four
+   ticks hide and a **small white circle** (`.rdf-inner`) plus a **large translucent circle** (`.rdf-outer`) stand
+   at the centre. Their real diameters are the same; only the small one is shrunk with `transform: scale()`
+   (Reticle.ts's DEFIB_MIN_SCALE → 1) — the scale grows the border with it, so 「it thickens as it grows」 comes out
+   as it is with no transition (nothing reduced-motion can clip).
+   When the charge finishes, `.defib-armed` (the small circle overlaps the large one and brightens); while aimed at
+   a target, `.defib-target` (both in the accent colour). */
 .reticle .rdf-outer, .reticle .rdf-inner {
   display: none; position: absolute;
   left: -22px; top: -22px; width: 44px; height: 44px;
@@ -345,9 +367,9 @@ input { font: inherit; color: inherit; }
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.85), 0 0 9px rgba(255, 179, 71, 0.85);
 }
 
-/* 함선 내 점 크로스헤어 (2026-09-09, hud/HubDot, social layer): the gameplay reticle is hidden in the hub, so the ship
-   has its own 3 px dot at screen centre. `.show` is toggled by the widget (phase hub · no blocker · no cutscene);
-   the 홀드 링 (`.hold`, same layer, same centre) fills around it while boarding a 발사 포드. */
+/* The dot crosshair inside the ship (2026-09-09, hud/HubDot, social layer): the gameplay reticle is hidden in the
+   hub, so the ship has its own 3 px dot at screen centre. `.show` is toggled by the widget (phase hub · no blocker
+   · no cutscene); the hold ring (`.hold`, same layer, same centre) fills around it while boarding a launch pod. */
 .hub-dot {
   position: absolute; left: 50%; top: 50%;
   width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px;
@@ -402,16 +424,19 @@ input { font: inherit; color: inherit; }
 .vitals .hp-max { font-size: 11px; color: var(--c-text-faint); margin-bottom: 3px; }
 .vitals .hp-bar { position: relative; width: 240px; height: 8px; display: flex; gap: 2px; margin-bottom: 4px; }
 .vitals .seg { flex: 1; position: relative; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
-/* 피격 잔상 (2026-09-14, 사용자 결정): **연한 빨강**. 예전 `rgba(255,255,255,0.55)` 는 흰 `.fill` 과 구분이 안 돼
-   얼마나 깎였는지 안 보였다. 체력 · 실드가 같은 변수를 쓰고, 전투불능 잔상(`--vt-ghost-down`, 아래 downed 절)은
-   더 진한 빨강이라 두 상태가 섞이지 않는다. 색은 이 두 줄이 유일한 원본이다 — `styles/raidHud.css` 는 위치 · 폭만 건드린다. */
+/* The damage ghost (2026-09-14, user's decision): **a pale red**. The old `rgba(255,255,255,0.55)` could not be
+   told apart from the white `.fill`, so how much was lost never showed. hp and shield use the same variable, and
+   the downed ghost (`--vt-ghost-down`, the downed section below) is a deeper red, so the two states never blur
+   together. These two lines are the only source of the colours — `styles/raidHud.css` touches position and width
+   only. */
 .vitals { --vt-ghost: rgba(255, 146, 146, 0.42); --vt-ghost-down: rgba(255, 48, 48, 0.68); }
 .vitals .seg .ghost { position: absolute; inset: 0; background: var(--vt-ghost); transform-origin: left; will-change: transform; }
 .vitals .seg .fill { position: absolute; inset: 0; background: var(--c-text); transform-origin: left; will-change: transform; }
 .vitals.low .seg .fill { background: var(--c-danger); }
-/* 실드 잔상 (2026-09-14): `.sh-seg` 는 `.seg` 와 다른 클래스라 위 규칙이 안 닿는다 — 같은 색으로 따로 적는다.
-   DOM 순서가 ghost → fill 이라 채움이 잔상 위에 그려진다 (`hud/Vitals.setCells`). `overflow: hidden` 은 **걸지 않는다** —
-   `.sh-seg .fill` 의 바깥 글로우(`raidHud.css`)가 잘린다. scaleX 잔상은 칸 밖으로 나가지 않으므로 필요도 없다. */
+/* The shield ghost (2026-09-14): `.sh-seg` is a different class from `.seg`, so the rule above does not reach it
+   — it is written out again in the same colour. The DOM order is ghost → fill, so the fill paints over the ghost
+   (`hud/Vitals.setCells`). `overflow: hidden` is **not** set — it would clip the outer glow of `.sh-seg .fill`
+   (`raidHud.css`), and a scaleX ghost never leaves its cell anyway, so it is not needed either. */
 .vitals .sh-seg .ghost { position: absolute; inset: 0; background: var(--vt-ghost); transform-origin: left; will-change: transform; }
 .pill {
   display: inline-flex; align-items: center; gap: 8px;
@@ -458,7 +483,8 @@ input { font: inherit; color: inherit; }
 .weapon .mag.flash { animation: ammoFlash 320ms ease-out; }
 .weapon .reserve { font-family: var(--ui-mono); font-size: 14px; color: var(--c-text-dim); margin-bottom: 4px; }
 .weapon .reserve::before { content: "/ "; color: var(--c-text-faint); }
-/* 2026-09-15: 활 「롱혼」 — 탄창이 없어 잔탄은 가진 화살 한 숫자다 (hud/WeaponPanel `.single-ammo`). `/ 예비` 절반을 숨긴다. */
+/* 2026-09-15: the bow 「롱혼」 — it has no magazine, so the ammo readout is the single number of arrows held
+   (hud/WeaponPanel `.single-ammo`). The `/ reserve` half is hidden. */
 .weapon.single-ammo .reserve { display: none; }
 .weapon .type { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 2px 6px; }
 @keyframes ammoFlash { 0% { color: #fff; } 30% { color: var(--c-danger); } 100% { color: var(--c-danger); } }
@@ -469,13 +495,17 @@ input { font: inherit; color: inherit; }
 .weapon .dura.worn .fill { background: var(--c-accent); }
 .weapon .dura.broken .fill { background: var(--c-danger); transform: scaleX(1) !important; opacity: 0.55; }
 .weapon .dura.broken { box-shadow: 0 0 6px rgba(255, 77, 77, 0.6); }
-/* 2026-09-10: 무기 이름 요소가 없어졌다 — 남은 `.weapon .name` 은 빠른 사용 블록의 소모품 이름이라 파손과 무관하다. */
+/* 2026-09-10: the weapon name element is gone — the remaining `.weapon .name` is the consumable name in the
+   quick-use block, so it has nothing to do with a broken weapon. */
 .weapon.broken .mag { color: var(--c-danger); }
 .weapon.broken-flash { animation: weaponBroken 700ms ease-out; }
 @keyframes weaponBroken { 0% { filter: brightness(2.2); transform: translateX(-2px); } 20% { transform: translateX(2px); } 40% { transform: translateX(-1px); } 60% { transform: translateX(0); } 100% { filter: brightness(1); } }
-/* 2026-09-08: the 160 px 교체 hairline that used to sit here is gone — 무기 교체 is a crosshair ring now (`.reload.swap`). */
-/* 2026-09-10: 무기 슬롯 칸(`.wslots` / `.wslot`, 1·2·3·T)은 없어졌다 — 그 높이만큼 무기 패널이 커졌다 (`styles/raidHud.css`).
-   2026-09-11 (C-26): 남아 있던 `.wslot.quick` 두 줄과 헬퍼만 남았던 `hud/SlotStrip.ts` 도 지웠다. */
+/* 2026-09-08: the 160 px swap hairline that used to sit here is gone — a weapon swap is a crosshair ring now
+   (`.reload.swap`). */
+/* 2026-09-10: the weapon slot cells (`.wslots` / `.wslot`, 1·2·3·T) are gone — the weapon panel grew by their
+   height (`styles/raidHud.css`).
+   2026-09-11 (C-26): the two `.wslot.quick` lines that were left, and `hud/SlotStrip.ts`, which by then held only a
+   helper, were deleted too. */
 
 /* Compass (top-center) */
 .compass {
@@ -545,12 +575,14 @@ input { font: inherit; color: inherit; }
 }
 .objective .head { display: flex; align-items: center; gap: 8px; }
 .objective .head::before { content: ""; width: 6px; height: 6px; background: var(--c-accent); transform: rotate(45deg); }
-/* 2026-09-07: the mission clock lives here now (the top-right `mission-info` block, 처치 counter included, is gone). */
+/* 2026-09-07: the mission clock lives here now (the top-right `mission-info` block, kill counter included, is
+   gone). */
 .objective .head .clock {
   font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--c-text-dim);
   font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
-/* 2026-09-10: 목표 문구(`.text`) · 보조 문구(`.sub`) · 그 교체 애니메이션은 없어졌다 — 좌측 상단은 시계 하나다. */
+/* 2026-09-10: the objective text (`.text`), the sub text (`.sub`) and their swap animation are gone — the top
+   left is the clock alone. */
 
 /* Interaction prompt */
 .prompt {
@@ -590,11 +622,13 @@ input { font: inherit; color: inherit; }
 .notif .k { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-text-dim); }
 .notif .t { font-weight: 500; }
 .notif .t b { font-weight: 600; }
-/* 2026-09-16 (사용자 결정): 획득 토스트 — 왼쪽 썸네일 칩, 오른쪽 `이름 ×수량` 한 줄 (머리 라벨 없음) */
+/* 2026-09-16 (user's decision): the item-gained toast — a thumbnail chip on the left, one `이름 ×수량` line on the
+   right (no head label) */
 .notif.nt-item { flex-direction: row; align-items: center; gap: 10px; padding: 6px 14px 6px 8px; }
 .notif.nt-item .item-chip { flex: 0 0 auto; pointer-events: none; }
-/* 2026-09-16: 튜토리얼 조작 가이드(`.tut-controls`)가 떠 있으면 `Notifications.update` 가 인라인 `top` = 패널 바닥 + 간격을
-   쓰고 이 클래스를 붙인다 — 세로 가운데 정렬을 풀어 스택이 그 줄에서 아래로 쌓인다. */
+/* 2026-09-16: while the tutorial control guide (`.tut-controls`) is up, `Notifications.update` writes an inline
+   `top` = the panel's bottom + a gap and adds this class — it drops the vertical centring so the stack builds
+   downward from that line. */
 .notifs.below-tut { transform: none; }
 
 /* Deploying overlay */
@@ -615,11 +649,12 @@ input { font: inherit; color: inherit; }
   background: radial-gradient(ellipse at 50% 40%, rgba(8, 10, 14, 0.55), rgba(3, 4, 6, 0.9));
   transition: opacity var(--t-med) var(--ease), visibility var(--t-med) var(--ease);
 }
-/* 2026-09-12: `pointer-events: none` 이 없으면 **닫히는 중인 메뉴가 클릭을 계속 먹는다.** `visibility` 는 전이가
-   *끝나는* 순간에야 `hidden` 이 되므로, `.hidden` 이 붙은 뒤에도 `--t-med` 동안 이 화면은 `inset: 0` 에 투명한 채로
-   살아 있고 `elementFromPoint` 도 이것을 집는다. 타이틀에서 함선으로 들어가며 클릭을 연타하면 보이지 않는
-   `게임 시작` 버튼이 눌릴 수 있었고, smoke-stations 가 350 ms 시점에 격자 대신 타이틀 프레임을 집어 red 를 냈다
-   (실측: 280 ms 에도 visibility=visible · pointer-events=auto, 601 ms 에야 hidden). 전이는 그대로 두고 입력만 끊는다. */
+/* 2026-09-12: without `pointer-events: none` **a menu that is closing keeps eating clicks.** `visibility` only
+   turns `hidden` the moment the transition *ends*, so for `--t-med` after `.hidden` is added this screen is still
+   alive at `inset: 0`, transparent, and `elementFromPoint` picks it up too. Clicking repeatedly while entering the
+   ship from the title could press the invisible `게임 시작` button, and smoke-stations went red because at 350 ms it
+   picked the title frame instead of the grid (measured: at 280 ms still visibility=visible · pointer-events=auto,
+   hidden only at 601 ms). The transition is left alone and only the input is cut. */
 .menu.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
 .menu .scan {
   position: absolute; inset: 0; pointer-events: none;
@@ -634,7 +669,7 @@ input { font: inherit; color: inherit; }
   border: 1px solid var(--c-border);
   animation: menuIn 320ms var(--ease);
 }
-/* 2026-09-09: the `--menu-dx/dy` nudge is gone with the 일시정지 메뉴's cursor parking — a menu sits where its own
+/* 2026-09-09: the `--menu-dx/dy` nudge is gone with the pause menu's cursor parking — a menu sits where its own
    `.menu` rule puts it (the pause menu in the left half, everything else centred) and never moves afterwards. */
 @keyframes menuIn {
   from { opacity: 0; transform: translateY(10px); }
@@ -670,25 +705,29 @@ input { font: inherit; color: inherit; }
 .menu .hint { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.06em; }
 .menu .version { position: absolute; right: 24px; bottom: 18px; font-size: 10px; letter-spacing: 0.2em; color: var(--c-text-faint); }
 
-/* 2026-09-09 — **자리 고정: 화면 중앙 왼쪽.** The menu used to shift itself so `게임으로 돌아가기` landed under the
-   viewport centre (the page cannot move the OS cursor, so the menu moved). Now it is simply parked in the left half:
-   vertically centred, its own centre at ~25vw, clamped so the frame never touches the edge. 설정 opens centred on top. */
+/* 2026-09-09 — **a fixed place: the left of the screen centre.** The menu used to shift itself so
+   `게임으로 돌아가기` landed under the viewport centre (the page cannot move the OS cursor, so the menu moved). Now
+   it is simply parked in the left half: vertically centred, its own centre at ~25vw, clamped so the frame never
+   touches the edge. The settings overlay opens centred on top. */
 .menu.pause { background: rgba(3, 4, 6, 0.6); justify-content: flex-start; }
 .menu.pause .frame { margin-left: clamp(24px, calc(25vw - 210px), 40vw); }
 @media (max-width: 900px) { .menu.pause .frame { margin-left: 24px; } }
-/* Phase 12: the 일시정지 메뉴 is always the top screen — above the inventory / container window (`.inv-root` 50 and its
- * tooltip / context menu / dialog layers ≤ 80), the map (40), the 커뮤니티 panel (46) and the hub popups (72); the dev
- * console (90) and the fixed popups (`.item-tip` 200, `.sc-menu` 300) stay above it. Its own overlays follow below. */
+/* Phase 12: the pause menu is always the top screen — above the inventory / container window (`.inv-root` 50 and
+ * its tooltip / context menu / dialog layers ≤ 80), the map (40), the community panel (46) and the hub popups (72);
+ * the dev
+ * console (90) and the fixed popups (`.item-tip` 200, `.sc-menu` 300) stay above it. Its own overlays follow
+ * below. */
 .menu.pause { z-index: 85; }
 
-/* 2026-09-15 (튜토리얼 건너뛰기): **결과 화면은 검은 페이드 위에 뜬다.** `ui:screenFade.hold` 로 걸어 둔 판
- * (`.screen-fade` z 82)은 결과 화면으로 페이즈가 바뀌어도 걷히지 않는데, `.menu` 에는 z-index 가 없어
- * (= auto) 그 판이 탈출 성공 · 레이드 실패 창을 통째로 덮었다. 타이틀(84)과 같은 층에 세우고 일시정지(85) ·
- * 설정(86) 아래에 둔다 — 셋은 동시에 보이지 않으므로 서로의 순서는 뜻이 없다. */
+/* 2026-09-15 (`튜토리얼 건너뛰기`): **the results screen draws over the black fade.** The plate held by
+ * `ui:screenFade.hold` (`.screen-fade`, z 82) is not taken down when the phase changes to the results screen, and
+ * `.menu` has no z-index (= auto), so that plate covered the `탈출 성공` · `레이드 실패` windows whole. They stand on
+ * the same layer as the title (84), below the pause menu (85) and the settings overlay (86) — the three are never
+ * visible at once, so their order among themselves means nothing. */
 .menu.complete, .menu.death { z-index: 84; }
 
-/* 경고 팝업 (2026-09-08) — 파티 떠나기 / 타이틀로 / 게임 종료 all ask first. Covers the whole pause layer (not just
-   the frame), so the darkened card is unmistakably modal over the button column it guards. */
+/* The warning popup (2026-09-08) — `파티 떠나기` / `타이틀로` / `게임 종료` all ask first. Covers the whole pause
+   layer (not just the frame), so the darkened card is unmistakably modal over the button column it guards. */
 .pause-ask {
   position: absolute; inset: 0; z-index: 2;
   display: flex; align-items: center; justify-content: center;
@@ -705,9 +744,11 @@ input { font: inherit; color: inherit; }
 }
 .pause-ask-title { font-size: 16px; font-weight: 700; letter-spacing: 0.16em; color: var(--c-danger); }
 .pause-ask-body { font-size: 12px; line-height: 1.7; letter-spacing: 0.02em; color: var(--c-text-dim); }
-/* 2026-09-15 2차 (사용자 결정): 옛 안내 줄 `.pause-ask-hint` 는 없어졌다 — 「1초 누르고 있어야」는 확정 버튼 안의
-   좌클릭 홀드 키캡(`.keycap.kc-btn`)이 말한다. 탭 확정(`Ask.tap`)에는 그 키캡도 붙지 않는다. */
-/* 2026-09-09 — **취소 가 카드 왼쪽으로 삐져나오던 이유**: `.ui-btn` carries `min-width: 220px` for the menu's own
+/* 2026-09-15 2nd pass (user's decision): the old hint line `.pause-ask-hint` is gone — 「1초 누르고 있어야」 is said
+   by the left-click hold keycap inside the confirm button (`.keycap.kc-btn`). A tap confirm (`Ask.tap`) carries no
+   such keycap. */
+/* 2026-09-09 — **why `취소` used to hang out of the left edge of the card**: `.ui-btn` carries `min-width: 220px`
+   for the menu's own
    button column, and nothing reset it here. Two of them (440px + gap) cannot shrink below that inside a 420px card,
    so `justify-content: flex-end` pushed the overflow out of the left edge. The footer's pair is its own thing: an
    evenly split row that can shrink, one height, no overflow at any card width. */
@@ -716,8 +757,8 @@ input { font: inherit; color: inherit; }
   flex: 1 1 0; min-width: 0; height: 40px; padding: 0 14px;
   font-size: 11px; letter-spacing: 0.14em; white-space: nowrap;
 }
-/* 확정 홀드 게이지 — the 제작 / 분해 button's language (`inventory.css .inv-craft-fill`): a fill sweeping across
-   the button itself, driven per frame from `menus/PauseMenu`. */
+/* The hold confirm gauge — the language of the `제작` / `분해` button (`inventory.css .inv-craft-fill`): a fill
+   sweeping across the button itself, driven per frame from `menus/PauseMenu`. */
 .pause-ask-ok { overflow: hidden; }
 .pause-ask-ok.is-holding { border-color: var(--c-danger); color: var(--c-danger); }
 .pause-ask-fill {
@@ -880,8 +921,9 @@ input { font: inherit; color: inherit; }
   animation: cautionBlink 1s steps(1) infinite;
 }
 .pmarker.caution .ico::after { content: "!"; position: absolute; left: -8px; top: 3px; width: 16px; inset: auto; background: none; border-radius: 0; text-align: center; font-size: 9px; font-weight: 800; line-height: 1; color: #1a1206; }
-/* 2026-09-09 (레이드 플레이 개선): 전투불능 좌/우 핑 + 구조물 · 선로. 색은 `hud/Pings` 의 `PING_COLOR` 와 같은 값.
-   살려줘 = 십자(오프스크린 화살표의 ✚ 와 같은 뜻), 나를 버려 = X, 구조물 = 사각, 선로 = 가로 막대. */
+/* 2026-09-09 (`레이드 플레이 개선`): the downed left/right pings + structure · rail. The colours are the same
+   values as `PING_COLOR` in `hud/Pings`. `살려줘` = a cross (the same meaning as the ✚ on the off-screen arrow),
+   `나를 버려` = an X, structure = a square, rail = a horizontal bar. */
 .pmarker.help { --pc: #ff4d4d; }
 .pmarker.abandon { --pc: #8a929c; }
 .pmarker.structure { --pc: #d8c48a; }
@@ -908,7 +950,7 @@ input { font: inherit; color: inherit; }
 .pmarker.lost { filter: saturate(0.6); }
 .pmarker.lost .ico { animation: none; border-style: dashed; opacity: 0.8; }
 .pmarker.lost .lbl { color: var(--c-text-dim); }
-/* pings v3 (2026-09-09): 알겠다 acks — one dot per acker in their slot colour (`--ac`), under the distance */
+/* pings v3 (2026-09-09): `알겠다` acks — one dot per acker in their slot colour (`--ac`), under the distance */
 .pmarker .acks { display: flex; gap: 3px; align-items: center; }
 .pmarker .acks:empty { display: none; }
 .pmarker .acks i {
@@ -944,9 +986,11 @@ input { font: inherit; color: inherit; }
 }
 .map-frame::before { left: -1px; top: -1px; border-right: none; border-bottom: none; }
 .map-frame::after { right: -1px; bottom: -1px; border-left: none; border-top: none; }
-/* 2026-09-14 (메신저 · NPC 퀘스트): 좌측 열 = 머리 → 퀘스트 패널 목록(`.mq-list`, styles/mapquests.css — 남는 높이 · 스크롤) →
-   범례(좌측 하단 고정, 2열) → 발밑 줄. 폭 240 → 280 px, 높이는 `MapScreen.fit` 이 캔버스 높이로 못 박는다 (`min-height: 0` 이 있어야
-   목록이 줄어든다). 목적지 선택 모드(`.is-rover`)는 범례 · 퀘스트를 숨기므로 발밑 줄이 바닥을 잡는다. */
+/* 2026-09-14 (the messenger · NPC quests): the left column = head → the quest panel list (`.mq-list`,
+   styles/mapquests.css — the remaining height, scrolling) → the legend (pinned bottom left, 2 columns) → the foot
+   row. Width 240 → 280 px, and `MapScreen.fit` pins the height to the canvas height (`min-height: 0` is what lets
+   the list shrink). The destination pick mode (`.is-rover`) hides the legend and the quests, so the foot row holds
+   the bottom. */
 .map-side { display: flex; flex-direction: column; gap: 14px; width: 280px; min-height: 0; }
 .map-head { display: flex; flex-direction: column; gap: 6px; }
 .map-title { font-size: 22px; font-weight: 700; letter-spacing: 0.2em; line-height: 1; }
@@ -957,8 +1001,9 @@ input { font: inherit; color: inherit; }
   padding-top: 12px; border-top: 1px solid var(--c-border);
 }
 .map-legend .ui-label { grid-column: 1 / -1; margin-bottom: 2px; }
-/* 2026-09-13: 범례 견본은 CSS 모양이 아니라 캔버스다 (`.sw-cv`, `styles/rover.css` · `map/mapIcons`) — 옛 `.sw.*` 모양 규칙은 걷었다.
-   좌하단 `초기화` 버튼 · 조작 안내 줄(`.map-hint`)도 없어졌다. */
+/* 2026-09-13: legend swatches are canvases, not CSS shapes (`.sw-cv`, `styles/rover.css` · `map/mapIcons`) — the
+   old `.sw.*` shape rules were taken down. The bottom-left `초기화` button and the control hint line (`.map-hint`)
+   are gone too. */
 .map-legend-row { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11.5px; color: var(--c-text-dim); white-space: nowrap; }
 .map-legend-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .map-foot { flex: none; display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--c-border); }
@@ -1054,8 +1099,9 @@ input { font: inherit; color: inherit; }
 .nameplate .hp { width: 46px; height: 3px; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(0,0,0,0.6); overflow: hidden; }
 .nameplate .hp .fill { height: 100%; background: var(--sc); transform-origin: left; will-change: transform; }
 .nameplate.far .hp { display: none; }
-/* 2026-09-11 (C-19): 원격 실드 — 체력 바 바로 위의 얇은 분리 바. 색은 방탄복 등급색(`--shc`, 로컬 `Vitals` 실드 칸과 같다).
-   `.has-shield` 가 없으면(방탄복 없음 · 전투불능 · 사망 · 연결 끊김) 자리도 차지하지 않고, `.far` 에서는 체력 바와 함께 숨는다. */
+/* 2026-09-11 (C-19): the remote shield — a thin separate bar directly above the hp bar. Its colour is the armor's
+   rarity colour (`--shc`, the same as the local `Vitals` shield cells). Without `.has-shield` (no armor · downed ·
+   dead · link lost) it takes up no space at all, and at `.far` it hides together with the hp bar. */
 .nameplate .sh { display: none; width: 46px; height: 2px; margin-bottom: -2px; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(0,0,0,0.6); overflow: hidden; }
 .nameplate .sh .fill { height: 100%; background: var(--shc, var(--r-common)); transform-origin: left; will-change: transform; }
 .nameplate.has-shield .sh { display: block; }
@@ -1087,8 +1133,9 @@ input { font: inherit; color: inherit; }
 .tbubble i {
   display: block; width: 5px; height: 5px; border-radius: 50%;
   background: var(--c-text);
-  /* 2026-09-12 — 0.9s → 1.8s (사용자: "너무 빠르게 흔들린다"). 스태거도 duration 과 **같은 비율(1/6 · 2/6)로** 늘린다:
-     주기만 늘리면 0.15s 가 한 바퀴의 8 %밖에 안 돼 세 점이 거의 동시에 뛴다 — 물결이 사라지고 그냥 깜빡임이 된다. */
+  /* 2026-09-12 — 0.9s → 1.8s (user: "너무 빠르게 흔들린다"). The stagger grows **by the same ratio (1/6 · 2/6)**
+     as the duration: stretching only the period leaves 0.15s at 8 % of one cycle, so the three dots jump almost
+     together — the wave is gone and it is just a blink. */
   animation: tbubbleDot 1.8s ease-in-out infinite;
 }
 .tbubble i:nth-child(2) { animation-delay: 0.3s; }
@@ -1129,7 +1176,8 @@ input { font: inherit; color: inherit; }
  * ══════════════════════════════════════════════════════════════════════════ */
 
 /* Bottom-left column (Phase 9 UI pass): chat log on top, squad list under it, both stacked over the vitals.
-   While spectating there are no vitals, so the whole column drops to the bottom edge. 2026-09-12 (캐릭터 버프): the vitals
+   While spectating there are no vitals, so the whole column drops to the bottom edge. 2026-09-12 (character
+   buffs): the vitals
    show in the ship too now, so the old `.hud.hub .hud-bl { bottom: 32px }` drop is gone — the column sits above them there
    as well (and `styles/buffs.css` lifts it a little further while the PC buff strip has thumbnails). */
 .hud-bl {
@@ -1291,7 +1339,8 @@ input { font: inherit; color: inherit; }
 /* Vitals: downed (전투불능) state */
 .vitals .down-sub, .vitals .revive { display: none; }
 .vitals.downed .seg .fill { background: var(--c-danger); }
-/* 전투불능 잔상은 평상시(`--vt-ghost`, 연한 빨강)보다 **더 진하고 채도가 높다** — 두 상태를 색만 보고 가른다. */
+/* The downed ghost is **deeper and more saturated** than the normal one (`--vt-ghost`, a pale red) — the two
+   states are told apart by colour alone. */
 .vitals.downed .seg .ghost { background: var(--vt-ghost-down); }
 .vitals.downed .hp-num { color: var(--c-danger); animation: downedPulse 1.2s ease-in-out infinite alternate; }
 .vitals.downed .ui-label { color: var(--c-danger); letter-spacing: 0.14em; }
@@ -1302,7 +1351,7 @@ input { font: inherit; color: inherit; }
 .vitals .revive .bar .fill { width: 100%; height: 100%; background: var(--c-success); transform-origin: left; transform: scaleX(0); transition: transform 90ms linear; }
 @keyframes downedPulse { from { opacity: 1; } to { opacity: 0.55; } }
 
-/* Spectate banner: 남은 구조선 (2026-09-09 — 부활 카운트다운을 대신한다) */
+/* Spectate banner: the rescue drops left (2026-09-09 — it replaces the respawn countdown) */
 .spectate .rescue { font-family: var(--ui-mono); font-size: 12px; letter-spacing: 0.14em; color: var(--c-success); font-weight: 700; margin-top: 4px; }
 .spectate .rescue.none { color: var(--c-danger); animation: downedPulse 0.9s ease-in-out infinite alternate; }
 
@@ -1349,9 +1398,10 @@ input { font: inherit; color: inherit; }
 .swheel.cooling .scd { display: block; }
 .swheel .ssub { font-size: 8px; letter-spacing: 0.08em; color: var(--c-text-faint); line-height: 1.3; }
 
-/* 2026-09-10 (2차): 함선 호출 텍스트 패널(`.strat-panel` — G 키캡 + 이름 + 설명 + 조작 힌트 + 가로 쿨다운 바)의
-   규칙 블록이 여기 있었다. 그 위젯이 **임플란트 왼쪽의 정사각 썸네일**(`.scall`, `styles/shipCall.css`)로
-   바뀌면서 클래스를 쓰는 요소가 없어져 죽은 규칙만 지웠다. */
+/* 2026-09-10 (2nd pass): the rule block for the ship-call text panel (`.strat-panel` — G keycap + name +
+   description + control hint + a horizontal cooldown bar) used to be here. That widget became **the square
+   thumbnail left of the implant** (`.scall`, `styles/shipCall.css`), no element uses the classes any more, and only
+   the dead rules were deleted. */
 
 /* Charge ring around the reticle (LMB held on an orbital call) */
 .charge {
@@ -1372,7 +1422,7 @@ input { font: inherit; color: inherit; }
 }
 .charge.ready .lbl { color: var(--c-danger); font-weight: 600; }
 
-/* Phase 10 — 재장전 링 (hud/ReloadGauge): the reload radial moved from the weapon panel to the crosshair */
+/* Phase 10 — the reload ring (hud/ReloadGauge): the reload radial moved from the weapon panel to the crosshair */
 .reload {
   position: absolute; left: 50%; top: 50%;
   width: 120px; height: 120px; margin: -60px 0 0 -60px;
@@ -1388,11 +1438,12 @@ input { font: inherit; color: inherit; }
   position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px);
   font-size: 11px; letter-spacing: 0.1em; color: var(--c-accent); white-space: nowrap;
 }
-/* 2026-09-08 — 무기 교체 rides the same ring in a cooler tint so a glance tells the two apart. */
+/* 2026-09-08 — a weapon swap rides the same ring in a cooler tint so a glance tells the two apart. */
 .reload.swap .fill { stroke: var(--c-text); }
 .reload.swap .lbl { color: var(--c-text); }
 
-/* Phase 10 — 회복약 홀드 게이지 (hud/HealGauge): full circle, label bottom-left of the ring like the cook gauge */
+/* Phase 10 — the healing hold gauge (hud/HealGauge): full circle, label bottom-left of the ring like the cook
+   gauge */
 .heal {
   position: absolute; left: 50%; top: 50%;
   width: 120px; height: 120px; margin: -60px 0 0 -60px;
@@ -1413,8 +1464,9 @@ input { font: inherit; color: inherit; }
 .heal .lbl { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.1em; color: var(--c-text); white-space: nowrap; }
 .heal.near .lbl, .heal.ready .lbl { color: var(--c-success); font-weight: 600; }
 
-/* 2026-09-08 — 홀드 링 (hud/HoldGauge): 상호작용 홀드 + 전투불능 포기. Replaces the bottom prompt's progress bar
-   and the vitals 포기 bar, so every hold in the game fills the same ring at the crosshair. */
+/* 2026-09-08 — the hold ring (hud/HoldGauge): interaction holds + the downed give-up. Replaces the bottom
+   prompt's progress bar and the vitals give-up bar, so every hold in the game fills the same ring at the
+   crosshair. */
 .hold {
   --hc: var(--c-accent);
   position: absolute; left: 50%; top: 50%;
@@ -1505,8 +1557,9 @@ input { font: inherit; color: inherit; }
  *                     melee / roll / burn / cloak feedback
  * ══════════════════════════════════════════════════════════════════════════ */
 
-/* 전술 임플란트 HUD 는 2026-09-10 부터 `src/ui/styles/implant.css` 에 있다 — 크로스헤어 좌측 세로 게이지
-   (`.implant-gauge`) 가 화면 중앙 하단의 가로 썸네일(`.imp-hud`)로 바뀌면서 이 자리의 규칙은 전부 옮겨 갔다. */
+/* The tactical implant HUD has lived in `src/ui/styles/implant.css` since 2026-09-10 — the vertical gauge left of
+   the crosshair (`.implant-gauge`) became the horizontal thumbnail at bottom centre (`.imp-hud`), and every rule
+   that was here moved with it. */
 
 /* Quick-use bar (bottom-center, 4 or 8 slots) */
 .quickbar {
@@ -1679,9 +1732,11 @@ input { font: inherit; color: inherit; }
 .reticle .hook.valid i { border-color: var(--c-accent); box-shadow: 0 0 6px rgba(255, 179, 71, 0.6); }
 .reticle .hook.attached i { border-color: var(--c-success); }
 
-/* (2026-09-13: 지도 범례 견본 `.sw.*` 규칙은 캔버스 견본으로 바뀌어 걷었다 — `styles/rover.css` 의 `.sw-cv`) */
+/* (2026-09-13: the map legend swatch rules `.sw.*` became canvas swatches and were taken down — `.sw-cv` in
+   `styles/rover.css`) */
 
-/* 2026-09-09: 나침반의 새 랜드마크 마커 — 구조물(사각) · 선로(가로줄) · 군락(버섯 갓) */
+/* 2026-09-09: the compass's new landmark markers — structure (square) · rail (horizontal line) · grove (mushroom
+   cap) */
 .compass .marker.structure .ico { transform: none; border-color: #d8c48a; background: rgba(216, 196, 138, 0.28); }
 .compass .marker.rail .ico { width: 12px; height: 0; border: none; border-top: 2px solid #9fb4c7; transform: none; background: none; }
 .compass .marker.grove .ico { border-radius: 50% 50% 0 0; border-color: #b98cff; border-bottom: none; transform: none; background: rgba(185, 140, 255, 0.2); }
@@ -1701,7 +1756,7 @@ input { font: inherit; color: inherit; }
 .title-foot .hint { flex: 1; min-width: 0; }
 .title-foot .ui-btn.keybinds,
 .title-foot .ui-btn.newchar { min-width: 0; padding: 0 16px; height: 36px; font-size: 11px; }
-/* 새 캐릭터로 시작 (2026-09-07): a two-step confirm card under the controls diagram. */
+/* `새 캐릭터로 시작` (2026-09-07): a two-step confirm card under the controls diagram. */
 .newchar-confirm { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .newchar-confirm .row { display: flex; gap: 10px; justify-content: flex-end; }
 .newchar-confirm .ui-btn { min-width: 0; padding: 0 18px; height: 36px; font-size: 12px; }
@@ -1743,7 +1798,8 @@ input { font: inherit; color: inherit; }
 .ctl-mouse-caps { display: flex; flex-direction: column; gap: 3px; width: 100%; }
 .ctl-mouse-caps .mcap { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--c-text-faint); }
 .ctl-mouse-caps .mcap .k { font-family: var(--ui-mono); font-weight: 700; min-width: 30px; }
-/* 2026-09-15: 버튼 이름 칸이 공용 키캡이 됐다 — 좌 · 휠 · 우는 마우스 그림, M4 · M5 는 글자 (`menus/ControlsPanel`) */
+/* 2026-09-15: the button-name cell became the shared keycap — left · wheel · right draw the mouse glyph, M4 · M5
+   stay as text (`menus/ControlsPanel`) */
 .ctl-mouse-caps .mcap .k.keycap { flex: none; min-width: 30px; height: 18px; padding: 0 4px; font-size: 9px; color: var(--c-text-faint); background: rgba(255, 255, 255, 0.04); }
 .ctl-mouse-caps .mcap .v { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ctl-mouse-caps .mcap.bound { color: var(--c-text-dim); }
@@ -1790,7 +1846,8 @@ input { font: inherit; color: inherit; }
 .kb-key { min-width: 108px; height: 32px; padding: 0 12px; font-family: var(--ui-mono); font-size: 12px; letter-spacing: 0.06em; }
 .kb-key.capturing { border-color: var(--c-accent); color: var(--c-accent); animation: kbBlink 0.9s ease-in-out infinite; }
 .kb-row.conflict .kb-key { border-color: rgba(255, 77, 77, 0.6); }
-/* 2026-09-15: 마우스 좌 · 휠 · 우에 묶인 버튼은 글자 대신 공용 마우스 그림 (`menus/KeybindMenu.paintBindingButton`) */
+/* 2026-09-15: a button bound to mouse left · wheel · right draws the shared mouse glyph instead of text
+   (`menus/KeybindMenu.paintBindingButton`) */
 .kb-key.kb-key-mouse { display: inline-flex; align-items: center; justify-content: center; }
 .kb-key.kb-key-mouse .kcm-glyph { display: block; width: 18px; height: 18px; flex: none; }
 @keyframes kbBlink { 0%, 100% { background: rgba(255, 179, 71, 0.08); } 50% { background: rgba(255, 179, 71, 0.24); } }
@@ -1815,9 +1872,11 @@ input { font: inherit; color: inherit; }
 .scr-tab.is-on { color: #1a1408; background: var(--c-text); border-color: var(--c-text); }
 .scr-tab.is-disabled { opacity: 0.4; cursor: default; }
 .scr-tab.is-disabled:hover { color: var(--c-text-dim); background: none; }
-/* 튜토리얼 잠금 (2026-09-08) — 안내가 도는 동안 인벤토리 외 탭은 잠긴다 (사유는 title 툴팁). */
+/* The tutorial lock (2026-09-08) — while the guide runs, every tab but the inventory is locked (the reason is the
+   `title` tooltip). */
 
-/* 레드닷 (2026-09-08) — 쓰지 않은 능력치 포인트가 있는 캐릭터 탭. `data-alert` 가 남은 포인트 수. */
+/* The red dot (2026-09-08) — the character tab while unspent stat points remain. `data-alert` is how many are
+   left. */
 .scr-tab.has-alert { position: relative; }
 .scr-tab.has-alert::after {
   content: ''; position: absolute; top: 3px; right: 5px;
@@ -1829,7 +1888,8 @@ input { font: inherit; color: inherit; }
 @keyframes scr-tab-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 @media (prefers-reduced-motion: reduce) { .scr-tab.has-alert::after { animation: none; } }
 
-/* ═══ Phase 6: unique-weapon charge arc · 전소/감전 markers · MOVE CHEAT tag · housing hint bar · room label (2026-09-06) ═══ */
+/* ═══ Phase 6: unique-weapon charge arc · burn/shock markers · MOVE CHEAT tag · housing hint bar · room label
+   (2026-09-06) ═══ */
 /* Weapon charge gauge — 120° arc right of the reticle (CookGauge silhouette), colour per kind */
 .wcharge {
   position: absolute; left: 50%; top: 50%;
@@ -1839,11 +1899,12 @@ input { font: inherit; color: inherit; }
   --wc: var(--c-info);
 }
 .wcharge.show { opacity: 1; }
-/* 2026-09-15: 종류 클래스는 `wc-` 접두사다. 예전 `.charge` · `.spinup` · `.slash` 중 `.charge` 가 함선 호출 충전 링
-   (`.charge`, 위쪽 규칙)과 겹쳐 `.charge svg { rotate(-90deg) }` 가 오른쪽 호를 **위로** 돌리고 `.charge.ready` 가
-   가득 찬 전격총 호를 **빨갛게** 칠했다 (2026-09-10 `kc-hold` 사고와 같은 뿌리 — 위젯 클래스를 modifier 로 쓰지 않는다). */
+/* 2026-09-15: the kind classes carry the `wc-` prefix. Of the old `.charge` · `.spinup` · `.slash`, `.charge`
+   collided with the ship-call charge ring (`.charge`, the rule above): `.charge svg { rotate(-90deg) }` turned the
+   right-hand arc **upward** and `.charge.ready` painted a full `전격총` arc **red** (the same root as the 2026-09-10
+   `kc-hold` accident — never use a widget class as a modifier). */
 .wcharge.wc-charge { --wc: #5fc8ff; }
-/* 전격총 충전 완료 = 더 밝은 파랑 (빨강이 아니다) — 맥동은 공용 `.ready .fill` 규칙이 준다 */
+/* `전격총` fully charged = a brighter blue (not red) — the pulse comes from the shared `.ready .fill` rule */
 .wcharge.wc-charge.ready { --wc: #b8ecff; }
 .wcharge.wc-charge.ready .fill { filter: drop-shadow(0 0 3px #5fc8ff) drop-shadow(0 0 7px #8fdcff); }
 .wcharge.wc-spinup { --wc: var(--c-accent); }
@@ -1860,7 +1921,7 @@ input { font: inherit; color: inherit; }
 .wcharge.ready .lbl { font-weight: 600; }
 .hud.spectating .wcharge { opacity: 0 !important; visibility: hidden; }
 
-/* 전소 / 감전 world markers (pooled, projected) */
+/* Burn / shock world markers (pooled, projected) */
 .status-markers { position: absolute; inset: 0; pointer-events: none; }
 .smarker {
   position: absolute; left: 0; top: 0;
@@ -1886,14 +1947,15 @@ input { font: inherit; color: inherit; }
 .cheat-tag.show { opacity: 1; }
 
 /* Housing layer `.hud.housing` (never hidden by the gameplay/social gating) — only hud/ShipManage lives here since
- * 2026-09-09: the old `.housing-hint` bar / `.housing-exit` chip were replaced by the 키 가이드 (`.key-guide`, below). */
+ * 2026-09-09: the old `.housing-hint` bar / `.housing-exit` chip were replaced by the key guide (`.key-guide`,
+ * below). */
 .hud.housing { pointer-events: none; }
 
-/* ── 키 가이드 (hud/KeyGuide, 2026-09-09): one line, bottom-right, a direct child of #ui-root ──
+/* ── The key guide (hud/KeyGuide, 2026-09-09): one line, bottom-right, a direct child of #ui-root ──
    `R 회전 · X 버리기 · Tab 닫기` for the topmost open screen / mode. z 84: above the inventory window (50–80), the hub
-   terminal, the 시설 관리 panel, the map (40), the tutorial spotlight (78) and popups (79–80); below the 일시정지 (85),
-   which hides it anyway. Same corner as `.ship-hint`, but the two never show together (the hint needs no blocker,
-   the guide needs an open screen). */
+   terminal, the ship management panel, the map (40), the tutorial spotlight (78) and popups (79–80); below the
+   pause menu (85), which hides it anyway. Same corner as `.ship-hint`, but the two never show together (the hint
+   needs no blocker, the guide needs an open screen). */
 .key-guide {
   position: absolute; right: 28px; bottom: 28px; z-index: 84;
   display: flex; align-items: stretch; gap: 6px;
@@ -1903,7 +1965,8 @@ input { font: inherit; color: inherit; }
   pointer-events: none;
 }
 .key-guide.show { opacity: 1; visibility: visible; transform: none; }
-/* 2026-09-16 (사용자 결정): 상자는 둘 — 화면의 행동 키 `.kg-panel` 과 그 오른쪽 닫기 `.kg-panel-close` (`hud/KeyGuide.render`) */
+/* 2026-09-16 (user's decision): two boxes — the screen's action keys `.kg-panel` and the close entry to its right
+   `.kg-panel-close` (`hud/KeyGuide.render`) */
 .key-guide .kg-panel {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 10px;
@@ -1912,7 +1975,8 @@ input { font: inherit; color: inherit; }
 .key-guide .kg-item { display: inline-flex; align-items: center; gap: 6px; }
 .key-guide .keycap { min-width: 20px; height: 20px; font-size: 10px; color: var(--c-text); background: rgba(255, 255, 255, 0.1); }
 .key-guide .kg-label { color: var(--c-text-dim); }
-.key-guide .kg-sep { flex: none; align-self: center; width: 1px; height: 14px; background: var(--c-border); }   /* 2026-09-16: `·` → 얇은 세로 막대 */
+/* 2026-09-16: `·` → a thin vertical bar */
+.key-guide .kg-sep { flex: none; align-self: center; width: 1px; height: 14px; background: var(--c-border); }
 
 /* Room entry label (social layer, top-centre; fades after the hold time) */
 .room-label {
@@ -2033,7 +2097,8 @@ input { font: inherit; color: inherit; }
 .menu .rewards.up .xp-bar .fill { animation: rewardsBarFlash 700ms var(--ease); }
 @keyframes rewardsBarFlash { 0% { background: #fff; box-shadow: 0 0 16px rgba(255, 236, 190, 1); } 100% { background: var(--c-accent); } }
 
-/* Death screen in 레이드 실패 mode (menus/DeathScreen): no 부활 button, auto-return countdown under the actions */
+/* Death screen in `레이드 실패` mode (menus/DeathScreen): no revive button, auto-return countdown under the
+   actions */
 .menu.death .auto-return { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 11px; letter-spacing: 0.14em; color: var(--c-text-dim); text-align: center; margin-top: -4px; }
 .menu.death.raid-failed .frame { border-color: rgba(255, 77, 77, 0.55); box-shadow: 0 0 40px rgba(255, 77, 77, 0.12) inset; }
 .menu.death.raid-failed .title { letter-spacing: 0.22em; }
@@ -2057,12 +2122,12 @@ input { font: inherit; color: inherit; }
 .srow .name { flex: 1; }
 
 /* ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
- * Phase 8 — UI/UX pass (2026-09-06): shared item-cost chips · 설정 overlay · 함선 관리 hint + screen
+ * Phase 8 — UI/UX pass (2026-09-06): shared item-cost chips · settings overlay · ship management hint + screen
  * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/* ── 재료 요구 칩 (markup contract: src/shared/itemChip.ts — housing / inventory / meta / ui all emit it) ──
- * `--chip-size` sizes the thumbnail, `--rc` is the rarity ring, `--ic` tints the glyph. `.is-short` (보유 < 필요)
- * dims the whole chip and turns the 보유 number red; `.is-free` marks a cost-free chip. */
+/* ── Material cost chip (markup contract: src/shared/itemChip.ts — housing / inventory / meta / ui all emit it) ──
+ * `--chip-size` sizes the thumbnail, `--rc` is the rarity ring, `--ic` tints the glyph. `.is-short` (have < need)
+ * dims the whole chip and turns the have number red; `.is-free` marks a cost-free chip. */
 .item-chips { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
 .item-chip {
   --chip-size: 34px;
@@ -2092,7 +2157,7 @@ button.item-chip:focus-visible { outline: 1px solid var(--c-accent); outline-off
   color: var(--ic);
   text-shadow: 0 0 5px rgba(0, 0, 0, 0.85);
 }
-/* 보유 / 필요, pinned to the bottom-right corner of the thumbnail */
+/* have / need, pinned to the bottom-right corner of the thumbnail */
 .item-chip-count {
   position: absolute; right: -3px; bottom: -4px;
   display: inline-flex; align-items: center; gap: 1px;
@@ -2120,9 +2185,10 @@ button.item-chip:focus-visible { outline: 1px solid var(--c-accent); outline-off
 /* a chip with a def carries the hover card (hud/ItemTip) — advertise it with the cursor */
 .item-chip[data-def-id] { cursor: help; }
 button.item-chip[data-def-id] { cursor: pointer; }
-/* ── 즐겨찾기 표식 (2026-09-12, E2 — markup: `shared/itemChip.ts` 의 `.is-favorite`) ──
- * 썸네일 **우측 상단의 파란 사선 띠**. 인벤토리 타일의 띠(inventory.css, E1)와 같은 색 `--c-favorite` 를 쓰고, 그 변수가
- * 없으면 같은 파랑으로 떨어진다. 개수 배지는 우측 하단이라 겹치지 않는다. 띠는 클릭 · 호버를 먹지 않는다. */
+/* ── The favorite mark (2026-09-12, E2 — markup: `.is-favorite` in `shared/itemChip.ts`) ──
+ * A **blue ribbon across the top-right corner of the thumbnail**. It uses `--c-favorite`, the same colour as the
+ * ribbon on an inventory tile (inventory.css, E1), and falls back to the same blue when that variable is missing.
+ * The count badge sits bottom-right, so the two never overlap. The ribbon eats neither clicks nor hovers. */
 .item-chip.is-favorite .item-chip-thumb::after {
   content: "";
   position: absolute; top: 0; right: 0;
@@ -2131,8 +2197,9 @@ button.item-chip[data-def-id] { cursor: pointer; }
   pointer-events: none;
 }
 
-/* ── 즐겨찾기 우클릭 메뉴 (2026-09-12, E2 — `ui/hud/ItemFavoriteMenu.ts`, 접두사 `.icm-`) ──
- * 칩 · 옵트인 타일 어디서든 뜨는 작은 메뉴. 모양은 인벤토리 우클릭 메뉴(`.inv-menu`)와 같고, 창 · 호버 카드 위에 뜬다. */
+/* ── The favorite right-click menu (2026-09-12, E2 — `ui/hud/ItemFavoriteMenu.ts`, prefix `.icm-`) ──
+ * A small menu that opens over any chip or opted-in tile. It looks like the inventory right-click menu
+ * (`.inv-menu`) and draws above windows and hover cards. */
 .icm {
   position: fixed; left: 0; top: 0;
   z-index: 210;
@@ -2166,9 +2233,10 @@ button.item-chip[data-def-id] { cursor: pointer; }
 }
 .icm-item.is-on .icm-mark { background: transparent; }
 
-/* ── 시설 레벨 요구 칩 (markup contract: src/shared/itemChip.ts `buildFacilityChip`, 2026-09-12 사용자 결정) ──
- * 「발전기 Lv.2 필요」를 재료 칩과 **같은 줄 · 같은 높이**에 세운다. 아이템과 헷갈리지 않게 썸네일은 **가로로 길고
- * (높이의 2배) 이중 테두리**이며, 수치는 필요 갯수가 아니라 `현재 레벨/필요 레벨` 이다. `--fc` = 시설 색. */
+/* ── Facility level chip (markup contract: src/shared/itemChip.ts `buildFacilityChip`, 2026-09-12 user's
+ * decision) ── It stands 「발전기 Lv.2 필요」 on the **same line at the same height** as a material chip. So it is
+ * never mistaken for an item, its thumbnail is **wide (twice its height) with a double border**, and its numbers
+ * are not a required count but `current level / required level`. `--fc` = the facility colour. */
 .facility-chip {
   --chip-size: 34px;
   --fc: var(--c-text);
@@ -2209,7 +2277,7 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .facility-chip.is-short .facility-chip-thumb { border-color: rgba(255, 77, 77, 0.7); }
 .facility-chip.is-short .facility-chip-have { color: var(--c-danger); }
 
-/* ── 칩 호버 카드 (hud/ItemTip): the inventory tooltip for a cost chip, over every window and menu ── */
+/* ── The chip hover card (hud/ItemTip): the inventory tooltip for a cost chip, over every window and menu ── */
 .item-tip {
   --rc: var(--r-common);
   --ic: var(--c-text);
@@ -2222,19 +2290,22 @@ button.item-chip[data-def-id] { cursor: pointer; }
   border: 1px solid var(--rc);
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   pointer-events: none;
-  /* 2026-09-16 (사용자 버그 「기업 거래 · 재료 칩 · 서재 전시대 · 연산 클러스터에서 카드 이름 · 종류가 오른쪽에 붙는다」):
-     카드는 언제나 `#ui-root` 바로 밑에 뜨므로(hud/ItemTip) 어느 화면에서 띄우든 똑같이 보여야 한다. 글 정렬은
-     상속되는 속성이라 카드 스스로 못박아 둔다 — 남의 컨테이너가 `text-align`/`direction` 을 바꿔도 이 카드는 그대로다. */
+  /* 2026-09-16 (user's bug report 「기업 거래 · 재료 칩 · 서재 전시대 · 연산 클러스터에서 카드 이름 · 종류가 오른쪽에 붙는다」):
+     the card always hangs directly off `#ui-root` (hud/ItemTip), so it has to look the same from whatever screen
+     it is raised. Text alignment is an inherited property, so the card pins it itself — another container changing
+     `text-align`/`direction` leaves this card as it is. */
   text-align: left; direction: ltr;
 }
-/* 머리는 **교차축·주축·글 정렬을 전부 명시**한다 — `display`·`flex-direction`·`gap` 만 적어 두면 남이 선언한
-   `align-items` 가 살아남고, 세로 flex 에서 그것은 곧 「오른쪽 정렬」이라 이름과 종류만 오른쪽에 붙는다.
-   실제로 2026-09-16 까지 그랬다: `hub/intel.css` 가 이 카드와 같은 `.it-` 접두사를 골라 전역
-   `.it-head { align-items: flex-end }` 를 선언했고, 기업 거래 · 제작 재료칩 · 서재 전시대 · 연산 클러스터에서
-   카드가 오른쪽으로 쏠렸다 (가방·창고는 `inventory/ui/Tooltip` 이라 멀쩡했다). 그 충돌 자체는 2026-09-17 에
-   양쪽 이름을 갈라(`.itip-` · `.his-`) 닫혔고 `scripts/check-css-prefixes.mjs` 가 재발을 막지만, **이 명시는
-   그것과 별개로 남긴다**: 카드는 `#ui-root` 바로 밑에 뜨므로(hud/ItemTip) 어느 화면에서 띄우든 똑같이 보여야
-   하고, 그 보장을 남의 스타일시트가 아니라 카드 자신이 져야 한다. */
+/* The head **states its cross axis, its main axis and its text alignment in full** — write only `display` ·
+   `flex-direction` · `gap` and a foreign `align-items` survives, which in a column flex means 「right-aligned」, so
+   the name and the kind alone end up on the right. That is exactly what happened until 2026-09-16: `hub/intel.css`
+   picked the same `.it-` prefix as this card and declared a global `.it-head { align-items: flex-end }`, and the
+   card leaned right on the `기업 거래` screen, on craft material chips, at a library holder and in the compute
+   cluster (the bag and the stash were fine — they use `inventory/ui/Tooltip`). That collision itself was closed on
+   2026-09-17 by splitting the two names (`.itip-` · `.his-`), and `scripts/check-css-prefixes.mjs` blocks a repeat,
+   but **this statement stays independently of it**: the card hangs directly off `#ui-root` (hud/ItemTip), so it has
+   to look the same from whatever screen it is raised, and that guarantee has to be carried by the card itself, not
+   by someone else's stylesheet. */
 .item-tip .itip-head {
   display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 2px;
   text-align: left;
@@ -2249,9 +2320,9 @@ button.item-chip[data-def-id] { cursor: pointer; }
 }
 .item-tip .itip-stats .k { color: var(--c-text-faint); letter-spacing: 0.06em; }
 .item-tip .itip-stats .v { text-align: right; color: var(--c-text); font-variant-numeric: tabular-nums; }
-/* Phase 10: 가치 as the card's bottom bar instead of a stats row.
-   2026-09-09: 무게 left the stats table for the same bar — `.wt` (weight) on the left, `.val` (가치) on the right,
-   each a small label + amount; only the 가치 amount is accent-coloured. */
+/* Phase 10: `가치` as the card's bottom bar instead of a stats row.
+   2026-09-09: `무게` left the stats table for the same bar — `.wt` (weight) on the left, `.val` (`가치`) on the
+   right, each a small label + amount; only the `가치` amount is accent-coloured. */
 .item-tip .itip-value {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
   margin: 2px -14px -12px; padding: 8px 14px 10px;
@@ -2263,14 +2334,16 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .item-tip .itip-value .v { font-size: 14px; font-weight: 700; color: var(--c-accent); font-variant-numeric: tabular-nums; }
 .item-tip .itip-value .wt .v { font-size: 12px; font-weight: 600; color: var(--c-text); }
 
-/* ── 재화 칩 (shared/currency, 2026-09-09) ──────────────────────────────────
-   계약 · 퀘스트 보상의 크레딧 · 경험치 · 기업별 신뢰도. 아이템 칩과 **같은 상자 · 같은 간격**을 쓰므로 한
-   줄에 섞여도 줄이 맞고, 썸네일 틀만 다르다: 네모 대신 모서리를 깎은 육각이고 안쪽에 링이 하나 더 있다.
-   `--cy` = 재화 색 (신뢰도는 기업 색). 카드는 `.item-tip.is-currency`. */
-/* 2026-09-12: 깎은 모서리(`clip-path`)는 **썸네일 자신이 아니라 뒤판(::before)** 에 건다. 예전에는 썸네일에 걸려
-   있어서 그 안에 앉은 개수 배지(`.item-chip-count`, 우측 하단 모서리 밖으로 삐져나온다)가 같이 잘렸다 — 퀘스트
-   보상 칩의 우측 하단 수치가 도형에 먹히던 것. 썸네일은 이제 테두리 · 배경이 없는 투명 상자(`isolation` 으로
-   쌓임 맥락만 만든다)이고, 뒤판과 안쪽 링이 z-index −1 로 글리프 · 배지 밑에 깔린다. */
+/* ── The currency chip (shared/currency, 2026-09-09) ────────────────────────
+   Credits · XP · per-corporation trust from contract and quest rewards. It uses the **same box and the same gaps**
+   as an item chip, so a line that mixes the two still lines up; only the thumbnail frame differs — a hexagon with
+   cut corners instead of a square, with one more ring inside it. `--cy` = the currency colour (the corporation's
+   colour for trust). Its card is `.item-tip.is-currency`. */
+/* 2026-09-12: the cut corners (`clip-path`) are put on **the backdrop (::before), not on the thumbnail itself**.
+   They used to be on the thumbnail, which clipped the count badge sitting inside it (`.item-chip-count`, which
+   sticks out past the bottom-right corner) — the bottom-right number of a quest reward chip was being eaten by the
+   shape. The thumbnail is a transparent box now, with no border and no background (`isolation` only makes a
+   stacking context), and the backdrop and the inner ring lie under the glyph and the badge at z-index −1. */
 .currency-chip .currency-thumb {
   isolation: isolate;
   border-color: transparent;
@@ -2291,7 +2364,7 @@ button.item-chip[data-def-id] { cursor: pointer; }
     linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.5));
   box-shadow: inset 0 0 10px -2px var(--cy);
 }
-/* the inner ring — what separates "재화" from "물건" at a glance */
+/* the inner ring — what tells a currency from a thing at a glance */
 .currency-chip .currency-thumb::after {
   inset: 3px;
   border: 1px solid color-mix(in srgb, var(--cy) 34%, transparent);
@@ -2305,7 +2378,8 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .currency-chip .item-chip-name { color: color-mix(in srgb, var(--cy) 65%, var(--c-text-dim)); }
 .currency-chip[data-currency-id] { cursor: help; }
 button.currency-chip[data-currency-id] { cursor: pointer; }
-/* 재화 카드: 등급도 판매가도 없으므로 분류 줄이 배지가 되고 가치 바는 숨는다 (ItemTip 이 `hidden` 을 건다) */
+/* The currency card: it has neither a rarity nor a sell price, so the kind line becomes a badge and the value bar
+   hides (ItemTip sets `hidden`) */
 .item-tip.is-currency { border-color: color-mix(in srgb, var(--rc) 72%, transparent); }
 .item-tip.is-currency .itip-sub {
   align-self: flex-start;
@@ -2316,13 +2390,13 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
   letter-spacing: 0.24em;
 }
 
-/* ── 마우스 커서 (hud/GameCursor) ── */
+/* ── The mouse cursor (hud/GameCursor) ── */
 /* The art is a procedurally drawn `cursor:` image injected at runtime by `ui/hud/GameCursor` under `body.cursor-ui`
    — nothing is drawn in the DOM any more (2026-09-07 rework: the real OS cursor is back, restyled in place). While
    the pointer is locked the browser shows no cursor at all, so the rules cost nothing during play.
    `body.cursor-on` additionally marks "a UI surface owns the mouse right now" for anything that needs to know. */
 
-/* ── 설정 overlay (menus/SettingsMenu): keys + audio, above the pause menu, below the key-settings overlay ── */
+/* ── Settings overlay (menus/SettingsMenu): keys + audio, above the pause menu, below the key-settings overlay ── */
 .menu.settings-menu { z-index: 86; background: rgba(3, 4, 6, 0.72); } /* Phase 12: above the pause menu it opens from (85) */
 .menu.settings-menu .frame {
   min-width: 520px; max-width: 680px; width: min(680px, calc(100vw - 40px));
@@ -2356,9 +2430,10 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .set-foot { display: flex; justify-content: flex-end; padding-top: 10px; border-top: 1px solid var(--c-border); }
 .set-foot .ui-btn { min-width: 0; padding: 0 22px; }
 
-/* ── 서버 설정 (2026-09-10): 주소 한 칸 + 연결 테스트 · 적용 · 기본값으로 ──
-   접속할 릴레이를 게임 안에서 고르는 유일한 자리다 (`menus/SettingsMenu.buildNetwork`). 상태 한 줄은 색으로만
-   말한다 — `.ok` 초록, `.bad` 붉은색, 아무 클래스도 없으면 "확인 중" 같은 중립이다. */
+/* ── `서버 설정` (2026-09-10): one address field + `연결 테스트` · `적용` · `기본값으로` ──
+   The only place inside the game to pick the relay to connect to (`menus/SettingsMenu.buildNetwork`). The one
+   status line speaks through colour alone — `.ok` green, `.bad` red, and with no class at all something neutral
+   like "확인 중". */
 .set-text {
   width: 320px; height: 32px; padding: 0 10px;
   border: 1px solid var(--c-border-strong); background: var(--c-fill);
@@ -2375,7 +2450,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .set-net-foot .ui-btn { min-width: 0; height: 32px; padding: 0 16px; font-size: 11px; }
 .set-net-foot .ui-btn:disabled { opacity: 0.35; cursor: default; }
 
-/* ── 함선 관리(M) hint: bottom-right of the social layer, persistent in the ship ── */
+/* ── The ship management (M) hint: bottom-right of the social layer, persistent in the ship ── */
 .ship-hint {
   position: absolute; right: 28px; bottom: 28px;
   display: flex; align-items: center; gap: 8px;
@@ -2389,7 +2464,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .ship-hint .t { font-size: 11px; letter-spacing: 0.16em; color: var(--c-text-dim); }
 .ship-hint .keycap { min-width: 20px; height: 20px; font-size: 10px; }
 
-/* ── 함선 관리 screen (hud/ShipManage) in the `.hud.housing` layer ── */
+/* ── The ship management screen (hud/ShipManage) in the `.hud.housing` layer ── */
 .ship-manage {
   position: absolute; inset: 0;
   pointer-events: none;
@@ -2422,7 +2497,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-room.is-on { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
 .sm-room.is-on .p { color: var(--c-accent); }
 
-/* shared facility thumbnail (Phase 9 UI pass): the same icon in the room list and in the 용도 지정 picker */
+/* shared facility thumbnail (Phase 9 UI pass): the same icon in the room list and in the `용도 지정` picker */
 .sm-room { align-items: center; }
 .sm-thumb {
   flex: none; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
@@ -2434,7 +2509,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-purpose .sm-thumb .g { font-size: 18px; }
 
 /* Phase 8 UI pass: the furniture list is a **vertical side panel on the right**, not a bar along the bottom, and
- * it swaps to a 용도 지정 picker while an empty room is selected. */
+ * it swaps to a `용도 지정` picker while an empty room is selected. */
 /* 2026-09-12: 300 → 320 px — a furniture card's cost row holds four 36 px chips on one line (no wrapping) */
 .sm-side {
   position: absolute; right: 24px; top: 96px; bottom: 96px;
@@ -2445,7 +2520,8 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 }
 .sm-side-head { display: flex; align-items: center; gap: 8px; }
 .sm-bar-head { flex: 1; min-width: 0; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 700; color: var(--c-text-dim); }
-/* 2026-09-12 (사용자 결정): `빈 방으로` → 빨간 `시설 제거` — 되돌릴 수 없는 버튼은 처음부터 위험 색이다 */
+/* 2026-09-12 (user's decision): `빈 방으로` → a red `시설 제거` — a button that cannot be undone wears the danger
+   colour from the start */
 .sm-clear {
   flex: none; padding: 3px 8px;
   border: 1px solid rgba(255, 77, 77, 0.55); background: rgba(255, 77, 77, 0.08);
@@ -2455,7 +2531,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-clear:hover { color: #ffb3b3; border-color: var(--c-danger); background: rgba(255, 77, 77, 0.18); }
 .sm-clear[hidden] { display: none; }
 .sm-empty { font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-faint); padding: 10px 2px; }
-/* 가구 제작 / 가구 창고 tabs (Phase 9 UI pass) — hidden while an empty room shows the 용도 지정 picker */
+/* `가구 제작` / `가구 창고` tabs (Phase 9 UI pass) — hidden while an empty room shows the `용도 지정` picker */
 .sm-tabs { display: flex; gap: 4px; }
 .sm-tabs[hidden] { display: none; }
 .sm-tab {
@@ -2466,7 +2542,8 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 }
 .sm-tab:hover { color: var(--c-text); border-color: var(--c-border-strong); }
 .sm-tab.is-on { color: var(--c-accent); border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
-/* 2026-09-12: 가구 제작 안의 하위 탭 (시설 가구 / 꾸밈용 가구) — 위 탭보다 한 단계 가볍다 (밑줄형) */
+/* 2026-09-12: the sub-tabs inside `가구 제작` (`시설 가구` / `꾸밈용 가구`) — one step lighter than the tabs above
+   (underline style) */
 .sm-subtabs { display: flex; gap: 2px; border-bottom: 1px solid var(--c-border); }
 .sm-subtabs[hidden] { display: none; }
 .sm-subtab {
@@ -2487,7 +2564,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-cards[hidden], .sm-purposes[hidden], .sm-store[hidden] { display: none; }
 .sm-cards::-webkit-scrollbar, .sm-purposes::-webkit-scrollbar, .sm-store::-webkit-scrollbar { width: 6px; }
 
-/* 용도 지정 (empty room) — sorted 제작 가능 → 제작 불가 → 이미 제작, each row led by the facility thumbnail */
+/* `용도 지정` (empty room) — sorted 제작 가능 → 제작 불가 → 이미 제작, each row led by the facility thumbnail */
 .sm-purpose {
   display: flex; flex-direction: row; align-items: center; gap: 10px; flex: none;
   padding: 8px 10px; text-align: left;
@@ -2501,12 +2578,13 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-purpose .ln { display: flex; align-items: center; gap: 8px; }
 .sm-purpose .nm { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; }
 .sm-purpose .badge { font-size: 8px; letter-spacing: 0.12em; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 1px 5px; }
-/* Phase 9 UI pass: the prose description is gone — a 용도 row carries its 시설 증축 cost chips instead */
+/* Phase 9 UI pass: the prose description is gone — a purpose row carries its `시설 증축` cost chips instead */
 .sm-cost { display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; }
 .sm-purpose.is-blocked { cursor: not-allowed; border-style: dashed; }
 .sm-purpose.is-blocked .nm { color: var(--c-text-dim); }
-/* 2026-09-15 (사용자 결정): 용도 줄 오른쪽의 `시설 증축` 버튼 — 가구 카드의 `제작` · `배치`(`.fcard-craft`)와 같은 결.
-   막혀 있어도 눌린다 (딤드 + `aria-disabled`, 누르면 사유 토스트) — 인스펙터의 `업그레이드` 버튼과 같은 규약이다. */
+/* 2026-09-15 (user's decision): the `시설 증축` button at the right of a purpose row — the same language as a
+   furniture card's `제작` · `배치` (`.fcard-craft`). It stays pressable even when blocked (dimmed +
+   `aria-disabled`, a press raises a reason toast) — the same contract as the inspector's `업그레이드` button. */
 .sm-purpose-build {
   flex: none; align-self: center; padding: 5px 12px; white-space: nowrap;
   border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.04);
@@ -2517,7 +2595,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-purpose-build.is-disabled { opacity: 0.45; border-style: dashed; }
 .sm-purpose-build.is-disabled:hover { background: rgba(255, 77, 77, 0.1); border-color: rgba(255, 77, 77, 0.45); color: var(--c-text-dim); }
 
-/* 가구 카드: horizontal row inside the vertical list */
+/* The furniture card: a horizontal row inside the vertical list */
 .fcard {
   --fc: var(--c-text);
   flex: none;
@@ -2531,8 +2609,9 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .fcard.is-sel { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
 .fcard.is-empty .fcard-name { color: var(--c-text-dim); }
 .fcard-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
-/* 2026-09-14 (사용자 결정): 썸네일은 **정사각형**이다 (54 × 54, 옛 54 × 44). 두 행에 걸치는 제작 카드에서는
-   아래 `.fcard > .fcard-thumb` 가 `align-self: stretch` 로 두 행을 정확히 채워 **아래 여백을 없앤다**. */
+/* 2026-09-14 (user's decision): the thumbnail is **square** (54 × 54, formerly 54 × 44). On a craft card that
+   spans two rows, `.fcard > .fcard-thumb` below fills both rows exactly with `align-self: stretch` and **leaves no
+   gap underneath**. */
 .fcard-thumb {
   position: relative; flex: none;
   width: 54px; height: 54px; aspect-ratio: 1 / 1;
@@ -2545,20 +2624,22 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .fcard-size { position: absolute; right: 2px; bottom: 1px; font-family: var(--ui-mono); font-size: 9px; color: var(--c-text-faint); }
 .fcard-name { font-size: 12px; line-height: 1.2; letter-spacing: 0.04em; color: var(--c-text); }
 .fcard-cost { gap: 6px; min-height: 26px; }
-/* 2026-09-12 (사용자 결정): the card is a grid so the **material row gets the full width under the name** — thumb on
-   the left spanning both rows, name / notes + the 제작 · 배치 button on top, the cost row (≤ 4 chips, one line, no
-   wrapping) below. A 가구 창고 card has no cost row, so it keeps the single top row. */
+/* 2026-09-12 (user's decision): the card is a grid so the **material row gets the full width under the name** —
+   thumb on the left spanning both rows, name / notes + the `제작` · `배치` button on top, the cost row (≤ 4 chips,
+   one line, no wrapping) below. A `가구 창고` card has no cost row, so it keeps the single top row. */
 .fcard {
   display: grid; grid-template-columns: 54px minmax(0, 1fr) auto;
   grid-template-areas: "thumb body btn" "thumb cost cost";
-  /* 2026-09-14: row-gap 6 → 4 — 이름 줄(14) + 재료 줄(36)이 썸네일 54 px 와 맞아떨어져 시설 가구 카드가 정사각형이 된다 */
+  /* 2026-09-14: row-gap 6 → 4 — the name row (14) + the material row (36) meet the 54 px thumbnail exactly, so a
+     facility furniture card comes out square */
   align-items: center; column-gap: 10px; row-gap: 4px;
 }
 .fcard.store { grid-template-areas: "thumb body btn"; }
-/* 2026-09-14 (사용자 결정): `align-self: stretch` — 썸네일이 **두 행(이름 줄 + 재료 줄)을 정확히 채운다.**
-   `align-self: start` + 고정 높이였던 예전에는 카드가 재료 줄 때문에 썸네일보다 길어져 **썸네일 아래에 빈 칸**이
-   남았다. 칸은 54 px 폭 · 최소 54 px 높이(정사각형)이고, 내용이 더 길어지면 여백 대신 썸네일이 같이 늘어난다.
-   `.fcard.store` 는 한 행짜리라 이 규칙에서도 54 × 54 그대로다. */
+/* 2026-09-14 (user's decision): `align-self: stretch` — the thumbnail **fills both rows (name row + material row)
+   exactly.** With the old `align-self: start` and a fixed height, the material row made the card taller than the
+   thumbnail and left **an empty gap under it**. The cell is 54 px wide and at least 54 px tall (square), and when
+   the content grows the thumbnail grows with it instead of leaving a gap. `.fcard.store` is a single row, so under
+   this rule too it stays 54 × 54. */
 .fcard > .fcard-thumb { grid-area: thumb; align-self: stretch; height: auto; min-height: 54px; aspect-ratio: auto; }
 .fcard > .fcard-body { grid-area: body; }
 .fcard > .fcard-craft, .fcard > .fcard-place { grid-area: btn; align-self: start; }
@@ -2568,9 +2649,9 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
   min-width: 0; min-height: 36px; overflow: hidden;
 }
 .fcard-cost .item-chip-free, .fcard-cost .fcard-nocraft { align-self: center; font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-faint); }
-/* 보유/필요 inside the thumbnail's bottom strip — full thumb width, never sticking out of it (사용자 결정). The chip
-   is exactly its thumbnail wide, so `99+/99` at 9 px mono (≈ 32 px) has to fit a 36 px chip — `ShipManage` caps a
-   larger 보유 at `99+`. Shared by the cards and the inspector's 업그레이드 비용 row. */
+/* have/need inside the thumbnail's bottom strip — full thumb width, never sticking out of it (user's decision).
+   The chip is exactly its thumbnail wide, so `99+/99` at 9 px mono (≈ 32 px) has to fit a 36 px chip —
+   `ShipManage` caps a larger have count at `99+`. Shared by the cards and the inspector's `업그레이드 비용` row. */
 .fcard-cost .item-chip, .sm-ins-cost .item-chip { max-width: var(--chip-size); }
 .fcard-cost .item-chip-count, .sm-ins-cost .item-chip-count {
   left: 0; right: 0; bottom: 0; justify-content: center;
@@ -2578,10 +2659,12 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
   background: rgba(6, 7, 9, 0.88); font-size: 9px; overflow: hidden;
 }
 .fcard-cost .item-chip-icon, .sm-ins-cost .item-chip-icon { transform: translateY(-5px); font-size: calc(var(--chip-size) * 0.44); }
-/* 2026-09-14 (사용자 결정): 시설 레벨 칩(`buildFacilityChip`)이 **한 줄에 안 들어가는 재료 줄**에서는 정사각형이다 —
-   기본 썸네일이 높이의 2배(가로로 긴 칩)라 `nowrap` 인 가구 카드의 재료 줄에서 혼자 튀었다. 이름은 자리가 없으니
-   숨기고(글리프 + `현재/필요` 만 남는다) 시설 이름은 칩의 `title` 이 말한다. 이중 테두리는 그대로 — 그것이 아이템
-   칩과 구분되는 표시다. 넓게 감싸는 줄(`.sm-cost` · `.sm-ins-cost` · 확인 팝업)은 예전 그대로 가로로 긴 칩이다. */
+/* 2026-09-14 (user's decision): the facility level chip (`buildFacilityChip`) is square on **a material row that
+   cannot wrap** — its default thumbnail is twice its height (a wide chip), so it stood out alone on the `nowrap`
+   material row of a furniture card. There is no room for the name, so it hides (only the glyph + `현재/필요` are
+   left) and the chip's `title` says which facility it is. The double border stays — that is what tells it apart
+   from an item chip. Rows that wrap freely (`.sm-cost` · `.sm-ins-cost` · the confirm popup) keep the wide chip as
+   before. */
 .fcard-cost .facility-chip-thumb, .inv-craft-costs .facility-chip-thumb { width: var(--chip-size); padding: 1px 2px 0; }
 .fcard-cost .facility-chip-name, .inv-craft-costs .facility-chip-name { display: none; }
 .fcard-cost .facility-chip-icon, .inv-craft-costs .facility-chip-icon { grid-column: 1 / -1; justify-self: center; }
@@ -2590,7 +2673,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .fcard-own.none { color: var(--c-text-faint); }
 
 /* ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
- * Phase 9 — 포기 hold bar · 훈련장 panel · ghost bleed bars (2026-09-06)
+ * Phase 9 — the give-up hold bar · training range panel · ghost bleed bars (2026-09-06)
  * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /* Vitals: Space give-up hold while downed (hud/Vitals, `player:giveUpProgress`) */
@@ -2599,7 +2682,8 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .vitals .giveup .txt { font-size: 11px; font-weight: 600; letter-spacing: 0.14em; color: var(--c-danger); }
 /* 2026-09-08: the progress bar moved to the crosshair ring (`.hold.is-giveup`); only the caption stays here. */
 
-/* 훈련장 panel under the objective (gameplay layer, hud/TrainingPanel; same slot as the contract panel, which never shows in a training) */
+/* Training range panel under the objective (gameplay layer, hud/TrainingPanel; the same slot as the contract
+   panel, which never shows in a training) */
 .training-panel {
   position: absolute; left: 32px; top: 104px;
   display: flex; flex-direction: column; gap: 4px;
@@ -2642,7 +2726,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .nameplate .tag.dead { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.55); }
 .srow.suspended.dead .state { color: var(--c-danger); }
 
-/* ═══ Phase 9 UI pass (2026-09-07): in-raid HUD — 분대 계약 rows, 빠른 사용 · 임플란트 썸네일 column ═══ */
+/* ═══ Phase 9 UI pass (2026-09-07): in-raid HUD — squad contract rows, quick-use · implant thumbnail column ═══ */
 
 /* Contract panel: own block + the squad's contracts under it (hud/ContractPanel) */
 .contract-panel { width: 250px; gap: 8px; }
@@ -2665,7 +2749,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .contract-panel .mrow.done .num { color: var(--c-success); }
 .contract-panel .mrow.done .bar .fill { background: var(--c-success); }
 
-/* 빠른 사용 thumbnail (hud/QuickStrip) — one cell above the weapon slot strip, right aligned.
+/* The quick-use thumbnail (hud/QuickStrip) — one cell above the weapon slot strip, right aligned.
    2026-09-07: `.is-single` draws only the last-selected wheel slot, at twice the old 30 px thumbnail. */
 .qstrip { display: flex; gap: 4px; margin-bottom: 2px; }
 .qstrip.is-single { justify-content: flex-end; }
@@ -2688,11 +2772,12 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 /* the shared item chip already draws the thumbnail; kill its own frame inside a tile */
 .qs-body .item-chip { pointer-events: auto; }
 
-/* 전술 임플란트 칩(`hud/ImplantChip`)은 2026-09-10 에 삭제됐다 — 임플란트 표시는 화면 중앙 하단의
-   `.imp-hud` 썸네일 하나뿐이다 (`src/ui/styles/implant.css`). */
+/* The tactical implant chip (`hud/ImplantChip`) was deleted on 2026-09-10 — the implant is shown by the one
+   `.imp-hud` thumbnail at bottom centre and nothing else (`src/ui/styles/implant.css`). */
 
-/* 시설 관리 furniture rows (Phase 9 UI pass): the 제작 button on a craft row, the storage-tab variants.
-   2026-09-09: `.fcard-place` is the 가구 창고 row's 배치 button — same chip as 제작, right side of the card. */
+/* Ship management furniture rows (Phase 9 UI pass): the `제작` button on a craft row, the storage-tab variants.
+   2026-09-09: `.fcard-place` is the `배치` button on a `가구 창고` row — the same chip as `제작`, on the right side
+   of the card. */
 .fcard-craft, .fcard-place {
   flex: none; align-self: center; padding: 4px 10px;
   border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.04);
@@ -2701,7 +2786,8 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 }
 .fcard-craft:hover:not(:disabled), .fcard-place:hover:not(:disabled) { color: var(--c-accent); border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
 .fcard-craft:disabled, .fcard-place:disabled { color: var(--c-text-faint); border-style: dashed; cursor: not-allowed; }
-/* 2026-09-12: 이미 가진 시설 가구 — 버튼 글자가 `이미 보유 중` 이고 사유 줄은 없다 */
+/* 2026-09-12: a facility furniture piece already owned — the button reads `이미 보유 중` and there is no reason
+   line */
 .fcard-craft { white-space: nowrap; }
 .fcard.is-owned .fcard-craft:disabled { color: var(--c-success); border-color: color-mix(in srgb, var(--c-success) 45%, transparent); border-style: solid; }
 .fcard-note { font-size: 10px; letter-spacing: 0.06em; color: var(--c-text-faint); }
@@ -2711,17 +2797,18 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .fcard.store.is-blocked:hover { background: rgba(255, 255, 255, 0.03); border-color: var(--c-border); }
 
 /* ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
- * Phase 11 — ESC 재배치 (버튼 좌측 · 소셜 우측) · 설정 사이드 패널 · 커뮤니티 · 분대 초대 · 귓속말 (2026-09-07)
+ * Phase 11 — the ESC re-layout (buttons left · social right) · settings side panel · community · squad invites ·
+ * whispers (2026-09-07)
  * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /* ── ESC: a narrow button column ──
    2026-09-08: the Phase 11 left edge gave way to a menu that parked itself under the mouse. 2026-09-09: that
    chasing is gone in turn — the frame sits **vertically centred in the left half** (`.menu.pause` above), a fixed
-   place the hand learns. The ship-only 소셜 열 (`.pause-social`) is gone too: social is the 커뮤니티 panel / P
-   alone, in the ship and in a raid alike. */
+   place the hand learns. The ship-only social column (`.pause-social`) is gone too: social is the community panel
+   / P alone, in the ship and in a raid alike. */
 .menu.pause .frame { min-width: 340px; max-width: 380px; }
 
-/* ── 소셜 열 (menus/social/SocialColumn) — shared by the ESC screen and the 커뮤니티 panel ── */
+/* ── The social column (menus/social/SocialColumn) — shared by the ESC screen and the community panel ── */
 .social-col { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
 .sc-off {
   padding: 14px 16px; border-left: 2px solid var(--c-border-strong);
@@ -2741,9 +2828,9 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
   max-height: calc(var(--rows) * 56px); overflow-y: auto; overflow-x: hidden;
   scrollbar-width: thin; padding-right: 4px;
 }
-/* 2026-09-08: `.fixed` (친구 / 최근 플레이어) holds its 3.5 / 5.5 row box whether it carries two cards or forty, so
-   the 커뮤니티 패널 never changes size under the cursor. 받은 친구 요청 stays elastic — its cards are taller (they
-   carry 수락 / 거절) and the section only exists while there is something in it. */
+/* 2026-09-08: `.fixed` (`친구` / `최근 플레이어`) holds its 3.5 / 5.5 row box whether it carries two cards or
+   forty, so the community panel never changes size under the cursor. `받은 친구 요청` stays elastic — its cards are
+   taller (they carry `수락` / `거절`) and the section only exists while there is something in it. */
 .sc-grid.fixed { height: calc(var(--rows) * 56px); flex: none; }
 .sc-grid::-webkit-scrollbar { width: 4px; }
 .sc-grid.is-empty { display: none; }
@@ -2778,8 +2865,9 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sc-act:hover { color: var(--c-text); border-color: var(--c-border-strong); }
 .sc-act.ok { color: var(--c-success); border-color: rgba(79, 209, 126, 0.5); }
 
-/* 분대원 (2026-09-08): a single `NET_MAX_PLAYERS`-wide row of cells that spans the whole panel — one cell per lobby
-   slot, profile stacked on the left, the UI-only voice slider + mute on the right, unheld slots drawn as 빈 자리. */
+/* `분대원` (2026-09-08): a single `NET_MAX_PLAYERS`-wide row of cells that spans the whole panel — one cell per
+   lobby slot, profile stacked on the left, the UI-only voice slider + mute on the right, and unheld slots drawn as
+   empty slots. */
 .sc-squad { display: grid; --cols: 4; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 6px; }
 .sc-srow {
   --sc: #fff;
@@ -2793,7 +2881,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sc-sleft { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; flex: 1; }
 .sc-sleft .sc-name { max-width: 100%; min-width: 0; }
 .sc-sright { display: flex; align-items: center; gap: 5px; flex: none; }
-/* 파티 떠나기 in the 분대원 header — quiet until it is hovered, like every other destructive affordance */
+/* `파티 떠나기` in the `분대원` header — quiet until it is hovered, like every other destructive affordance */
 .sc-leave {
   flex: none; padding: 2px 8px;
   border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.04);
@@ -2819,7 +2907,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 }
 .sc-mute.is-on { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.5); }
 
-/* right-click menu + 친구 삭제 confirm (direct children of #ui-root) */
+/* right-click menu + `친구 삭제` confirm (direct children of #ui-root) */
 .sc-menu {
   position: fixed; z-index: 300; min-width: 190px;
   padding: 5px; background: var(--c-panel-strong); border: 1px solid var(--c-border-strong);
@@ -2849,10 +2937,11 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sc-confirm-body { font-size: 12px; line-height: 1.5; color: var(--c-text-dim); }
 .sc-confirm-foot { display: flex; justify-content: flex-end; gap: 8px; }
 
-/* ── 설정: centred panel — nav rail + a fixed-size scrolling pane (2026-09-08; centred and widened 2026-09-09) ──
+/* ── Settings: centred panel — nav rail + a fixed-size scrolling pane (2026-09-08; centred and widened
+   2026-09-09) ──
    It used to hug the left edge (`margin-left: 72px`) to stay clear of the pause menu it opens from. The pause menu
    moved to the left half in 2026-09-09 and this overlay carries its own backdrop at z 86, so it is centred now —
-   and wider, because the 키 설정 diagram and the two-column function list were cramped at 900 px. */
+   and wider, because the `키 설정` diagram and the two-column function list were cramped at 900 px. */
 .menu.settings-menu.side { justify-content: center; background: rgba(3, 4, 6, 0.6); }
 .menu.settings-menu.side .frame {
   min-width: 960px; max-width: 1120px; width: min(1120px, calc(100vw - 80px));
@@ -2876,7 +2965,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .set-pane .set-body { height: 100%; padding-right: 8px; }
 .menu.settings-menu .set-body.keys .controls-panel { gap: 10px; }
 .menu.settings-menu .set-body.keys .ctl-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-/* on/off pill + 해상도 배율 segments (화면 설정) */
+/* on/off pill + `해상도 배율` segments (`화면 설정`) */
 .set-toggle, .set-seg {
   appearance: none; cursor: pointer; font-family: inherit;
   min-width: 58px; height: 30px; padding: 0 12px;
@@ -2890,7 +2979,8 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
   color: #1a1408; background: var(--c-accent); border-color: var(--c-accent);
   box-shadow: 0 0 8px rgba(255, 179, 71, 0.35);
 }
-/* C-58 (2026-09-11): perf guard 가 끈 블룸 — 저장값은 켬이라 `꺼짐 (성능 자동)` 을 꺼진 모양 + 호박 점선 테두리로 */
+/* C-58 (2026-09-11): bloom switched off by the perf guard — the saved value is on, so `꺼짐 (성능 자동)` is drawn
+   in the off shape with an amber dashed border */
 .set-toggle.is-auto { white-space: nowrap; letter-spacing: 0.04em; color: var(--c-accent); border-style: dashed; border-color: rgba(255, 179, 71, 0.6); }
 @media (max-width: 1040px) {
   .menu.settings-menu.side .frame { min-width: 0; width: calc(100vw - 48px); }
@@ -2898,7 +2988,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
   .set-nav { padding-right: 12px; }
 }
 
-/* ── 커뮤니티 icon + thumbnail + 분대 초대 stack (hud/Community, social layer, ship only) ── */
+/* ── The community icon + thumbnail + squad invite stack (hud/Community, social layer, ship only) ── */
 .community {
   position: absolute; right: 32px; top: 28px;
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
@@ -2907,14 +2997,16 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 }
 .community.show { opacity: 1; }
 .community.show .cm-btn, .community.show .cm-invites { pointer-events: auto; }
-/* 2026-09-16: 버튼 바로 아래 가운데의 `Keys.INVITE` 키캡 (작게). 루트가 오른쪽 정렬이라 버튼 폭(64)의 가운데로 민다. */
+/* 2026-09-16: the small `Keys.INVITE` keycap centred directly under the button. The root is right-aligned, so it
+   is pushed to the centre of the button's width (64). */
 .community .cm-key {
   margin-top: -4px; height: 18px; min-width: 18px; font-size: 10px;
   transform: translateX(calc(50% - 32px));
 }
-/* 2026-09-16: Tab 창 / 일시정지 메뉴 **위**의 메신저 (hud/Community `overMenu`). 버튼은 그 메뉴 위, 거기서 연 패널은 버튼 위.
-   Tab 창(50–80) 위 = 81 / 83 — 키 가이드(84) 아래라 패널의 키 안내가 보인다. 일시정지(85) 위 = 87 / 89 — 키 가이드는
-   `'menu'` 에 어차피 숨는다. 분대 초대 카드는 메뉴 위에서는 감춘다 (P 홀드도 그때는 받지 않는다). */
+/* 2026-09-16: the messenger **above** the Tab window / the pause menu (hud/Community `overMenu`). The button draws
+   over that menu, and the panel it opens draws over the button. Above the Tab window (50–80) = 81 / 83 — under the
+   key guide (84), so the panel's key line stays visible. Above the pause menu (85) = 87 / 89 — the key guide hides
+   on `'menu'` anyway. Squad invite cards are hidden while over a menu (and a P hold is not taken then either). */
 .community.over-inv { z-index: 81; }
 .community.over-pause { z-index: 87; }
 .community.over-inv .cm-invites, .community.over-pause .cm-invites { display: none; }
@@ -2965,16 +3057,16 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .cmi-bar { height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
 .cmi-bar i { display: block; height: 100%; background: var(--c-accent); transform-origin: left; transform: scaleX(0); transition: transform 90ms linear; }
 
-/* 커뮤니티 panel (direct child of #ui-root so the social layer gating never hides it) */
+/* The community panel (direct child of #ui-root so the social layer gating never hides it) */
 .community-panel {
   position: absolute; inset: 0; z-index: 46;
   display: flex; align-items: center; justify-content: center;
   background: radial-gradient(ellipse at 50% 40%, rgba(8, 10, 14, 0.55), rgba(3, 4, 6, 0.88));
 }
-/* 2026-09-08 — **고정 크기**. The frame used to grow and shrink with the lists (and with the 받은 친구 요청 section,
-   which appears out of nowhere), so the 닫기 button moved under the cursor between two openings. Width and height
-   are fixed now (clamped to the viewport on small screens) and `.sc-body` scrolls if the content ever exceeds it;
-   the lists inside keep their own fixed 3.5 / 5.5 row boxes. Wide enough for the 분대원 1×4 row. */
+/* 2026-09-08 — **a fixed size**. The frame used to grow and shrink with the lists (and with the `받은 친구 요청`
+   section, which appears out of nowhere), so the `닫기` button moved under the cursor between two openings. Width
+   and height are fixed now (clamped to the viewport on small screens) and `.sc-body` scrolls if the content ever
+   exceeds it; the lists inside keep their own fixed 3.5 / 5.5 row boxes. Wide enough for the `분대원` 1×4 row. */
 .cp-frame {
   position: relative;
   width: min(940px, calc(100vw - 64px));
@@ -2991,7 +3083,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .cp-code { flex: 1; min-width: 0; font-size: 11px; letter-spacing: 0.08em; color: var(--c-text-dim); }
 .cp-close { flex: none; }
 
-/* ── 귓속말 (hud/ChatLog): target chip, whisper lines, the mid-left column while a target is set ── */
+/* ── Whispers (hud/ChatLog): target chip, whisper lines, the mid-left column while a target is set ── */
 .chat-target {
   display: flex; align-items: center; gap: 4px; flex: none;
   padding: 1px 4px 1px 6px;
@@ -3003,9 +3095,9 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .chat-line.whisper .txt, .chat-line.whisper .who { color: #d9a3ff; font-style: italic; }
 .hud-bl.whispering { bottom: 46%; }
 
-/* ══ Phase 12 (2026-09-08): 감지 · 정찰 · 지속 사용 티커 · 시설 관리 확인 팝업 ══════════════════════════════════════ */
+/* ══ Phase 12 (2026-09-08): detection · recon · the channel ticker · ship management confirm popup ══════════ */
 
-/* compass enemy ticks (hud/Compass) — red bars at the enemy's bearing, pooled; `.scanned` = 정찰 reveal */
+/* compass enemy ticks (hud/Compass) — red bars at the enemy's bearing, pooled; `.scanned` = a recon reveal */
 .compass .eticks { position: absolute; left: 50%; top: 0; width: 0; height: 100%; }
 .compass .etick {
   position: absolute; left: 0; top: 24px; width: 3px; height: 8px;
@@ -3016,12 +3108,13 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .compass .etick.scanned { top: 22px; height: 11px; width: 2px; box-shadow: 0 0 8px rgba(255, 77, 77, 0.95); }
 .compass .etick[hidden] { display: none; }
 
-/* ═══ 2026-09-15 — 안드로이드 분대원 (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ═══
- * 사람 분대원과 **같은 언어, 다른 모양**: 슬롯 색은 그대로 쓰되 나침반 눈금은 마름모, 분대 행 · 이름표 · 핑 ·
- * 채팅에는 각자의 표식이 붙는다. 봇 멤버에게는 소켓이 없어 `RemotePlayerRef` 가 없으므로, 모든 값은
- * `ctx.allies` 의 몸에서 온다 (`ui/hud/allySource`). */
+/* ═══ 2026-09-15 — android squadmates (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ═══
+ * **The same language as a human squadmate, a different shape**: the slot colour is kept, but the compass tick is
+ * a diamond, and the squad row · nameplate · ping · chat each carry a mark of their own. A bot member has no
+ * socket and therefore no `RemotePlayerRef`, so every value comes from its body in `ctx.allies`
+ * (`ui/hud/allySource`). */
 
-/* 나침반 안드로이드 눈금 — 슬롯 색 마름모 (인라인 transform 이 회전까지 쓴다) */
+/* The android compass tick — a slot-coloured diamond (the inline transform writes the rotation too) */
 .compass .atick {
   position: absolute; left: 0; top: 24px; width: 7px; height: 7px;
   background: #fff; border-radius: 1px;
@@ -3031,24 +3124,26 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .compass .atick.downed { opacity: 0.55; }
 .compass .atick[hidden] { display: none; }
 
-/* 분대 목록의 안드로이드 행 — `안드로이드` 배지 + 체력 바 위의 얇은 실드 바 */
+/* The android row in the squad list — an `안드로이드` badge + a thin shield bar above the hp bar */
 .srow .sh { display: none; position: relative; height: 2px; margin-bottom: 2px; background: rgba(255, 255, 255, 0.10); overflow: hidden; }
 .srow .sh .fill { position: absolute; inset: 0; background: var(--r-uncommon); transform-origin: left; will-change: transform; }
 .srow.has-shield .sh { display: block; }
-/* 실드 바가 붙으면 행이 4 px 만큼 늘어난다 — 버프 줄과 같은 규칙 (`styles/buffs.css`: 고정 30 px 대신 min-height) */
+/* A row with a shield bar grows by 4 px — the same rule as the buff strip (`styles/buffs.css`: a min-height
+   instead of a fixed 30 px) */
 .squad .srow.has-shield { height: auto; min-height: 30px; }
 .srow .badge.android { color: var(--c-info); border-color: rgba(127, 183, 230, 0.45); letter-spacing: 0.1em; }
 .srow.android .name { font-style: italic; }
 
-/* 안드로이드 이름표 — 사람 판과 같은 판에 기울어진 이름 · 푸른 꼬리표 */
+/* The android nameplate — the same plate as a human's, with an italic name and a blue tag */
 .nameplate.ally .name { font-style: italic; }
 .nameplate.ally .tag { color: var(--c-info); border-color: rgba(127, 183, 230, 0.55); }
 
-/* 안드로이드가 찍은 핑 — 원격 핑과 같은 슬롯 색, 점선 테두리로 사람과 구별한다 */
+/* A ping placed by an android — the same slot colour as a remote ping, told apart from a person's by the dashed
+   border */
 .pmarker.android .ico { border-style: dashed; }
 .pmarker.android .lbl { font-style: italic; }
 
-/* 안드로이드 채팅 한 줄 — 이름만 그 기의 슬롯 색 (`--sc` 는 줄에 인라인으로 쓴다) */
+/* An android's chat line — only the name takes that unit's slot colour (`--sc` is written inline on the row) */
 .chat-line.ally .who { color: var(--sc, var(--c-info)); font-style: italic; }
 
 /* on-screen detected-enemy chevron (hud/Detection): a small red ▼ floating above the body */
@@ -3063,12 +3158,12 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .detect-mark.scanned i { border-top-color: #ff8a8a; }
 .detect-mark[hidden] { display: none; }
 
-/* the one channel line (hud/Notifications): pinned, updated in place while a 회복 스프레이 is held */
+/* the one channel line (hud/Notifications): pinned, updated in place while a `회복 스프레이` is held */
 .notif.channel { border-left-color: var(--c-success); }
 .notif.channel .t .pct { font-family: var(--ui-mono); color: var(--c-success); }
 
-/* 시설 관리 — 발전기 row. 2026-09-12: it left the 용도 지정 picker and sits **under the 방 목록** (216 px column), so it
-   stacks: head line (thumb · name + level · button) → cost chips → note. */
+/* Ship management — the generator row. 2026-09-12: it left the `용도 지정` picker and sits **under the room list**
+   (216 px column), so it stacks: head line (thumb · name + level · button) → cost chips → note. */
 .sm-gen-host { flex: none; padding-top: 6px; border-top: 1px solid var(--c-border); }
 .sm-gen {
   display: flex; flex-direction: column; align-items: stretch; gap: 6px; flex: none;
@@ -3094,8 +3189,9 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-gen-btn:hover { background: rgba(255, 179, 71, 0.22); color: #ffd18a; }
 .sm-gen-btn:disabled { opacity: 0.45; cursor: default; }
 
-/* 2026-09-14 (사용자 결정): 발전기 행의 **레벨별 해금 표**(`.sm-gen-unlocks` · `.sm-gen-unlock`)는 마크업과 함께
-   지웠다 — 다섯 줄짜리 표가 방 목록을 밀어냈고, 같은 정보는 용도 지정 카드의 발전기 레벨 칩이 그 자리에서 말한다. */
+/* 2026-09-14 (user's decision): the **per-level unlock table** on the generator row (`.sm-gen-unlocks` ·
+   `.sm-gen-unlock`) was deleted together with its markup — a five-row table pushed the room list out, and the same
+   information is said in place by the generator level chip on the `용도 지정` card. */
 /* the printed block reason under a purpose / the generator (was a tooltip on a disabled button) */
 .sm-block { font-size: 10px; line-height: 1.45; letter-spacing: 0.03em; color: var(--c-danger); }
 /* a blocked purpose row stays clickable (it answers with the reason) — dashed, dimmed, no not-allowed cursor */
@@ -3104,9 +3200,9 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-purpose.flash { animation: smFlash 0.5s var(--ease); }
 @keyframes smFlash { 0% { background: rgba(255, 77, 77, 0.35); } 100% { background: rgba(255, 255, 255, 0.03); } }
 
-/* centred modeless confirm popup of the 시설 관리 screen (purpose build / 발전기 upgrade).
-   z 79: above the 튜토리얼 스포트라이트 (`.tut-spot`, 78) — the popup opens from a button the spotlight is
-   highlighting, so the dark panes must never end up on top of it. Still below the 일시정지 메뉴 (85). */
+/* The centred modeless confirm popup of the ship management screen (purpose build / generator upgrade).
+   z 79: above the tutorial spotlight (`.tut-spot`, 78) — the popup opens from a button the spotlight is
+   highlighting, so the dim plates must never end up on top of it. Still below the pause menu (85). */
 .sm-confirm {
   position: absolute; inset: 0; z-index: 79;
   display: flex; align-items: center; justify-content: center;
@@ -3125,19 +3221,21 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-confirm-card .acts { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
 .sm-confirm-card .acts .ui-btn { min-width: 92px; padding: 0 18px; }
 
-/* ── B-13 (2026-09-11): 클릭 인스펙터 (hud/ShipManage) ────────────────────────────────────────────────────────────
-   `.sm-confirm` 과 같은 상자 언어(어두운 판 + accent 테두리 + menuIn)를 쓰지만 **모달리스**다 — 배경을 덮지 않고
-   blocker 도 잡지 않으므로, 카드를 띄운 채 다음 가구를 계속 클릭할 수 있다. 자리는 방 목록(좌 216px) · 가구
-   목록(우 300px) 사이의 하단 중앙이라 어느 쪽도 가리지 않는다. z 는 `.sm-confirm`(79) 아래 — 확인 팝업이 뜨면
-   그것이 위다. */
+/* ── B-13 (2026-09-11): the click inspector (hud/ShipManage) ─────────────────────────────────────────────────
+   It uses the same box language as `.sm-confirm` (dark card + accent border + menuIn) but is **modeless** — it
+   covers no backdrop and takes no blocker, so the next piece of furniture can be clicked while the card is up. It
+   sits at bottom centre between the room list (left, 216px) and the furniture list (right, 300px), hiding neither.
+   Its z is below `.sm-confirm` (79) — once the confirm popup opens, that one is on top. */
 /* 2026-09-12: the card and the placement-refusal toast above it share one bottom-centre column (`.sm-dock`) — the
    toast always lands right above the card, or on the same spot when no card is up. */
-/* 2026-09-16 (버그: 가구를 고른 채 무한상자 치트를 치면 이 팝업이 무한상자 창 · 인벤토리 우클릭 메뉴 **위**에 그려졌다).
-   옛 값 77 은 `.sm-confirm`(79) 바로 아래라는 이유만으로 골랐는데, `.ship-manage` 가 든 `.hud` 는 z-index 가 없어
-   쌓임 맥락을 만들지 않으므로 이 77 은 `#ui-root` 안에서 **인벤토리 창(50) · 그 우클릭 메뉴(75)와 직접 겨룬다**.
-   창은 언제나 이 팝업을 이겨야 하므로 **49** — 인벤토리 창 바로 아래, 곧 HUD 층의 맨 위다. 지도(40) · 커뮤니티(46)
-   위라 함선에서 이 팝업은 여전히 HUD 무엇에도 가리지 않고, `.sm-confirm`(79) · 튜토리얼 스포트라이트(78)보다
-   아래라는 원래 관계도 그대로다 (둘 다 77 일 때도 위였다). 반대쪽 숫자는 건드리지 않는다. */
+/* 2026-09-16 (bug: typing the infinite-box cheat with a piece of furniture selected drew this popup **above** the
+   infinite box window and the inventory right-click menu). The old value 77 was picked only because it sat directly
+   below `.sm-confirm` (79), but the `.hud` that holds `.ship-manage` has no z-index and makes no stacking context,
+   so inside `#ui-root` that 77 **competes directly with the inventory window (50) and its right-click menu (75)**.
+   The window must always beat this popup, hence **49** — directly below the inventory window, that is, the top of
+   the HUD layers. It is above the map (40) and the community panel (46), so in the ship this popup is still hidden
+   by nothing in the HUD, and its original relation to `.sm-confirm` (79) and the tutorial spotlight (78) — below
+   both — is unchanged (they were above it at 77 as well). The numbers on the other side are left alone. */
 .sm-dock {
   position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 49;
   display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -3162,7 +3260,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 }
 .sm-inspect[hidden] { display: none; }
 .sm-ins-head { display: flex; align-items: center; gap: 10px; }
-/* 2026-09-14 (사용자 결정): 인스펙터 머리의 썸네일도 정사각형 (46 × 46, 옛 46 × 40) */
+/* 2026-09-14 (user's decision): the thumbnail in the inspector head is square too (46 × 46, formerly 46 × 40) */
 .sm-ins-head .fcard-thumb { width: 46px; height: 46px; }
 .sm-ins-title { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .sm-ins-name { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-text); }
@@ -3178,7 +3276,8 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-ins-note.is-ok { color: var(--c-text-dim); }
 .sm-ins-acts { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .sm-ins-up { padding: 6px 16px; }
-/* 2026-09-12: 좌측 하단 `위치 이동` — 강화(accent)와 구분되는 중립 버튼, 옮기는 동안 `이동 중` 으로 잠긴다 */
+/* 2026-09-12: `위치 이동` at bottom left — a neutral button, set apart from the accent upgrade one; while the
+   piece is being moved it locks to `이동 중` */
 .sm-ins-move {
   padding: 6px 14px;
   border: 1px solid var(--c-border-strong); background: rgba(255, 255, 255, 0.05);
@@ -3189,15 +3288,18 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-ins-move:disabled { cursor: default; }
 .sm-ins-move.is-on { color: #5cff8a; border-color: rgba(92, 255, 138, 0.55); background: rgba(92, 255, 138, 0.08); }
 
-/* 제작 카드 잠금 (B-13): 이미 가진 실용 가구 · 재료 부족은 딤드로 목록 맨 아래에 선다 */
+/* Locked craft cards (B-13): functional furniture already owned, and anything short of materials, stand dimmed at
+   the bottom of the list */
 .fcard.is-locked { opacity: 0.55; border-style: dashed; }
 .fcard.is-locked .fcard-name { color: var(--c-text-dim); }
 .fcard.is-locked:hover { background: rgba(255, 255, 255, 0.03); border-color: var(--c-border); }
 .fcard-note.is-locked { color: var(--c-danger); }
 
-/* ── 2026-09-12 (사용자 결정): 인스펙터 하단 = 업그레이드 구역 ──────────────────────────────────────────────────
-   카드 아래에 선을 긋고 좌 `업그레이드 비용` · 가운데 재료 칩 + 시설 레벨 칩(한 줄) · 우 `업그레이드`. 막혀 있어도
-   버튼은 **눌린다**(`aria-disabled`) — 누르면 인스펙터 위 토스트가 이유를 말한다. 최대 레벨이면 진짜 `disabled`. */
+/* ── 2026-09-12 (user's decision): the bottom of the inspector = the upgrade section ─────────────────────────
+   A line is drawn under the card, with `업그레이드 비용` on the left · material chips + the facility level chip in
+   the middle (one line) · `업그레이드` on the right. The button **stays pressable** even when blocked
+   (`aria-disabled`) — a press raises a toast above the inspector that says why. At max level it is truly
+   `disabled`. */
 .sm-inspect, .sm-toast { max-width: min(470px, calc(100vw - 640px)); }
 .sm-inspect { width: min(470px, calc(100vw - 640px)); }
 .sm-ins-upsec {
@@ -3215,7 +3317,8 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-gen-btn.sm-ins-up.is-disabled { opacity: 0.45; border-style: dashed; }
 .sm-gen-btn.sm-ins-up.is-disabled:hover { background: rgba(255, 179, 71, 0.12); color: var(--c-accent); }
 
-/* 2026-09-12: 시설 제거 확인 — 빨간 `시설 제거` 버튼을 `UI_HOLD_CONFIRM_S` 동안 누른다 (일시정지 경고 팝업과 같은 게이지) */
+/* 2026-09-12: the facility removal confirm — hold the red `시설 제거` button for `UI_HOLD_CONFIRM_S` (the same
+   gauge as the pause warning popup) */
 .sm-confirm-card.is-danger { border-color: rgba(255, 77, 77, 0.55); }
 .sm-confirm-card.is-danger .title { color: var(--c-danger); }
 .sm-confirm-ok { position: relative; overflow: hidden; }
@@ -3227,10 +3330,12 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 }
 .sm-confirm-card .acts .ui-btn.sm-danger { border-color: rgba(255, 77, 77, 0.6); color: var(--c-danger); background: rgba(255, 77, 77, 0.08); }
 .sm-confirm-card .acts .ui-btn.sm-danger:hover, .sm-confirm-card .acts .ui-btn.sm-danger.is-holding { border-color: var(--c-danger); color: #ffb3b3; }
-/* 2026-09-15 2차 (사용자 결정): 옛 안내 줄 `.sm-confirm-hint` 는 없어졌다 — 버튼 안의 좌클릭 홀드 키캡이 그 말을 한다. */
+/* 2026-09-15 2nd pass (user's decision): the old hint line `.sm-confirm-hint` is gone — the left-click hold
+   keycap inside the button says it. */
 
-/* 2026-09-17 (사용자 결정): 가구 제작 모달 (hud/ShipManage `openCraft`) — `.sm-confirm` 판 위에 가운데 썸네일 · `{이름} 제작` ·
-   재료 칩 · 우측 하단 `제작`(`.sm-craft-ok`, 1초 홀드 — 게이지는 accent). 썸네일은 목록의 `.fcard-thumb` 를 키운 것이다. */
+/* 2026-09-17 (user's decision): the furniture craft modal (hud/ShipManage `openCraft`) — over the `.sm-confirm`
+   backdrop: a centred thumbnail · `{이름} 제작` · material chips · `제작` at bottom right (`.sm-craft-ok`, a 1 s
+   hold — the gauge is accent). The thumbnail is the list's `.fcard-thumb`, enlarged. */
 .sm-craft-card { width: min(440px, 88vw); }
 .sm-craft-head { display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 4px; }
 .sm-craft-thumb { width: 96px; height: 96px; }
@@ -3245,7 +3350,8 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-craft-ok .sm-hold-fill { background: color-mix(in srgb, var(--c-accent) 38%, transparent); }
 .sm-craft-ok.is-disabled { opacity: 0.45; border-style: dashed; }
 
-/* 2026-09-17 (사용자 결정): 가구 창고 레드닷 — 메신저 버튼의 `.cm-dot` 과 같은 점 (세션 한정, `ShipManage.paintDots`) */
+/* 2026-09-17 (user's decision): the `가구 창고` red dot — the same dot as the messenger button's `.cm-dot`
+   (session only, `ShipManage.paintDots`) */
 .sm-tab, .sm-subtab { position: relative; }
 .sm-dot {
   position: absolute; right: 3px; top: 3px;
@@ -3257,21 +3363,25 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-dot[hidden] { display: none; }
 .fcard-thumb > .sm-dot { right: -4px; top: -4px; z-index: 1; }
 
-/* 조종석 행 (방 목록 맨 위, 2026-09-12): 번호 칸이 없고 아래 방들과 한 줄 띄운다 */
+/* The cockpit row (top of the room list, 2026-09-12): it has no number cell and is set one line apart from the
+   rooms below */
 .sm-room.is-cockpit { margin-bottom: 4px; border-bottom-color: var(--c-border); }
 
-/* ── 화면 전체 검은 페이드 (2026-09-14, `ui:screenFade` → `ui/HudSystem`) ──────────────────────────────
- * 튜토리얼 오프닝(감은 눈이 떠진다)이 첫 사용자다. `#ui-root` 직계 판 하나이고 불투명도만 인라인으로 바뀐다 —
- * **`HudSystem.update` 가 프레임마다** 쓴다. CSS `transition` 을 걸지 않는 이유는 위의 reduced-motion 규칙이다:
- * OS 가 애니메이션 효과를 끄면 전이가 0.01 ms 로 잘려 페이드가 한 프레임에 끝났다 (2026-09-14 수정).
+/* ── The full-screen black fade (2026-09-14, `ui:screenFade` → `ui/HudSystem`) ───────────────────────
+ * The tutorial opening (closed eyes opening) is its first user. It is one plate directly under `#ui-root` and only
+ * its opacity changes, written inline **by `HudSystem.update`, every frame**. It carries no CSS `transition`
+ * because of the reduced-motion rule above: with the OS animation effects off, a transition is clipped to 0.01 ms
+ * and the fade finished in a single frame (fixed 2026-09-14).
  *
- * **연출이지 blocker 가 아니다** — `pointer-events: none` 이고 `ctx.escape` · `uiBlockers` 에 올라가지 않는다.
+ * **It is presentation, not a blocker** — `pointer-events: none`, and it goes on neither `ctx.escape` nor
+ * `uiBlockers`.
  *
- * **z-index 82 의 근거**: HUD 레이어 · 지도(40) · 커뮤니티(46) · 인벤토리 창(50 과 그 딸림 층 ≤ 80) ·
- * 허브 팝업(72) **위**, 그러나 메뉴류 — 서버 배지(83) · 타이틀(84) · 키 가이드(84) · **결과 화면(84)** · 일시정지(85) ·
- * 설정(86) · 키 설정(88) · 개발자 콘솔(90) — 과 떠다니는 카드(200 +) **아래**다. 페이드는 화면을 가리는
- * 연출이므로 게임 화면은 전부 덮어야 하지만, 불투명도 1 인 동안 ESC 로 연 화면까지 삼키면 플레이어는
- * 검은 화면에 갇힌 것으로 읽는다 — 일시정지는 언제나 보여야 한다. */
+ * **Why z-index 82**: **above** the HUD layers · the map (40) · the community panel (46) · the inventory window
+ * (50 and its dependent layers ≤ 80) · the hub popups (72), but **below** the menus — the server badge (83) · the
+ * title (84) · the key guide (84) · **the results screen (84)** · the pause menu (85) · settings (86) · key
+ * settings (88) · the dev console (90) — and the floating cards (200 +). The fade is presentation that covers the
+ * screen, so it has to cover all of the game screen; but if it swallowed a screen opened with ESC while its
+ * opacity is 1, the player reads it as being trapped on a black screen — the pause menu must always show. */
 .screen-fade {
   position: absolute; inset: 0; z-index: 82;
   background: #000;
@@ -3279,14 +3389,16 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
   pointer-events: none;
 }
 
-/* ── 키 가이드의 `또는` · `+` (2026-09-12 사용자 결정): 키캡 사이의 작은 글씨 ── */
+/* ── The key guide's `또는` · `+` (2026-09-12, user's decision): small type between keycaps ── */
 .key-guide .kg-or, .key-guide .kg-plus { font-size: 9px; letter-spacing: 0.04em; color: var(--c-text-faint); }
 .key-guide .kg-plus { font-size: 10px; font-weight: 700; }
 
-/* ── 커서 홀드 링 (hud/CursorHoldGauge, 2026-09-12): 시설 관리에서 가구를 꾹 누르는 동안 커서 중심 ──
-   크로스헤어 홀드 링(`.hold`)과 같은 결 · 작은 크기. `transform` 이 커서 좌표이고 margin 이 중심을 맞춘다.
-   2026-09-14: `ui:cursorHold`(인벤토리 툴팁 고정)도 같은 링이다 — 인벤토리 창(50) · 호버 카드(200) · 즐겨찾기 메뉴(210) 위에
-   떠야 하므로 z 83 → 215 (드래그 고스트 `.hs-ghost` 220 아래). 포인터를 먹지 않는다. */
+/* ── The cursor hold ring (hud/CursorHoldGauge, 2026-09-12): centred on the cursor while a piece of furniture is
+   held down in ship management ── The same language as the crosshair hold ring (`.hold`), at a smaller size.
+   `transform` is the cursor position and the margin centres it.
+   2026-09-14: `ui:cursorHold` (pinning an inventory tooltip) is the same ring — it has to draw above the inventory
+   window (50) · the hover card (200) · the favorite menu (210), hence z 83 → 215 (below the drag ghost
+   `.hs-ghost`, 220). It eats no pointer. */
 .cursor-hold {
   position: fixed; left: 0; top: 0; z-index: 215;
   width: 56px; height: 56px; margin: -28px 0 0 -28px;
@@ -3299,10 +3411,10 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .cursor-hold .track { stroke: rgba(255, 255, 255, 0.18); }
 .cursor-hold .fill { stroke: var(--c-accent); filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.8)); }
 
-/* ══ 2026-09-16 — 공용 드롭다운 (`src/shared/dropdown.ts`) ══════════════════════════════════════════════════════
- * 게임 안의 네이티브 `<select>` 를 대신한다. 목록(`.dd-pop`)은 `document.body` 바로 아래 `position: fixed` 로
- * 떠서 어떤 스크롤 상자에도 잘리지 않으므로, **z-index 는 이 파일에서 가장 높다**(400 — 아이템 메뉴 302 위).
- * 껍데기 `.dd` 는 크기를 정하지 않는다 — 부른 쪽 클래스(`.inv-filter-sel` 등)가 정한다.
+/* ══ 2026-09-16 — The shared dropdown (`src/shared/dropdown.ts`) ═══════════════════════════════════════════════
+ * It replaces the native `<select>` inside the game. The list (`.dd-pop`) floats `position: fixed` directly under
+ * `document.body` and so is clipped by no scroll box, which is why **its z-index is the highest in this file**
+ * (400 — above the item menu at 302). The shell `.dd` sets no size — the calling class does (`.inv-filter-sel` …).
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 .dd { position: relative; display: inline-flex; align-items: stretch; min-width: 0; }
 .dd-trigger {

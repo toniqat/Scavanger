@@ -1,16 +1,20 @@
 /*
- * src/ui/styles/rover.css — 탐사 차량 · 지도 범례 견본 (2026-09-13). `map/MapScreen` · `hud/RoverHud` 가 import 한다.
+ * src/ui/styles/rover.css — the rover and the map legend swatches (2026-09-13). Imported by `map/MapScreen` and
+ * `hud/RoverHud`.
  *
- *   `.map-legend-row .sw-cv`     범례 견본 캔버스 — 지도와 같은 그리기 함수(`map/mapIcons`)가 그린다
- *   `.map-rover`                 지도 좌측 열의 목적지 선택 패널 (선택 모드 동안 범례 자리)
- *   `.map-rover-go(.is-blocked/.is-holding) > .fill + .lbl`   1초 홀드 출발 버튼
- *   `.hud.rover-view`            탑승 중 게임플레이 레이어 — 쓸 수 없는 전투 위젯을 숨긴다 (`drone.css` 의 `drone-view` 와 같은 목록)
- *   `.rv-hud(.show/.low)`        탑승 HUD — 차량 체력 · 상태 한 줄 (하단 중앙, 무기 · 임플란트가 사라진 자리)
+ *   `.map-legend-row .sw-cv`     the legend swatch canvas — drawn by the map's own painters (`map/mapIcons`)
+ *   `.map-rover`                 the destination picker panel in the map's left column (the legend's place while
+ *                                picking)
+ *   `.map-rover-go(.is-blocked/.is-holding) > .fill + .lbl`   the 1 s hold departure button
+ *   `.hud.rover-view`            the gameplay layer while riding — hides the unusable combat widgets (the same
+ *                                list as `drone-view` in `drone.css`)
+ *   `.rv-hud(.show/.low)`        the riding HUD — the vehicle's hp and a state row (bottom centre, where the
+ *                                weapon and implant widgets were)
  */
 
-/* ── 지도: 범례 견본 · 목적지 선택 ─────────────────────────────────────── */
+/* ── Map: the legend swatches and the destination pick ──────────────────── */
 .map-legend-row .sw-cv { width: 28px; height: 20px; flex: none; display: block; }
-/* `hidden` 속성이 `display: flex` 규칙에 지지 않게 */
+/* So the `hidden` attribute does not lose to a `display: flex` rule */
 .map-legend[hidden], .map-legend-row[hidden], .map-rover[hidden], .map-rover-hint[hidden] { display: none !important; }
 .map-canvas.pick { cursor: pointer; }
 
@@ -20,8 +24,9 @@
 .map-rover-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; color: var(--c-text-dim); }
 .map-rover-row .v { color: var(--c-text); font-size: 13px; }
 .map-rover-reason { min-height: 16px; font-size: 12px; line-height: 1.35; color: #ff6a5a; }
-/* 2026-09-15 2차 (사용자 결정): 라벨 왼쪽에 좌클릭 홀드 키캡(`.keycap.kc-btn`)이 선다 — 둘이 한 줄로 가운데
-   정렬되도록 버튼 자신이 flex 다 (채움 바 `.fill` 은 절대 배치라 flex 항목이 아니다). */
+/* 2026-09-15 2nd pass (user's decision): a left-click hold keycap (`.keycap.kc-btn`) stands left of the label —
+   the button itself is flex so the two centre on one row (the fill bar `.fill` is absolutely positioned and is
+   not a flex item). */
 .map-rover-go {
   position: relative; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
@@ -36,7 +41,7 @@
 .map-rover-go.is-blocked { border-color: var(--c-border); background: rgba(255, 255, 255, 0.03); color: var(--c-text-faint); cursor: default; }
 .map-rover-note { font-size: 11px; line-height: 1.4; color: var(--c-text-faint); }
 
-/* ── 탑승 중: 전투 HUD 숨김 (drone.css 와 같은 목록 · 같은 이유로 !important) ── */
+/* ── While riding: the combat HUD hides (the same list as drone.css, `!important` for the same reason) ── */
 .hud.rover-view .weapon,
 .hud.rover-view .imp-hud,
 .hud.rover-view .scall,
@@ -50,7 +55,7 @@
 .hud.rover-view .qwheel,
 .hud.rover-view .swheel { opacity: 0 !important; visibility: hidden; }
 
-/* ── 탑승 HUD ─────────────────────────────────────────────────────────── */
+/* ── The riding HUD ───────────────────────────────────────────────────── */
 .rv-hud {
   position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%);
   width: 300px; padding: 10px 14px 11px;

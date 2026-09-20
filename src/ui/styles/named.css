@@ -1,22 +1,27 @@
 /*
- * src/ui/styles/named.css — 로든 스캔 · 저격 경고 (`hud/NamedScanWarning`, 2026-09-11).
+ * src/ui/styles/named.css — the scan and sniper warnings of the named sniper `로든` (`hud/NamedScanWarning`,
+ * 2026-09-11).
  *
- *   `.named-scan`   게임플레이 레이어 전체를 덮는 뿌리 (`.off` = 메뉴 · 지도 · 사망 · 페이즈 밖)
- *     `.ns-sweep`     노출된 음파 한 번: 가장자리 붉은 비네트 + 바깥으로 퍼지는 링 (`.go` 로 재생)
- *     `.ns-banner`    상단 중앙 `스캔에 노출되고 있음` + 칸 (`.warm` 절반 이상, `.crit` total−1 이상 + `엄폐하라`)
- *     `.ns-aim`       표적이 나일 때 크로스헤어 위 `저격 조준!`
- *     `.ns-head`      화면 안의 조준경 반짝임 (`.mine` = 나를 노린다 → 크게 + 링 + 라벨)
- *     `.ns-arc`       화면 밖에서 나를 노리는 반짝임의 방향 호 (`--rot`, `DangerIndicators` 의 `.dgr-arc` 와 같은 문법,
- *                     더 크고 굵어서 겹쳐도 저격 호로 읽힌다)
+ *   `.named-scan`   the root covering the whole gameplay layer (`.off` = menu · map · dead · outside the phase)
+ *     `.ns-sweep`     one exposed scan pulse: a red vignette at the edges + a ring spreading outward (played with
+ *                     `.go`)
+ *     `.ns-banner`    top centre, `스캔에 노출되고 있음` + the pips (`.warm` at half or more, `.crit` at total−1 or
+ *                     more + `엄폐하라`)
+ *     `.ns-aim`       `저격 조준!` above the crosshair while the target is me
+ *     `.ns-head`      the scope glint on screen (`.mine` = it is aimed at me → larger + a ring + a label)
+ *     `.ns-arc`       the direction arc of a glint aimed at me from off screen (`--rot`, the same grammar as
+ *                     `.dgr-arc` in `DangerIndicators`, larger and thicker so it still reads as a sniper arc where
+ *                     the two overlap)
  *
- * 배너는 재해 HUD(`.hz-hud`, top 104px) 블록 아래에 선다. 색 · 트랜지션 변수는 `base.css` 의 `:root` 것을 쓴다.
+ * The banner stands below the hazard HUD block (`.hz-hud`, top 104px). Colour and transition variables come from
+ * `base.css`'s `:root`.
  */
 
 .named-scan { position: absolute; inset: 0; pointer-events: none; }
 .named-scan.off { visibility: hidden; }
 .named-scan.off * { animation: none !important; }
 
-/* ── 노출 배너 ─────────────────────────────────────────────────────────────── */
+/* ── The exposure banner ───────────────────────────────────────────────────── */
 .ns-banner {
   --nc: #ff5a4a;
   position: absolute; left: 50%; top: 156px; transform: translateX(-50%);
@@ -70,7 +75,7 @@
 @keyframes nsIco { from { transform: scale(0.5); opacity: 0.9; } to { transform: scale(1.3); opacity: 0; } }
 @keyframes nsBump { from { transform: scaleY(2.2); filter: brightness(1.8); } to { transform: scaleY(1); filter: none; } }
 
-/* ── 음파 훑기 (노출됐을 때만, 한 번) ───────────────────────────────────────── */
+/* ── The scan sweep (only when exposed, once) ──────────────────────────────── */
 .ns-sweep { position: absolute; inset: 0; overflow: hidden; opacity: 0; }
 .ns-sweep::before {
   content: ''; position: absolute; inset: 0;
@@ -89,7 +94,7 @@
 @keyframes nsEdge { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes nsRing { 0% { transform: scale(0.5); opacity: 0; } 15% { opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
 
-/* ── 저격 조준! ────────────────────────────────────────────────────────────── */
+/* ── `저격 조준!` ──────────────────────────────────────────────────────────── */
 .ns-aim {
   position: absolute; left: 50%; top: calc(50% - 176px); transform: translateX(-50%);
   display: none;
@@ -102,7 +107,7 @@
 }
 .ns-aim.show { display: block; }
 
-/* ── 화면 밖: 방향 호 (나를 노릴 때만) ──────────────────────────────────────── */
+/* ── Off screen: the direction arc (only while aimed at me) ────────────────── */
 .ns-arcs { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
 .ns-arc {
   --rot: 0deg;
@@ -134,7 +139,7 @@
 }
 .ns-arc[hidden] { display: none !important; }
 
-/* ── 화면 안: 조준경 반짝임 ────────────────────────────────────────────────── */
+/* ── On screen: the scope glint ────────────────────────────────────────────── */
 .ns-head { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
 .ns-head[hidden] { display: none !important; }
 .ns-head .flare {
@@ -169,5 +174,5 @@
 @keyframes nsBlink { from { opacity: 0.45; } to { opacity: 1; } }
 @keyframes nsGlint { from { opacity: 0.55; transform: rotate(0deg); } to { opacity: 1; transform: rotate(12deg); } }
 
-/* 관전 중에는 개인 경고가 의미 없다 */
+/* While spectating a personal warning means nothing */
 .hud.spectating .named-scan { opacity: 0 !important; visibility: hidden; }

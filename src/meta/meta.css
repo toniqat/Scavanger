@@ -1,24 +1,29 @@
-/* ── 기업 네트워크 (corp screen, meta/ui/CorpView.ts) ───────────────────────────
+/* ── The corp network (corp screen, meta/ui/CorpView.ts) ──────────────────
  * Reuses `.ui-btn .form-msg .scr-tab` from ui/styles/base.css and `.inv-grid .inv-cells .inv-cell .inv-tile` from
  * inventory/inventory.css (the desk's item grids ARE inventory tiles — `InventoryRef.buildItemTile`).
  * `--cc` = the selected corp's accent colour (CorpDef.color), set on the view host and on every corp tab.
  *
- * **2026-09-12 — 이 폴더의 클래스 접두사는 `.cv-` 다.** 예전 `.ct-*` 는 housing.css 의 배양조(`.ct-cell` · `.ct-slots`)와
- * 이름이 겹쳐 기업 판매 물품 칸이 배양조 관(54×76, 아래가 둥글다) 모양이 됐다.
+ * **2026-09-12 — this folder's class prefix is `.cv-`.** The old `.ct-*` collided with housing.css's culture
+ * tank (`.ct-cell` · `.ct-slots`), which turned the `기업 판매 물품` cells into culture tubes (54×76, rounded
+ * below).
  *
- * Layout (**2026-09-13, 사용자 결정 — 한 줄로 늘어선 독립 카드들**):
- *   호스트(`.inv-screen.corp-view`)는 틀이 없다 — 배경 · 테두리 · 안여백을 걷어 카드들이 Tab 인벤토리의 `.inv-panel`
- *   처럼 블러 위에 따로 뜬다. 호스트 격자: 좌 `.corp-rail`(기업 목록 카드) | 우 `.corp-shell` → `.corp-page` → 페이지 루트,
- *   아래 전 폭 `.corp-msg-slot`. 페이지 루트는 **가로 flex 한 줄**이고 그 자식 하나하나가 카드(`.cv-card`)다:
- *     거래     `.cv`  [판매 물품 (10칸 고정)] [거래 테이블] [창고 · 가방 .cv-inv]   ← 2026-09-15 3차: 한 카드
- *     임플란트 `.ci`  [데스크 .is-fluid] [함선 창고] [가방]
- *     계약     `.cc`  한 카드(계약 목록 | 진행 중인 계약) — 기업 목록만 분리됐다.
- *   `.is-fluid` 카드만 남는 폭을 나눠 갖고(최소 폭은 여기 `min-width`), 나머지는 내용(격자) 폭 그대로다. 카드 머리줄 ·
- *   버튼 같은 비격자 내용은 `width: 0; min-width: 100%` 라 카드를 넓히지 않는다 — 카드 폭 = 격자 폭 + 안여백.
+ * Layout (**2026-09-13, user's decision — independent cards laid out in one row**):
+ *   The host (`.inv-screen.corp-view`) has no frame — its background, border and padding are taken off so the
+ *   cards float over the blur on their own, the way the Tab inventory's `.inv-panel` does. Host grid: left
+ *   `.corp-rail` (the corp list card) | right `.corp-shell` → `.corp-page` → the page root, and
+ *   `.corp-msg-slot` full width below. The page root is **one horizontal flex row** and each of its children
+ *   is a card (`.cv-card`):
+ *     trade      `.cv`  [`판매 물품` (10 columns fixed)] [trade table] [stash · bag .cv-inv]  ← 2026-09-15 3rd: one card
+ *     implants   `.ci`  [the desk .is-fluid] [the ship stash] [the bag]
+ *     contracts  `.cc`  one card (contract list | active contract) — only the corp list was split off.
+ *   Only an `.is-fluid` card shares out the leftover width (its floor is the `min-width` here); the rest keep
+ *   their content (grid) width. Non-grid content such as a card header row or a button is
+ *   `width: 0; min-width: 100%`, so it never widens the card — card width = grid width + padding.
  *
- * **칸 크기**: `--cv-cell` / `--cv-step` 은 `CorpView.applyCellVars` 가 호스트에 인라인으로 쓴다 (40 px, 창이 좁으면 32 px 까지).
- * `CorpView.fitLayout` 은 이 파일의 수치(안여백 · 간격 · 최소 폭)를 **실측**하므로 값을 여기서만 고치면 된다.
- * 32 px 로도 안 들어가면 페이지 루트에 `.is-inv-hidden` 이 붙어 창고 · 가방 카드가 빠진다.
+ * **Cell size**: `--cv-cell` / `--cv-step` are written inline on the host by `CorpView.applyCellVars` (40 px,
+ * down to 32 px in a narrow window). `CorpView.fitLayout` **measures** this file's numbers (padding · gaps ·
+ * minimum widths), so changing them here is enough. When it does not fit even at 32 px, `.is-inv-hidden` goes
+ * on the page root and the stash · bag card drops out.
  *
  * `.inv-screen.corp-view` takes a **definite** height (bottom of this file), so every card stretches to the window
  * and each list / grid scrolls inside its own card. `--corp-page-min` is only a floor for a very short viewport. */
@@ -32,7 +37,7 @@
   /* standalone desk tiles (`buildItemTile`) scale their content with `--inv-cell` */
   --inv-cell: var(--cv-cell);
 }
-/* 호스트 격자: 좌 기업 카드 | 우 페이지 카드 줄, 그 아래 전 폭 메시지 슬롯 */
+/* Host grid: the corp card left | the row of page cards right, and the full-width message slot below */
 .corp-view, .corp-view.is-embedded {
   display: grid;
   grid-template-columns: var(--corp-rail-w) minmax(0, 1fr);
@@ -41,7 +46,8 @@
   align-items: stretch; min-width: 0;
 }
 
-/* ── 카드 틀 — Tab 인벤토리 `.inv-panel` 과 같은 결 (그 이름은 inventory 의 것이라 쓰지 않는다) ── */
+/* ── Card frame — the same grain as the Tab inventory's `.inv-panel` (that name belongs to inventory, so it
+   is not reused here) ── */
 .corp-rail, .cv-card, .cc {
   position: relative;
   padding: var(--cv-card-pad);
@@ -64,14 +70,15 @@
 }
 .corp-rail .ui-btn { width: 100%; justify-content: center; }
 
-/* 페이지 자리 — 틀은 없다 (카드가 각자 갖는다) */
+/* The page slot — no frame of its own (each card carries one) */
 .corp-shell {
   grid-column: 2; grid-row: 1;
   display: flex; min-width: 0; min-height: 0;
 }
 .corp-shell > .corp-page { flex: 1; min-width: 0; }
 
-/* ── 기업 트리 (2026-09-12) ── 기업 버튼 사이로 가지 하나(`.corp-branch`)가 선택한 기업 아래로 옮겨 다닌다 */
+/* ── The corp tree (2026-09-12) ── one branch (`.corp-branch`) moves among the corp buttons, sitting under
+   the selected corp */
 .corp-tabs { display: flex; flex-direction: column; gap: 6px; }
 .corp-tab {
   appearance: none; cursor: pointer; font: inherit;
@@ -93,7 +100,8 @@
 .corp-tab.is-on { color: var(--c-text); border-color: var(--cc); background: color-mix(in srgb, var(--cc) 14%, transparent); box-shadow: 0 0 12px color-mix(in srgb, var(--cc) 30%, transparent); }
 .corp-tab.is-on .lv { color: var(--cc); }
 .corp-tab.is-on .caret { transform: rotate(45deg); opacity: 1; color: var(--cc); }
-/* 2026-09-17: 신뢰도 Lv.1 미만 기업 — 흐리게, 자물쇠. 클릭은 받아 이유를 토스트로 말한다 (`CorpView.setCorp`) */
+/* 2026-09-17: a corp below reputation Lv.1 — dimmed, with a lock. The click is still taken and the reason is
+   said in a toast (`CorpView.setCorp`) */
 .corp-tab.is-locked { opacity: 0.4; cursor: not-allowed; color: var(--c-text-faint); }
 .corp-tab.is-locked:hover { background: none; }
 .corp-tab.is-locked .lv::after { content: ' 🔒'; font-size: 10px; opacity: 0.85; }
@@ -108,7 +116,8 @@
 .corp-branch.is-opening { animation: corp-branch-open 180ms var(--ease) both; }
 @keyframes corp-branch-open { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 
-/* 신뢰도 게이지 — 막대 + Lv + 수치. `신뢰도` 라벨은 없다: 기업 바로 아래의 눈금이 무엇을 재는지는 적을 것이 없다. */
+/* The reputation gauge — bar + Lv + number. There is no `신뢰도` label: right under the corp, what the gauge
+   measures needs no writing. */
 .corp-rep { display: flex; flex-direction: column; gap: 5px; }
 .corp-rep .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
 .corp-rep .lv { font-family: var(--ui-mono); font-size: 14px; font-weight: 600; color: var(--cc); white-space: nowrap; }
@@ -120,7 +129,7 @@
 .corp-subtabs { display: flex; flex-direction: column; gap: 2px; align-self: stretch; padding: 0; border: 0; border-radius: 0; background: none; }
 .corp-subtabs .scr-tab { justify-content: flex-start; text-align: left; padding: 8px 12px; border-radius: 0; }
 .corp-subtabs .scr-tab.is-on { box-shadow: inset 2px 0 0 var(--cc); }
-/* 탭 잠금 (2026-09-08): 흐려지되 클릭은 받아서 필요한 신뢰도를 토스트로 알려준다 */
+/* A locked tab (2026-09-08): dimmed but still taking the click — a toast names the reputation it needs */
 .corp-subtabs .scr-tab.is-locked { opacity: 0.4; cursor: not-allowed; color: var(--c-text-faint); }
 .corp-subtabs .scr-tab.is-locked::after { content: '🔒'; margin-left: 6px; font-size: 10px; opacity: 0.85; }
 .corp-subtabs .scr-tab.is-locked:hover { background: none; }
@@ -151,7 +160,8 @@
 .corp-row .name-line { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .corp-row .sub { font-size: 11px; color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .corp-row .price { font-family: var(--ui-mono); font-size: 13px; color: var(--c-accent); white-space: nowrap; }
-/* 보상 = `@/shared/currency` 의 재화 칩 — `data-currency-id` 로 호버 카드가 뜨므로 `pointer-events` 를 끄지 않는다 */
+/* The reward = a currency chip from `@/shared/currency` — its hover card opens through `data-currency-id`, so
+   `pointer-events` is not turned off */
 .corp-row .reward { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .corp-row .ui-btn { min-width: 0; height: 34px; padding: 0 16px; font-size: 11px; white-space: nowrap; }
 .corp-row .tag { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--cc); border: 1px solid color-mix(in srgb, var(--cc) 55%, transparent); padding: 1px 6px; white-space: nowrap; }
@@ -166,18 +176,21 @@
 .corp-row .badge { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; text-align: center; padding: 3px 0; border: 1px solid var(--c-border); color: var(--c-text-dim); }
 .corp-row.st-available .badge { color: var(--c-accent); border-color: rgba(255, 179, 71, 0.5); }
 .corp-row.st-accepted .badge { color: var(--cc); border-color: color-mix(in srgb, var(--cc) 55%, transparent); }
-/* 2026-09-12 (2차, 사용자 결정): 완료는 **초록이 아니라 딤드**다 — 끝난 일이지 성과 표시가 아니다. 목록에서도 맨 아래로 간다 */
+/* 2026-09-12 (2nd pass, user's decision): complete is **dimmed, not green** — it is a finished job, not a
+   badge of achievement. It also goes to the bottom of the list */
 .corp-row.st-complete .badge { color: var(--c-text-faint); border-color: var(--c-border); }
 .corp-row.st-complete { opacity: 0.45; }
 .corp-row.st-complete.is-sel { opacity: 0.8; }
 .corp-row.st-locked { opacity: 0.55; }
 .corp-row .deliver { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-/* 2026-09-12 (E2): 특정 아이템 회수 계약 — 아이템 칩(보유/필요) + 이름 한 줄. 칩은 호버 카드 · 우클릭 메뉴를 받으므로 pointer-events 를 끄지 않는다 */
+/* 2026-09-12 (E2): a recovery contract for a specific item — the item chip (held / needed) plus one name
+   line. The chip takes the hover card and the right-click menu, so pointer-events is not turned off */
 .corp-row .ctr-item { display: flex; align-items: center; gap: 10px; margin: 4px 0 2px; min-width: 0; }
 .corp-row .ctr-item .nm { font-size: 12px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ══ 한 번 더 확인 팝업 (2026-09-12, E2 — `ui/HoldAsk.ts`: 즐겨찾기 아이템 판매) ═══════════════════════════════════
- * `ctx.uiRoot` 바로 아래의 전체 화면 뒤판 + 가운데 카드. 확인은 1초 홀드(`.cv-ask-fill` scaleX 0 → 1), 취소 · Escape · 뒤판. */
+/* ══ "Confirm once more" popup (2026-09-12, E2 — `ui/HoldAsk.ts`: a favorite-item sale) ════════════
+ * A full-screen backdrop directly under `ctx.uiRoot` plus a centred card. Confirming is a 1 s hold
+ * (`.cv-ask-fill` scaleX 0 → 1); cancel · Escape · the backdrop all close it. */
 .cv-ask {
   position: fixed; inset: 0; z-index: 205;
   display: flex; align-items: center; justify-content: center;
@@ -194,9 +207,10 @@
 }
 .cv-ask-title { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-danger); }
 .cv-ask-body { font-size: 12px; line-height: 1.55; color: var(--c-text); white-space: pre-line; }
-/* 2026-09-15 2차 (사용자 결정): 옆 `.cv-ask-hint`(「확인 버튼을 1초 동안 누르고 있어야 실행됩니다」 + 일찍 떼면
-   `is-flash` 로 번깍이던 줄)은 없어졌다 — 「어떻게 누르는가」는 확인 버튼 안, 라벨 왼쪽의 좌클릭 홀드 키캡
-   (`shared/keycap.createHoldButtonCap`)이 말한다. 그래서 이 자리에는 규칙이 없다 (`meta/ui/HoldAsk.ts`). */
+/* 2026-09-15 2nd pass (user's decision): the neighbouring `.cv-ask-hint` (the line reading
+   「확인 버튼을 1초 동안 누르고 있어야 실행됩니다」, which flashed with `is-flash` when the button was released
+   early) is gone — 「how to press it」 is said by the left-click hold keycap inside the confirm button, left of
+   its label (`shared/keycap.createHoldButtonCap`). So there is no rule in this spot (`meta/ui/HoldAsk.ts`). */
 .cv-ask-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .cv-ask-foot .ui-btn { min-width: 96px; height: 34px; font-size: 11px; }
 .cv-ask-ok { position: relative; overflow: hidden; }
@@ -213,7 +227,8 @@
 @media (max-height: 720px) { .corp-view { --corp-page-min: 240px; } }
 
 @media (max-width: 900px) {
-  /* 기업 카드가 들어갈 폭이 없다: 위아래로 접고(카드는 그대로) 페이지 탭은 가로줄이 된다 */
+  /* No width left for the corp card: it folds top to bottom (the cards themselves are unchanged) and the
+     page tabs become a horizontal row */
   .corp-view, .corp-view.is-embedded {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(var(--corp-page-min), 1fr) auto;
@@ -229,7 +244,7 @@
   .corp-row .ui-btn { grid-column: 2 / 3; grid-row: 1 / span 2; }
 }
 
-/* ══ 아이템 격자 (TileGrid) — 인벤토리 타일을 그대로 쓴다 ═══════════════════════════════════════════════════ */
+/* ══ Item grid (TileGrid) — it uses inventory tiles as they are ════════════════════════════ */
 
 /* the scroll box: the grid sits top-left, the empty / locked reason is centred over it */
 .cv-scroll {
@@ -248,16 +263,19 @@
 .cv-empty[hidden] { display: none; }
 /* a stock / tray tile is one unit of a line: the inventory qty badge would read "1" — the desk draws its own */
 .cv-tile.shop .inv-tile-qty, .cv-tile.buy .inv-tile-qty, .cv-tile.broken .inv-tile-qty { display: none; }
-/* 2026-09-16 (사용자 버그 「판매 물품 목록에 내구도가 뜬다」): 매대 · 구매칸의 타일은 **기업이 파는 새 물건**이라
-   내구도 게이지가 언제나 가득 찬 채로 모든 총에 붙어 있었다 — 읽을 값이 아니라 잡음이다. 타일을 만드는 함수
-   (`InventoryRef.buildItemTile` → `inventory/ui/GridView.buildTileContent`)는 가방 · 창고 격자와 **같은 함수**이므로
-   거기서 지우면 가방의 내구도까지 사라진다. 그래서 이 화면의 그 두 종류 타일에서만 가린다 — 카드(`ui/hud/ItemTip`)는
-   그대로 내구도 줄을 적는다. 판매칸 타일은 내가 파는 **그 물건**의 실제 상태이므로 게이지가 남는다. */
+/* 2026-09-16 (user's bug report 「판매 물품 목록에 내구도가 뜬다」): tiles in the stock shelf and the buy tray
+   are **new goods the corp sells**, so a durability gauge sat on every gun, always full — noise, not a value
+   to read. The function that builds a tile (`InventoryRef.buildItemTile` →
+   `inventory/ui/GridView.buildTileContent`) is the **same function** the bag and stash grids use, so removing
+   it there would take the bag's durability with it. It is therefore hidden on those two kinds of tile on this
+   screen only — the card (`ui/hud/ItemTip`) still writes its durability line. A sell-tray tile is the real
+   state of **that very thing** I am selling, so its gauge stays. */
 .cv-tile.shop .inv-tile-dur, .cv-tile.buy .inv-tile-dur { display: none; }
 .cv-tile { cursor: pointer; }
 
-/* ── 2026-09-13: 32–40 px 칸의 타일 — 글리프 · 이름 · 수량 · 소켓이 칸 크기를 따라 줄어든다 (`--inv-cell` = `--cv-cell`,
-   드래그 고스트는 <body> 에 붙어 자기 `--inv-cell` 을 인라인으로 단다). 비율은 54 px 칸에서의 inventory 값과 같다. */
+/* ── 2026-09-13: tiles in a 32–40 px cell — glyph · name · quantity · sockets shrink with the cell size
+   (`--inv-cell` = `--cv-cell`; the drag ghost is attached to <body> and carries its own `--inv-cell` inline).
+   The ratios are inventory's values at a 54 px cell. */
 .corp-view .cv-tile .inv-tile-icon, .inv-tile.cv-ghost .inv-tile-icon { font-size: calc(var(--inv-cell) * 0.41); }
 .corp-view .cv-tile.is-wide .inv-tile-icon, .corp-view .cv-tile.is-tall .inv-tile-icon,
 .inv-tile.cv-ghost.is-wide .inv-tile-icon, .inv-tile.cv-ghost.is-tall .inv-tile-icon { font-size: calc(var(--inv-cell) * 0.48); }
@@ -267,7 +285,7 @@
 .corp-view .cv-tile .inv-tile-sockets { right: 3px; top: 3px; gap: 2px; }
 .corp-view .cv-tile .inv-pip { width: 5px; height: 5px; }
 /* a 1×1 stock / tray / implant tile carries its price badge along the bottom — lift the glyph clear of it
-   (2026-09-16: 구매칸 · 판매칸도 좌하단 가격 배지를 달게 되어 같은 규칙에 들어왔다) */
+   (2026-09-16: the buy and sell trays carry a bottom-left price badge too, so they joined the same rule) */
 .cv-tile.shop:not(.is-wide):not(.is-tall) .inv-tile-icon,
 .cv-tile.buy:not(.is-wide):not(.is-tall) .inv-tile-icon,
 .cv-tile.sell:not(.is-wide):not(.is-tall) .inv-tile-icon,
@@ -278,9 +296,10 @@
   padding: 0 2px; font-family: var(--ui-mono); font-size: 9px; line-height: 12px; color: var(--c-accent);
   background: rgba(0, 0, 0, 0.62); border-radius: 2px; pointer-events: none;
 }
-/* 2026-09-16 (사용자 결정): **가격은 어느 칸에서든 좌하단이다.** 판매칸 타일만 좌상단으로 올려 두었었는데
-   (묶음 수량이 우하단이라 1×1 에서 붙는다는 이유), 매대 · 구매칸과 자리가 달라 같은 값을 눈이 두 군데서 찾게 됐다.
-   수량은 우하단 그대로라 서로 반대 모서리이므로 겹치지 않는다. */
+/* 2026-09-16 (user's decision): **the price is bottom-left in every cell.** Only the sell-tray tile used to
+   lift it to the top-left (because the stack quantity is bottom-right and the two touch in a 1×1), but that
+   put it somewhere other than the stock shelf and the buy tray, so the eye had to look for the same value in
+   two places. The quantity stays bottom-right, so the two sit in opposite corners and never overlap. */
 .cv-tile .cv-count {
   position: absolute; right: 2px; bottom: 2px; z-index: 2;
   min-width: 13px; padding: 0 2px; font-family: var(--ui-mono); font-size: 9px; font-weight: 700; line-height: 12px; text-align: center;
@@ -301,28 +320,32 @@
 }
 .inv-tile.cv-ghost.is-ok { outline: 2px solid var(--c-success); outline-offset: 2px; }
 
-/* ══ 카드 줄 (2026-09-13) — 거래 `.cv` · 임플란트 `.ci` (2026-09-14 퀘스트 `.cq` 삭제) ═══════════════════════════════════════════
-   가로 flex 한 줄. 내용 폭 카드는 줄어들지 않고(`flex: none`), `.is-fluid` 만 남는 폭을 나눈다. 폭이 모자라는 일은
-   `CorpView.fitLayout` 이 칸 크기를 줄여(→ 32 px) 막고, 그래도 모자라면 `.is-inv-hidden` 이 창고 · 가방 카드를 뺀다. */
+/* ══ The card row (2026-09-13) — trade `.cv` · implants `.ci` (2026-09-14: the quest `.cq` was removed) ════════════
+   One horizontal flex row. A content-width card never shrinks (`flex: none`); only `.is-fluid` shares out the
+   leftover width. Running short of width is prevented by `CorpView.fitLayout` shrinking the cell (→ 32 px),
+   and when that is still not enough `.is-inv-hidden` drops the stash · bag card. */
 .cv, .ci { display: flex; flex-direction: row; align-items: stretch; gap: var(--cv-card-gap); min-width: 0; min-height: 0; }
 .cv-col, .ci-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; flex: none; }
 .cv > .is-fluid, .ci > .is-fluid { flex: 1 1 0; }
 .is-inv-hidden > .cv-inv { display: none; }
 
-/* 창고 + 가방 카드 — 2026-09-15 3차 (사용자 결정): **한 카드**이고 `createTradeGrids({ grids: ['stash','bag'] })` 를
-   한 번 부른다. 카드 폭 = 두 격자 폭 + 사이 간격 + 스크롤바 자리 + 안여백 (`fitLayout` 이 칸 수를 합으로 잰다). */
+/* The stash + bag card — 2026-09-15 3rd pass (user's decision): it is **one card** and calls
+   `createTradeGrids({ grids: ['stash','bag'] })` once. Card width = the two grids' width + the gap between
+   them + the scrollbar's room + padding (`fitLayout` measures the column count as a sum). */
 .cv-inv > .trade-grids { flex: 1 1 auto; min-height: 0; }
 .cv-inv > .corp-empty { width: 180px; }
 
-/* ── 거래 — 판매 물품 | 거래 테이블 | 창고 · 가방 ── */
-/* 판매 물품의 바닥 = 열 칸 + 안여백 · 테두리 + 스크롤바 자리 (2026-09-16 사용자 결정: 매대는 가로 10 칸 고정 —
-   `CorpView.SHOP_COLS` · `data-cv-cols="10"` 와 짝이고 `fitLayout` 이 이 값을 읽는다) */
+/* ── Trade — `판매 물품` | the trade table | stash · bag ── */
+/* The `판매 물품` floor = ten cells + padding · border + the scrollbar's room (2026-09-16 user's decision: the
+   stock shelf is fixed at 10 columns — paired with `CorpView.SHOP_COLS` · `data-cv-cols="10"`, and `fitLayout`
+   reads this value) */
 .cv-col.shop { min-width: calc(10 * var(--cv-step) - var(--cv-gap) + 2 * var(--cv-card-pad) + 2px + var(--cv-sb)); }
 .cv-col.deal { justify-content: flex-start; }
-/* 거래 테이블의 폭은 트레이 격자가 정한다 — 머리줄 · 버튼 · 크레딧 줄은 그 폭을 따라갈 뿐 넓히지 않는다 */
+/* The trade table's width is set by the tray grids — the header row, the buttons and the credit line follow
+   that width and never widen it */
 .cv-col.deal .cv-tray-head, .cv-col.deal .cv-stage, .cv-col.deal > .cv-total, .cv-col.deal > .cv-confirm { width: 0; min-width: 100%; }
 
-/* 거래칸 — 구매 over 판매, each a five-column grid */
+/* The trade trays — buy over sell, each a five-column grid */
 .cv-trays { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
 .cv-tray {
   display: flex; flex-direction: column; gap: 6px; flex: 1 1 0; min-width: 0; min-height: 0;
@@ -337,9 +360,10 @@
 .cv-tray.sell .cv-tray-head .v { color: var(--c-success); margin-left: auto; }
 .cv-stage { flex: none; min-width: 0; height: 28px; padding: 0 6px; justify-content: center; font-size: 10px; letter-spacing: 0.08em; }
 
-/* 셰브런 — 물건이 흐르는 쪽을 가리키는 **정적** 표식.
-   2026-09-12 (2차, 사용자 결정): 흐름 애니메이션(`cv-chev-flow`)과 스태거를 걷어냈다 — 거래칸에서 쉬지 않고
-   점멸하는 화살표는 읽는 것을 방해한다. 방향 미러(`dir-*`)와 셰브런 자체는 그대로다. */
+/* Chevrons — a **static** mark pointing the way the goods flow.
+   2026-09-12 (2nd pass, user's decision): the flow animation (`cv-chev-flow`) and its stagger were taken out —
+   an arrow blinking without rest in the trade trays gets in the way of reading. The direction mirror (`dir-*`)
+   and the chevrons themselves are unchanged. */
 .cv-chev { display: inline-flex; flex: none; line-height: 0; color: var(--cc); }
 .cv-chev svg { overflow: visible; }
 .cv-chev polyline { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
@@ -348,9 +372,10 @@
 .cv-chev.flow polyline { opacity: 0.65; }
 .cv-tray.buy .cv-chev.flow { margin-left: 2px; }
 
-/* 거래 후 크레딧 변화 — 라벨 없이 가운데 숫자 한 줄.
-   2026-09-16 (사용자 결정): 양옆의 셰브런(초록 ▲ · 빨강 ▼)을 뺐다 — 부호(`+` / `−`)와 글자색이 이미 방향을
-   말하므로 화살표는 같은 말을 세 번째로 하는 장식이었다. 트레이 머리의 흐름 셰브런(`.cv-chev.flow`)은 그대로다. */
+/* The credit change after the trade — one centred number line, no label.
+   2026-09-16 (user's decision): the chevrons on either side (green ▲ · red ▼) were dropped — the sign
+   (`+` / `−`) and the text colour already say the direction, so the arrows were decoration saying the same
+   thing a third time. The flow chevron in the tray header (`.cv-chev.flow`) is unchanged. */
 .cv-total {
   display: flex; align-items: center; justify-content: center; gap: 6px; flex: none;
   padding-top: 8px; border-top: 1px solid var(--c-border);
@@ -359,7 +384,7 @@
 .cv-total.plus .v { color: var(--c-success); }
 .cv-total.minus .v { color: var(--c-danger); }
 
-/* 거래 성사 — 1초 홀드 (UI_HOLD_CONFIRM_S). 게이지가 왼쪽에서 차오른다 */
+/* Closing the trade — a 1 s hold (UI_HOLD_CONFIRM_S). The gauge fills from the left */
 .cv-confirm {
   position: relative; overflow: hidden; flex: none; min-width: 0; height: 40px; padding: 0 8px;
   justify-content: center; font-size: 12px; letter-spacing: 0.16em; user-select: none; touch-action: none;
@@ -371,7 +396,7 @@
 .cv-confirm-label { position: relative; white-space: nowrap; }
 .cv-confirm.is-holding { border-color: var(--c-success); }
 
-/* ── 계약: 한 카드 — 계약 목록 | 진행 중인 계약(그 계약 기업의 색) ── */
+/* ── Contracts: one card — the contract list | the active contract (in that contract's corp colour) ── */
 .cc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 0.95fr); gap: 14px; min-height: 0; padding: 12px; }
 .ctr-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
 .ctr-list, .ctr-active {
@@ -391,10 +416,11 @@
 .cv-check input { accent-color: var(--cc); width: 13px; height: 13px; margin: 0; cursor: pointer; }
 .cv-check:hover { color: var(--c-text); }
 
-/* ── 임플란트 수리 (Phase 12, 세레스 바이오) ──
-   2026-09-12 (2차, 사용자 결정): 한 카드에 **망가진 임플란트 격자 + 수리 카드**, 그 오른쪽은 거래 · 퀘스트와 같은
-   **함선 창고 · 가방** 카드. 데스크 카드는 flex 가 아니라 격자다 — `.cv-scroll` 과 `.ci-repair` 가 둘 다
-   `flex: 1` 이라 서로 밀어내면 TileGrid 의 채움 줄 수가 흔들린다. 행 높이를 여기서 못 박는다. */
+/* ── Implant repair (Phase 12, 세레스 바이오) ──
+   2026-09-12 (2nd pass, user's decision): one card holds **the broken-implant grid + the repair card**, and to
+   its right the same **ship stash · bag** card as on the trade and quest pages. The desk card is a grid, not a
+   flex — with `.cv-scroll` and `.ci-repair` both at `flex: 1` they push each other and the TileGrid's filled
+   row count wobbles. The row heights are pinned here. */
 .ci-col.desk {
   display: grid; grid-template-rows: auto minmax(120px, 0.85fr) auto minmax(0, 1.15fr);
   flex: 1 1 0; min-width: 280px;

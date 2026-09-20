@@ -39,10 +39,12 @@ const read = (f) => {
 /* Comments are blanked out of the source (same length, so line numbers survive) and kept separately. */
 const BLOCK = /\/\*[\s\S]*?\*\//g;
 const LINE = /(?<!:)\/\/[^\n]*/g;
-function splitComments(src) {
+function splitComments(src, cssOnly) {
   const comments = [];
   const blank = (m) => { comments.push(m); return ' '.repeat(m.length); };
-  return { comments, code: src.replace(BLOCK, blank).replace(LINE, blank) };
+  // CSS has no `//` comment — running LINE over it would blank out a `url(//…)` and, worse, half a rule.
+  const code = src.replace(BLOCK, blank);
+  return { comments, code: cssOnly ? code : code.replace(LINE, blank) };
 }
 
 /* Everything that is not a ts comment — this is where a real label has to be found. */
@@ -53,8 +55,14 @@ const targets = [];
 for (const f of files) {
   const src = read(f);
   if (!src) continue;
-  if (/\.(ts|mjs|js)$/.test(f)) {
-    const { comments, code } = splitComments(src);
+  /*
+   * 2026-09-20 (B-65): `.css` joined the comment side. Until then a stylesheet fell into the `else` branch, so its
+   * comments were read as **live strings** — a Korean label mistyped in a CSS comment registered as the real thing
+   * and could mask a near miss anywhere else in the tree. A stylesheet's live strings are its `content:` values,
+   * which the same `LITERAL` pass over the blanked code finds.
+   */
+  if (/\.(ts|mjs|js|css)$/.test(f)) {
+    const { comments, code } = splitComments(src, f.endsWith('.css'));
     corpus.push(code);
     for (const m of code.matchAll(LITERAL)) {
       const v = (m[1] ?? m[2] ?? m[3] ?? '').trim();

@@ -1,30 +1,37 @@
 /*
- * src/ui/styles/drone.css — 드론 조종 HUD (`hud/DroneHud`, 2026-09-11). `hud/DroneHud` 만 import 한다.
+ * src/ui/styles/drone.css — the drone-control HUD (`hud/DroneHud`, 2026-09-11). Imported by `hud/DroneHud` only.
  *
- *   `.hud.gameplay.drone-view`   조종 중 게임플레이 레이어 — 쓸 수 없는 위젯을 숨기고 체력만 작게 남긴다
- *   `.dr-static`                 화면 외곽 지지직 (게임플레이 레이어 **맨 아래**에 prepend — HUD 글자를 덮지 않는다)
- *                                  `--si` 0…1 = 강도, `.on` = 그린다, `.burst` = 외곽 마스크를 걷고 화면 전체
- *   `.drone-hud`                 위젯 루트 (`inset:0`, 레이아웃 없음)
- *     `.dr-view(.show .is-air .is-ground .hit)`  조종 중에만 보이는 층
- *       `.dr-frame > i ×4`         가운데 뷰파인더 브래킷 (모서리 HUD — 임무 시간 · 계약 패널 — 와 겹치지 않게 안쪽)
+ *   `.hud.gameplay.drone-view`   the gameplay layer while controlling — hides the unusable widgets and leaves only
+ *                                  a small hp block
+ *   `.dr-static`                 the static around the screen edge (prepended **at the very bottom** of the
+ *                                  gameplay layer — it never covers HUD text)
+ *                                  `--si` 0…1 = strength, `.on` = draws, `.burst` = drops the edge mask, whole screen
+ *   `.drone-hud`                 the widget root (`inset:0`, no layout)
+ *     `.dr-view(.show .is-air .is-ground .hit)`  the layer visible only while controlling
+ *       `.dr-frame > i ×4`         the centre viewfinder brackets (inset so they miss the corner HUD — the mission
+ *                                    clock and the contract panel)
  *       `.dr-tag`                  `● DRONE  공중 드론`
- *       `.dr-hp(.low .hit)`        드론 체력 작은 바
- *       `.dr-aim`                  드론용 작은 조준점 (총 크로스헤어는 숨는다)
- *       `.dr-alt(.at-max)`         크로스헤어 **좌측** 고도 (공중 드론만)
- *       `.dr-keys > .dr-key`       크로스헤어 **우측** 조작 안내 (+ `.dr-noise(.on .linger)` 소음 배지, `R` 꾹 복귀)
- *       `.dr-link(.warn .lost)`    하단 사거리 게이지 — 스태미나 바와 같은 자리 · 같은 문법
- *     `.dr-ring(.show)`           조종 전환 `R` 홀드 링 (조종 전에도 뜬다 — 이것만 `.dr-view` 밖)
- *     `.dr-alert(.show)`          연결 해제 알림 (1.5 초)
+ *       `.dr-hp(.low .hit)`        the drone's small hp bar
+ *       `.dr-aim`                  the drone's small aim point (the gun crosshair hides)
+ *       `.dr-alt(.at-max)`         altitude **left** of the crosshair (air drone only)
+ *       `.dr-keys > .dr-key`       the control guide **right** of the crosshair (+ the `.dr-noise(.on .linger)`
+ *                                    noise badge, `R` held to come back)
+ *       `.dr-link(.warn .lost)`    the link-range gauge at the bottom — the stamina bar's place and grammar
+ *     `.dr-ring(.show)`           the `R` hold ring for taking control (it shows before control too — the only
+ *                                   thing outside `.dr-view`)
+ *     `.dr-alert(.show)`          the disconnect notice (1.5 s)
  *
- * 수치(사거리 · 경고 비율 · 최대 고도)는 전부 `ctx.drones` / `data/constants.csv` 에서 온다.
- * 여기 있는 것은 레이아웃(px · 색 · 시간)뿐이고 색 · 트랜지션 변수는 `base.css` 의 `:root` 것을 쓴다.
+ * The numbers (link range · warning ratio · altitude cap) all come from `ctx.drones` / `data/constants.csv`.
+ * What lives here is layout (px · colour · time) only; colour and transition variables come from `base.css`'s
+ * `:root`.
  */
 
 .drone-hud { position: absolute; inset: 0; pointer-events: none; }
 
-/* ── 조종 중: 쓸 수 없는 것은 숨긴다 ─────────────────────────────────────────
-   PC 는 앉아서 멈춰 있고 무기 · 임플란트 · 함선 호출을 못 쓴다. 스태미나 자리는 사거리 게이지가 차지한다.
-   `!important` 는 `.hud.spectating` 규칙과 같은 이유다 — 위젯들이 인라인 `opacity` 를 매 프레임 쓴다(`Reticle`). */
+/* ── While controlling: what cannot be used hides ──────────────────────────
+   The PC is crouched and still and can use neither weapons, nor implants, nor ship calls. The link-range gauge
+   takes the stamina bar's place. `!important` is here for the same reason as the `.hud.spectating` rule — the
+   widgets write an inline `opacity` every frame (`Reticle`). */
 .hud.drone-view .weapon,
 .hud.drone-view .imp-hud,
 .hud.drone-view .scall,
@@ -37,13 +44,14 @@
 .hud.drone-view .wcharge,
 .hud.drone-view .qwheel,
 .hud.drone-view .swheel { opacity: 0 !important; visibility: hidden; }
-/* PC 가 맞으면 조종이 끊기므로 체력은 작게 남긴다. 나침반은 PC 의 방위라 흐리게.
-   2026-09-12: 체력 블록은 이제 **소셜 레이어**에 산다 (함선에서도 보인다) — `drone-view` 는 게임플레이 레이어에만 붙으므로
-   형제 선택자로 닿는다 (`.hud.gameplay` 가 `#ui-root` 안에서 `.hud.social` 보다 앞선 형제다). */
+/* A hit on the PC breaks control, so the hp block stays, shrunk. The compass is the PC's heading, so it dims.
+   2026-09-12: the hp block now lives in the **social layer** (it shows in the ship too) — `drone-view` goes on the
+   gameplay layer only, so it is reached with a sibling selector (`.hud.gameplay` is an earlier sibling than
+   `.hud.social` inside `#ui-root`). */
 .hud.gameplay.drone-view ~ .hud.social .vitals { opacity: 0.55; transform: scale(0.8); transform-origin: left bottom; }
 .hud.drone-view .compass { opacity: 0.35; }
 
-/* ── 화면 외곽 지지직 ─────────────────────────────────────────────────────── */
+/* ── The static around the screen edge ───────────────────────────────────── */
 .dr-static {
   --si: 0;
   position: absolute; inset: 0;
@@ -65,17 +73,17 @@
   position: absolute; inset: 0;
   background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.38) 0 1px, transparent 1px 3px);
 }
-/* 색수차: 좌 붉은 / 우 청록 번짐이 몇 px 씩 떨린다 */
+/* Chromatic aberration: a red bleed on the left and a cyan one on the right, jittering a few px */
 .dr-static .dr-fringe {
   position: absolute; inset: 0;
   box-shadow: inset 10px 0 26px rgba(255, 40, 70, 0.42), inset -10px 0 26px rgba(40, 220, 255, 0.36);
 }
-/* 가로로 찢어지는 밝은 띠 하나 */
+/* One bright band tearing across */
 .dr-static .dr-tear {
   position: absolute; left: -4%; right: -4%; top: 30%; height: 6%;
   background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.10) 40%, rgba(255, 255, 255, 0.22) 50%, rgba(255, 255, 255, 0.10) 60%, transparent);
 }
-/* 애니메이션은 켜져 있을 때만 돈다 — 평상시에는 스타일 재계산 비용도 없다. */
+/* The animations run only while it is on — the rest of the time there is not even a style recalculation. */
 .dr-static.on .dr-scan { animation: drScan 480ms steps(6) infinite; }
 .dr-static.on .dr-fringe { animation: drFringe 170ms steps(3) infinite; }
 .dr-static.on .dr-tear { animation: drTear 1.1s steps(9) infinite; }
@@ -94,7 +102,7 @@
   100% { top: 41%; transform: translateX(0); }
 }
 
-/* ── 조종 중 층 ───────────────────────────────────────────────────────────── */
+/* ── The layer shown while controlling ───────────────────────────────────── */
 .dr-view {
   position: absolute; inset: 0;
   opacity: 0; visibility: hidden;
@@ -102,7 +110,7 @@
 }
 .dr-view.show { opacity: 1; visibility: visible; }
 
-/* 뷰파인더 브래킷 (화면 가운데 56vw × 56vh) */
+/* The viewfinder brackets (56vw × 56vh in the centre of the screen) */
 .dr-frame { position: absolute; left: 22vw; right: 22vw; top: 20vh; bottom: 24vh; }
 .dr-frame i {
   position: absolute; width: 36px; height: 36px;
@@ -152,7 +160,7 @@
   100% { border-color: rgba(255, 255, 255, 0.35); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); transform: none; }
 }
 
-/* 드론 조준점: 가는 원 + 점 + 좌우 짧은 눈금 */
+/* The drone's aim point: a thin circle + a dot + a short tick on each side */
 .dr-aim { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
 .dr-aim::before {
   content: ''; position: absolute; left: -8px; top: -8px; width: 16px; height: 16px;
@@ -167,7 +175,7 @@
 .dr-aim i:nth-child(1) { left: -20px; }
 .dr-aim i:nth-child(2) { left: 13px; }
 
-/* 크로스헤어 좌측: 고도 (공중 드론만). 홀드 링(반지름 60)보다 바깥에서 시작한다. */
+/* Left of the crosshair: altitude (air drone only). It starts outside the hold ring (radius 60). */
 .dr-alt {
   position: absolute; right: calc(50% + 84px); top: 50%;
   transform: translateY(-50%);
@@ -191,7 +199,7 @@
 .dr-alt.at-max .ladder i { background: var(--c-accent); }
 .dr-alt.at-max .ui-label { color: var(--c-accent); }
 
-/* 크로스헤어 우측: 조작 안내 */
+/* Right of the crosshair: the control guide */
 .dr-keys {
   position: absolute; left: calc(50% + 84px); top: 50%;
   transform: translateY(-50%);
@@ -205,8 +213,9 @@
 }
 .dr-key .keycap { min-width: 20px; height: 20px; padding: 0 5px; font-size: 10px; background: rgba(0, 0, 0, 0.45); }
 .dr-view.is-air .dr-key.ground, .dr-view.is-ground .dr-key.air { display: none; }
-/* `R` 꾹 복귀: 한 줄 띄운다. 2026-09-15 — chevron(`.kc-hold::before`)이 키캡 **안** 윗변으로 들어가 윗줄에 닿을 일이 없으므로
-   그 자리를 비우던 `padding-top: 12px` 를 걷어냈다 */
+/* `R` held to come back: one row of space above it. 2026-09-15 — the chevron (`.kc-hold::before`) moved
+   **inside** the keycap's top edge and can no longer reach the row above, so the `padding-top: 12px` that kept
+   that space clear was taken down */
 .dr-key.back { margin-top: 6px; color: var(--c-text-dim); }
 .dr-noise {
   display: none;
@@ -218,7 +227,7 @@
 .dr-noise.linger { display: inline-block; opacity: 0.5; }
 @keyframes drBlink { 0% { opacity: 1; } 100% { opacity: 0.35; } }
 
-/* 하단 사거리 게이지 — `.stamina` 와 같은 자리(bottom 9%) · 같은 막대 문법 */
+/* The link-range gauge at the bottom — the same place as `.stamina` (bottom 9%) and the same bar grammar */
 .dr-link {
   position: absolute; left: 50%; bottom: 9%;
   transform: translateX(-50%);
@@ -241,7 +250,7 @@
   transform-origin: left; will-change: transform;
   transition: background var(--t-fast) var(--ease);
 }
-/* 경고 비율 자리 눈금 (left 는 TS 가 `DRONE_LINK_WARN_RATIO` 로 한 번 적는다) */
+/* The tick at the warning ratio (its `left` is written once by TS from `DRONE_LINK_WARN_RATIO`) */
 .dr-link .mark { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255, 77, 77, 0.85); }
 .dr-link .row { display: flex; align-items: baseline; justify-content: space-between; width: 240px; }
 .dr-link .ui-label { font-size: 9px; letter-spacing: 0.22em; color: var(--c-text); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
@@ -252,7 +261,8 @@
 .dr-link.lost .fill { animation: none; }
 .dr-link.lost .state { animation: drBlink 0.3s steps(2) infinite; }
 
-/* ── 조종 전환 홀드 링 — `hud/HoldGauge` 와 같은 모양, 반지름만 바깥(60 vs 48)이라 겹치지 않는다 ── */
+/* ── The take-control hold ring — the same shape as `hud/HoldGauge`, only its radius sits further out
+   (60 vs 48) so the two never overlap ── */
 .dr-ring {
   --dc: var(--c-info);
   position: absolute; left: 50%; top: 50%;
@@ -271,7 +281,7 @@
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
-/* ── 연결 해제 알림 (1.5 초, TS 의 `ALERT_S` 와 같은 길이) ── */
+/* ── The disconnect notice (1.5 s, the same length as `ALERT_S` in TS) ── */
 .dr-alert {
   position: absolute; left: 50%; top: 62%;
   transform: translateX(-50%);
@@ -291,9 +301,10 @@
   100% { opacity: 0; }
 }
 
-/* ── 2026-09-12: 지상 드론 스캔 ─────────────────────────────────────────────
-   `.dsc-*` = 조종 HUD 안 (조준점 둘레 홀드 링 · 아래 안내), `.dsl-*` = 월드 라벨 (`hud/DroneScanLabels`, 조종과 무관하게 레이드 내내).
-   `.dr-scan` 은 이미 외곽 지지직의 스캔라인이다 — 그래서 접두사를 따로 뒀다. */
+/* ── 2026-09-12: the ground drone's scan ───────────────────────────────────
+   `.dsc-*` = inside the control HUD (the hold ring around the aim point · the hint below it), `.dsl-*` = the world
+   labels (`hud/DroneScanLabels`, all raid long and independent of control).
+   `.dr-scan` is already the edge static's scanline — hence the separate prefix. */
 .dsc-ring {
   --dc: #8fe3ff;
   position: absolute; left: 50%; top: 50%;
@@ -307,7 +318,8 @@
 .dsc-ring .track { stroke: rgba(255, 255, 255, 0.14); }
 .dsc-ring .fill { stroke: var(--dc); filter: drop-shadow(0 0 3px rgba(143, 227, 255, 0.6)); }
 
-/* 조준점 아래: 대상 이름 · 거리 + 동작 안내 (조종 전환 링 반지름 60 바깥에서 시작) */
+/* Under the aim point: the target's name · distance + the action hint (it starts outside the take-control ring's
+   radius 60) */
 .dsc-hint {
   position: absolute; left: 50%; top: calc(50% + 64px);
   transform: translateX(-50%);
@@ -321,7 +333,7 @@
 .dsc-hint .act { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #8fe3ff; }
 .dsc-hint.far .act { color: var(--c-text-dim); }
 
-/* 월드 라벨 */
+/* The world labels */
 .dsl-root { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .dsl-label {
   --rc: #9aa3ad;
@@ -347,5 +359,5 @@
   100% { transform: scale(1); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
 }
 
-/* 관전 중에는 개인 조종 HUD 가 의미 없다 (`base.css` 의 `.hud.spectating` 규칙과 같은 취급) */
+/* While spectating a personal control HUD means nothing (treated like the `.hud.spectating` rule in `base.css`) */
 .hud.spectating .drone-hud, .hud.spectating .dr-static { opacity: 0 !important; visibility: hidden; }

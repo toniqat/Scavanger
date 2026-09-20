@@ -1,15 +1,19 @@
 /*
- * src/ui/styles/buffs.css — 캐릭터 버프 썸네일 줄 (`hud/BuffStrip`, 2026-09-12, `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」).
+ * src/ui/styles/buffs.css — the character buff thumbnail strip (`hud/BuffStrip`, 2026-09-12,
+ * `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」).
  *
- *   `.bfs(.has-items .is-mini)`   썸네일 한 줄. 비어 있으면 `display:none` 이라 자리를 차지하지 않는다.
- *     `.bfs-cell(.is-pending .is-debuff .is-timed)[data-key][data-kind]`   정사각 썸네일 (`--bc` 색 · `--r` 0…1 남은 비율)
- *       `.bfs-face`                흐린 바탕 얼굴 (글리프)
- *       `.bfs-reveal > .bfs-face.lit`  밝은 사본 — 밑에서부터 `--r` 만큼만 보인다 (= 시간 게이지, `implant.css` 의 두 얼굴 기법)
- *       `.bfs-t`                   우하단 남은 시간 `23h` · `42m` · `35s` (타이머가 없으면 빈다)
+ *   `.bfs(.has-items .is-mini)`   one row of thumbnails. Empty, it is `display:none` and takes up no room.
+ *     `.bfs-cell(.is-pending .is-debuff .is-timed)[data-key][data-kind]`   a square thumbnail (`--bc` colour ·
+ *                                  `--r` 0…1, the fraction left)
+ *       `.bfs-face`                the dim base face (the glyph)
+ *       `.bfs-reveal > .bfs-face.lit`  the lit copy — visible from the bottom by `--r` only (= the time gauge, the
+ *                                  two-face technique from `implant.css`)
+ *       `.bfs-t`                   the time left at the bottom right, `23h` · `42m` · `35s` (empty with no timer)
  *
- * 붙는 곳은 둘이다: PC 체력바 바로 아래(`.vitals .bfs`, 22 px)와 좌하단 분대 목록 분대원 행의 체력바 아래(`.srow .bfs.is-mini`, 14 px —
- * 너무 작아 시간 글자는 숨기고 게이지만 남긴다). 접두사 `bfs-` 는 `rg "\.bfs-" src` 로 비어 있음을 확인했다.
- * 색 · 트랜지션 변수는 `base.css` 의 `:root` 것이고, 버프 색만 인라인 `--bc` 로 들어온다.
+ * It attaches in two places: directly under the PC's hp bar (`.vitals .bfs`, 22 px) and under the hp bar of a
+ * squadmate's row in the bottom-left squad list (`.srow .bfs.is-mini`, 14 px — too small for the time text, which
+ * hides, leaving the gauge). The prefix `bfs-` was checked free with `rg "\.bfs-" src`.
+ * Colour and transition variables come from `base.css`'s `:root`; only the buff colour arrives inline as `--bc`.
  */
 
 .bfs {
@@ -19,7 +23,8 @@
 }
 .bfs.has-items { display: flex; }
 .bfs.is-mini { --bfs: 14px; gap: 3px; }
-/* 2026-09-17: 캐릭터 시트 이름 옆 줄 (`shared/charBuffView` interactive) — 썸네일이 마우스를 받고 `hud/ItemTip` 글 카드가 뜬다 */
+/* 2026-09-17: the row beside the name on the character sheet (`shared/charBuffView` interactive) — the thumbnails
+   take the mouse and a `hud/ItemTip` text card opens */
 .bfs.is-interactive { pointer-events: auto; }
 .bfs.is-interactive .bfs-cell { cursor: help; }
 
@@ -49,7 +54,7 @@
     color-mix(in srgb, var(--bc) 12%, transparent),
     color-mix(in srgb, var(--bc) 26%, transparent));
 }
-/* 밝은 사본을 밑에서부터 `--r` 만큼만 드러낸다 — 타이머가 없으면 `--r` 은 1 이라 얼굴 전체가 밝다. */
+/* Reveals the lit copy from the bottom by `--r` only — with no timer `--r` is 1, so the whole face is lit. */
 .bfs-reveal {
   position: absolute; left: 0; right: 0; bottom: 0;
   height: calc(var(--r) * 100%);
@@ -65,8 +70,9 @@
 }
 .bfs-t:empty, .bfs.is-mini .bfs-t { display: none; }
 
-/* 2026-09-13 (요리 품질): 요리 썸네일 좌상단의 작은 별 배지 — `data-q` = `★3`. 미니(분대원 행)는 숫자 없이 별 하나.
-   DOM 을 늘리지 않으려고 `::after` 로 그린다 (시간 글자 `.bfs-t` 는 우하단이라 겹치지 않는다). */
+/* 2026-09-13 (meal quality): the small star badge at the top left of a meal thumbnail — `data-q` = `★3`. The
+   mini one (a squadmate's row) is one star with no number. It is drawn with `::after` so the DOM does not grow
+   (the time text `.bfs-t` is at the bottom right and never overlaps it). */
 .bfs-cell[data-q]::after {
   content: attr(data-q);
   position: absolute; left: 1px; top: 0;
@@ -77,21 +83,22 @@
 }
 .bfs.is-mini .bfs-cell[data-q]::after { content: '★'; font-size: 6px; left: 0; }
 
-/* 함선에서 다음 레이드에 실어 둔 것 — 흐리게, 출격하면 선명해진다 */
+/* Loaded in the ship for the next raid — dim, and sharp once launched */
 .bfs-cell.is-pending { opacity: 0.42; }
 .bfs-cell.is-pending .bfs-face.lit { filter: saturate(0.35); }
-/* 디버프 — 빨간 테두리 */
+/* A debuff — a red border */
 .bfs-cell.is-debuff {
   border-color: var(--c-danger);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 6px -1px var(--c-danger);
 }
 
-/* ── 자리: PC 체력바 아래 ── */
+/* ── Place: under the PC's hp bar ── */
 .hud .vitals .bfs { max-width: 240px; margin-top: 1px; }
-/* 줄이 생기면 체력 블록이 그만큼 위로 자라므로, 그 위에 앉은 채팅 · 분대 열(`.hud-bl`, base.css 의 122 px)도 같이 올린다.
-   관전 중(체력 블록이 숨는다) · 귓속말 중(열이 화면 가운데로 올라간다)의 자리는 건드리지 않는다. */
+/* When the strip appears the hp block grows upward by that much, so the chat and squad column sitting above it
+   (`.hud-bl`, 122 px in base.css) is raised with it. The places used while spectating (the hp block hides) and
+   while whispering (the column rises to the middle of the screen) are left alone. */
 .hud.social:not(.spectating):has(.vitals .bfs.has-items) .hud-bl:not(.whispering) { bottom: 151px; }
 
-/* ── 자리: 분대원 행의 체력바 아래 ── */
+/* ── Place: under the hp bar of a squadmate's row ── */
 .srow .bfs { margin-top: 1px; }
 .squad .srow:has(.bfs.has-items) { height: auto; min-height: 30px; }

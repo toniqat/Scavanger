@@ -1,24 +1,27 @@
 /*
- * 함선 호출 썸네일 (2026-09-10 2차, 사용자 결정) — `hud/StratagemPanel` 전용 시트.
+ * The ship-call thumbnail (2026-09-10 2nd pass, user's decision) — a sheet for `hud/StratagemPanel` only.
  *
- * 우측 하단 무기 열의 텍스트 패널(`.strat-panel` — `G` 키캡 + 호출 이름 + 설명 + 조작 힌트 + 가로 쿨다운 바)을
- * 걷어내고, **전술 임플란트 왼쪽의 정사각 썸네일** 하나로 바꿨다. 문구는 전부 없앴다 — 썸네일 + 그 아래 `G`
- * 키캡뿐이고, 무장하면 썸네일이 그 호출의 색으로 밝아진다.
+ * The text panel in the bottom-right weapon column (`.strat-panel` — a `G` keycap + the call's name + description
+ * + control hint + a horizontal cooldown bar) was taken down and replaced by a single **square thumbnail left of
+ * the tactical implant**. Every line of text is gone — only the thumbnail and the `G` keycap under it, and when
+ * armed the thumbnail lights up in that call's colour.
  *
- * 쿨타임 연출은 **임플란트와 완전히 같은 방식**이다 (`styles/implant.css` 의 `.ib-*` 와 짝): 같은 얼굴 두 장을
- * 겹쳐 아래 장은 딤드, 위 장은 밑에서부터 `--fill` 만큼만 드러나는 밝은 사본. 클래스 이름만 `.sb-*` 로 갈라
- * 뒀다 — HUD 위젯끼리 같은 클래스를 나눠 쓰면 한쪽 수정이 다른 쪽을 무너뜨린다 (2026-09-09 `.hold` 사고).
+ * The cooldown is presented **exactly the way the implant's is** (paired with `.ib-*` in `styles/implant.css`):
+ * two copies of the same face, the lower one dimmed and the upper a lit copy revealed from the bottom by `--fill`.
+ * Only the class names were split off as `.sb-*` — two HUD widgets sharing one class means a change to either one
+ * breaks the other (the 2026-09-09 `.hold` incident).
  *
- * 자리 · 크기는 `implant.css` 의 `:root` 변수(`--imp-th` · `--imp-tw` · `--imp-bottom` · `--imp-gap`)가
- * 원본이다. 여기서 그 숫자를 다시 적지 않는다 — 임플란트 썸네일이 줄면 이쪽도 함께 줄어든다.
- * 색 · 트랜지션 변수는 전부 `base.css` `:root` 것을 쓰고 여기서 새 색을 정의하지 않는다.
+ * Place and size come from the `:root` variables in `implant.css` (`--imp-th` · `--imp-tw` · `--imp-bottom` ·
+ * `--imp-gap`). Those numbers are never written again here — when the implant thumbnail shrinks, this one shrinks
+ * with it.
+ * Colour and transition variables all come from `base.css`'s `:root`; no new colour is defined here.
  */
 
-/* 임플란트 썸네일의 **왼쪽**. 오른쪽 끝이 화면 중앙에서 임플란트 반폭 + 간격만큼 비켜 있으므로,
-   임플란트가 (장착하지 않아서 · 전투불능이라) 숨어도 이 썸네일은 자리를 지킨다. */
+/* **Left** of the implant thumbnail. Its right edge sits half the implant's width plus the gap off screen
+   centre, so this thumbnail keeps its place even when the implant hides (none equipped · downed). */
 .scall {
-  --sc: var(--c-text-dim);   /* 호출 색 — 무장 중이면 그 호출의 `STRATAGEM_COLOR` */
-  --fill: 0;                 /* 0…1, 아래에서 위로 차오르는 양 */
+  --sc: var(--c-text-dim);   /* The call's colour — while armed, that call's `STRATAGEM_COLOR` */
+  --fill: 0;                 /* 0…1, how much has filled from the bottom */
   position: absolute;
   right: calc(50% + var(--imp-tw) / 2 + var(--imp-gap));
   bottom: var(--imp-bottom);
@@ -28,7 +31,7 @@
 }
 .scall[hidden], .scall.off { display: none !important; }
 
-/* ── 정사각 썸네일 (한 변 = 임플란트 썸네일 높이) ── */
+/* ── The square thumbnail (one side = the implant thumbnail's height) ── */
 .sc-thumb {
   position: relative;
   width: var(--imp-th); height: var(--imp-th);
@@ -53,17 +56,17 @@
     color-mix(in srgb, var(--sc) 30%, transparent));
   text-shadow: 0 0 10px var(--sc), 0 0 3px rgba(0, 0, 0, 0.9);
 }
-/* 밝은 사본을 밑에서부터 `--fill` 만큼만 드러낸다 */
+/* Reveals the lit copy from the bottom by `--fill` only */
 .sb-reveal {
   position: absolute; left: 0; right: 0; bottom: 0;
   height: calc(var(--fill) * 100%);
   overflow: hidden;
 }
-/* 딤드 = 쿨타임 중 */
+/* Dimmed = on cooldown */
 .scall.dim .sb-face:not(.lit) { opacity: 0.34; }
 .scall.dim .sc-thumb { border-color: rgba(255, 255, 255, 0.12); }
 
-/* 중앙 남은 쿨타임 숫자 (임플란트와 같은 규칙: 10초 미만은 소수 한 자리) */
+/* The remaining-cooldown number in the centre (the implant's rule: one decimal below 10 s) */
 .sc-cd {
   position: absolute; left: 0; right: 0; top: 50%;
   transform: translateY(-50%);
@@ -74,7 +77,7 @@
 }
 .sc-cd:empty { display: none; }
 
-/* 우측 하단 남은 구조선 횟수 (구조선을 손에 들었을 때만) */
+/* The remaining rescue drops, bottom right (only while a rescue drop is in hand) */
 .sc-ch {
   position: absolute; right: 3px; bottom: 1px;
   font-size: 10px; font-weight: 700; line-height: 1;
@@ -84,7 +87,7 @@
 .sc-ch:empty { display: none; }
 .scall.spent .sc-ch { color: var(--c-danger); }
 
-/* 썸네일 하단의 사용 키 */
+/* The use key under the thumbnail */
 .scall .sc-key {
   min-width: 18px; height: 14px; padding: 0 5px;
   font-size: 9px;
@@ -96,9 +99,10 @@
   .scall .sc-key { height: 11px; font-size: 8px; }
 }
 
-/* ══ 준비 연출 (2026-09-12, 사용자 결정) — `implant.css` 의 같은 절과 짝이다 ══
- * 준비된 동안 윤곽 글로우(`.is-ready`), 쿨타임이 끝나는 순간 밖으로 퍼지는 테두리(`.sc-ring`) + 안쪽 섬광(`.sb-flash`).
- * 거절 환불로 0 이 된 순간은 약하게(`.rdy-minor`). 무장 테두리(`.armed`)가 이기도록 이 절을 그 앞에 둔다. */
+/* ══ The ready presentation (2026-09-12, user's decision) — paired with the same section in `implant.css` ══
+ * An outline glow while ready (`.is-ready`); the moment the cooldown ends, a border spreading outward (`.sc-ring`)
+ * + an inner flash (`.sb-flash`). The moment a denial's refund brings it to 0 is played weakly (`.rdy-minor`).
+ * This section sits before the armed border (`.armed`) so that border wins. */
 .scall.is-ready .sc-thumb {
   border-color: color-mix(in srgb, var(--sc) 60%, transparent);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 7px color-mix(in srgb, var(--sc) 40%, transparent),
@@ -136,12 +140,13 @@
 }
 @keyframes scallReadyFlashMinor { 0% { opacity: 0.4; } 100% { opacity: 0; } }
 
-/* 무장 중: 테두리 · 키캡이 그 호출의 색을 쓴다 (임플란트의 `.wielded` 와 같은 연출) */
+/* While armed: the border and the keycap take that call's colour (the implant's `.wielded` presentation) */
 .scall.armed .sc-thumb { border-color: var(--sc); box-shadow: 0 0 10px color-mix(in srgb, var(--sc) 45%, transparent); }
 .scall.armed .sc-key { color: var(--sc); border-color: var(--sc); }
 .scall.pulse .sc-thumb { animation: scallPulse 320ms var(--ease); }
 @keyframes scallPulse { 0% { transform: scale(1.1); filter: brightness(1.6); } 100% { transform: scale(1); filter: none; } }
 
-/* 관전 · blocker 에서는 다른 크로스헤어 위젯들과 같이 사라진다 (조준 중에는 무엇을 들었는지 보여야 하므로 남는다) */
+/* While spectating or under a blocker it disappears with the other crosshair widgets (it stays while aiming,
+   since what is in hand still has to be readable) */
 .scall.blocked { opacity: 0; }
 .hud.spectating .scall { opacity: 0 !important; visibility: hidden; }

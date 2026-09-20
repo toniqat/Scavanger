@@ -1,55 +1,59 @@
 /* ============================================================================
- * SCAVANGER — 튜토리얼 (2026-09-08, owner: tutorial/). `.ui-btn` · `.ui-label` 은 ui/styles/base.css 것을 쓴다.
+ * SCAVANGER — tutorial (2026-09-08, owner: tutorial/). `.ui-btn` · `.ui-label` come from ui/styles/base.css.
  *
- * 세 덩어리: 좌측 상단 **목표 패널**, 화면을 덮는 **스포트라이트**, 가운데 뜨는 **안내 / 확인 카드**.
- * 안내선(바닥 점선 + 빛기둥)은 3D 라 여기 없다 — `parts/Guide.ts`.
+ * Three pieces: the **objective panel** top-left, the **spotlight** over the screen, and the **intro / confirm
+ * card** in the centre. The floor guide (dashed strip + target pillar) is 3D, so it is not here — `parts/Guide.ts`.
  * ========================================================================== */
 
-/* ── 목표 패널 (좌측 상단, 레이드의 계약 패널과 같은 자리) ───────────────────
- * 2026-09-14 2차 (사용자 결정) — **퀘스트 패널처럼** 생겼다:
- *   [글리프] 트랙 이름 / 체크박스가 달린 목표 줄들 / 트랙 진행 바.
- * `조작 안내 n / m` 글자 라벨과 **건너뛰기 버튼이 없다** (건너뛰기는 ESC 메뉴로 갔다).
+/* ── The objective panel (top-left, where the raid contract panel sits) ───
+ * 2026-09-14 2nd pass (user's decision) — it looks **like the quest panel**:
+ *   [glyph] track name / objective rows with a checkbox / the track progress bar.
+ * There is no `조작 안내 n / m` text label and **no skip button** (skipping moved to the ESC menu).
  * ────────────────────────────────────────────────────────────────────────── */
 .tut-panel {
   position: absolute; left: 22px; top: 22px;
-  /* 2026-09-09: 화면들(인벤토리 .inv-root 50 · 함선 관리 · 터미널) 과 스포트라이트(78) 위, 키 가이드(84) · 일시정지(85)
-     아래에 **언제나** 있다. 예전의 24 → is-lifted 79 방식은 포커싱 대상을 못 찾은 순간마다 인벤토리 창의 블러가 패널을
-     덮었다 (제작 행이 아직 없는 제작 단계). */
+  /* 2026-09-09: **always** above the screens (inventory .inv-root 50 · ship management · terminal) and the
+     spotlight (78), below the key guide (84) and the pause menu (85). The old 24 → is-lifted 79 way let the
+     inventory window's blur cover the panel every time the focus found no target (the craft step before its
+     craft row exists). */
   z-index: 79;
   display: flex; flex-direction: column; gap: 9.6px;
-  /* 2026-09-15 2차 (사용자 결정): **글자를 1.2 배**로 키웠다 — 안쪽 여백은 그대로 두고 폭만 288 → 346 px (×1.2) 라
-     글줄이 쓸 수 있는 폭(260 → 318)도 같은 비율로 늘어난다: 문장이 전보다 자주 접히지 않는다. 우측 조작 가이드
-     (`.tut-ctl-*`)는 건드리지 않았다 — 그쪽은 무기 패널 · 키 가이드와 자리를 다투는 띠 안에 산다. */
+  /* 2026-09-15 2nd pass (user's decision): **the text is 1.2× larger** — the inner padding is unchanged and
+     only the width went 288 → 346 px (×1.2), so the width a line of text can use (260 → 318) grows by the same
+     ratio: a sentence folds less often than before. The control guide on the right (`.tut-ctl-*`) was left
+     alone — it lives in a strip it has to share with the weapon panel and the key guide. */
   width: 346px; padding: 12px 14px 12px;
   border: 1px solid var(--c-border); border-left: 3px solid var(--c-accent);
   background: linear-gradient(180deg, rgba(12, 15, 20, 0.86), rgba(8, 10, 14, 0.86));
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
-  pointer-events: none;              /* 읽기 전용 — 누를 것이 없다 (2026-09-14 2차) */
+  pointer-events: none;              /* read-only — there is nothing to press (2026-09-14 2nd pass) */
   animation: tut-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 .tut-panel[hidden] { display: none !important; }
-/* `.is-lifted` = 스포트라이트가 떠 있다는 표시만 남았다 (2026-09-09) — z-index 는 위에서 고정이라 여기서 바꾸지 않는다 */
+/* `.is-lifted` is now only a mark that the spotlight is up (2026-09-09) — the z-index is pinned above, so it
+   is not changed here */
 .tut-head { display: flex; align-items: center; gap: 9.6px; }
 .tut-track {
   font-size: 15.6px; font-weight: 700; letter-spacing: 0.06em; line-height: 1.2;
   color: var(--c-accent);
 }
-/* 퀘스트 글리프 — 외부 에셋 금지라 인라인 SVG (마름모 + 가운데 점). 색은 강조색 하나. */
+/* The quest glyph — inline SVG, because no external asset is allowed (diamond + centre dot). One accent colour. */
 .tut-quest-ico { flex: none; width: 18px; height: 18px; overflow: visible; }
 .tut-quest-d { fill: none; stroke: var(--c-accent); stroke-width: 1.5; stroke-linejoin: round; }
 .tut-quest-b { fill: none; stroke: var(--c-accent); stroke-width: 1.6; stroke-linecap: round; }
 .tut-quest-p { fill: var(--c-accent); }
 
-/* 목표 줄 ------------------------------------------------------------------ */
-/* 줄 간격은 1.2 배(6px)에 **2px 을 더** 둔다 (2026-09-15 2차) — 꾹 누르는 키캡의 chevron 이 키캡 윗변 밖으로
-   절반 솟아 있어서(아래 절) 줄이 붙어 있으면 윗줄 글자에 닿아 답답해 보인다. */
+/* Objective rows -------------------------------------------------------- */
+/* The row gap is 1.2× (6px) **plus 2px** (2026-09-15 2nd pass) — a hold keycap's chevron stands half outside
+   the keycap's top edge (see below), so rows packed together touch the text above and look cramped. */
 .tut-objs { display: flex; flex-direction: column; gap: 8px; }
 .tut-obj { display: flex; align-items: flex-start; gap: 9.6px; }
 .tut-obj-box { flex: none; width: 15.6px; height: 15.6px; margin-top: 2.4px; overflow: visible; }
 .tut-obj-frame { fill: none; stroke: var(--c-border-strong, rgba(255, 255, 255, 0.35)); stroke-width: 1.4; }
 /*
- * 체크는 **좌→우로 그려진다** — 길이 약 12.2 인 두 선분이라 dasharray 14 로 덮고 offset 을 0 으로 되돌린다
- * (`text-decoration` 처럼 한 번에 켜지는 속성으로는 애니메이션이 안 된다는 것과 같은 이유).
+ * The tick is **drawn left → right** — two segments about 12.2 long, so a dasharray of 14 covers them and the
+ * offset is returned to 0 (the same reason a property that switches on at once, like `text-decoration`, cannot
+ * be animated).
  */
 .tut-obj-tick {
   fill: none; stroke: var(--c-success, #6ee7a8); stroke-width: 2;
@@ -62,9 +66,10 @@
   font-size: 13.8px; line-height: 1.45; letter-spacing: 0.01em; color: var(--c-text);
 }
 /*
- * 취소선은 **똑같은 글자를 한 겹 더 깔고** `clip-path` 로 좌→우로 벗겨 낸다 (`ui/Panel` 이 두 span 을 만든다).
- * `::after` 의 가로 막대 하나로는 **두 줄로 접힌 목표**의 가운데 허공에 줄이 그어진다 — 여기 문장은 346 px
- * 패널에서도 자주 접힌다. 이 방식은 줄마다 제 위치에 그어지고 왼쪽부터 순서대로 드러난다.
+ * The strike-through **lays a second copy of the same text underneath** and peels it left → right with
+ * `clip-path` (`ui/Panel` builds the two spans). A single horizontal bar in `::after` would draw the line
+ * through empty space in the middle of an **objective folded onto two lines** — and these sentences fold often
+ * even in a 346 px panel. This way each line is struck in its own place and is revealed in order from the left.
  */
 .tut-obj-txt { transition: color 240ms ease 220ms; }
 .tut-obj-strike {
@@ -75,21 +80,25 @@
   transition: clip-path 280ms cubic-bezier(0.2, 0.7, 0.2, 1) 140ms;
   pointer-events: none;
 }
-/* 2026-09-15 (사용자 결정): **회색은 달성한 줄만**이다 — 선택 목표(`.is-optional`)도 달성 전에는 필수와 같은 색이다.
-   예전의 `.tut-obj.is-optional .tut-obj-label { color: dim }` 은 지웠다 (`(선택)` 접두사가 이미 말한다). */
-/* 목표 줄 안의 키캡 (2026-09-15, `shared/keycap.renderKeyText` 의 `.kc-inline`) — 글줄 높이에 맞춘 작은 키캡.
-   2026-09-15 2차 (사용자 결정): 꾹 누르는 키캡의 chevron 은 키캡 **윗변에 걸쳐** 절반이 밖으로 솟는다
-   (`ui/styles/base.css` 의 `.keycap.kc-hold::before` — `top: -5.6px`). 키캡은 `overflow` 를 정하지 않아 잘리지
-   않고, 윗줄과 살짝 겹칠 수 있는 만큼을 위의 `.tut-objs { gap }` 이 2px 더 둔다. */
+/* 2026-09-15 (user's decision): **only a completed row is grey** — an optional objective (`.is-optional`) has
+   the same colour as a required one until it is done. The old
+   `.tut-obj.is-optional .tut-obj-label { color: dim }` was removed (the `(선택)` prefix already says it). */
+/* Keycaps inside an objective row (2026-09-15, `.kc-inline` from `shared/keycap.renderKeyText`) — a small
+   keycap sized to the line height. 2026-09-15 2nd pass (user's decision): a hold keycap's chevron sits
+   **across the keycap's top edge**, half of it outside (`.keycap.kc-hold::before` in `ui/styles/base.css` —
+   `top: -5.6px`). The keycap sets no `overflow`, so it is never clipped, and the 2px that `.tut-objs { gap }`
+   adds above covers the little it may overlap the row above. */
 .tut-obj-label .keycap {
   min-width: 20.4px; height: 20.4px; padding: 0 4.8px; margin: 0 2.4px;
   font-size: 11.4px; vertical-align: middle;
 }
-/* 세는 목표의 `(n/m)` (2026-09-15 2차) — 본문보다 한 톤 흐리다. `ui/Panel.setCounts` 가 이 노드의 글자만 갈아 끼운다.
-   취소선 층에도 같은 노드가 있으므로 색은 글자 층에서만 낮춘다 (취소선 층은 통째로 `--c-text-faint` 다). */
+/* A counted objective's `(n/m)` (2026-09-15 2nd pass) — one tone dimmer than the body. `ui/Panel.setCounts`
+   swaps only this node's text. The strike layer holds the same node, so the colour is lowered in the text
+   layer alone (the strike layer is `--c-text-faint` throughout). */
 .tut-obj-n { font-style: normal; white-space: nowrap; color: var(--c-text-dim); }
 .tut-obj-strike .tut-obj-n { color: inherit; }
-/* 취소선 층의 키캡은 같은 자리에 덮이며 달성한 줄의 색이 된다 (`clip-path` 가 좌→우로 벗겨 낸다) */
+/* The strike layer's keycap covers the same spot and takes a completed row's colour (`clip-path` peels it
+   left → right) */
 .tut-obj-strike .keycap { filter: grayscale(1) brightness(0.72); }
 .tut-obj.is-done .tut-obj-tick { stroke-dashoffset: 0; }
 .tut-obj.is-done .tut-obj-txt { color: var(--c-text-faint); }
@@ -97,8 +106,9 @@
 .tut-obj.is-done .tut-obj-strike { clip-path: inset(0 0 0 0); }
 .tut-obj.is-done .tut-obj-frame { stroke: var(--c-success, #6ee7a8); }
 
-/* 진행 바 위의 숫자 라벨 (2026-09-18) — 바가 목표 자체를 잴 때만 뜬다 (`ui/Panel.setGauge`).
-   목표를 넘기면 채움은 꽉 찬 채로 멈추고 이 글자만 계속 오른다 (`1,400 C / 1,000 C`). */
+/* The number label above the progress bar (2026-09-18) — shown only while the bar measures the objective
+   itself (`ui/Panel.setGauge`). Past the goal the fill stops full and only this text keeps rising
+   (`1,400 C / 1,000 C`). */
 .tut-bar-n { align-self: flex-end; margin-top: -2px; font-size: 11.4px; color: var(--c-text-dim); }
 .tut-bar-n[hidden] { display: none !important; }
 .tut-bar { position: relative; height: 3px; margin-top: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
@@ -110,25 +120,30 @@
 }
 @keyframes tut-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 
-/* ── 우측 조작 가이드 (2026-09-14 · 2차 개편) ────────────────────────────────
- * 배운 조작이 한 줄씩 쌓이고 사라지지 않는다. **우하단의 것들과 자리가 겹치면 안 된다** —
- *   `.weapon`(base.css, right 32 / bottom 32) = 상자(`.wbox` 76 px 썸네일 + 내구도 바 ≈ 108) + 그 위의
- *   퀵슬롯 썸네일(`.qstrip.is-single` 54 px + margin 2) + 사이 gap 6 → 위 끝이 바닥에서 약 202 px,
- *   `.key-guide`(right 28 / bottom 28 / z 84) 도 그 아래 띠 안이다.
- * 그래서 이 패널은 바닥에서 **232 px** 위를 자기 바닥으로 삼고, 위로는 메신저 버튼(`.community`, top 28 +
- * 64 px) 아래 **104 px** 까지를 자기 띠로 쓴다. 띠 안에서 세로 가운데에 서려고 `top`/`bottom` 을 둘 다 주고
- * `height: fit-content` + `margin-block: auto` 를 쓴다 (절대 위치의 over-constrained 규칙 — 자동 여백이
- * 남는 높이를 반씩 나눈다). 1440×900 에서 띠 564 px, 1920×1080 에서 744 px 다.
- * z 79 = 목표 패널과 같다 — 스포트라이트의 어두운 판(78) 위라 안내 중에도 읽힌다.
+/* ── The control guide on the right (2026-09-14 · 2nd rework) ──────
+ * Every control learned stacks up one row at a time and never disappears. **It must not overlap what sits
+ * bottom-right** —
+ *   `.weapon` (base.css, right 32 / bottom 32) = the box (`.wbox` 76 px thumbnail + durability bar ≈ 108)
+ *   plus the quick-slot thumbnail above it (`.qstrip.is-single` 54 px + margin 2) plus the 6 gap between
+ *   them → its top edge is about 202 px off the bottom, and `.key-guide` (right 28 / bottom 28 / z 84) is in
+ *   that strip too.
+ * So this panel takes **232 px** off the bottom as its own floor, and upward it uses the strip down to
+ * **104 px**, under the messenger button (`.community`, top 28 + 64 px). To stand vertically centred inside
+ * that strip it sets both `top` and `bottom` and uses `height: fit-content` + `margin-block: auto` (the
+ * over-constrained rule of absolute positioning — the automatic margins split the leftover height in half).
+ * The strip is 564 px at 1440×900 and 744 px at 1920×1080.
+ * z 79 = the same as the objective panel — above the spotlight's dim plates (78), so it reads during guidance.
  *
- * 2026-09-14 2차 — 줄이 **구간**(`.tut-ctl-sec`)으로 묶이고 구간 사이에만 얇은 구분선이 들어간다. 빈 구간은
- * DOM 에 아예 없으므로(`ui/Controls` 가 첫 줄이 들어올 때 만든다) `+` 선택자 하나로 끝난다.
+ * 2026-09-14 2nd pass — rows are grouped into **sections** (`.tut-ctl-sec`) and a thin divider goes only
+ * between sections. An empty section is not in the DOM at all (`ui/Controls` builds one when its first row
+ * arrives), so one `+` selector is the whole rule.
  * ────────────────────────────────────────────────────────────────────────── */
 .tut-controls {
   position: absolute; right: 22px;
   top: 104px; bottom: 232px;
-  /* `fit-content` + 자동 여백이 띠 안에서 세로 가운데를 잡는다. 띠보다 길어지면 자동 여백이 0 이 되고
-     `bottom` 이 무시되므로, 같은 값을 `max-height` 로 한 번 더 못 박아 무기 패널 쪽으로 넘치지 않게 한다. */
+  /* `fit-content` + the automatic margins centre it vertically inside the strip. Once it is taller than the
+     strip the automatic margins become 0 and `bottom` is ignored, so the same value is pinned once more as
+     `max-height` to keep it from spilling toward the weapon panel. */
   height: fit-content; margin-block: auto; max-height: calc(100vh - 336px);
   z-index: 79;
   display: flex; flex-direction: column; gap: 8px;
@@ -137,13 +152,13 @@
   background: linear-gradient(180deg, rgba(12, 15, 20, 0.82), rgba(8, 10, 14, 0.82));
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
   overflow: hidden;
-  pointer-events: none;              /* 읽기 전용 — 조준을 가로채지 않는다 */
+  pointer-events: none;              /* read-only — it never intercepts aiming */
   animation: tut-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 .tut-controls[hidden] { display: none !important; }
 .tut-ctl-head { color: var(--c-accent); }
 .tut-ctl-list { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-/* 구간 — 구분선은 **앞에 다른 구간이 있을 때만** (빈 구간은 애초에 만들어지지 않는다) */
+/* Sections — a divider only **when another section comes before it** (an empty section is never built) */
 .tut-ctl-sec { display: flex; flex-direction: column; gap: 6px; }
 .tut-ctl-sec + .tut-ctl-sec {
   padding-top: 8px;
@@ -156,21 +171,23 @@
   font-size: 11px; line-height: 1.35; letter-spacing: 0.02em; color: var(--c-text-dim);
   overflow: hidden; text-overflow: ellipsis;
 }
-/* 한 줄에 쌍이 둘일 때의 구분자 (`LMB 사격 · RMB 정조준`) */
+/* The separator when one row holds two pairs (`LMB 사격 · RMB 정조준`) */
 .tut-ctl-sep { flex: 0 0 auto; width: 1px; height: 11px; margin: 0 2px; background: var(--c-border); }
-/* 접힌 조작 가이드 (2026-09-17, `ui/Controls.setFolded` — 증축 안내 마지막 레이드의 `]`): 머리 · 줄 목록이 숨고 한 줄만 남는다 */
+/* The folded control guide (2026-09-17, `ui/Controls.setFolded` — the `]` of 「증축 안내」's last raid): the
+   head and the row list hide and one line is left */
 .tut-controls.is-folded > .tut-ctl-head,
 .tut-controls.is-folded > .tut-ctl-list { display: none; }
 .tut-ctl-fold[hidden] { display: none !important; }
 .tut-ctl-fold { font-size: 11px; line-height: 1.6; letter-spacing: 0.02em; color: var(--c-text-dim); white-space: nowrap; }
 .tut-ctl-fold .keycap { min-width: 20px; height: 20px; padding: 0 5px; margin-right: 4px; font-size: 10px; vertical-align: middle; }
-/* 토큰 문장 줄 (2026-09-15, `ControlHint.text`) — 쌍이 아니라 문장 안에 키캡이 끼어 흐른다 */
+/* A token-text row (2026-09-15, `ControlHint.text`) — not a pair: keycaps flow inline inside the sentence */
 .tut-ctl.is-text { display: block; }
 .tut-ctl-text { font-size: 11px; line-height: 1.75; letter-spacing: 0.02em; color: var(--c-text-dim); }
 .tut-ctl-text .keycap { min-width: 18px; height: 18px; padding: 0 4px; margin: 0 2px; font-size: 9.5px; vertical-align: middle; }
 .tut-ctl.is-new .tut-ctl-text { color: var(--c-text); }
-/* 2026-09-16 (사용자 결정): 패널에 떠 있는 키를 **누르는 동안** 그 키캡이 주황으로 켜진다 (`ui/Controls.update` — 전이 없음).
-   마우스 그림은 윤곽이 `currentColor` 라 글자색을 바꾸면 따라온다. */
+/* 2026-09-16 (user's decision): **while a key shown on the panel is held down** its keycap lights up orange
+   (`ui/Controls.update` — no transition). The mouse glyph outlines with `currentColor`, so it follows the text
+   colour. */
 .tut-controls .keycap.tut-kc-down {
   color: var(--c-accent);
   border-color: var(--c-accent);
@@ -178,9 +195,10 @@
   box-shadow: 0 0 8px color-mix(in srgb, var(--c-accent) 55%, transparent);
 }
 
-/* ── TIP 토스트 (2026-09-15, `ui/Tip.ts`) ─────────────────────────────────────
- * 우측 조작 가이드 **바로 아래**. 자리(top · right · width)와 불투명도는 `TutorialTip.update` 가 가이드의 사각형을 읽어
- * 인라인으로 쓴다 — 나타남 · 사라짐도 코드다 (reduced motion 이 CSS 전이를 자르는 PC 가 있다). z 79 = 조작 가이드와 같다.
+/* ── The TIP toast (2026-09-15, `ui/Tip.ts`) ───────────────────────────────
+ * **Directly under** the control guide on the right. Its place (top · right · width) and its opacity are
+ * written inline by `TutorialTip.update`, which reads the guide's rectangle — appearing and disappearing are
+ * code too (on some PCs reduced motion cuts CSS transitions). z 79 = the same as the control guide.
  * ────────────────────────────────────────────────────────────────────────── */
 .tut-tip {
   position: absolute; z-index: 79; box-sizing: border-box;
@@ -194,7 +212,7 @@
 .tut-tip[hidden] { display: none !important; }
 .tut-tip-head { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; color: var(--c-success, #6ee7a8); }
 .tut-tip-body { font-size: 11px; line-height: 1.45; letter-spacing: 0.01em; color: var(--c-text); }
-/* 새로 배운 줄은 한 박자만 밝았다가 평범한 기록이 된다 */
+/* A newly learned row is bright for one beat and then becomes an ordinary entry */
 .tut-ctl.is-new { animation: tut-ctl-in 1.4s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 .tut-ctl.is-new .tut-ctl-label { color: var(--c-text); }
 @keyframes tut-ctl-in {
@@ -202,8 +220,9 @@
   18% { opacity: 1; transform: none; }
   100% { opacity: 1; transform: none; }
 }
-/* 1440×900 보다 낮은 창에서는 줄 간격 · 글자를 한 단계 줄여 띠 안에 머문다 (바닥 232 px 는 그대로 —
-   무기 패널 · 퀵슬롯의 높이는 px 고정이라 창 높이를 따라 줄지 않는다) */
+/* In a window shorter than 1440×900 the row gap and the text drop one step so it stays inside the strip (the
+   232 px floor is unchanged — the weapon panel and the quick slots are pinned in px and do not shrink with the
+   window height) */
 @media (max-height: 820px) {
   .tut-controls { width: 186px; padding: 8px 10px; gap: 6px; top: 96px; max-height: calc(100vh - 328px); }
   .tut-ctl-list { gap: 6px; }
@@ -212,13 +231,15 @@
   .tut-ctl-label { font-size: 10.5px; }
 }
 
-/* ── 스포트라이트 (네 판이 구멍을 만들고 클릭을 먹는다) ─────────────────────── */
-.tut-spot { position: absolute; inset: 0; z-index: 78; }   /* 인벤토리(50) · 함선 관리 위, 일시정지(85) 아래 */
+/* ── The spotlight (four plates make the hole and eat the clicks) ─── */
+/* above the inventory (50) and ship management, below the pause menu (85) */
+.tut-spot { position: absolute; inset: 0; z-index: 78; }
 .tut-spot[hidden] { display: none !important; }
 /*
- * 2026-09-09: 어두운 판은 **투명에서 시작해** `.tut-spot.is-lit` 이 붙으면 `--tut-dim-fade`(= `TUTORIAL_DIM_FADE_S`,
- * `parts/Spotlight` 가 csv 상수로 심는다) 동안 어두워진다. 클래스는 `hidden` 을 벗긴 뒤 한 번 재계산하고 붙이므로
- * 켜질 때마다 페이드가 돈다. 같은 단계 안의 재조준은 판의 위치만 바꾸므로 다시 페이드하지 않는다.
+ * 2026-09-09: the dim plates **start transparent** and darken over `--tut-dim-fade` (= `TUTORIAL_DIM_FADE_S`,
+ * planted as a csv constant by `parts/Spotlight`) once `.tut-spot.is-lit` is added. The class is added after
+ * `hidden` comes off and one reflow, so the fade runs every time it lights up. Re-aiming inside the same step
+ * only moves the plates, so it does not fade again.
  */
 .tut-spot-pane {
   position: absolute;
@@ -228,18 +249,20 @@
 }
 .tut-spot.is-lit .tut-spot-pane { background: rgba(4, 6, 9, 0.62); }
 /*
- * 2026-09-14 2차 (사용자 결정, `corpseLoot`) — **딤 없는 포커싱**. 판은 투명하게 두고 클릭도 통과시킨다.
- * 어두운 판이 없는데 손만 묶이면 "왜 안 눌리지"가 되기 때문이다 (판이 클릭을 먹는 것이 원래 딤의 값이었다).
- * `.is-lit` 규칙과 같은 specificity 라 **뒤에 오는 이 규칙이 이긴다** — 순서를 바꾸지 않는다.
- * 2026-09-17: 판에는 `.interactive` 도 붙어 있어 `#ui-root .interactive { pointer-events: auto }`(id 선택자)가 이 규칙을 이겼다 —
- * 클릭이 통과하지 않던 원인. `#ui-root` 를 붙여 id specificity 로 맞선다.
+ * 2026-09-14 2nd pass (user's decision, `corpseLoot`) — **no-dim focus**. The plates stay transparent and let
+ * clicks through, because with no dim plate on screen a bound hand only reads as "why won't this press?" (the
+ * plates eating the clicks was what the dim was worth in the first place).
+ * It has the same specificity as the `.is-lit` rule, so **this later rule wins** — do not reorder them.
+ * 2026-09-17: the plates also carry `.interactive`, so `#ui-root .interactive { pointer-events: auto }` (an id
+ * selector) beat this rule — that is why clicks did not pass through. Adding `#ui-root` meets its id
+ * specificity.
  */
 #ui-root .tut-spot.is-nodim .tut-spot-pane,
 .tut-spot.is-nodim .tut-spot-pane { background: rgba(4, 6, 9, 0); pointer-events: none; cursor: auto; }
 /*
- * 2026-09-08 — 밝기만 오가는 펄스는 너무 희미해서 눈에 안 띄었다. 이제 **천천히 확대-축소**한다:
- * 링 자체가 1 → 1.045 로 숨을 쉬고, `::after` 의 에코 링이 1 → 1.16 으로 퍼지며 사라진다 (같은 2.0s 박자).
- * 움직임이 시선을 끄는 몫이라 글로우는 오히려 조금 낮췄다.
+ * 2026-09-08 — a pulse that only moved brightness was too faint to notice. Now it **scales slowly in and
+ * out**: the ring itself breathes 1 → 1.045 and the echo ring in `::after` spreads 1 → 1.16 and fades (the
+ * same 2.0s beat). The movement is what draws the eye, so the glow was lowered a little instead.
  */
 .tut-spot-ring {
   position: absolute; pointer-events: none;
@@ -279,9 +302,11 @@
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
 }
 .tut-spot-tip[hidden] { display: none !important; }
-/* 2026-09-16: 말풍선 글 안의 키캡 (`{MOUSE_LEFT}` · `{DOUBLE_CLICK}` — `.kc-inline`) — 글줄 높이에 맞춘 작은 키캡 */
+/* 2026-09-16: keycaps inside the callout text (`{MOUSE_LEFT}` · `{DOUBLE_CLICK}` — `.kc-inline`) — a small
+   keycap sized to the line height */
 .tut-spot-tip .keycap { min-width: 18px; height: 18px; padding: 0 4px; font-size: 9.5px; }
-/* 2026-09-16 2차: 말풍선 안의 `{+}` — 캐릭터 시트 능력치 줄의 ＋ 버튼(`progression/ui/character.css` `.cs-stat .ui-btn.plus`)을 닮은 작은 네모 */
+/* 2026-09-16 2nd pass: the `{+}` inside the callout — a small square that mimics the ＋ button of a character
+   sheet `능력치` row (`progression/ui/character.css` `.cs-stat .ui-btn.plus`) */
 .tut-spot-plus {
   display: inline-flex; align-items: center; justify-content: center; vertical-align: -3px;
   width: 17px; height: 17px; margin: 0 2px;
@@ -294,15 +319,15 @@
   .tut-spot-pane { transition: none; }
   .tut-panel { animation: none; }
   .tut-controls, .tut-ctl.is-new { animation: none; }
-  /* 달성 표시는 남기되 **그려지는 과정**만 없앤다 (체크 · 취소선이 즉시 완성된 모습으로 선다) */
+  /* Keep the done marks but drop only **the drawing of them** (tick and strike stand finished at once) */
   .tut-obj-tick, .tut-obj-txt, .tut-obj-strike { transition: none; }
 }
 
-/* ── 안내 / 건너뛰기 확인 카드 (모달리스 — 뒤 화면은 계속 돈다) ──────────────── */
+/* ── Intro / skip-confirm card (modeless — the screen behind keeps running) ─── */
 .tut-popup {
   position: absolute; inset: 0; z-index: 80;
   display: grid; place-items: center;
-  pointer-events: none;              /* 카드 밖은 통과 — 모달리스 */
+  pointer-events: none;              /* outside the card clicks pass through — modeless */
 }
 .tut-popup[hidden] { display: none !important; }
 .tut-popup-card {
@@ -316,18 +341,19 @@
 }
 .tut-popup-card .title { font-size: 19px; font-weight: 600; letter-spacing: 0.1em; color: var(--c-accent); }
 .tut-popup-card .body { display: flex; flex-direction: column; gap: 7px; }
-.tut-popup-card .body:empty { display: none; }   /* 건너뛰기 확인 카드는 본문이 없다 (2026-09-09) — 빈 칸을 남기지 않는다 */
+.tut-popup-card .body:empty { display: none; }   /* the skip-confirm card has no body (2026-09-09) — no empty gap */
 .tut-popup-card .body p { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--c-text-dim); }
 .tut-popup-card .acts { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
 .tut-popup-card .acts .ui-btn { min-width: 0; padding: 0 20px; }
-/* 2026-09-09: 건너뛰기는 **채워진 빨간** 버튼이다 (base.css 의 .ui-btn.danger 는 hover 에만 색이 든다) */
+/* 2026-09-09: skip is a **filled red** button (base.css's .ui-btn.danger only takes colour on hover) */
 .tut-popup-card .acts .ui-btn.danger {
   border-color: var(--c-danger);
   background: color-mix(in srgb, var(--c-danger) 78%, black 22%);
   color: #fff;
 }
 .tut-popup-card .acts .ui-btn.danger:hover { background: var(--c-danger); color: #fff; }
-/* 홀드 버튼 (`PopupButton.hold`): 누르고 있는 동안 왼쪽에서 채워지는 게이지 — 제작의 `.inv-craft-fill` 과 같은 결 */
+/* The hold button (`PopupButton.hold`): a gauge filling from the left while it is held — the same grain as
+   crafting's `.inv-craft-fill` */
 .tut-popup-card .acts .ui-btn.tut-hold { position: relative; overflow: hidden; user-select: none; touch-action: none; }
 .tut-popup-card .acts .ui-btn.tut-hold > span { position: relative; z-index: 1; }
 .tut-hold-fill {

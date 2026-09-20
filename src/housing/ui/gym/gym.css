@@ -1,10 +1,11 @@
 /* ============================================================================
- * SCAVANGER — 헬스장 운동 화면 (A-3a, 2026-09-12; housing/ui/gym). 접두사 `.gym-` 전용.
+ * SCAVANGER — the gym exercise screen (A-3a, 2026-09-12; housing/ui/gym). Prefix `.gym-` only.
  *
- * 키보드 게임이라 **화면 전체를 덮지 않는다** — hub 가 옆에서 비추는 운동 자세가 보여야 한다. 루트는 투명한 막
- * (`pointer-events: none`)이고 카드(시작 안내 · 결과)는 일시정지 메뉴와 같은 자리(화면 왼쪽 절반의 가운데), 게임
- * 패널은 화면 아래 가운데에 선다. 모서리 강조 · 반투명 판 · 모노 숫자는 `.menu .frame` 과 같은 결이다.
- * 판정 색: 완벽 = 강조색(호박) · 좋음 = 본문색 · 실패 = 위험색.
+ * It is a keyboard game, so it **does not cover the whole screen** — the exercise pose hub stages beside it has to
+ * stay visible. The root is a transparent sheet (`pointer-events: none`), the cards (the intro guide · the result)
+ * sit where the 일시정지 메뉴 sits (the centre of the screen's left half), and the game panel stands at the bottom
+ * centre. The corner accents · translucent plate · mono numerals are the same look as `.menu .frame`.
+ * Judgement colours: perfect = the accent colour (amber) · good = the body colour · miss = the danger colour.
  * ========================================================================== */
 
 .gym { position: absolute; inset: 0; z-index: 44; pointer-events: none; }
@@ -25,7 +26,7 @@
 .gym-card::after, .gym-panel::after { right: -1px; bottom: -1px; border-left: none; border-top: none; }
 @keyframes gymIn { from { opacity: 0; transform: translate(var(--gym-tx, 0), calc(var(--gym-ty, 0px) + 8px)); } }
 
-/* ── 카드 (시작 안내 · 결과) ──────────────────────────────────────────── */
+/* ── Cards (the intro guide · the result) ──────────────────────────────── */
 .gym-card {
   --gym-tx: -50%; --gym-ty: -50%;
   left: clamp(220px, 25vw, 50vw); top: 50%;
@@ -70,7 +71,7 @@
 }
 .gym-fatigue { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--c-text-dim); }
 
-/* ── 게임 패널 ───────────────────────────────────────────────────────── */
+/* ── The game panel ──────────────────────────────────────────────────── */
 .gym-panel {
   --gym-tx: -50%;
   left: 50%; bottom: 14vh;
@@ -82,7 +83,8 @@
 .gym-name { font-size: 11px; font-weight: 600; letter-spacing: 0.16em; color: var(--c-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gym-hint { font-size: 11px; color: var(--c-text-faint); }
 
-/* 진행 바 (2026-09-14, 사용자 결정 「라벨 없이 바만」) — 채워질 때 처음 빠르고 점점 느려진다 (ease-out). 글자는 없다. */
+/* The progress bar (2026-09-14, user's decision 「라벨 없이 바만」) — it fills fast at first and slows down
+   (ease-out). There is no text. */
 .gym-prog {
   --f: 0;
   position: relative; flex: 1; min-width: 90px; max-width: 340px; height: 6px;
@@ -110,7 +112,7 @@
   100% { opacity: 0; transform: translate(-50%, -125%) scale(1); }
 }
 
-/* 벤치프레스 — 굵은 가로 바 · 가운데 구역 · 왕복 원형 커서 */
+/* `벤치프레스` — a thick horizontal bar · the centre zone · a round cursor sweeping back and forth */
 .gym-press { display: flex; flex-direction: column; gap: 10px; }
 .gym-press-bar {
   position: relative; height: 34px; margin: 0 17px;
@@ -141,7 +143,7 @@
 .gym-pip.is-good { background: var(--c-text); border-color: var(--c-text); }
 .gym-pip.is-miss { background: var(--c-danger); border-color: var(--c-danger); }
 
-/* 호흡 달리기 · 사이클링 — 오른쪽에서 흘러와 판정선에 닿는 표식 */
+/* `호흡 달리기` · `사이클링` — markers that flow in from the right and reach the judgement line */
 .gym-lanes { display: flex; flex-direction: column; gap: 6px; }
 .gym-lane-row { display: flex; align-items: center; gap: 10px; }
 .gym-lane-key { flex: none; min-width: 48px; height: 26px; font-size: 12px; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
@@ -152,7 +154,8 @@
   background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border);
 }
 .gym-cycle .gym-lane { height: 36px; }
-/* 판정 띠 — 폭이 판정 값에서 나온다 (`GymViews`): 표식이 완벽 띠를 덮으면 완벽이다 */
+/* The judgement bands — their width comes from the judgement values (`GymViews`): a marker that covers the perfect
+   band is perfect */
 .gym-window { position: absolute; top: 0; bottom: 0; left: var(--judge); transform: translateX(-50%); pointer-events: none; }
 .gym-window.is-good { width: calc(var(--good-half) * 2 * (100% - var(--judge))); background: rgba(232, 230, 225, 0.07); }
 .gym-window.is-perfect {
@@ -164,7 +167,8 @@
 .gym-lane.hit-perfect { animation: gymHitPerfect 300ms var(--ease); }
 .gym-lane.hit-miss { animation: gymHitMiss 300ms var(--ease); }
 
-/* 탭 표식의 폭 = 완벽 띠(`--span`)와 같다 — 좁으면 최소 `--nh` 지름의 원으로 남는다 (2026-09-14) */
+/* A tap marker's width = the perfect band (`--span`) — when that is narrow it stays a circle of at least `--nh`
+   across (2026-09-14) */
 .gym-note {
   --nh: 28px; --x: 2; --f: 0; --span: 0;
   position: absolute; top: 50%;

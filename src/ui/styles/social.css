@@ -1,8 +1,10 @@
-/* ══ 2026-09-11 (B-3 · B-4): 초대 중 배지 · 대화 기록 / 차단 목록 페이지 · 귓속말 전송 상태 ══════════════════════════
-   Imported by `menus/social/SocialColumn` and `hud/ChatLog`. The 소셜 열 / 커뮤니티 패널 / chat base rules stay in
-   base.css; only the additions live here. Scrollbars inherit the dark in-game tokens (`--sb-*`) from base.css. */
+/* ══ 2026-09-11 (B-3 · B-4): the `초대 중` badge · the `대화 기록` / `차단 목록` pages · whisper delivery state ══
+   Imported by `menus/social/SocialColumn` and `hud/ChatLog`. The base rules for the social column, the community
+   panel and chat stay in base.css; only the additions live here. Scrollbars inherit the dark in-game tokens
+   (`--sb-*`) from base.css. */
 
-/* 초대 중 · 72초 — between the 아이디 and the level on a profile card (`ProfileCard`, ticked by `SocialColumn.tick`) */
+/* `초대 중 · 72초` — between the `아이디` and the level on a profile card (`ProfileCard`, ticked by
+   `SocialColumn.tick`) */
 .sc-inv {
   flex: none; padding: 0 5px;
   border: 1px solid rgba(255, 179, 71, 0.55); background: rgba(255, 179, 71, 0.1);
@@ -10,7 +12,7 @@
   white-space: nowrap;
 }
 
-/* 커뮤니티 panel head: 차단 목록 n (left of 닫기) */
+/* The community panel head: `차단 목록 n` (left of `닫기`) */
 .cp-blocked { flex: none; }
 
 /* pages laid over the column — the panel keeps its fixed box */
@@ -38,7 +40,7 @@
 .sc-page.is-blocked .sc-page-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 6px; }
 .sc-page-empty { padding: 4px 0; }
 
-/* 대화 기록 lines */
+/* `대화 기록` lines */
 .sc-logline {
   display: flex; align-items: baseline; gap: 8px; min-width: 0;
   padding: 4px 8px; background: rgba(255, 255, 255, 0.025);
@@ -65,13 +67,13 @@
 .sc-log-input::placeholder { color: var(--c-text-faint); }
 .sc-log-send { flex: none; width: 72px; height: 30px; }
 
-/* 차단 목록 cards */
+/* `차단 목록` cards */
 .sc-card.is-blocked { cursor: context-menu; }
 .sc-card.is-blocked .sc-name { color: var(--c-text-dim); }
 .sc-unblock { flex: none; padding: 1px 8px; }
 .sc-unblock:hover { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.55); }
 
-/* 귓속말 전송 상태 in the chat log (`hud/ChatLog`) */
+/* Whisper delivery state in the chat log (`hud/ChatLog`) */
 .chat-line .wst { flex: none; font-size: 9px; letter-spacing: 0.06em; color: var(--c-text-faint); font-style: normal; }
 .chat-line.whisper.pending .txt, .chat-line.whisper.pending .who { opacity: 0.55; }
 .chat-line.whisper.stored .wst, .chat-line.whisper.backlog .wst { color: var(--c-accent); }

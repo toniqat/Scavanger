@@ -1,7 +1,8 @@
 /*
- * SCAVANGER — 구조선 대상 선택 화면 (2026-09-09).
- * `ui/styles/base.css` 의 토큰(--sb-*, .ui-mono, .ui-label)을 그대로 쓰고, 색만 구조선 분홍(--rp-tint)을 더한다.
- * 이 파일은 base.css 를 import 하지 않으므로 참조하는 토큰마다 fallback 을 함께 적는다.
+ * SCAVANGER — the rescue-drop target picker screen (2026-09-09).
+ * It uses the tokens of `ui/styles/base.css` (--sb-*, .ui-mono, .ui-label) as they are and adds only the rescue
+ * drop's pink (--rp-tint).
+ * This file does not import base.css, so every token it references is written with a fallback beside it.
  */
 .rescue-pick {
   position: fixed;

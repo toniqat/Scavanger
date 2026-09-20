@@ -1,6 +1,7 @@
-/* ── 전술 지도 퀘스트 패널 (2026-09-14, `ui/map/QuestPanels` — 접두사 `mq-`) ─────────────────────────────────────
-   좌측 열(`.map-side`, base.css)에서 머리와 범례 사이의 남는 높이를 차지하고, 길어지면 `.mq-scroll` 만 스크롤한다
-   (열 높이는 `MapScreen.fit` 이 캔버스 높이로 못 박는다 — 패널이 늘어도 프레임이 자라지 않는다). */
+/* ── The tactical map's quest panels (2026-09-14, `ui/map/QuestPanels` — prefix `mq-`) ─────────────────────
+   They take the height left between the header and the legend in the left column (`.map-side`, base.css), and
+   when they run long only `.mq-scroll` scrolls (the column's height is nailed to the canvas height by
+   `MapScreen.fit` — the frame never grows with the panels). */
 .mq-list {
   flex: 1 1 0; min-height: 0;
   display: flex; flex-direction: column; gap: 8px;
@@ -42,15 +43,17 @@
 .mq-obj-n { flex: none; font-size: 11px; color: var(--c-text, #e8e6e1); }
 .mq-obj.is-done { opacity: 0.5; }
 .mq-obj.is-done .mq-obj-n { color: var(--c-success, #6ee7a8); }
-/* 패널 안 하단 게이지 — 패널 좌우 안여백을 넘어 테두리 안쪽 끝까지 */
+/* The gauge along the bottom inside the panel — past the left and right padding, out to the inside of the
+   border */
 .mq-gauge { height: 3px; margin: 2px -9px 0 -9px; background: rgba(255, 255, 255, 0.08); }
 .mq-gauge > i { display: block; height: 100%; background: var(--mq-npc, var(--c-accent)); transition: width 240ms var(--ease, ease-out); }
 .mq-panel.is-ready .mq-gauge > i { background: var(--c-success, #6ee7a8); }
 
-/* ── 튜토리얼 목표 패널 (2026-09-18, `ui/map/QuestPanels` `MapTutorialPanel`) ─────────────────────────────────
-   좌측 열 **맨 위**, 퀘스트 목록 위다. 퀘스트 패널과 같은 생김새를 그대로 쓰고(`.mq-panel` …) 색은 `--mq-npc` 를
-   정하지 않아 강조색으로 떨어진다. 목표 줄은 짧은 명사구가 아니라 문장까지 오므로 **줄바꿈을 허용**한다
-   (퀘스트 줄은 이름 한 줄이라 말줄임이 맞지만 여기서는 안내가 잘린다). */
+/* ── The tutorial objective panel (2026-09-18, `ui/map/QuestPanels` `MapTutorialPanel`) ────────────────────
+   **At the very top** of the left column, above the quest list. It reuses the quest panel's look as it is
+   (`.mq-panel` …) and, by setting no `--mq-npc`, falls back to the accent colour. An objective row can run to a
+   whole sentence rather than a short noun phrase, so **wrapping is allowed** (a quest row is one name, where an
+   ellipsis is right, but here it would cut the guidance off). */
 .mq-tut {
   flex: none;
   display: flex; flex-direction: column; gap: 8px;
@@ -60,20 +63,24 @@
 .mq-tut-body { display: flex; flex-direction: column; gap: 6px; }
 .mq-tut .mq-obj { align-items: flex-start; gap: 6px; }
 .mq-tut .mq-obj-l { flex: 1 1 auto; white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.35; }
-/* 달성한 줄 — 안내 패널의 취소선과 같은 뜻 (`.mq-obj.is-done` 이 흐림 · 성공색을 이미 맡는다) */
+/* A done row — the same meaning as the strike-through in the tutorial's own objective panel (`.mq-obj.is-done`
+   already owns the dimming and the success colour) */
 .mq-tut .mq-obj.is-done .mq-obj-l { text-decoration: line-through; }
-/* 체크박스 — 안내 패널의 SVG 체크와 같은 자리, 여기서는 테두리 사각형 하나다 (외부 에셋 없이 CSS 로만) */
+/* The checkbox — the same place as the objective panel's SVG check, here a single bordered square (CSS only,
+   with no external asset) */
 .mq-tut-box {
   flex: none; width: 9px; height: 9px; margin-top: 3px;
   border: 1px solid var(--c-border-strong, rgba(255, 255, 255, 0.35));
 }
 .mq-tut .mq-obj.is-done .mq-tut-box { border-color: var(--c-success, #6ee7a8); background: var(--c-success, #6ee7a8); }
-/* 게이지 위의 숫자 — 목표를 넘겨도 실제 값이다 (`1,400 C / 1,000 C`, `tutorial/model.creditGaugeLabel`) */
+/* The number above the gauge — the real value even past the goal (`1,400 C / 1,000 C`,
+   `tutorial/model.creditGaugeLabel`) */
 .mq-tut-n { align-self: flex-end; font-size: 11px; color: var(--c-text-dim); }
-/* 목표 줄 안의 인라인 키캡 — 줄 높이를 밀지 않게 안내 패널과 같은 크기로 */
+/* The inline keycap inside an objective row — the objective panel's size, so it does not push the row height */
 .mq-tut .mq-obj-l .keycap { min-width: 17px; height: 17px; padding: 0 4px; margin: 0 2px; font-size: 10px; vertical-align: middle; }
 
-/* 호버 상세 툴팁 — 지도 화면 루트에 붙고 좌측 열 오른쪽에 뜬다 (포인터를 먹지 않는다) */
+/* The hover detail tooltip — attached to the map screen root, opening right of the left column (it eats no
+   pointer) */
 .mq-tip {
   position: fixed; z-index: 60;
   width: 290px; max-width: calc(100vw - 16px);

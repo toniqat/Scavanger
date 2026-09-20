@@ -1,8 +1,10 @@
 /* ============================================================================
- * SCAVANGER — TV 화면 (비디오게임, 2026-09-13 · H2; housing/ui/tv). 접두사 `.tvm-` 전용 (빈 이름을 확인했다).
+ * SCAVANGER — the TV screen (video games, 2026-09-13 · H2; housing/ui/tv). Prefix `.tvm-` only (the name was
+ * checked to be free).
  *
- * 틀은 하우징 패널 공통(`.menu.housing-menu .frame`)이고, 여기는 안쪽 줄만 — 머리(TV 이름 · 켜짐 상태 · 켜기/끄기),
- * 게임기 칸(장착된 것 + 가진 것 목록), 좌석 한 줄, 게임 목록(디스크 테마 색 띠 `--tvm-c`).
+ * The frame is the shared housing panel one (`.menu.housing-menu .frame`); only the rows inside are here — the
+ * header (TV name · power state · on/off), the console slot (the attached one + the list of owned ones), the one
+ * seat line, and the game list (the disc theme colour strip `--tvm-c`).
  * ========================================================================== */
 
 .tvm-page { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 2px; }

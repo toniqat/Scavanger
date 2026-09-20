@@ -1,20 +1,22 @@
 /*
- * src/ui/styles/music.css — 음악 재생 창 (`hud/MusicPlayer`, 2026-09-14).
+ * src/ui/styles/music.css — the music player window (`hud/MusicPlayer`, 2026-09-14).
  *
- *   `.mus-player(.show)(.is-empty)`  #ui-root 직계, **좌측 상단**. 함선에서만 뜬다.
- *     `.mus-body`                      한 장의 카드 (왼쪽 강조선 = 재생 중이라는 표시).
- *       `.mus-head`                    `.mus-icon` ♪ · `.mus-mode` 재생 목록 / 한 곡 반복 · `.mus-vol` 음량 n%
- *       `.mus-title` / `.mus-artist`   곡 제목(시리즈 이름) · 아티스트
- *       `.mus-bar > .mus-fill`         진행 막대 · `.mus-time` `m:ss / m:ss`
- *       `.mus-actions > .mus-btn`      ◀ 이전 · ▶ 다음 · 재생 방식 전환(`.mus-btn-mode`) · ■ 정지
+ *   `.mus-player(.show)(.is-empty)`  a direct child of #ui-root, **top left**. It shows in the ship only.
+ *     `.mus-body`                      one card (the accent line on its left = the mark that it is playing).
+ *       `.mus-head`                    `.mus-icon` ♪ · `.mus-mode` `재생 목록` / `한 곡 반복` · `.mus-vol` `음량 n%`
+ *       `.mus-title` / `.mus-artist`   the track title (the series name) · the artist
+ *       `.mus-bar > .mus-fill`         the progress bar · `.mus-time` `m:ss / m:ss`
+ *       `.mus-actions > .mus-btn`      ◀ previous · ▶ next · switch the play mode (`.mus-btn-mode`) · ■ stop
  *
- * **자리**: 좌측 상단(24 / 20). 우측 상단은 `.community`(top 28 · right 32) · `.net-badge`(top 20 · right 24) 가 이미 쓴다.
- * 레이드 HUD 의 좌상단 임무 시간과는 **겹칠 수 없다** — 이 창은 `phase === 'hub'` 에서만 뜬다.
- * **z 81 의 근거**: 인벤토리 창(50)과 그 딸림 층(≤ 80) 위 · `.screen-fade`(82) · `.net-badge`(83) · `.key-guide`(84) ·
- * 일시정지(85) · 설정(86) 아래. 메뉴 blocker 가 서면 위젯이 스스로 `.show` 를 뗀다 (`KeyGuide.apply()` 와 같은 규칙).
- * 창 자체는 아무 입력도 먹지 않고 **버튼에만** `pointer-events: auto` 다 (`.nb-actions` 와 같은 규칙) —
- * 지도 · 인벤토리 위에 떠 있어도 그 아래를 가리지 않는다.
- * 클래스 접두사는 전부 `mus-` 다 (폴더마다 달라야 한다 — `.ct-cell` 충돌 사례).
+ * **Place**: top left (24 / 20). The top right is already taken by `.community` (top 28 · right 32) and
+ * `.net-badge` (top 20 · right 24).
+ * It **cannot collide** with the raid HUD's top-left mission clock — this window only shows at `phase === 'hub'`.
+ * **Why z 81**: above the inventory window (50) and its sub-layers (≤ 80); below `.screen-fade` (82),
+ * `.net-badge` (83), `.key-guide` (84), the pause menu (85) and settings (86). When a menu blocker goes up the
+ * widget drops its own `.show` (the same rule as `KeyGuide.apply()`).
+ * The window itself eats no input and `pointer-events: auto` is on **the buttons only** (the same rule as
+ * `.nb-actions`) — floating over the map or the inventory it hides nothing beneath it.
+ * Every class prefix is `mus-` (they have to differ per folder — the `.ct-cell` collision).
  */
 
 .mus-player {
@@ -63,7 +65,8 @@
 .mus-fill {
   position: absolute; left: 0; top: 0; bottom: 0; width: 0;
   background: var(--c-accent);
-  /* 창은 매 프레임 갱신되지만 0.2 % 미만의 변화는 건너뛰므로, 그 사이를 트랜지션이 메워 「부드럽게」 찬다. */
+  /* The window updates every frame but skips a change under 0.2 %, so a transition fills the gaps and it reads
+     as filling smoothly. */
   transition: width 140ms linear;
 }
 .mus-time {
@@ -71,9 +74,10 @@
   font-size: 9px; letter-spacing: 0.06em; color: var(--c-text-dim); text-align: right;
 }
 
-/* ── 조작 (◀ 이전 · ▶ 다음 · 재생 방식 · ■ 정지) ─────────────────────────── */
+/* ── The controls (◀ previous · ▶ next · play mode · ■ stop) ─────────────── */
 .mus-actions { display: flex; align-items: stretch; gap: 4px; margin-top: 5px; }
-/* 창은 `pointer-events: none` 이고 **떠 있는 동안의 버튼만** 입력을 받는다 (`.nb-actions` 와 같은 규칙). */
+/* The window is `pointer-events: none` and **only its buttons, while it is up**, take input (the same rule as
+   `.nb-actions`). */
 .mus-player.show .mus-btn { pointer-events: auto; }
 .mus-btn {
   flex: none; min-width: 24px; height: 20px; padding: 0 6px;
@@ -85,10 +89,10 @@
 .mus-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: var(--c-text); border-color: var(--c-accent); }
 .mus-btn:disabled { opacity: 0.35; cursor: default; }
 .mus-btn:focus { outline: none; }
-/* 방식 전환은 **누르면 될 값**을 적으므로 글자가 길다 — 남는 폭을 혼자 가져간다. */
+/* The mode switch prints **the value a press would give**, so its text runs long — it takes the width left. */
 .mus-btn-mode { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mus-btn[hidden] { display: none; }
 
-/* 레코드를 한 장도 안 꽂았다 — 제목 줄 하나만 남기고 아티스트 · 막대 · 시간은 `hidden` 으로 빠진다. */
+/* Not one record is shelved — only the title row is left and the artist, bar and time drop out as `hidden`. */
 .mus-player.is-empty .mus-title { font-weight: 500; color: var(--c-text-dim); }
 .mus-artist[hidden], .mus-bar[hidden], .mus-time[hidden] { display: none; }
