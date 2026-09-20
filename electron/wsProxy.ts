@@ -5,8 +5,9 @@
  * app at a relay means forwarding the upgrade rather than rewriting the client's URL. This is a raw byte
  * pipe: the relay protocol (and its `?t=` / `?n=` session query) passes through untouched.
  *
- * 2026-09-15: 목적지는 언제나 부팅 때 정해진 `URL` 하나다 — 임베디드 릴레이(첫 업그레이드에 켜지던 `LazyProxyTarget`)를
- * 걷어냈다. 목적지 서버가 꺼져 있으면 연결 오류로 페이지 소켓을 곧바로 끊고, 렌더러가 오프라인 → 배경 프로브로 다시 찾는다.
+ * 2026-09-15: the destination is always the one `URL` decided at boot — the embedded relay (`LazyProxyTarget`, which
+ * started on the first upgrade) was taken out. If the destination server is off, the connection error closes the
+ * page's socket straight away and the renderer goes offline → its background probe finds it again.
  */
 import { connect as netConnect, type Socket } from 'node:net';
 import { connect as tlsConnect } from 'node:tls';

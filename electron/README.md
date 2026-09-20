@@ -107,8 +107,8 @@ Exactly three entries — no server. Whoever hosts runs `start-server.bat` from 
 ## Recent changes
 
 Last 5 only — older: `git log -- electron`.
+- 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched. The boot error box's Korean strings stay — they are what the player reads.
 - 2026-09-15 — Embedded relay removed (no `server/` / `ws` in the build); nothing configured or `--local` → this PC's `ws://127.0.0.1:8787/ws`; deploy folder has 3 entries.
 - 2026-09-14 — `EACCES` (Windows reserved range) treated as a blocked port; relay falls back, window reports the winnat fix.
 - 2026-09-11 — Test flags `--user-data`, `--hidden`, `--lazy-relay`; `/__scav/relay` gains `embedded`.
 - 2026-09-11 — Embedded relay starts lazily on the first `/ws` upgrade (`LazyProxyTarget`).
-- 2026-09-10 — Deploy folder with stub launcher and `server.txt`; `configDirs` searches the `execPath` parent.
