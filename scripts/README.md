@@ -270,6 +270,16 @@ after touching `damageSource.ts` is checked by restarting vite, not by debugging
   whose own subject was green, and a `GET /health` whose `uptime` is far younger than the run. It is not a flake in the
   smoke. Give each concurrent runner `--log-dir scripts/logs/<name> --keep-relay`, as CLAUDE.md §2 says. The real fix
   would be for `verify` to refuse a relay it did not start unless `--keep-relay` was passed.
+- **A `npm run dev:all` left running takes vite down with it when the runner restarts the relay (2026-09-21).** The
+  same reuse as above, one step worse: `verify` adopts the vite it finds on 5273 (「vite already up」) and separately
+  kills 8787 to get a fresh relay (`killPort` → `taskkill /pid <relay> /T /F`). But under `dev:all` those two are one
+  process group — `scripts/dev-all.mjs` stops both when **either child exits** — so the relay kill silently removes
+  the runner's own vite a minute into the run. Symptom: the first few smokes green, then every remaining one
+  `ERR_CONNECTION_REFUSED at http://localhost:5273/` in ~1 s each, and the run ends in minutes instead of ~18
+  (91 red that way on 2026-09-21). It is not a code failure and `--rerun-failed` will not sort it out. Stop a
+  `dev:all` before `verify:all`, or start the two halves separately (`npm run server` + `npm run dev`) so killing one
+  does not take the other. The real fix is the same one: a relay `verify` did not start should not be killed without
+  `--keep-relay` being asked about.
 - **A label mistyped inside a `data/*.csv` comment is still unchecked (narrowed 2026-09-21, B-74).** A csv's `#`
   comment lines no longer count as live strings, so they can no longer **justify a near miss anywhere else** — that
   was how `housing.css`'s `해석 도감` stayed quiet although the real rail tab is `분석 도감`
@@ -330,6 +340,7 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-21 — 「Known gaps in the net」 rewritten where the tree moved: the rover turret check now stands on `rover:fired.targetId` (B-73, the `private` reach is gone), `check-comment-labels` drops a csv's `#` lines so they can no longer justify a near miss elsewhere (B-74, the remaining half is a typo written *into* a csv comment), and a new bullet names the `dev:all` teardown that turned a `verify:all` into 91 reds — `killPort(8787)` takes the adopted vite with it, because `dev-all.mjs` stops both children when either exits.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, csv names and decision headings kept verbatim in backticks / 「」, no string literal touched — a smoke's Korean check names and `console.log` lines are program output and are all unchanged.
 - 2026-09-20 — `docs/PERF_PLAN.md` is gone: the perf record lives in `docs/DECISIONS.md`'s `perf Phase …` sections, and every pointer here and in `verify.mjs` · `smoke-layout-reads.mjs` · `perf-measure.mjs` moved with it. The harness itself is unchanged — its last run was the `--display scale` A/B that closed the plan's one open measurement.
 - 2026-09-19 — `smoke-allies-orders`: `window.__ping` gained `containerId` (crate pings name their container by id, not by
