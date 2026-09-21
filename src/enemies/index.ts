@@ -28,7 +28,7 @@ export { ShellProjectiles, type ShellHost } from './fx/ShellProjectile';
 export { RogueGrenades, type GrenadeHost } from './fx/RogueGrenade';
 export { pickCover, coverBlocksLine, flankCost, COVER_SEARCH_RADIUS } from './ai/RogueCover';
 export { LureField, type LureEntry } from './ai/Lures';
-export { refreshStructureTarget, biteStructure, STRUCT_DAMAGE_MUL } from './ai/Structures';
+export { refreshStructureTarget, biteStructure } from './ai/Structures';
 export { hasLineOfSight, visionClarity, detectionRange, senseRadiusOf, hearRadiusOf, becomeAlert, acquireTarget, updatePerception } from './ai/Perception';
 export { fireOrigin, hasFireLine, fireLineStrafe } from './ai/FireLine';
 export { EnemyReplica, ReplicaBuffer, type ReplicaHost } from './net/Replica';

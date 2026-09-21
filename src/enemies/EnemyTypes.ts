@@ -1,4 +1,4 @@
-import { addDataIssue, csvRows, numberMap, stringMap, type EnemyFaction, type EnemyType } from '@/shared';
+import { addDataIssue, csvRows, numberMap, parseNavCan, stringMap, type EnemyFaction, type EnemyType } from '@/shared';
 
 /*
  * Enemy numbers come from `data/enemies.csv` (base stats per type) and `data/enemy_abilities.csv` (special abilities).
@@ -51,6 +51,19 @@ export interface EnemyStats {
    * `kill`) add it into `ctx.stats.killXp` and `game/` settles it.
    */
   raidXp: number;
+  /**
+   * 2026-09-21 (TODO A-18 phase 2): what this body can do on the nav graph — a `NAV_CAN` mask from the csv `nav` cell
+   * (`indoor+ladder+climb+window`, `shared/nav.parseNavCan`). 0 = it never asks the graph and steers as it always did
+   * (warrior and larger: a 1.7 m stair would wedge them).
+   */
+  navCan: number;
+}
+
+/** csv `nav` cell → mask; a bad token is a data issue and reads as 0 (the body steers as before). */
+function navCanOf(cell: string | undefined, type: string): number {
+  const mask = parseNavCan(cell ?? '');
+  if (mask === null) { addDataIssue({ file: 'enemies.csv', line: 0, column: 'nav', message: `'${type}' 의 nav '${cell}' — indoor · ladder · climb · window 를 + 로 잇는다` }); return 0; }
+  return mask;
 }
 
 /** The order the csv `type` column accepts enemy types in — the same list as `ALL_ENEMY_TYPES`. */
@@ -85,6 +98,7 @@ export const ENEMY_STATS: Record<EnemyType, EnemyStats> = (() => {
       stepSound: r.bool('stepSound'),
       staggerFraction: r.num('staggerFraction', { min: 0 }),
       raidXp: r.num('raidXp', { min: 0 }),
+      navCan: navCanOf(r.raw('nav'), type),
     };
   }
   for (const t of ENEMY_TYPE_VALUES) {

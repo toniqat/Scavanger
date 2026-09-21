@@ -19,7 +19,7 @@
 import * as THREE from 'three';
 import {
   MAP_SIZE, NAV_BAKE_BUDGET_MS, NAV_CELL_M, NAV_REMEASURE_BUDGET_MS, NAV_REMEASURE_HZ,
-  type LadderDef, type NavPath, type NavPathStatus, type NavRef, type NavWaypoint,
+  type LadderDef, type NavFlow, type NavFlowStep, type NavGate, type NavPath, type NavPathStatus, type NavRef, type NavWaypoint,
 } from '@/shared';
 import type { NavLink, NavWorld, Region } from './model';
 import * as Bake from './parts/Bake';
@@ -119,6 +119,25 @@ export class NavGraph implements NavRef {
     return Graph.walkLine(this, from.x, from.y, from.z, to.x, to.z, to.y);
   }
 
+  /* ── NavRef, phase 2 (contract stubs — `parts/Flow` · `parts/Gates` · the window feed replace them) ── */
+
+  readonly gates: NavGate[] = [];
+
+  flowTo(_key: string, _goal: THREE.Vector3, _can: number): NavFlow | null { return null; }
+
+  createFlowStep(): NavFlowStep {
+    return {
+      aim: new THREE.Vector3(), kind: 'walk', from: new THREE.Vector3(), via: new THREE.Vector3(), to: new THREE.Vector3(),
+      ladderId: null, windowId: null, gate: -1, gateDist: 0, dist: 0,
+    };
+  }
+
+  setGateLoad(_gate: number, _waiting: number): void { /* stub */ }
+
+  windowWhole(_windowId: string): boolean { return false; }
+
+  breakWindow(_windowId: string): void { /* stub */ }
+
   /** Debug / smokes: counts and the last bake's timings. */
   debugInfo(): { ready: boolean; total: number; regions: number; links: number; revision: number; bakeMs: number } {
     let links = 0;
@@ -133,7 +152,7 @@ export class NavGraph implements NavRef {
 /** Grows a path buffer's waypoint pool to `n` (allocation only when a longer path than ever before comes in). */
 export function ensurePoints(out: NavPath, n: number): void {
   while (out.points.length < n) {
-    const w: NavWaypoint = { position: new THREE.Vector3(), kind: 'walk', ladderId: null };
+    const w: NavWaypoint = { position: new THREE.Vector3(), kind: 'walk', ladderId: null, via: new THREE.Vector3(), windowId: null };
     out.points.push(w);
   }
 }

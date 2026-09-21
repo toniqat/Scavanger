@@ -24,7 +24,7 @@
  * `anim.recoil` (the strike).
  */
 import * as THREE from 'three';
-import { PLAYER_RADIUS, ROGUE_REACTION, type DeployableRef, type EnemyEvent, type GameContext } from '@/shared';
+import { PLAYER_RADIUS, ROGUE_REACTION, STRUCT_DAMAGE_MUL, type DeployableRef, type EnemyEvent, type GameContext } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import type { Enemy, EnemyHost } from '../../Enemy';
 import { NAMED_HAMMER } from '../../EnemyTypes';
@@ -34,7 +34,6 @@ import { tuple } from '../../net/HostSync';
 import { HAMMER_HINT_CHARGE, HAMMER_HINT_WINDUP, HAMMER_IMPACT_FORWARD } from '../../models/named/HammerLook';
 import { lookAtTarget } from '../Common';
 import { integrate } from '../EnemyAI';
-import { STRUCT_DAMAGE_MUL } from '../Structures';
 
 /* ── Phase numbers (`Enemy.namedPhase`, private to this file) ── */
 const PHASE_CHASE = 0;

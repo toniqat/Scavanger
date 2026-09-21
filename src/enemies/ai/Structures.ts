@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { DeployableRef } from '@/shared';
+import { STRUCT_DAMAGE_MUL, type DeployableRef } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import { SPEWER_SPIT } from '../EnemyTypes';
 import type { CombatTarget } from '../Targets';
@@ -11,8 +11,6 @@ const _chest = new THREE.Vector3();
 const SCAN_INTERVAL = 0.7;
 /** Extra reach beyond the melee range at which a blocking wall is worth chewing on. */
 const MELEE_SCAN_PAD = 3.5;
-/** Damage multiplier bugs get against structures (they tear walls faster than flesh). */
-export const STRUCT_DAMAGE_MUL = 1.6;
 
 function dist2D(a: THREE.Vector3, b: THREE.Vector3): number {
   return Math.hypot(a.x - b.x, a.z - b.z);

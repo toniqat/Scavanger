@@ -12,54 +12,57 @@
 # 2026-09-17 전면 재조정 (사용자 결정): 플레이어 쪽이 적에게 주는 피해와 **모든 적 hp 를 1/3 (내림)** 로 줄였다. 적이 플레이어에게 주는 피해는 그대로.
 #   raidXp 는 바꾸지 않는다 — 옛 hp / 10 값을 그대로 적어 둔다 (이제 hp 와 raidXp 는 따로 논다).
 #   rogue_boss = floor(280 × ROGUE_BOSS_HP_MUL / 3) = 466 → `=93.2*ROGUE_BOSS_HP_MUL`. sandworm_weak 의 raidXp 는 옛 SANDWORM_WEAK_HP 750 / 10 = 75 고정.
-type,faction,hp,speed,wanderSpeed,radius,height,headRadius,attackDamage,attackCooldown,attackRange,attackWindup,turnRate,accel,sightRadius,hearRadius,headMul,rearMul,frontMul,mass,stepSound,staggerFraction,raidXp
-scavenger,bug,40,5.5,1.6,0.45,0.9,0.2,4,0.8,1.6,0.18,8,22,40,55,2,1,1,1,true,0.25,12
-hunter,bug,120,7.5,2.2,0.6,1.25,0.27,7,1,2,0.22,7,26,40,55,2,1,1,2,true,0.25,36
-warrior,bug,213,4.5,1.6,0.8,1.6,0.36,12.5,1.2,2.2,0.35,4,14,40,55,2,1,1,4,true,0.25,64
-spewer,bug,173,3.2,1.2,0.9,1.7,0.32,6,1.5,2.3,0.35,3,10,40,55,2,1,1,4,true,0.25,52
-charger,bug,600,4,1.5,1.3,2.3,0.55,15,2,2.9,0.4,2.2,9,45,60,2,2.5,0.5,10,true,0.25,180
-rogue,rogue,186,4.4,1.4,0.4,1.8,0.16,0,1,0,0,7,24,60,70,2,1,1,2,true,0.35,56
-rogue_boss,rogue,=93.2*ROGUE_BOSS_HP_MUL,3.8,1.2,=0.4*ROGUE_BOSS_SCALE,=1.8*ROGUE_BOSS_SCALE,=0.16*ROGUE_BOSS_SCALE,0,1,0,0,5,18,65,75,2,1,1,6,true,0.5,=28*ROGUE_BOSS_HP_MUL
-artillery,bug,280,3.4,1,0.95,1.5,0.3,0,2,0,0,2.5,9,130,90,2,1.5,1,5,true,0.3,84
-toxic,bug,46,7.2,1.8,0.45,1,0.17,0,1,0,0,9,30,45,60,2,1,1,1,true,1.1,14
-behemoth,bug,933,3.6,1.2,=0.8*BEHEMOTH_SCALE,=1.6*BEHEMOTH_SCALE,=0.36*BEHEMOTH_SCALE,22.5,2.2,=2.2*BEHEMOTH_SCALE,0.55,1.8,8,60,70,2,2,0.35,30,true,0.3,280
+# nav 2026-09-21 (TODO A-18 2단계, 사용자 결정): 그 적이 길찾기 그래프에서 할 수 있는 일 — `+` 로 잇는다. indoor = 건물 안(문 · 계단)에 들어온다 /
+#   ladder = 사다리를 탄다 / climb = 건물 외벽을 타고 옥상에 오른다 / window = 창문으로 기어 들어온다(멀쩡하면 먼저 깬다). 빈 칸 = 길찾기를 쓰지 않고 예전처럼 조향만 한다.
+#   벽 · 창문은 스캐빈저만, 실내는 스캐빈저 · 톡식 · 헌터 + 인간형만 — 워리어부터는 계단(1.7 m)에 끼므로 벽 밖에 선다.
+type,faction,hp,speed,wanderSpeed,radius,height,headRadius,attackDamage,attackCooldown,attackRange,attackWindup,turnRate,accel,sightRadius,hearRadius,headMul,rearMul,frontMul,mass,stepSound,staggerFraction,raidXp,nav
+scavenger,bug,40,5.5,1.6,0.45,0.9,0.2,4,0.8,1.6,0.18,8,22,40,55,2,1,1,1,true,0.25,12,indoor+ladder+climb+window
+hunter,bug,120,7.5,2.2,0.6,1.25,0.27,7,1,2,0.22,7,26,40,55,2,1,1,2,true,0.25,36,indoor
+warrior,bug,213,4.5,1.6,0.8,1.6,0.36,12.5,1.2,2.2,0.35,4,14,40,55,2,1,1,4,true,0.25,64,
+spewer,bug,173,3.2,1.2,0.9,1.7,0.32,6,1.5,2.3,0.35,3,10,40,55,2,1,1,4,true,0.25,52,
+charger,bug,600,4,1.5,1.3,2.3,0.55,15,2,2.9,0.4,2.2,9,45,60,2,2.5,0.5,10,true,0.25,180,
+rogue,rogue,186,4.4,1.4,0.4,1.8,0.16,0,1,0,0,7,24,60,70,2,1,1,2,true,0.35,56,indoor+ladder
+rogue_boss,rogue,=93.2*ROGUE_BOSS_HP_MUL,3.8,1.2,=0.4*ROGUE_BOSS_SCALE,=1.8*ROGUE_BOSS_SCALE,=0.16*ROGUE_BOSS_SCALE,0,1,0,0,5,18,65,75,2,1,1,6,true,0.5,=28*ROGUE_BOSS_HP_MUL,indoor+ladder
+artillery,bug,280,3.4,1,0.95,1.5,0.3,0,2,0,0,2.5,9,130,90,2,1.5,1,5,true,0.3,84,
+toxic,bug,46,7.2,1.8,0.45,1,0.17,0,1,0,0,9,30,45,60,2,1,1,1,true,1.1,14,indoor
+behemoth,bug,933,3.6,1.2,=0.8*BEHEMOTH_SCALE,=1.6*BEHEMOTH_SCALE,=0.36*BEHEMOTH_SCALE,22.5,2.2,=2.2*BEHEMOTH_SCALE,0.55,1.8,8,60,70,2,2,0.35,30,true,0.3,280,
 # 2026-09-11 네임드 로그 (shared/named.ts). 능력 수치는 enemy_abilities.csv 의 NAMED_* 블록.
 # rogue_hammer(타길라) hp = 옛 일반 로그 280 × 10. attackDamage 50 / attackCooldown 1 = 붙으면 초당 50.
 # 2026-09-13: 네임드 3종 + 스캔 드론은 팩션 raider (타입 id 는 계약이라 그대로다). 일반 로그 hp 280 → 560 (사용자 결정 "2배").
-rogue_sniper,raider,280,3.6,1.2,0.4,1.8,0.16,0,1,0,0,5,18,90,90,2,1,1,3,false,0.6,84
-rogue_hammer,raider,933,5.2,1.4,0.55,2.05,0.18,50,1,2.4,0.3,6,22,55,70,1.5,1,1,12,true,0.8,280
-rogue_heavy,raider,560,3,1.1,0.55,1.95,0.18,0,1,0,0,4,14,65,75,2,1,1,10,true,0.7,168
+rogue_sniper,raider,280,3.6,1.2,0.4,1.8,0.16,0,1,0,0,5,18,90,90,2,1,1,3,false,0.6,84,
+rogue_hammer,raider,933,5.2,1.4,0.55,2.05,0.18,50,1,2.4,0.3,6,22,55,70,1.5,1,1,12,true,0.8,280,indoor
+rogue_heavy,raider,560,3,1.1,0.55,1.95,0.18,0,1,0,0,4,14,65,75,2,1,1,10,true,0.7,168,indoor
 # rogue_scan_drone = 로든이 띄우는 스캔 드론. 공중에 떠 있고 요격할 수 있다.
-rogue_scan_drone,raider,20,12,6,0.45,0.4,0.2,0,1,0,0,6,20,60,60,1,1,1,1,false,2,6
+rogue_scan_drone,raider,20,12,6,0.45,0.4,0.2,0,1,0,0,6,20,60,60,1,1,1,1,false,2,6,
 # 2026-09-13 행성 threat 별 인간형 팩션 (사용자 결정). 능력 · 사격 수치는 enemy_abilities.csv 의 팩션 블록.
 # android = 연구소 · 전진기지의 집사 로봇 (threat 1 전용) — 체력은 옛 로그(280), 느리고 둔하다.
 # raider  = 함선을 타고 내려오는 약탈 조직 (threat 2–3) — 체력 로그 × 1.5 (840, 2026-09-17 1/3 → 280), 멀리 보고 멀리 듣는다.
-android,android,93,3.8,1.2,0.4,1.8,0.16,0,1,0,0,6,18,55,60,2,1,1,2,true,0.4,28
-raider,raider,280,4.6,1.5,0.4,1.8,0.16,0,1,0,0,7.5,26,75,85,2,1,1,2,true,0.3,84
+android,android,93,3.8,1.2,0.4,1.8,0.16,0,1,0,0,6,18,55,60,2,1,1,2,true,0.4,28,indoor+ladder
+raider,raider,280,4.6,1.5,0.4,1.8,0.16,0,1,0,0,7.5,26,75,85,2,1,1,2,true,0.3,84,indoor+ladder
 # 2026-09-13 땅굴벌레 (enemies/sandworm) — 땅에 박힌 채 움직이지 않는다 (speed 0 · accel 0). hp 는 자리표시자이고 실제 최대 체력은
 # constants.csv 의 SANDWORM_HP_MIN..MAX 에서 호스트가 굴린다. radius/height = 땅 위로 선 몸통 캡슐, headRadius = 입(머리) 구 (headMul 1.5).
 # staggerFraction 99 = 경직에 걸리지 않는다. mass 1000 = 다른 벌레가 늘 밀려난다. 공격은 근접이 아니라 버그 뱉기 · 독극물(SANDWORM_*).
-sandworm,bug,833,0,0,2.2,10,1.5,0,1,0,0,1.2,0,70,80,1.5,1,1,1000,false,99,250
+sandworm,bug,833,0,0,2.2,10,1.5,0,1,0,0,1.2,0,70,80,1.5,1,1,1000,false,99,250,
 # sandworm_weak — 어린 땅굴벌레 (2026-09-15, 위협 1 행성 전용). 체력은 SANDWORM_WEAK_HP 고정(굴리지 않는다), 몸은 SANDWORM_WEAK_SCALE 배 (리그 · 판정이 이 줄을 읽는다). 스캐빈저만 뱉는다.
-sandworm_weak,bug,=1*SANDWORM_WEAK_HP,0,0,=2.2*SANDWORM_WEAK_SCALE,=10*SANDWORM_WEAK_SCALE,=1.5*SANDWORM_WEAK_SCALE,0,1,0,0,1.2,0,70,80,1.5,1,1,1000,false,99,75
+sandworm_weak,bug,=1*SANDWORM_WEAK_HP,0,0,=2.2*SANDWORM_WEAK_SCALE,=10*SANDWORM_WEAK_SCALE,=1.5*SANDWORM_WEAK_SCALE,0,1,0,0,1.2,0,70,80,1.5,1,1,1000,false,99,75,
 # 2026-09-14 3차 튜토리얼 전용 4종 (world/tutorial 의 고정 목록만 이 줄을 쓴다 — 본편 · 훈련장에는 서지 않는다).
 # 수치는 바탕 종류를 그대로 베낀 것이고(`enemies/EnemyTypes.baseTypeOf` 가 리그 · AI · 소리를 그 종류로 돌린다),
 # 다른 것은 **고정 드롭** 하나뿐이다 (`loot_corpses.csv` · `loot_corpse_rolls.csv` 의 tut_* 줄).
 #   tut_bug_loot · tut_bug       = scavenger 와 같은 수치. `_loot` 만 생체 조직 · 터미니드 분비선을 100 % 떨군다.
 #   tut_android_loot · tut_android = android 의 **체력 절반**(280 → 140, 2026-09-17 1/3 → 30 — 튜토리얼 구덩이의 수류탄 한 발(가장자리 30)이 둘 다 잡게), 나머지는 같다. `_loot` 만 돌격소총 · 전력 케이블 · 준중량탄.
 # 벌레 난이도 배수(BUG_HP_MUL_BY_THREAT)는 튜토리얼에 행성이 없어 ×1 이다 (EnemySystem 의 scripted 가지).
-tut_bug_loot,bug,40,5.5,1.6,0.45,0.9,0.2,4,0.8,1.6,0.18,8,22,40,55,2,1,1,1,true,0.25,12
-tut_bug,bug,40,5.5,1.6,0.45,0.9,0.2,4,0.8,1.6,0.18,8,22,40,55,2,1,1,1,true,0.25,12
-tut_android_loot,android,30,3.8,1.2,0.4,1.8,0.16,0,1,0,0,6,18,55,60,2,1,1,2,true,0.4,14
-tut_android,android,30,3.8,1.2,0.4,1.8,0.16,0,1,0,0,6,18,55,60,2,1,1,2,true,0.4,14
+tut_bug_loot,bug,40,5.5,1.6,0.45,0.9,0.2,4,0.8,1.6,0.18,8,22,40,55,2,1,1,1,true,0.25,12,
+tut_bug,bug,40,5.5,1.6,0.45,0.9,0.2,4,0.8,1.6,0.18,8,22,40,55,2,1,1,1,true,0.25,12,
+tut_android_loot,android,30,3.8,1.2,0.4,1.8,0.16,0,1,0,0,6,18,55,60,2,1,1,2,true,0.4,14,
+tut_android,android,30,3.8,1.2,0.4,1.8,0.16,0,1,0,0,6,18,55,60,2,1,1,2,true,0.4,14,
 # 2026-09-17 scavenger_summon — 포병이 사거리 안의 외톨이 표적에게 **평생 한 번** 불러내 보내는 스캐빈저 (`enemies/ai/ArtilleryPack.ts`).
 #   수치 · 리그 · AI · 소리는 scavenger 그대로다(`EnemyTypes.baseTypeOf` 가 scavenger 로 돌린다). 다른 것은 **드롭 0 %** 하나뿐이다 —
 #   `CORPSE_LOOT_CHANCE` 0 이라 시체가 수색되지 않는다 (loot_corpses.csv 에 줄이 없다). raidXp 는 **0** — 반복 처치로 경험치를 벌지 못하게 (2026-09-17 사용자 결정).
-scavenger_summon,bug,40,5.5,1.6,0.45,0.9,0.2,4,0.8,1.6,0.18,8,22,40,55,2,1,1,1,true,0.25,0
+scavenger_summon,bug,40,5.5,1.6,0.45,0.9,0.2,4,0.8,1.6,0.18,8,22,40,55,2,1,1,1,true,0.25,0,indoor+ladder+climb+window
 # 2026-09-18 bug_egg — 둥지 밑동의 **벌레 알** (사용자 결정 「장식 알을 파괴 가능한 적으로」, `enemies/NestDirector.ts` · `models/EggModel.ts`).
 #   `world/Nests` 가 알 자리를 주고(`WorldRef.getNestEggSpots`) 권위가 둥지당 2–5 개를 세운다. 행성 레이드 전용 — 훈련장 · 튜토리얼은 자리가 비어 있다.
 #   speed · wanderSpeed · accel · turnRate · sightRadius · hearRadius = 0: **움직이지 않고 · 돌지 않고 · 알아채지 않는다** (AI 는 `ai/EnemyAI` 첫 줄에서 돌아간다).
 #   attackDamage 0 = 공격이 없다. staggerFraction 99 = 경직 면역 · mass 1000 = 넉백 면역(땅굴벌레와 같은 값, `parts/Damage.pushBack` 은 `isCombatant` 로 이미 뺀다).
 #   stepSound false = 발소리 없음. radius · height = **보이는 알**의 크기 (반지름 0.5 m · 땅 위 0.9 m — `models/EggModel` 이 이 줄로 몸을 굽는다).
 #   hp 40 = 스캐빈저와 같다 (사용자 결정 「hp 는 스캐빈저 수준」). raidXp 4 = 이 줄 hp / 10 — 맞서 싸우지 않는 표적이라 스캐빈저(12)의 1/3 이다.
-bug_egg,bug,40,0,0,0.5,0.9,0.2,0,1,0,0,0,0,0,0,1,1,1,1000,false,99,4
+bug_egg,bug,40,0,0,0.5,0.9,0.2,0,1,0,0,0,0,0,0,1,1,1,1000,false,99,4,

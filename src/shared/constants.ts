@@ -2505,3 +2505,60 @@ export const ALLY_NAV_GOAL_MOVE_M = K.num('ALLY_NAV_GOAL_MOVE_M');
 export const ALLY_NAV_WAYPOINT_M = K.num('ALLY_NAV_WAYPOINT_M');
 /** A ladder link costs its climb height × this (a search weight — climbing is slower than walking). */
 export const NAV_LADDER_COST_MUL = K.num('NAV_LADDER_COST_MUL');
+/* appended (2026-09-21, TODO A-18 phase 2): enemy pathfinding — flow fields · gates · wall climbing · windows (contract `shared/nav.ts`) */
+/** Radius (m) one flow field covers around its goal. */
+export const NAV_FLOW_RADIUS_M = K.num('NAV_FLOW_RADIUS_M');
+/** ms per frame spent building flow fields. */
+export const NAV_FLOW_BUDGET_MS = K.num('NAV_FLOW_BUDGET_MS');
+/** Flow fields alive at once (goal × `can` mask). */
+export const NAV_FLOW_MAX_FIELDS = K.num('NAV_FLOW_MAX_FIELDS');
+/** A goal that moved this far (m) from the last build is built again. */
+export const NAV_FLOW_REBUILD_M = K.num('NAV_FLOW_REBUILD_M');
+/** Shortest gap (s) between two builds of one field. */
+export const NAV_FLOW_MIN_REBUILD_S = K.num('NAV_FLOW_MIN_REBUILD_S');
+/** A field nobody asked for within this long (s) is dropped. */
+export const NAV_FLOW_IDLE_S = K.num('NAV_FLOW_IDLE_S');
+/** How far (m) down the field the aim point sits. */
+export const NAV_FLOW_LOOKAHEAD_M = K.num('NAV_FLOW_LOOKAHEAD_M');
+/** Within this field distance (m) of the goal a field stops answering — the last approach is the old steering's. */
+export const NAV_FLOW_ARRIVE_M = K.num('NAV_FLOW_ARRIVE_M');
+/** XZ distance (m) from a special link's start at which a sample says 「perform it」. */
+export const NAV_LINK_START_M = K.num('NAV_LINK_START_M');
+/** Walkable span (m, the body's radius already taken off) at or under which cells are a chokepoint. */
+export const NAV_GATE_MAX_SPAN_M = K.num('NAV_GATE_MAX_SPAN_M');
+/** Connected narrow cells a gate needs at least. */
+export const NAV_GATE_MIN_CELLS = K.num('NAV_GATE_MIN_CELLS');
+/** Bodies let through one gate at a time (2026-09-21 user's decision: 2). */
+export const NAV_GATE_CAPACITY = K.num('NAV_GATE_CAPACITY');
+/** How far (m) ahead a flow sample looks for a gate. */
+export const NAV_GATE_LOOK_M = K.num('NAV_GATE_LOOK_M');
+/** Field distance (m) before a gate at which a body without a token stops. */
+export const NAV_GATE_HOLD_M = K.num('NAV_GATE_HOLD_M');
+/** Cost (m) one waiting body adds to crossing its gate in the next build. */
+export const NAV_GATE_LOAD_COST_M = K.num('NAV_GATE_LOAD_COST_M');
+/** Seconds a token survives without its holder passing the gate. */
+export const NAV_GATE_TOKEN_S = K.num('NAV_GATE_TOKEN_S');
+/** A climb link costs its height × this (a search weight). */
+export const NAV_CLIMB_COST_MUL = K.num('NAV_CLIMB_COST_MUL');
+/** Spacing (m) of climb links along a building's outer walls. */
+export const NAV_CLIMB_SPACING_M = K.num('NAV_CLIMB_SPACING_M');
+/** Base cost (m) of a window link. */
+export const NAV_WINDOW_COST_M = K.num('NAV_WINDOW_COST_M');
+/** Extra cost (m) of a window link whose pane is still whole. */
+export const NAV_WINDOW_WHOLE_COST_M = K.num('NAV_WINDOW_WHOLE_COST_M');
+/** Speed (m/s) a bug climbs a wall · a ladder · a window frame at. */
+export const ENEMY_CLIMB_SPEED = K.num('ENEMY_CLIMB_SPEED');
+/** Horizontal speed (m/s) a bug crawls through a window frame at. */
+export const ENEMY_WINDOW_CRAWL_SPEED = K.num('ENEMY_WINDOW_CRAWL_SPEED');
+/** Seconds between one enemy's 「is the straight line walkable」 checks. */
+export const ENEMY_NAV_CHECK_S = K.num('ENEMY_NAV_CHECK_S');
+/** Private A* plans (leash home · investigate · cover) allowed per frame across all enemies. */
+export const ENEMY_NAV_PLANS_PER_FRAME = K.num('ENEMY_NAV_PLANS_PER_FRAME');
+/** Seconds between replans of a private path. */
+export const ENEMY_NAV_REPLAN_S = K.num('ENEMY_NAV_REPLAN_S');
+/** Following nav but covering under a quarter of the asked travel for this long (s) = stuck. */
+export const ENEMY_NAV_STUCK_S = K.num('ENEMY_NAV_STUCK_S');
+/** Seconds a stuck enemy falls back to the old steering for. */
+export const ENEMY_NAV_OFF_S = K.num('ENEMY_NAV_OFF_S');
+/** Damage multiplier of a bug's bite on a deployable (moved out of `enemies/ai/Structures` on 2026-09-21; value unchanged). */
+export const STRUCT_DAMAGE_MUL = K.num('STRUCT_DAMAGE_MUL');
