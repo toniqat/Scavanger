@@ -198,7 +198,7 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
   camera and divides the volume by √n, n = bugs whose `stepAt` is within `BUG_STEP_CROWD_WINDOW_S` (`bugStepCrowd`).
   Humanoids keep `footstep_<mat>` (+ `layer`). Which types step at all is `enemies.csv` `stepSound`.
 - Sandworm `땅굴벌레` (`BURROW_*` / `SANDWORM_*` in `data/constants.csv` + `data/tables.csv`; decision
-  `docs/DECISIONS.md` 「2026-09-15 — 땅굴벌레」): **no pre-roll, no time window, at most once per raid**. The host checks
+  in Decisions below): **no pre-roll, no time window, at most once per raid**. The host checks
   every `SANDWORM_CHECK_S`: candidates = living humans (local + remotes in mission) + android squadmates
   (`ctx.allies.getCombatBodies()`); an *eligible* member is sprinting **and** carrying `light` or heavier (local
   `InventoryRef.getWeight()`, remote `RemotePlayerRef.weightState` from `PlayerSnapshot.ws`, android = its loadout kg /
@@ -308,12 +308,12 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
 - A bug's **6 legs are two `InstancedMesh`** (femur · tibia, 6 instances each) on `rig.body`, not 12 meshes in a group
   chain. `animateBug` composes the matrices itself (`setLegMatrices`), so nothing outside `models/BugModel.ts` may
   expect leg scene nodes; anything that clones a rig's meshes must handle `isInstancedMesh` (`fx/Xray.ts` shares the
-  source's `instanceMatrix`). (2026-09-20 — `docs/DECISIONS.md` perf Phase 1.) — `models/BugModel.ts`
+  source's `instanceMatrix`). (2026-09-20 — `docs/PERF.md` perf Phase 1.) — `models/BugModel.ts`
 - **Mesh detail is a budget, not a per-part choice.** Every sphere a bug body is built from passes through
   `segBudget` → `BUG_MESH_SEGMENTS` (`data/constants.csv`), so the `seg` argument of each `ellipsoid` call says what
   the part *wants* and the csv row says what it gets — raising a `seg` above the budget changes nothing. Bug
   **bodies** only: eggs have their own `EGG_SEG_W` / `EGG_SEG_H`, and `WormModel` · `HumanoidParts` are unbudgeted
-  (they were already modest). (2026-09-20 — `docs/DECISIONS.md` perf Phase A.) — `models/BugModel.ts`
+  (they were already modest). (2026-09-20 — `docs/PERF.md` perf Phase A.) — `models/BugModel.ts`
 - **Humanoid enemies cast shadows the way a soldier does**: trunk · head · legs cast; the visor, the thrown grenade
   and the merged `gunArms` do not — the rifle is a held item and the four arm segments merged into it sit against the
   chest, inside the trunk's own shadow. `mesh(geo, mat, shadow)` in `createRogueRig` is the single switch; a new part
@@ -427,11 +427,31 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
   Environmental hazards deliberately do **not** damage eggs (`parts/Status.updateHazardDot`) so a nest's reward never evaporates
   before the player reaches it; fire zones and other attacker-owned damage still burn them.
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Rogue AI: no low-HP retreat, no boss HP bar** (Phase 7).
+- **Big-enemy spawn clearance by radius** (`ENEMY_BIG_RADIUS`). Rejected: a per-species csv column (new species just work).
+- **Humanoid looks = the shared rogue rig + skins.** Rejected: new rigs per faction.
+- **Hunter drops on 20 cumulative damage during one leap.** Rejected: a single-hit threshold (an AR bullet is 17).
+- **Artillery spawns with its own scavenger escort, re-summoned once all are dead, and shells only after a 포격 준비 beat with a bug
+  near the target.** Rejected: joining nearby packs; requiring a scout's shared line of sight (it would almost never fire).
+- **Cell drops replace every sample row** of the big bugs. Rejected: replacing cell rows only, adding on top.
+- **Nest eggs are immobile enemies** (`bug_egg`) and are the nest's reward; the lost crates are not replaced. Rejected: fewer eggs
+  with more HP; one big 알집; raising other crate rings to keep the old count.
+- **Nest leash 60 m.** Rejected: 40 m (one cover break would shake them).
+- **Sandworm: a cumulative chance checked every 2 s, at most once per raid, never solo; threat 1 gets a weak worm.** Rejected: a
+  seeded pre-roll with a time window.
+- **Enemy AI LOD = distance to the nearest anchor, not the camera; animation LOD scaled by zoom, AI LOD not** (perf,
+  `docs/PERF.md`). Rejected: time slicing; freezing the far band; 25 / 50 m animation bands.
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/enemies`.
 - 2026-09-20 — Two side effects of the perf work, both confirmed in a running game before being touched (`scripts/smoke-named.mjs`): the animation LOD **never skips a named rogue** (`poseSkip` → `isNamedAiType`, the exemption `aiSkip` already made) — `animateNamedRig` is only called from `animateRig`, and a named look file integrates `dt`, so past 80 m the sniper's scope glint (the 1.4 s telegraph of a 150-damage shot it takes out to 320 m) was never drawn at all and a replica's `ee glint` hold was never spent; and both LOD distances are **screen size, not metres** — they are scaled by the camera zoom (`shared/viewZoom.viewZoomK`, one `tan` per frame, clamped to ≤ 1), because a scope narrows `camera.fov` and an 8× scope draws a body at 100 m the size it has at ~12 m. `SniperLook` reads the same helper instead of its own copy of 70°. The AI LOD is deliberately left in metres.
-- 2026-09-20 — `docs/DECISIONS.md` perf Phase C (finding B4 · B5): AI LOD — a body farther than `ENEMY_AI_LOD_HALF_M` (110 m) from every **anchor** (camera · players · androids · drones · rover, `collectAiAnchors`) ticks every other frame and past `ENEMY_AI_LOD_QUARTER_M` (140 m) every fourth, carrying the skipped `dt` in `Enemy.aiDebt` and spreading over the cycle by `Enemy.aiPhase`, and never building a tick longer than `ENEMY_AI_LOD_MAX_STEP_S` (0.08 s — under a rogue's 0.12 s `shotGap`, so the LOD fades out as frames lengthen and is fully off at the engine's 50 ms `MAX_DT`); never the tutorial, a falling corpse, a body in the air or a named rogue. S2 `u:enemies` 0.99–1.02 → 0.85–0.86 ms/frame, twice per side — and the census that explains the size of that: S2 is **60 bodies at full rate and 100 beyond 140 m**, so the LOD can only ever reach the far third of the cost. Footsteps read `EnemyHost.camPos` instead of a `getWorldPosition` per call (`model.StepHost`).
-- 2026-09-20 — `docs/DECISIONS.md` perf Phase A (the first change in that plan to move the render block): every sphere of a bug body passes through `segBudget` → `BUG_MESH_SEGMENTS` (12), so a thorax is 12×8 instead of 18×13 and S2 carries 930k triangles instead of 997k; humanoid enemies cast shadows the soldier's way (trunk · head · legs — not the visor, the grenade or the merged `gunArms`), 9 shadow draws each → 7. S2 `x:rendererRender` 7.29–7.75 → 6.75–6.77 ms and js/frame p50 10.2–10.9 → 9.7–9.9, twice per side.
+- 2026-09-20 — `docs/PERF.md` perf Phase C (finding B4 · B5): AI LOD — a body farther than `ENEMY_AI_LOD_HALF_M` (110 m) from every **anchor** (camera · players · androids · drones · rover, `collectAiAnchors`) ticks every other frame and past `ENEMY_AI_LOD_QUARTER_M` (140 m) every fourth, carrying the skipped `dt` in `Enemy.aiDebt` and spreading over the cycle by `Enemy.aiPhase`, and never building a tick longer than `ENEMY_AI_LOD_MAX_STEP_S` (0.08 s — under a rogue's 0.12 s `shotGap`, so the LOD fades out as frames lengthen and is fully off at the engine's 50 ms `MAX_DT`); never the tutorial, a falling corpse, a body in the air or a named rogue. S2 `u:enemies` 0.99–1.02 → 0.85–0.86 ms/frame, twice per side — and the census that explains the size of that: S2 is **60 bodies at full rate and 100 beyond 140 m**, so the LOD can only ever reach the far third of the cost. Footsteps read `EnemyHost.camPos` instead of a `getWorldPosition` per call (`model.StepHost`).
+- 2026-09-20 — `docs/PERF.md` perf Phase A (the first change in that plan to move the render block): every sphere of a bug body passes through `segBudget` → `BUG_MESH_SEGMENTS` (12), so a thorax is 12×8 instead of 18×13 and S2 carries 930k triangles instead of 997k; humanoid enemies cast shadows the soldier's way (trunk · head · legs — not the visor, the grenade or the merged `gunArms`), 9 shadow draws each → 7. S2 `x:rendererRender` 7.29–7.75 → 6.75–6.77 ms and js/frame p50 10.2–10.9 → 9.7–9.9, twice per side.
 - 2026-09-20 — A bug's 6 legs are two `InstancedMesh` (femur · tibia) whose matrices `animateBug` composes itself, so a bug is 7–8 draws instead of 17–18 and 30 scene nodes lighter (`models/BugModel.setLegMatrices`; `fx/Xray` clones an instanced source sharing its `instanceMatrix`). Animation LOD: past `ENEMY_ANIM_LOD_HALF_M` (40 m) a living body poses every other frame, past `ENEMY_ANIM_LOD_FREEZE_M` (80 m) not at all — never a dead, flashing, burning, shocked or flipped one (`EnemySystem.poseSkip`).
 - 2026-09-19 — Dead weight out of the folder: the retired crate-guard no-ops (`placeRogueGuards` · `guardCap` · `MAX_GUARDS` · `ECO_BOSS_CHANCE` · `GuardPlacement`) deleted with their six import lines and the barrel export — `RogueGuards.ts` is the `RogueSpawnHost` contract and nothing else; `parts/Damage` · `Attacks` · `Alerts` shed the copied `EnemySystem` import block (~50 unused specifiers, found with a `noUnusedLocals` pass); `Sniper.ts` reads `ScanDrone.scanDroneLeaving()` instead of its own copy of that file's phase number. Comments: csv values no longer hand-copied into the `named/Director` · `Sniper` · `Hammer` headers (the Hammer's 「10 × a rogue's hp」 had gone stale at the 2026-09-17 rebalance — it is ~5 × now, so the text names `hp` instead of a ratio), the artillery summon is no longer tagged 「one-time」, and `outwardYaw` describes the convention rather than the deleted `RogueGuards.placeAround`.

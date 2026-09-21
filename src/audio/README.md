@@ -81,6 +81,13 @@ warp hum on `hub:warpProgress`), `net:*`, `extraction:*` (ambience targets), `im
   started from the middle. Bug footsteps do not follow the ground material, and a hunter's leap landing still plays the old
   `bug_step`.
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Bug footsteps louder everywhere** (range, gain, flatter curve). Rejected: boosting only bugs behind the camera or nearby.
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/audio`.

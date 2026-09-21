@@ -250,11 +250,27 @@ A remaining raid never drops the boot straight into it: the title shows `이어�
   are unverified. No assist XP (last hit only), and an android squadmate's kill credits nobody. A session blob written
   before this change has no `killXp` and settles at 0. — `parts/Death.awardMissionXp`
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Squad wipe = raid failure; solo death = immediate failure; full death has no auto-revive** (Phase 7, 2026-09-09).
+- **Raid loading waits for every human, capped at `RAID_LOAD_TIMEOUT_S`** (2026-09-15). Rejected: waiting forever.
+- **A remaining raid stops the boot at the title** (`이어하기` · `레이드 포기`, 2026-09-15). `게임 시작` with a raid left opens the
+  abandon popup, never character select — switching character already means leaving that raid. Rejected: solo / tutorial only
+  (no title-time relay check); a 「different character」 button that leaves the raid alone; judging the solo grace at boot (it is
+  judged when `이어하기` is pressed); tutorial abandon as a skipped track or a failure (it resets tutorial progress).
+- **Raid XP = kills only** (`raidXp`, 2026-09-16); loot-value, extraction and survival-time XP removed, death keeps `XP_DEATH_MUL`.
+- **Empty corpses of every kind sink** once looting ended (2026-09-16). Rejected: enemy-only / player-only; enemy corpses without
+  loot vanishing at once (unopened ones keep `CORPSE_LIFETIME`).
+- **Host transfer goes through the relay** (`lobby:transferHost`). Rejected: client-only consensus (desyncs the relay's `hostId`).
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/game`.
 - 2026-09-21 — The `onRespawnRequest` contract stub is gone (B-97): both `GameFlowSystem.onRespawnRequest` and `Death.onRespawnRequest` were dead — nothing subscribed to `game:respawn` and the body was empty. `tickRespawn` · `game:respawnAvailable` · `PLAYER_RESPAWN_DELAY` still stand.
 - 2026-09-21 — `docs/TODO.md` B-68 · B-69 · B-70 · B-71 · B-72: 89 dead imports left by the `GameFlowSystem` split removed (`model.ts` now imports no sibling module as a value); `PlayerCorpseManager` keys its `pcorpse` subscription on the `NetRef` it belongs to and gains `dispose()`; the `pcorpse emptied` host guard no longer lets a message with no sender through; 14 comments realigned with the code and 5 csv numbers taken out of prose.
 - 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
-- 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, `docs/DECISIONS.md` headings and verbatim user decisions kept in backticks / 「」, no string literal touched.
+- 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, decision headings and verbatim user decisions kept in backticks / 「」, no string literal touched.
 - 2026-09-16 — Empty player/android corpses start their removal delay only after the last viewer closes the loot window (`PlayerCorpseManager.viewers`, `releaseEmptied`, host sends `pcorpse emptied` at release); 레이드 실패 auto return emits `ui:shipReturn`.

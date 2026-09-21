@@ -132,6 +132,19 @@ default (multiplier 1, bonus 0).
   `ctx.escape`; it never handles Escape directly. The tooltip card must not use the `.item-tip` class (smokes locate the
   HUD item card by it).
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **XP → level → stat points; no skill books** (library shelf instead).
+- **Meal buffs use their own single slot**, separate from preparation.
+- **Planet environment damages hp but never gates travel.**
+- **Gym / video game XP fills the stat's normal XP bar; the minigame side raises `trained`** (2026-09-17). Rejected: minigame XP raising
+  the base stat; a separate 단련 bar.
+- **Codex level curve: +3 % at level 1, +0.5 % after, cap 10 levels / 50 %.** Rejected: level 5 / 40 % cap; a flat uncapped step.
+- **The character sheet drops 레이드 / 탈출 counts** (also from the character-select cards).
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/progression`.

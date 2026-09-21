@@ -355,6 +355,24 @@ doorway is an open shared edge.
   carries no plate); a peer's ready cell shows no level until their crew card arrives; the exterior docking cutscene
   carries its own bay `PointLight`.
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Training range: no countdown, individual join; no ceiling, invisible walls.**
+- **Launch slots: boarding ≠ ready** (Space hold → warning → ready); the panel opens only while I sit in a slot.
+- **`도킹 해제` takes out only the one who pressed it.** Rejected: the leader undocking everyone.
+- **No lobby codes, links or public/private toggle in the UI.**
+- **Terminal 매칭 offline: `다시 연결` replaces the matching buttons; `초대` stays clickable, dimmed, and flashes the reason.** Rejected:
+  a small reconnect button; a disabled invite button; opening the modal with the message inside. `시뮬레이션 훈련장` sits on its own
+  row. Rejected: beside `닫기`.
+- **Ship doors: sliding leaves removed, frames kept.** Rejected: removing frames.
+- **Only the airlock end is modelled on the exterior** (a real interior would make it enormous); **one ship model for hangar, cutscene
+  and drop-ship**.
+- **The hub light pool follows the room / camera focus** — free, because the light count never changes.
+- **Intel notes name the action on screen** (two lines). Rejected: hiding the note with the button; one line false half the time.
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.

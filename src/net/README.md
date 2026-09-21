@@ -203,6 +203,15 @@ connected and prices received on this connection. `requestHistory(coin, range)` 
   weapon sockets are drawn as empty outlines rather than claiming 「부착물 없음」. Fixing it is a wire extension first.
 - A visited personal ship shows no dining plate — `ShipVisitWire` carries no plate. — `parts/Plates.ts`
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **`explode` guard: shape · sender · distance · rate, sharing `hit`'s bucket; a dead sender is accepted.** Rejected: per-kind caps.
+- **Status bits (`st`) use their own count bucket.** Rejected: pre-deducting DoT (nerfs legit multi-target flames).
+- **Profile sync by revisions, server wins** (replaced timestamp sync).
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/net`.

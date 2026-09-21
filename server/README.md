@@ -236,6 +236,18 @@ explicitly.
   flight. The generation number (`gen`) makes it back off and `.bak` recovery exists, so it remains theoretical **at
   shutdown only** (2026-09-11 user decision: not fixed).
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Builds ship no server** (2026-09-15); a server runs only from the repo via `start-server.bat`.
+- **Sold item ownership is not checked** (stash / bag are opaque blobs; a server inventory is phase-sized).
+- **Blocking vs lobby join is per direction** (`blocked` / `not_found`); existing squadmates are not kicked.
+- **`LobbyPlayer.shipModel` comes from the member's own profile** (2026-09-21), before a shop exists. Rejected: a profile-first /
+  client-fallback blend (the fallback is the hole). The nudge is de-duplicated on the sender, never against its own lobby row.
+- **Group rooms: owner model, friends-only invites, not linked to chat.**
+
 ## Recent changes
 
 Last 5 only — older: `git log -- server`.

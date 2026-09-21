@@ -90,6 +90,13 @@ Host validation is existence only: an unknown / already-taken id is dropped sile
   Categories with a dedicated silhouette (`primary`, `secondary`, `grenade`, `stim`, `ammo`, `valuable`, `book`,
   `meal`, `pouch`, `key`) are pre-created in `warm()`; the rest use the default crate body. — `PickupVisuals.ts`
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Dropped items take a free spot at spawn.** Rejected: a per-frame separation pass (hot-path cost for a cosmetic problem).
+
 ## Recent changes
 
 Older: `git log -- src/pickups`.

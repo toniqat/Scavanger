@@ -5,7 +5,7 @@ Guides a new character through **four** tracks, each skippable on its own: ① `
 「증축 안내」 (untouched personal ship: housing → crafting → equipping the rifle), ④ `raid2` 「출격 안내」 (cockpit →
 launch → the first real raid — 2026-09-18). Publishes `ctx.tutorial` (`TutorialRef`, contract in
 `src/shared/tutorial.ts`). Exactly one track runs at a time; progress (`stepIndex` / `stepCount`) counts within it.
-Design source: `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」.
+Design choices: `## Decisions` below.
 
 Progress is judged only by observing bus events. Order is enforced by other folders calling
 `ctx.tutorial?.blockReason()` / `hides()` inside their own "why not" functions — the tutorial never reaches into other
@@ -281,6 +281,20 @@ csv recipe changes never break the tutorial.
 
 Smokes: `scripts/smoke-tutorial.mjs` (build track — grouped objectives, gates, old-save mapping, raid step rows / fold / end — + the track contract, **four** tracks since 2026-09-18), `smoke-tutorial-raid.mjs`,
 `smoke-tutorial-ship.mjs`, `smoke-intro-wake.mjs`.
+
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **New characters start in a raid**; **each track is skippable**; checkpoint respawn is a tutorial-only branch; fall damage and
+  consumable auto-equip were made global.
+- **Skip lives in the ESC menu and the raid track extracts at once.** Rejected: hiding hints (strands the player).
+- **No starting implant; the hook is granted on first ship entry.** Rejected: hiding the HUD (Q still fired).
+- **「증축 안내」 and 「출격 안내」 are two tracks.** Rejected: one track in two halves (the progress bar would lie); appending the steps to
+  the ship track. The raid step's value label runs past the goal. Rejected: clamping it.
+- **The raid step is one attempt.** Rejected: keeping it until a successful extraction.
+- **No toast on track completion.**
 
 ## Recent changes
 

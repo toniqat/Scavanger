@@ -126,6 +126,20 @@ constructor before any `init`). Nested: `ctx.net.profile` / `social` / `rooms` /
   Hiding means DOM **and** blocker **and** cursor (a held blocker over a cutscene floats a cursor and blocks the hub's
   re-lock); the popup's own state is never touched, so nothing has to be restored afterwards.
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Blasts and melee: a 3-point body sample (feet · chest · head), any clear = hit.** Rejected: a single chest ray (low cover and
+  sills read wrong); damage by visible fraction.
+- **Glass blocks a blast, broken or not.** Rejected: only unbroken glass; exempting destructible cover from the rays.
+- **What an explosion breaks is one loop** (`blastDestructibles`, 2026-09-21), including fire zones. Rejected: teaching each blast
+  path about the rover; instantaneous blasts only; hull-only damage.
+- **Cutscene hiding lives here** (`cutsceneHide.ts`) and restores unconditionally. Rejected: a tutorial close API with step-state
+  restoration; a tutorial-only handler; dropping a card whose track ended mid-cutscene.
+- **`broken pair`, not `broken twin`** — the rule document wins over the majority spelling.
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/shared`.

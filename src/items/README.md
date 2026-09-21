@@ -243,6 +243,32 @@ whose `durabilityMax` is a liquid gauge and is excluded by name in the same pred
   contradicts `structures.csv`'s 「아켈론 II 지하실 전용」. A basement bonus roll is keyed by **structure kind + planet**, so
   it cannot be bound to one specific building; changing that needs a decision first.
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Grade drop rate per crate; `planets.csv` row order = difficulty.** Rejected: per weapon, per raid.
+- **Higher bags come from the printer + filament grades, not a new bag tier.**
+- **Epic+ outcomes kept with `epicPlusMul`, else downgraded** (2026-09-16); the lab's locked room and corpse sample rows are exempt.
+  Rejected: lowering `epicMul`/`legMul` weights (they cancel inside guaranteed picks); a per-planet maximum rarity.
+- **Mythic is a sixth `Rarity`, never rolled by drops.** Rejected: a flag on legendary (every comparison would branch twice); a weapon
+  grade VI; letting the shop's bag bonus reach mythic.
+- **A sample's rarity is the floor of what it analyses into.** The 유전자 line stops at V. Rejected: demoting the two prime sockets;
+  a legendary sample VI (the numeral **is** the rarity).
+- **Salvage never yields mythic minerals — cut on rarity, not 「is unique」.**
+- **Vein rarity uses the gun drop table; `mining` multiplies weights above the lowest**, so a 0-weight rarity stays impossible.
+- **`SuperCategory` sits on top of `ItemCategory`.** Rejected: merging the collectible categories into one.
+- **Materials −50 %, valuables −80 % (truncated, floor 10); 생체 조직 deleted from facility costs.** Rejected: substituting another
+  material.
+- **Durable gear gets no craft refund** (its repair / salvage tables are its craft materials). Rejected: lowering
+  `CRAFT_REFUND_CHANCE_AT_MAX` to fit it. The refund rolls per consumed unit. Skills never gate or speed crafting, but the gate stays
+  wired. Rejected: deleting `skillRequired`.
+- **Keys are planet-bound items, one pair per planet** (2026-09-21). Rejected: one item tagged with a planet per instance (every
+  merge, save and shop path would learn the tag).
+- **The thumper drops only from amber outpost basements via `basementBonus*`.** Rejected: a loot-table weight (tier 4 also appears
+  in wrecks, trams and lab rooms).
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/items`.

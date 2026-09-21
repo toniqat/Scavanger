@@ -152,7 +152,7 @@ Box math is used only when `o.box` is set; cylinder code paths are separate.
   re-splits when the eye moves `PROP_SHADOW_REPACK_M`. Every instance is in exactly one of them, so the colour
   pass is unchanged; what changes is that a big boulder past that distance loses a long shadow on a low-sun
   planet. A new scattered prop needs nothing — `finalize` gives it the pair if any of its parts casts.
-  (2026-09-20 — `docs/DECISIONS.md` perf Phase A2.) — `Props.ts`
+  (2026-09-20 — `docs/PERF.md` perf Phase A2.) — `Props.ts`
 - **Waist-high loot boxes do not cast**: crates, structure containers, rail containers and debris props
   (`castShadow = false`, `receiveShadow` kept — that is what sits them on the ground). 138 casters for 12k
   triangles, and their own shadow read as a smudge underneath. — `Crates.ts`, `structures/parts/Containers.ts`, `Props.ts`
@@ -431,7 +431,7 @@ Every planet query (crates, nests, gather, spawns, extraction) returns empty.
 ## Tutorial planet (`tutorial/`)
 
 `game:newMission {mode:'tutorial'}` builds `TutorialWorld` with the same wiring as the arena: no fog, hazards, crates,
-gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」. Step table and objectives: `src/tutorial/README.md`.
+gather, nests, rails or rover. Decisions and step table and objectives: `src/tutorial/README.md`.
 
 - **Forward is −Z**; z decreases in play order. Shapes are geometry, not balance, so they stay in `tutorial/model.ts`
   (only `TUTORIAL_ENEMY_SENSE_M` / `TUTORIAL_ENEMY_LEASH_M` come from csv).
@@ -495,6 +495,28 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
   travel in the local extension type `TutorialSpawnSpec` (`tutorial/model.ts`) and `enemies/Tutorial.spawnWeapon` reads it as
   an optional field. Adding `weapon?: string` to `shared/tutorialWorld.ts` removes both structural reads.
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Fog of war gates the map and world markers only.** Rejected: world-render fog (cost, relighting).
+- **Structures = an enterable ground building + one basement.** Rejected: open ruins, multi-storey.
+- **Trams: console start → auto drive.** Rejected: manual driving (controls, HUD and sync cost). **The tram never turns around**
+  (flipping mirrored riders).
+- **Hazards end by covering the whole map.** Rejected: a safe zone.
+- **Planet 표본 채집지 retired** (columns and code kept). Rejected: leaving mineral-only nodes.
+- **Mineral veins are gather nodes.** Rejected: a destructible with HP, a tool-gated interaction.
+- **Tutorial pit ×1.55, not 2×**, so one grenade still kills both androids (`GRENADE_RADIUS` vs the half-diagonal).
+- **Rover: damage by hit zone, part damage also off the hull; hostile past a cumulative threshold, for the rest of the raid; it keeps
+  its route and does not chase; its wreck pays an outpost basement** (2026-09-21). Rejected: parts on their own pool; parts instead of
+  hull hp; hostility on the first bullet; a timeout. A non-host sums hits **per zone per frame**. Rejected: one summed message a frame;
+  a fixed 0.1 s window.
+- **Ceiling turret: indestructible, off only with the matching key; the host sends its target** (`struct turret`). Rejected: a
+  destructible or respawning turret; sending only the state change. The shot cadence is deliberately not sent.
+- **Distant props stop casting; crates and debris never cast; pebbles lowered** (perf, `docs/PERF.md`). Rejected: lowering boulder
+  geometry (cover silhouette, hull colliders); shrinking the shadow map; spatial buckets.
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world`.
@@ -502,4 +524,4 @@ Last 5 only — older: `git log -- src/world`.
 - 2026-09-21 — The rover gets hit zones · two guns · hostility · wreck crates (사용자 결정): 4 wheel zones + a front SMG and a rear AR turret resolved from the impact point (`rover/parts/Parts.ts`, hull collider `destructible`), part damage also coming off the hull; `ROVER_AGGRO_DAMAGE` of player-side damage turns the car hostile for the raid (refuses boarding, shoots people at `ROVER_TURRET_PC_ACCURACY`, keeps its route); destruction drops basement-tier cube crates (`rover/parts/Wreck.ts`). `ContainerSet` gained style 3 and a map-wide by-id index so a set built mid-raid is reachable.
 - 2026-09-21 — Planet-bound keys · the ceiling turret (사용자 결정): `structures.csv` `key` is now the **kind** and `StructureDef.unlockDefId` is `<kind>_<raid planet>`, the prompt · deny toast name that planet, a container's bonus key draws its planet uniformly, and an **indestructible** `CeilingTurretSet` (`structures/parts/Turret.ts`) guards the basement and the lab's locked room until that door is opened.
 - 2026-09-21 — The rover turret hands its target to the shot (B-73): `updateTurretLogic`'s `fire` callback takes `targetId` and both `rover:fired` emits carry it (`null` on a replica, which only receives the impact point). `smoke-rover`'s turret check stands on the event instead of reaching into the turret's `private` state.
-- 2026-09-20 — `docs/DECISIONS.md` perf Phase A2 (world render cost): scattered props cast only within `PROP_SHADOW_DIST_M` (near / far `InstancedMesh` pair per casting variant, re-split every `PROP_SHADOW_REPACK_M` of eye movement — `Props.repackShadowLod`); crates, containers and debris stopped casting; pebbles dropped to `PROP_PEBBLE_DETAIL` (80 → 20 triangles each, 137k → 34k in S2). `SUN_SHADOW_HALF_M` moved to csv so `core/Atmosphere` and `Props` read one number. `WorldSystem.update` now computes `eyeFor` once and shares it.
+- 2026-09-20 — `docs/PERF.md` perf Phase A2 (world render cost): scattered props cast only within `PROP_SHADOW_DIST_M` (near / far `InstancedMesh` pair per casting variant, re-split every `PROP_SHADOW_REPACK_M` of eye movement — `Props.repackShadowLod`); crates, containers and debris stopped casting; pebbles dropped to `PROP_PEBBLE_DETAIL` (80 → 20 triangles each, 137k → 34k in S2). `SUN_SHADOW_HALF_M` moved to csv so `core/Atmosphere` and `Props` read one number. `WorldSystem.update` now computes `eyeFor` once and shares it.

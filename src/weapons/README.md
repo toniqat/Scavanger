@@ -174,6 +174,24 @@ players.
   (the rule above), so the host sees one shot. A projectile still in flight when the mission ends never reports its
   impact. — `Projectile.ts`
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Uniques: right click is secondary fire, so no ADS.** Named by nickname only, shown as a unique type; **no gun-skill bonus,
+  no skill XP, no per-class kill credit** (2026-09-15).
+- **The bow's no-reload is an instantly refilled 1-round magazine** (`autoFeed`) so the ammo contract is unchanged.
+- **Tactical anti-tank gun removed** (overlaps the bazooka); kept only in the type, saves migrate to the hook.
+- **Incendiary grenade = a small blast + a real fire zone.** Rejected: full HE damage plus the zone (strictly better than frag).
+- **Explosives use explicit values, outer ring 50 %** (2026-09-17). Rejected: 1/3 of the old values; an incendiary-only split.
+- **All damage to enemies and enemy HP ÷3** (2026-09-17). Rejected: guns only (every other source would be 3× stronger).
+- **Reload: an instant action pauses it, a wielded one cancels it** (2026-09-21). Rejected: pausing for every 「cannot shoot」 state
+  (ladder, rover seat); keeping progress across a cancel.
+- **Healing an ally = item in hand, right click on the crosshair target** (the defibrillator's rule), human or android; no
+  move-speed penalty for healing someone else. Rejected: an inventory 「use on ally」 row (unusable mid-fight); auto-picking the
+  nearest ally (mis-targets).
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/weapons`.

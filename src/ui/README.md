@@ -272,14 +272,14 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
   the screen size reads `hudViewport` (`hud/viewport.ts`), measured once on `resize`. `clientWidth` / `clientHeight` /
   `getBoundingClientRect` after a style write forces the browser to lay the whole UI out again — twelve widgets used
   to do that every frame, and `hud/ChatLog` did it **per chat line** (8.3 ms on the frame three android callouts
-  landed, `docs/DECISIONS.md` perf Phase B). — `hud/viewport.ts`, `hud/ChatLog.ts`
+  landed, `docs/PERF.md` perf Phase B). — `hud/viewport.ts`, `hud/ChatLog.ts`
 - **One exception, and it is a ratchet**: the CSS animation restart
   `classList.remove(c); void el.offsetWidth; classList.add(c)` (hit marker, damage flash, magazine tick, stamina,
   implant / ship-call ready …). Thirteen files are listed in the smoke's `KNOWN_IDIOM`; the list may shrink, never
   grow. A read-free replacement was tried on 2026-09-20 and **retracted** — `getAnimations()` loses an animation that
   finished with no `fill` and never sees one that lives on a descendant (`.imp-hud.rdy-major .imp-ring`), and a
   same-task remove/add coalesces. A style flush is no cheaper than a layout flush either (1.5–2.1 ms vs 0.9–1.9 ms
-  inside a dirtied raid frame). **This is an intended limit, decided 2026-09-20** (`docs/DECISIONS.md`): the one
+  inside a dirtied raid frame). **This is an intended limit, decided 2026-09-20** (`## Decisions`): the one
   read-free cure — a twin `@keyframes` per animation with two classes alternating — was weighed and declined, and the
   extra flush on a frame where a flash fires is accepted. The evidence is Phase B's own: S4 re-measured twice with
   `hud/DamageOverlay` forcing a layout on every bite gave the same numbers as without. The ratchet stays, so the idiom
@@ -389,11 +389,33 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
   `Keys.INVITE` tap over the ship HUD, so the field takes focus only from a click or right after a send — an automatic
   focus would swallow the next key press. — `menus/messenger/ChatTab.ts`
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **The real OS cursor under pointer lock** (Phase 10 rollback). Rejected: a virtual cursor.
+- **Hold keycap = chevron inside the top edge.** Rejected: accent border, wobble.
+- **Extraction result drops `다시 배치 (같은 시드)`; death result's lost loot = the raid's peak carried value.**
+- **In the ship `타이틀로` / `게임 종료` are a tap** (nothing to lose); `파티 떠나기` keeps the hold.
+- **No native `<select>`** — the drawn `shared/dropdown.ts`.
+- **Numbers abbreviate from 10,000, truncated** (`10.0k`, `1.00m`). Rejected: `k` from 1,000; rounding; abbreviating counts / weights.
+- **Liftoff hides every remaining HUD element.** Rejected: hiding from boarding.
+- **The squad list never draws my row.** Rejected: keeping it in the raid.
+- **Android launch-slot card = the full body.** Rejected: a face-only portrait.
+- **Weapon panel dims for anything non-primary in hand; melee does not dim it.** Rejected: T quick use only.
+- **Inventory credits as text** (`n C`), not the currency chip.
+- **The 창고 upgrade modal is housing's `UpgradeModal`, reached via `HousingRef.openStorageUpgrade()`.** Rejected: a second modal; moving
+  the button to ship management.
+- **The animation restart idiom is accepted** (see Rules). Rejected: twin `@keyframes` on the hot path or at all 19 sites; a
+  `ui/dom.restartAnim` helper (cannot work — see `docs/PERF.md`).
+- **Chat height by CSS `calc()` + `column-reverse`.** Rejected: deferring or batching the measurement (a forced layout survives).
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
 - 2026-09-21 — The crosshair reload ring freezes instead of lying while a reload is **held** (`weapon:reloadPaused` / `Resumed`, `.reload.paused`), and `hud/HealGauge` gained the right-button ally hold plus the `.heal-ally` chip that names the squadmate the button would treat (dim `아군 없음` when nobody is valid).
 - 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
-- 2026-09-20 — The animation-restart idiom (`remove → void offsetWidth → add`, 19 sites in 13 `hud/` files) is an **intended limit** now, not a to-do: the user declined the twin-`@keyframes` cure and accepted the extra flush on a flash frame (was `docs/TODO.md` B-68 · B-69; `## Rules`, `docs/DECISIONS.md`). No code change — the smoke's `KNOWN_IDIOM` ratchet stays.
+- 2026-09-20 — The animation-restart idiom (`remove → void offsetWidth → add`, 19 sites in 13 `hud/` files) is an **intended limit** now, not a to-do: the user declined the twin-`@keyframes` cure and accepted the extra flush on a flash frame (was `docs/TODO.md` B-68 · B-69; `## Rules`, `## Decisions`). No code change — the smoke's `KNOWN_IDIOM` ratchet stays.
 - 2026-09-20 — The toast stack stops forcing a layout inside the frame during the tutorial: `hud/Notifications` measured `.tut-controls` with `getBoundingClientRect` **every frame** while that panel was up (§4.2; counted at 180 reads in 180 frames). It now measures from a `ResizeObserver` on the panel plus the window `resize` — both run after layout, outside `Engine.frame` — and `update()` only re-finds the panel. `scripts/smoke-layout-reads.mjs` grew a fourth window (tutorial frames with the panel up) that fails on the old code and passes on the new.
-- 2026-09-20 — `docs/DECISIONS.md` perf Phase B: the HUD reads no layout inside a frame, and a smoke counts it. `hud/ChatLog` stopped measuring a row per line (a `column-reverse` scroller pins its own bottom, the closed height is a `calc()`), a chat row's first layout is paid at boot, and `hud/Detection` · `hud/ScanReveal` build their pillar pools on `world:ready` instead of on the first corpse. S4's android first-contact frame: js 17.9 → 15.5 ms, spike frames 1 → 0 (twice). The animation-restart `offsetWidth` idiom was swept into a `dom.restartAnim` helper in the same pass and **reverted the same day** — it cannot replay a finished or a descendant animation; it is a listed exception in the smoke instead (an intended limit — `## Rules` above).
+- 2026-09-20 — `docs/PERF.md` perf Phase B: the HUD reads no layout inside a frame, and a smoke counts it. `hud/ChatLog` stopped measuring a row per line (a `column-reverse` scroller pins its own bottom, the closed height is a `calc()`), a chat row's first layout is paid at boot, and `hud/Detection` · `hud/ScanReveal` build their pillar pools on `world:ready` instead of on the first corpse. S4's android first-contact frame: js 17.9 → 15.5 ms, spike frames 1 → 0 (twice). The animation-restart `offsetWidth` idiom was swept into a `dom.restartAnim` helper in the same pass and **reverted the same day** — it cannot replay a finished or a descendant animation; it is a listed exception in the smoke instead (an intended limit — `## Rules` above).

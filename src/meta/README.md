@@ -209,6 +209,23 @@ but no content gates on it yet.
   `categoryPathKo` exist, but no objective counts them: a quest like 「가치 10,000 이상의 수집품 납품」 needs a value-sum
   objective in `npc_objectives.csv` counted here with `superCategoryOf`. Only the five library media carry one today.
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Corp quests deleted** (2026-09-14); corps keep contracts, coin unlocks moved to NPC quests.
+- **Quests cannot be abandoned; 「생각해 볼게요」 retired**; offers arrive only as chat cards.
+- **NPC first contact follows traces of play (`reqFlag`), not level.**
+- **Selling rounds down (value 1 sells for 0 C); buying keeps `round`.** Rejected: flooring buys (a silent discount).
+- **Recovery contracts count only that raid's rolls; mixing unmarks.** (No laundering.)
+- **Intel: squad leader only, one per profile, rebuy overwrites without refund, travel stays free; buying only for the targeted
+  planet.** Rejected: letting `정보 구매` set the target; buying for the previewed planet. Lesson: **measure a gimmick's natural rate
+  before selling a pin** (the rover pin bought nothing).
+- **Shop price = value × 3; ammo sold by the full stack.**
+- **Corp access starts at Lv.1; every contract `minRepLevel` +1** (2026-09-17). Rejected: shifting only Lv.0 contracts; giving Helix /
+  Bastion a first quest.
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/meta`.

@@ -433,6 +433,20 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
   **left apart on purpose**: narrowing the material test would change what a craft may spend (a play-economy decision).
   `cookBlock` testing both is the standing proof. — `parts/Crafting.currentStation`
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Corpses appraise cell by cell like crates.** Rejected: instant reveal.
+- **The craft window hides the stash and bag grids** (materials counted from the model); recipe hover = the inventory tooltip;
+  the detail is a card to the right. Rejected: grids as a materials view; native `title`; the `ItemTip` chip; a detail column inside
+  the panel.
+- **Double-click prefers the stash when both stash and bag are visible** (2026-09-17).
+- **`모두 창고로 이동` moves the bag grid only, favourites included.** Rejected: leaving favourites in the bag.
+- **Embedded 창고 | 가방 moves go through `DropResolver`.** Rejected: locking the embedded grids read-only.
+- **One `재료 회수` toast for every refund source.** Rejected: a toast per source.
+
 ## Recent changes
 
 Older: `git log -- src/inventory`.

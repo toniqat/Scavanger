@@ -6,8 +6,6 @@ around the squad leader, raider-style cover combat, looting, deliveries, extract
 Contract: `src/shared/allies.ts`, the android section at the end of `src/shared/net.ts`, the android events in
 `src/shared/events.ts`. This folder builds no meshes — `player/` draws the bodies from `ctx.allies.getBodies()`.
 
-Design record: docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」.
-
 ## Files
 
 | File | Responsibility |
@@ -101,6 +99,35 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
   scene lock, so those two branches have no android side.
 - **Known limit**: `Extract.onLiftoff` extracts every body in the bay that is **not dead**, a downed one included — the test is
   `a.dead` alone, so a body that was carried in or fell inside goes out with the ship and its loot reaches the stash.
+
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Androids live in the shared ship's 3 cockpit bays only** (2026-09-15). Rejected: bays in the personal ship, offline single
+  player (the dev `/android` cheat covers testing).
+- **A fixed base kit every raid; only `raidFound` items reach the leader's stash.** Rejected: persistent per-bay gear (every raid
+  would mint free gear), losing the bag on extraction.
+- **Infinite ammo with magazine and reload kept; no throwables or gadgets.** Rejected: real ammo use.
+- **Not a rescue-drop target**; androids revive players. **A standing android keeps the raid alive** (2026-09-16). Rejected:
+  androids outside the wipe decision (one human + androids ended the moment the human went down).
+- **Roaming = a point of interest, switching to patrol when another body holds it** (2026-09-16). Rejected: purely random
+  roaming; pure point-of-interest roaming (two androids pile onto one structure).
+- **2 m soft separation** — 「2 m 이내에 겹치지 않도록 피해서 가기, 부득이 겹칠 경우 갈 수 있음」 (`Nav.separate`, `ALLY_SEPARATION_M`).
+- **앞장서라 expires by itself.** Rejected: an order that never expires.
+- **Engage range comes from the weapon's falloff** (~50 % damage point). Rejected: one fixed 45 m; a per-weapon csv table (the
+  falloff columns already say it).
+- **Looting: a pinged container first, an unpinged one only while idle and close.** Rejected: keeping autonomous looting with a
+  priority tweak.
+- **A crate ping names its container by id** (`PingMessage.containerId`, 2026-09-19). Rejected: matching by ping position (kept only
+  as the fallback for a ping with no id).
+- **An unreachable crate / item is given up after `ALLY_JOB_GIVEUP_S` with one line** (`거기까진 못 가겠다.`, 2026-09-21). Rejected:
+  giving up silently (the player cannot tell why); sidestepping forever (a wall with no gap still hangs the job). The fix is the
+  steering (a windowed stuck test in `Nav.step`), not the map. **Pathfinding is deferred (TODO A-18) and will be one layer for enemies
+  too** (A\* per android, a flow field per player) — bugs walking round through doors changes what hiding in a building is worth.
+- **Atmosphere damage takes the exposure gate, not the preparation gate.** Rejected: giving an android the leader's preparation (a
+  bought prep would protect bodies it was never bought for).
 
 ## Recent changes
 

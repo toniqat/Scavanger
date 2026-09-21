@@ -50,7 +50,7 @@ indoor step → atmosphere → `shaders.update()` → `shaders.beforeRender()` �
   was considered and **rejected**: point lights really do enter and leave the scene mid-raid (`extraction/Ship`,
   `player/Hellpod`, `game/parts/Leader`), and one frame with the count wrong is two recompiles — up and back. A
   cheaper exact recount would need a registry every light is created through, which is 11 call sites across seven
-  folders and a check script; it has never been worth 0.14 ms. (2026-09-20 — `docs/DECISIONS.md` perf Phase C · B3.)
+  folders and a check script; it has never been worth 0.14 ms. (2026-09-20 — `docs/PERF.md` perf Phase C · B3.)
 - **Compile through `ctx.shaders`, never `renderer.compile` mid-update.** The program key's colour space / tone mapping
   comes from the bound render target; compiling while the canvas is bound builds variants that are never used. — `ShaderWarmup.warm`
 - A shader hold freezes simulation exactly like `game:paused {freeze}` (systems run with dt 0, `ctx.time` still flows);
@@ -81,11 +81,21 @@ indoor step → atmosphere → `shaders.update()` → `shaders.beforeRender()` �
   during `liftoff` or any `ui:cinematic`, and before `world.ready`. — `Engine.indoorApplies` / `probeIndoor`
 - Only the FX/util barrels are shared; `hub/` reaches the atmosphere via `scene.userData.atmosphere`, not an import.
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Indoors is lit by lifting hemisphere / ambient and thinning fog, local only, on top of `atmo:override`** (2026-09-21). Rejected:
+  a new light (zero spare budget, recompiles every material).
+- **Bloom stays on by default** (the guard turns it off under load; it measured free on vsync).
+- **`LightBudget` recounts every frame; only the walk got cheaper.** Rejected: a dirty flag from pool owners; a recount interval.
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/core`.
 - 2026-09-21 — Indoors is lifted locally: `Atmosphere.stepIndoor` scales the existing hemisphere fill and thins the fog over `INDOOR_LIGHT_FADE_S`, driven by `Engine`'s upward eye probe at a quarter of that fade. No light added, nothing on the wire.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
-- 2026-09-20 — `countVisiblePointLights` walks an explicit stack instead of `traverseVisible` and skips the padding group it already counts; `x:lightBudget` 0.156–0.157 → 0.132–0.142 ms/frame in S2. The count stays exact and per-frame — see the rule above for why a flag or an interval was rejected (`docs/DECISIONS.md` perf Phase C · B3).
+- 2026-09-20 — `countVisiblePointLights` walks an explicit stack instead of `traverseVisible` and skips the padding group it already counts; `x:lightBudget` 0.156–0.157 → 0.132–0.142 ms/frame in S2. The count stays exact and per-frame — see the rule above for why a flag or an interval was rejected (`docs/PERF.md` perf Phase C · B3).
 - 2026-09-15 — `ShaderWarmup.holdFor(ready, timeoutS)` and `compileProgress` for the raid-entry loading gate.
 - 2026-09-12 — `outline.warm` runs even while a shader hold is active.

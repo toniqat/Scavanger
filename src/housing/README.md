@@ -334,6 +334,35 @@ reasoning. The list below is what a maintainer would otherwise break.
   (`hub/interiors/FurnitureMining.ts`) show the **count** only, so a worn slot looks like a new one. A neighbouring save's
   `clusters[].cores` are not mounted — they are refunded to the stash as **full-durability** processors.
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **Furniture is not an item and comes only from crafting** (Phase 6–7). Rejected: buying or looting furniture (2026-09-11).
+- **Seeds come from raid loot, wild gathering and analyzer results, never crafting.** Rejected: a first-analysis bonus strain (it
+  could never be grown again — improved strains must be repeatable).
+- **Analysis results are rolled on insert.** Rejected: rerolls.
+- **No power allocation** (2026-09-13, removed the same day as 「too harsh」): the generator only gates higher facilities. Trap:
+  pure manual allocation stopped every place-and-use flow (the tutorial workbench). Rejected: bringing allocation back.
+- **Library: 10 % per series volume, 100 % for the full set, a volume counts once; gramophone · jukebox · turntable are cosmetic
+  variants.** Rejected: per-medium caps (replaced), one-book-per-skill shelves.
+- **Video games follow gym rules and need no seat** (2026-09-17). Rejected: a new standing pose (the player plays standing with the
+  normal camera).
+- **의자 · 쇼파 are decor, placeable in any room** (2026-09-17, reverses 「쇼파는 서재 전용」); the 흔들의자 stays a facility.
+- **Meals are plates, not items** (2026-09-16): one plate on the 식탁, replaced after a warning shown before the cook, never
+  consumed by eating, deleted at the next raid start; the shared ship's plate is eaten by every member. Rejected: one plate that
+  blocks cooking; several plates; removing squad meals; a consumed shared plate; refunds for old meal items (no migration).
+- **Culture tanks and grow stations have no count limit** (floor space only). Rejected: a generator-level cap, a fixed cap.
+- **Culture starts only on a 1 s hold confirm.**
+- **Storage red dots are session-only.** Rejected: saving them in `ShipState`.
+- **Stirfry divides by beats offered, not clicks judged** (2026-09-19). Rejected: dividing by the perfect clicks needed
+  (`ceil(1/FILL_PERFECT)` — an all-good run clamps to 0.96). Widen by `COOK_STIRFRY_BEAT_S`, never the windows.
+- **A game disc's minigame name lives in `src/shared/housing.ts`** (`gameMinigameLabel`) so housing screens and the ui tooltip
+  print one spelling.
+- **Processor wear is per processor** (cluster speed is exponential in the count, so a worn 9-slot cluster is ~22.6× slower).
+  Rejected: multiplying the cycle rate so 「half」 is literal at the cluster level.
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/housing`.

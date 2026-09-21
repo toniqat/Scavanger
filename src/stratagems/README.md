@@ -73,6 +73,14 @@ point with `world.scatterPoints(…, RESCUE_SCATTER_RADIUS, 1, RESCUE_POD_MIN_GA
 - Top-view cancel is RMB, not Escape: under pointer lock Escape opens the pause menu, which cancels via `baseActive()`.
 - `parts/` import only types from `StratagemSystem.ts`; values live in `model.ts`.
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **4-slot wheel: air strike out, rescue drop in** (2026-09-09). Rejected: a 5-slot wheel (`airstrike` stays in types / csv).
+- **Rescue count spent at grant, no refund.**
+
 ## Recent changes
 Last 5 only — older: `git log -- src/stratagems`.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.

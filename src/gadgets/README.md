@@ -111,6 +111,14 @@ shoulder scores as aimed outright — nobody can put a crosshair on their own ba
 - **Intended**: a drone scan label never reaches a late joiner — `drone scan` goes out once to `others` at scan time and
   has no sync request. — `drones/parts/Scan.ts`
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **The thumper may be placed after the worm already appeared** (the summon is ignored). Rejected: refusing placement. Not recoverable;
+  strikes carry no wire (counted from `age`).
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/gadgets`.

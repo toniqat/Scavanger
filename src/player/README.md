@@ -200,7 +200,7 @@ frame plus a `BUFF_TICK_S` tick, and a new array + revision go out only when `sa
 - A soldier body casts shadows from its **torso · head · limb segments** only, and its occlusion silhouette is
   **torso + head** (3 meshes, not 43). Armour plates and held items (`GearLook`) cast nothing — their shadow fell
   inside the body's. A new body part opts in with `core()` / `shadowed()` in the constructor; anything else is a
-  visible mesh and nothing more. (2026-09-20, user's decision — `docs/DECISIONS.md` perf Phase 1.) — `SoldierModel.ts`
+  visible mesh and nothing more. (2026-09-20, user's decision — `docs/PERF.md` perf Phase 1.) — `SoldierModel.ts`
 - Never change the scene light count: hellpod lights live on `group` (always visible), meshes on `body`; remote pods are pre-built. — `Hellpod.ts`, `RemotePods.ts`
 - Resolve the walkable surface (`getSurfaceY`) before `resolveCollision`, and apply slope limits only when the feet are on terrain. — `PlayerController.ts`
 - World ceiling clamp uses `BOX_HEADROOM`, not `PLAYER_HEIGHT`, and runs before `resolveCollision` while rising. — `PlayerController.ts` (`clampWorldCeiling`)
@@ -229,11 +229,25 @@ frame plus a `BUFF_TICK_S` tick, and a new array + revision go out only when `sa
   mid-jump, and it does count crawling while downed. An enemy's perception eye height during a low roll is the crouch one
   (`enemies/Targets.ts`).
 
+## Decisions
+
+Choices made against an alternative that may be proposed again — the choice, then what was rejected and why. Overturned → edit
+the line; a choice with nothing left to reject → delete it. Everything else about a change lives in `git log`.
+
+- **One roll, no dive** (Phase 7); a crouched roll is a low roll, none from prone (2026-09-16).
+- **Rejected on look: the 3-heads-tall character model** (Phase 10; only the carry socket/pose kept).
+- **Aim sway = camera drift only while aiming** (class · stance · movement). Rejected: stamina-driven sway.
+- **Soldier-only fresnel rim** (2026-09-15). Rejected: a scene-wide env map.
+- **All fall damage goes straight to HP** (2026-09-16). Rejected: a tutorial-only fix.
+- **Character buffs show under the HP bar (ship too) and the squad list rows.** Rejected: world nameplates.
+- **Soldier shadows from torso · head · limbs; silhouette = torso + head** (perf, `docs/PERF.md`). Rejected: torso-only shadows (the
+  limbs make it read as walking); a distance LOD keeping all meshes up close; merging the meshes for the silhouette.
+
 ## Recent changes
 
 Last 5 only — older: `git log -- src/player`.
 - 2026-09-20 — B-63 / B-64: android guns read the one shot-sound table (`shared/shotSounds.ts`, so a legendary no longer fires the rifle sample) and an android carry is released by `RemotePlayerSystem.myCarrierIsAlly` instead of `AllyAvatars.has` — a carrier whose avatar vanished used to leave the local body stuck on a gone socket. `AllyAvatars.has(id)` is gone with its last caller; both defects are now covered by `scripts/smoke-ally-avatars.mjs`.
-- 2026-09-20 — A soldier body draws far less: shadows from the torso · head · limb segments only (13–17 meshes, was 43–65), the occlusion silhouette from the torso + head (3, was 43), and `GearLook` armour plates / held items cast nothing. An android goes 182 draws → ~70 (`SoldierModel.core` / `shadowed`, `GearLook.finish`; user's decision, `docs/DECISIONS.md` perf Phase 1).
+- 2026-09-20 — A soldier body draws far less: shadows from the torso · head · limb segments only (13–17 meshes, was 43–65), the occlusion silhouette from the torso + head (3, was 43), and `GearLook` armour plates / held items cast nothing. An android goes 182 draws → ~70 (`SoldierModel.core` / `shadowed`, `GearLook.finish`; user's decision, `docs/PERF.md` perf Phase 1).
 - 2026-09-19 — Audit B-47…B-50: stale comments corrected (`rescueRevive` now gates on `usesHellpod`), dead code / imports dropped (`wasGrounded`, `RigInput.stridePhase`, 578 unused import entries in 8 files), stale-avatar sweeps count the avatars actually drawn, terms unified (armor, stride count).
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-17 — `gaming` char buff also for a standing video-game session (`housing.gameSession.seatUid` null, no furniture pose) — `parts/Buffs.ts`.

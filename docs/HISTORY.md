@@ -9,7 +9,7 @@
 |---|---|
 | How the code is structured now | [CLAUDE.md](../CLAUDE.md) → folder `README.md` |
 | What breaks if violated (conventions · invariants) | The comment right above that code, and the conventions section of [CLAUDE.md](../CLAUDE.md) |
-| Why an alternative was chosen (user decisions) | [DECISIONS.md](DECISIONS.md) |
+| Why an alternative was chosen (user decisions) | the owning folder's `README.md` `## Decisions` |
 | When something changed | `git log` |
 | Upcoming work | [TODO.md](TODO.md) |
 | Known limits of a feature (intended, decision first to change) | that folder's `README.md` |
@@ -37,4 +37,4 @@ Phases 0–12 are all implemented (2026-09-05 → 2026-09-08). Later work was co
 | 12 | **Implant items · barrier/recon rework · bullet tracking · UX cleanup** | 2026-09-08 |
 
 **Two rollbacks** (both Phase 10, 2026-09-07): the chibi (3-heads-tall) character model was rejected on look and reverted,
-and the synthetic-event soft cursor was reverted to the real OS cursor. Details: [DECISIONS.md](DECISIONS.md) Phase 10.
+and the synthetic-event soft cursor was reverted to the real OS cursor. Details: `src/ui/README.md` Decisions.

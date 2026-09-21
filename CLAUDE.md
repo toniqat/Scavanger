@@ -17,7 +17,7 @@ The relay server keeps a per-token **profile store** (credits · meta · stash �
 |---|---|
 | **Tune a number (balance)** | [data/README.md](data/README.md) — edit csv only, no code |
 | **Which folder to change** | [3. Folder map](#3-folder-map) below |
-| **How a folder is built** | that folder's `README.md` (files · public API · rules · last 5 changes) |
+| **How a folder is built** | that folder's `README.md` (files · public API · rules · decisions · last 5 changes) |
 | **Why code looks the way it does / what breaks if violated** | the comment right above that code (source of truth); project-wide rules in [4. Stack & conventions](#4-stack--conventions) |
 | **Every bug type at a glance** (Korean read-only summary — csv is still the source) | [ENEMY_BUGS.md](ENEMY_BUGS.md) — stats · nest rules · artillery · sandworm · per-planet mix |
 | System registration order · mission flow · UI blocker / cursor rules | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
@@ -28,8 +28,8 @@ The relay server keeps a per-token **profile store** (credits · meta · stash �
 | **When / what / why something changed** | `git log` — **commit messages are the source** (`git log -- src/<folder>`, `git log --grep '<keyword>'`) |
 | **Work to do** | [docs/TODO.md](docs/TODO.md) (Korean) — to-do only; an intended limit lives in the owning folder's `README.md` |
 | Completed phases | [docs/HISTORY.md](docs/HISTORY.md) |
-| **Frame hitches with many bodies** | [docs/DECISIONS.md](docs/DECISIONS.md) — the eight `perf Phase …` sections (2026-09-19/20), ending in **the last measurement**, which holds the whole record: **every phase is built or struck and there is no next one**. What they settled: `ms` on this PC spreads **±1.7 ms on one build**, so judge a change by counters, never by a timer; the render block is moved by **triangles**, not by draw calls (−31 % moved nothing) and not by pixels (−44 % moved nothing); and a squadmate costs **one more body drawn**, not the wire (Phase D, S5). Harness: `node scripts/perf-measure.mjs` (`--display` splits the render block, `--only s5a·s5b·s5c` runs two clients through the relay, `--alloc` counts garbage by owner) |
-| What the user chose and what was rejected | [docs/DECISIONS.md](docs/DECISIONS.md) |
+| **Frame hitches with many bodies** | [docs/PERF.md](docs/PERF.md) — the condensed record of the eight `perf Phase …` passes (2026-09-19/20): **every phase is built or struck and there is no next one**. What they settled: `ms` on this PC spreads **±1.7 ms on one build**, so judge a change by counters, never by a timer; the render block is moved by **triangles**, not by draw calls (−31 % moved nothing) and not by pixels (−44 % moved nothing); and a squadmate costs **one more body drawn**, not the wire (Phase D, S5). Harness: `node scripts/perf-measure.mjs` (`--display` splits the render block, `--only s5a·s5b·s5c` runs two clients through the relay, `--alloc` counts garbage by owner) |
+| What the user chose and what was rejected | the owning folder's `README.md` → `## Decisions` (only choices whose rejected alternative may come up again); perf → [docs/PERF.md](docs/PERF.md) |
 | **Investor / publisher wiki** (HTML, no build, public at **https://toniqat.github.io/Scavanger/**) | [docs/pitch/README.md](docs/pitch/README.md) → `docs/pitch/index.html`; page order · file numbers · section numbers come from `TREE` in `docs/pitch/app.js`; `node scripts/smoke-pitch.mjs` catches breakage |
 
 ---
@@ -82,7 +82,7 @@ is saved as **CP949** — UTF-8 + `chcp 65001` breaks cmd label scanning.
 
 ## 3. Folder map
 
-Each README holds the folder's files · public API · rules · last 5 changes. **Read it before changing the folder.**
+Each README holds the folder's files · public API · rules · decisions · last 5 changes. **Read it before changing the folder.**
 Rows state **responsibility only** — no dates or change notes (those go in commit messages). Edit a row only when the
 folder's responsibility changes.
 
@@ -253,7 +253,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - New scenes compile before drawing, and compilation goes only through `ctx.shaders` (`core/ShaderWarmup.ts`) — the program key depends on the bound render target.
 - Face portraits come from `PlayerRef.snapshotFace` (one lazily created offscreen renderer, cached PNGs, null without a second GL context) with framing in `shared/faceFraming.ts`, shared with character creation — never a canvas per tile (`player/FaceSnapshot.ts`).
 - **Bodies keep their draw count down by policy**: a bug's 6 legs are two `InstancedMesh` whose matrices `animateBug` composes (`enemies/models/BugModel`), a soldier casts shadows from torso · head · limb segments and silhouettes torso + head only (`player/SoldierModel.core` / `shadowed`), and `GearLook` plates / held items cast none. **Humanoid enemies follow the same shadow rule** — trunk · head · legs cast, the visor, the thrown grenade and the merged `gunArms` (arms + rifle = a held item, posed against the chest) do not (`enemies/models/RogueModel.mesh`). Anything that clones a rig's meshes into an overlay must handle `isInstancedMesh` (`enemies/fx/Xray`).
-- **Bodies keep their triangle count down by budget**: every sphere of a bug body goes through `segBudget` → `BUG_MESH_SEGMENTS` (`enemies/models/BugModel`), so the per-part `seg` numbers say what a part wants and one csv row says what it gets. On the measured machine the render block is moved by **triangles** — not by draw calls (−31 % of them moved nothing) and not by pixels (a −44 % resolution-scale cut moved nothing), so a body's cost is its geometry (`docs/DECISIONS.md`, perf — the last measurement).
+- **Bodies keep their triangle count down by budget**: every sphere of a bug body goes through `segBudget` → `BUG_MESH_SEGMENTS` (`enemies/models/BugModel`), so the per-part `seg` numbers say what a part wants and one csv row says what it gets. On the measured machine the render block is moved by **triangles** — not by draw calls (−31 % of them moved nothing) and not by pixels (a −44 % resolution-scale cut moved nothing), so a body's cost is its geometry (`docs/PERF.md`).
 - **A LOD for something *drawn* is a screen size, not a distance.** The enemy animation LOD's `ENEMY_ANIM_LOD_*`
   metres hold at `CAMERA_BASE_FOV_DEG` only — a scope narrows `camera.fov` (never `camera.zoom`), so at 8× a body at
   100 m is drawn the size it has at ~12 m. Scale the distance by `shared/viewZoom.viewZoomK` (clamped to ≤ 1),
@@ -376,7 +376,11 @@ AAA feel in the browser: readable silhouettes, strong lighting (sun + hemisphere
   - What / why changed + verification result → **commit message** (paste the runner's `docs line:` as its `검증:` line).
   - Invariant or reason for a value → **comment right above that code**; cross-folder rules also get a short bullet in §4.
   - Folder structure / public API changed → that folder's `README.md` body; its `Recent changes` keeps the **last 5 one-liners** (add at top, drop the bottom).
-  - User's choice and rejected alternatives → [docs/DECISIONS.md](docs/DECISIONS.md) (no implementation narration).
+  - User's choice **with a rejected alternative that may be proposed again** → one line in the owning folder's `README.md`
+    `## Decisions` (choice · `Rejected:` · why; cross-folder → the folder that owns the rule, or `src/shared/README.md`). Edit the
+    line when overturned, delete it when nothing is left to reject. A choice with no live alternative goes nowhere but the
+    commit message; a short reason for one code spot goes in the comment above it. No decision log file — `docs/DECISIONS.md`
+    was dissolved on 2026-09-21 (`git show 095fd70:docs/DECISIONS.md`).
   - New to-do → [docs/TODO.md](docs/TODO.md); a new **intended limit** ("decided to be this way") → the owning folder's `README.md`
     (`## Rules` · `## Notes` · `## Known limits`), never TODO.md; a gap in the verification net → [scripts/README.md](scripts/README.md).
     Edit the folder map row only if the folder's responsibility changed.
