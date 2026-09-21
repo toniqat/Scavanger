@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
-import type { MissionMode, TrainingRef, TutorialWorldRef } from '@/shared';
+import type { MissionMode, NavRef, TrainingRef, TutorialWorldRef } from '@/shared';
+import { NAV_STRUCT_MARGIN_M, PLAYER_RADIUS } from '@/shared';
 import { CRATE_OPEN_RANGE_SLACK, PLAYER_INTERACT_RANGE, STRUCTURE_INTERACT_RANGE } from '@/shared';
 import {
   FOG_REVEAL_RADIUS, MAP_SIZE, PROP_STEP_UP_MAX, PROP_TOP_MARGIN, Random, TRAINING_ARENA_SIZE, getPlanet, isPlanetId,
@@ -58,6 +59,8 @@ import { HALF, Terrain } from './Terrain';
 import { TrainingArena } from './TrainingArena';
 /* 2026-09-14 (the tutorial rework): the hand-built tutorial planet — the same slot · the same wiring as the training range. */
 import { TutorialWorld } from './tutorial/TutorialWorld';
+import { NavGraph } from './nav/NavGraph';
+import type { RegionSpec } from './nav/model';
 
 const SOFT_WALL = HALF - 4;
 
@@ -148,6 +151,13 @@ export class WorldSystem implements GameSystem, WorldRef {
    * are gated on `isDiscovered`, so with null everything is visible exactly as it used to be.
    */
   private fogMask: Fog | null = null;
+
+  /**
+   * 2026-09-21 (TODO A-18): the raid's walkable graph (`WorldRef.nav`). Started at the end of a planet raid's
+   * generation and baked over the next frames; null to the outside in every other mode.
+   */
+  private readonly navGraph = new NavGraph();
+  private navLive = false;
 
   /**
    * 2026-09-13: site spawn spots (`getSiteSpawnPoints`) — a structure's indoor candidates are computed once, the first
@@ -241,6 +251,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.hazardSys.update(dt, ctx);
     this.ambience.update(dt, ctx.camera);
     this.fogMask?.update(dt);
+    if (this.navLive) this.navGraph.update(dt);
   }
 
   dispose(): void {
@@ -366,8 +377,44 @@ export class WorldSystem implements GameSystem, WorldRef {
     console.info(`[World] seed ${this.seed} · planet ${def ? `${this.planet} (${def.name})` : '—'} · biome ${this.biome.id} (${this.biome.name}) · ${this.hash.getAll().length} obstacles · ${this.crates.getDefs().length} crates · ${this.gather.getNodes().length} herbs · ${this.structures.getDefs().length} structures · ${this.rails.getLines().length ? this.rails.getLines()[0].kind : 'no'} rail · hazard ${this.hazardSys.kind ?? '—'}${this.hazardSys.kind ? ` @ ${this.hazardSys.startsAt}s` : ''} · ${ms.toFixed(0)} ms`);
     this.ensureOpenNet();
     this.requestOpenSync();
+    this.startNav();
     ctx.bus.emit('world:ready', { seed: this.seed, playerSpawn: this.spawnPos.clone(), planet: this.planet });
   }
+
+  /**
+   * 2026-09-21 (TODO A-18): hands the finished raid to the nav graph. One region per structure (its `StructureNav`
+   * rectangle) and per rail platform, each grown by `NAV_STRUCT_MARGIN_M` so its grid meets the outdoor one outside
+   * the walls. The hash reports every later collider change to it (`SpatialHash.onChange`).
+   */
+  private startNav(): void {
+    const regions: RegionSpec[] = [];
+    const m = NAV_STRUCT_MARGIN_M;
+    for (const d of this.structures.getDefs()) {
+      const n = this.structures.navOf(d.id);
+      if (!n) continue;
+      regions.push({ key: d.id, cx: n.cx, cz: n.cz, yaw: n.yaw, halfU: n.halfW + m, halfV: n.halfD + m });
+    }
+    for (const p of this.rails.getLines()[0]?.platforms ?? []) {
+      regions.push({ key: p.id, cx: p.position.x, cz: p.position.z, yaw: p.yaw, halfU: p.radius + m, halfV: p.radius + m });
+    }
+    this.navGraph.start({
+      heightAt: (x, z) => this.getHeightAt(x, z),
+      surfaceY: (x, z, feetY) => this.getSurfaceY(x, z, feetY),
+      resolve: (p, r) => this.resolveCollision(p, r),
+      hash: this.hash,
+      regions,
+      ladders: this.structures.getLadders(),
+      limit: SOFT_WALL - PLAYER_RADIUS,
+    });
+    this.hash.onChange = this.navGraph.onHashChange;
+    this.navLive = true;
+  }
+
+  /** `WorldRef.nav` — the raid's walkable graph, null outside a planet raid. */
+  get nav(): NavRef | null { return this.navLive ? this.navGraph : null; }
+
+  /** Debug / smokes: the graph itself (counts, bake time) — `null` outside a raid. */
+  get debugNav(): NavGraph | null { return this.navLive ? this.navGraph : null; }
 
   /**
    * `WorldRef.previewLayout` (2026-09-14, the intel broker) — computes **the layout only**. It builds no terrain and no
@@ -455,6 +502,9 @@ export class WorldSystem implements GameSystem, WorldRef {
   clear(): void {
     if (!this.generated) return;
     this.ready = false;
+    this.hash.onChange = null;
+    this.navLive = false;
+    this.navGraph.clear();
     this.openedIds.clear();
     this.siteSpawns.reset();
     this.fogMask?.dispose();

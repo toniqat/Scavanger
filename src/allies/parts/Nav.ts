@@ -1,13 +1,17 @@
 /**
- * src/allies/parts/Nav.ts — **walking**. This game has no pathfinding — it is the same steering + obstacle
- * avoidance the enemy AI runs (the same shape as `enemies/ai/Steering`, **implemented again**: another
- * folder's internals are never imported — CLAUDE.md §4.1).
+ * src/allies/parts/Nav.ts — **walking**. Steering + obstacle avoidance, the same shape the enemy AI runs
+ * (`enemies/ai/Steering`, **implemented again**: another folder's internals are never imported — CLAUDE.md §4.1),
+ * and since 2026-09-21 (TODO A-18) **a way round a wall**: when the straight line to the destination is not walkable
+ * on the raid's nav graph (`WorldRef.nav`), `route` plans a path and the steering aims at its next waypoint instead.
+ * The steering itself is unchanged — the path only moves the point it aims at — and whenever the graph has no answer
+ * (not baked yet, inside a ship, nothing found) it aims at the destination exactly as before. A ladder on the path is
+ * climbed (`tickClimb`): atomic, `Fsm.update` hands it the whole frame until the body is off the ladder again.
  *
  * It keeps the world contract (CLAUDE.md §4.4):
  *  - the floor is `WorldRef.getSurfaceY(x, z, feetY)`, called **before `resolveCollision`** (reversed, it
  *    cannot step onto a low ledge).
  *  - inside a ship it uses `InteriorCollider.getFloorAt` · `resolveCollision`.
- *  - when it is stuck it sidesteps (`sideT`) — with no pathfinding that is the only way out.
+ *  - when it is stuck it sidesteps (`sideT`) and plans again (`navReplan`).
  *
  * Three things fold into the steering: obstacle avoidance (`avoidObstacles`) · the separation between squad
  * bodies (`separate`) · the detour around a `주의` ping (`avoid`). All three are only **a component added to
@@ -15,7 +19,11 @@
  * apart with `spreadToward`.
  */
 import * as THREE from 'three';
-import { ALLY_LOCAL_PEER, ALLY_SEPARATION_M, ALLY_SPREAD_M, ALLY_TURN_RATE, PLAYER_RADIUS } from '@/shared';
+import {
+  ALLY_LOCAL_PEER, ALLY_NAV_GOAL_MOVE_M, ALLY_NAV_REPLAN_S, ALLY_NAV_WAYPOINT_M, ALLY_SEPARATION_M, ALLY_SPREAD_M,
+  ALLY_TURN_RATE, ALLY_WALK_SPEED, LADDER_CLIMB_SPEED, NAV_CAN, NAV_CAN_PERSON, PLAYER_RADIUS,
+  type LadderDef, type NavRef,
+} from '@/shared';
 import type { AllySystem } from '../AllySystem';
 import type { Ally } from './Body';
 import { turnToward, yawToward } from '../model';
@@ -41,6 +49,11 @@ const OBS_QUERY_M = 6;
 const STUCK_S = 0.8;
 /** How long a sidestep lasts (s). */
 const SIDE_S = 1.2;
+/**
+ * A destination this far (m) above · below counts toward the distance `step` returns — a crate on floor 2 is not
+ * reached by standing under it on floor 1. Under one storey (~3 m), over a stair step and a crate lid.
+ */
+const FLOOR_DY = 2;
 
 /** Turns the body toward `target`. */
 export function face(a: Ally, target: THREE.Vector3, dt: number): void {
@@ -48,7 +61,8 @@ export function face(a: Ally, target: THREE.Vector3, dt: number): void {
 }
 
 /**
- * Walks one frame toward `target`. Returns the XZ distance left.
+ * Walks one frame toward `target` — round a wall when the nav graph says the straight line is blocked (`route`).
+ * Returns the distance left (XZ, plus the part of a floor difference beyond `FLOOR_DY` — `left`).
  * With `avoid` it never comes inside `avoidR` of that point (a `주의` ping).
  */
 export function step(
@@ -57,10 +71,13 @@ export function step(
 ): number {
   const ctx = sys.ctx;
   const pos = a.position;
-  const dx = target.x - pos.x, dz = target.z - pos.z;
+  if (dt <= 0) return left(a, target);
+  // The point the steering aims at: the next waypoint of a path round a wall, or the destination itself.
+  const aim = route(sys, a, target, dt);
+  if (a.climb) { halt(a); return left(a, target); }   // the path reached a ladder — `tickClimb` owns the next frames
+  const dx = aim.x - pos.x, dz = aim.z - pos.z;
   const dist = Math.hypot(dx, dz);
-  if (dt <= 0) return dist;
-  if (dist < 1e-4) { a.velocity.set(0, 0, 0); a.moveBlend = 0; return dist; }
+  if (dist < 1e-4) { a.velocity.set(0, 0, 0); a.moveBlend = 0; return left(a, target); }
 
   // the wanted direction
   _n1.set(dx / dist, 0, dz / dist);
@@ -76,7 +93,9 @@ export function step(
     }
   }
 
-  avoidObstacles(sys, a, _n1, dt);
+  // The graph's answer already accounts for every collider (`Ally.navSteer`); only without one does the old circle
+  // avoidance steer.
+  if (!a.navSteer) avoidObstacles(sys, a, _n1, dt);
   separate(sys, a, _n1, target);
 
   if (a.sideT > 0) {
@@ -125,17 +144,155 @@ export function step(
     if (net < a.stuckWant * 0.25 && a.sideT <= 0) {
       a.sideT = SIDE_S;
       a.sideSign = a.rand.next() < 0.5 ? -1 : 1;
+      a.navReplan = true;
     }
     a.stuckFrom.copy(pos);
     a.stuckT = 0;
     a.stuckWant = 0;
   }
 
-  face(a, target, dt);
+  face(a, aim, dt);
   const v = a.velocity.length();
   a.moveBlend = Math.min(1, v / Math.max(0.1, speed));
   a.stridePhase = (a.stridePhase + v * dt) % 1;
-  return Math.hypot(target.x - pos.x, target.z - pos.z);
+  return left(a, target);
+}
+
+/** The distance `step` reports: XZ, plus how far the destination is off this floor beyond `FLOOR_DY`. */
+function left(a: Ally, target: THREE.Vector3): number {
+  const dy = Math.abs(target.y - a.position.y);
+  const xz = Math.hypot(target.x - a.position.x, target.z - a.position.z);
+  return dy > FLOOR_DY ? xz + dy - FLOOR_DY : xz;
+}
+
+/**
+ * The distance still to walk to `target` — along the path being followed when there is one, so a body that walks
+ * away from a crate to reach the building's door is making progress, not stalling (`Loot.stalled`).
+ */
+export function routeLeft(a: Ally, target: THREE.Vector3): number {
+  const path = a.navPath;
+  if (!a.navHas || !path) return left(a, target);
+  let d = 0, px = a.position.x, py = a.position.y, pz = a.position.z;
+  for (let i = a.navIdx; i < path.count; i++) {
+    const w = path.points[i].position;
+    d += Math.hypot(w.x - px, w.z - pz) + Math.abs(w.y - py);
+    px = w.x; py = w.y; pz = w.z;
+  }
+  return d + Math.hypot(target.x - px, target.z - pz);
+}
+
+/* ── the way round (TODO A-18) ───────────────────────────────────────────── */
+
+/**
+ * The point to steer at this frame. Plans when the destination wandered off (`ALLY_NAV_GOAL_MOVE_M`), when the replan
+ * period ran out (`ALLY_NAV_REPLAN_S`) or when the body got stuck; a destination the straight line reaches keeps no
+ * path at all. A waypoint is passed within `ALLY_NAV_WAYPOINT_M`; a ladder waypoint starts the climb.
+ */
+function route(sys: AllySystem, a: Ally, target: THREE.Vector3, dt: number): THREE.Vector3 {
+  const ctx = sys.ctx;
+  const nav = ctx.world?.nav ?? null;
+  if (!nav || !nav.ready || ctx.player?.interior) { a.navHas = false; a.navSteer = false; return target; }
+  a.navT -= dt;
+  const gx = target.x - a.navGoal.x, gy = target.y - a.navGoal.y, gz = target.z - a.navGoal.z;
+  if (a.navT <= 0 || a.navReplan || gx * gx + gy * gy + gz * gz > ALLY_NAV_GOAL_MOVE_M * ALLY_NAV_GOAL_MOVE_M) plan(a, nav, target);
+  const path = a.navPath;
+  if (!a.navHas || !path) return target;
+  while (a.navIdx < path.count) {
+    const w = path.points[a.navIdx];
+    if (w.kind === 'ladder') {
+      const L = w.ladderId ? ctx.world?.getLadders().find((l) => l.id === w.ladderId) ?? null : null;
+      if (!L) { a.navHas = false; return target; }
+      a.navIdx++;
+      beginClimb(a, L, w.position.y > a.position.y);
+      return w.position;
+    }
+    const dx = w.position.x - a.position.x, dz = w.position.z - a.position.z;
+    if (dx * dx + dz * dz > ALLY_NAV_WAYPOINT_M * ALLY_NAV_WAYPOINT_M || Math.abs(w.position.y - a.position.y) > FLOOR_DY) return w.position;
+    a.navIdx++;
+  }
+  // Past the last waypoint (the snapped goal — maybe the floor in front of a crate): the last stretch is straight.
+  a.navHas = false;
+  return target;
+}
+
+function plan(a: Ally, nav: NavRef, target: THREE.Vector3): void {
+  a.navT = ALLY_NAV_REPLAN_S;
+  a.navReplan = false;
+  a.navGoal.copy(target);
+  if (nav.walkable(a.position, target)) { a.navHas = false; a.navSteer = true; return; }
+  const path = a.navPath ?? (a.navPath = nav.createPath());
+  // Carrying a person it takes no ladder — the body on its shoulder does not go up rung by rung.
+  const st = nav.findPath(a.position, target, a.carrying ? NAV_CAN.INDOOR : NAV_CAN_PERSON, path);
+  // `none` (proven unreachable) and `pending` leave the old straight steering in charge.
+  a.navHas = (st === 'ok' || st === 'partial') && path.count > 0;
+  a.navSteer = a.navHas;
+  a.navIdx = 0;
+}
+
+/* ── ladders ─────────────────────────────────────────────────────────────── */
+
+function beginClimb(a: Ally, L: LadderDef, up: boolean): void {
+  a.climb = L;
+  a.climbUp = up;
+  a.climbPhase = 0;
+  halt(a);
+}
+
+/**
+ * One frame on a ladder (`Fsm.update` calls it instead of the state's act while `a.climb` is set). Going up: over the
+ * foot → up to `topY` → across to `exit`. Going down: across to over the hatch (the foot's XZ at roof height) → down to
+ * the floor. The horizontal moves are the body's own reach over a rung and ignore colliders — the same snap a
+ * person's grab makes (`player/parts/Climb`).
+ */
+export function tickClimb(sys: AllySystem, a: Ally, dt: number): void {
+  const L = a.climb;
+  if (!L) return;
+  const p = a.position;
+  a.moveBlend = 0;
+  a.yaw = yawToward(p, _n3.set(p.x - L.normal.x, p.y, p.z - L.normal.z));
+  if (a.climbPhase === 0) {
+    if (moveXZ(p, L.base.x, L.base.z, ALLY_WALK_SPEED * dt)) a.climbPhase = 1;
+    a.velocity.set(0, 0, 0);
+    return;
+  }
+  if (a.climbPhase === 1) {
+    const ty = a.climbUp ? L.topY : L.base.y;
+    const stepY = LADDER_CLIMB_SPEED * dt;
+    const dy = ty - p.y;
+    if (Math.abs(dy) <= stepY) { p.y = ty; a.climbPhase = 2; a.velocity.set(0, 0, 0); return; }
+    p.y += Math.sign(dy) * stepY;
+    a.velocity.set(0, Math.sign(dy) * LADDER_CLIMB_SPEED, 0);
+    return;
+  }
+  if (a.climbUp && !moveXZ(p, L.exit.x, L.exit.z, ALLY_WALK_SPEED * dt)) return;
+  endClimb(sys, a);
+}
+
+/** Off the ladder where it is (downed · death · a teleport): it falls to whatever floor is below. */
+export function dropClimb(sys: AllySystem, a: Ally): void {
+  if (!a.climb) return;
+  endClimb(sys, a);
+  a.navHas = false;
+}
+
+function endClimb(sys: AllySystem, a: Ally): void {
+  a.climb = null;
+  a.climbPhase = 0;
+  a.velocity.set(0, 0, 0);
+  snapToGround(sys, a);
+  a.stuckFrom.copy(a.position);
+  a.stuckT = 0;
+  a.stuckWant = 0;
+}
+
+/** Moves `p` toward `(x, z)` by at most `step`; true once there. */
+function moveXZ(p: THREE.Vector3, x: number, z: number, step: number): boolean {
+  const dx = x - p.x, dz = z - p.z;
+  const d = Math.hypot(dx, dz);
+  if (d <= step) { p.x = x; p.z = z; return true; }
+  p.x += (dx / d) * step;
+  p.z += (dz / d) * step;
+  return false;
 }
 
 /** In place — velocity · the movement blend to 0 (called every frame it stands still). */

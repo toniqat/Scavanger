@@ -24,9 +24,9 @@ import { FxManager, ParticleBurst } from '@/core/fx';
 import { damp, dampAngle, wrapAngle } from '@/core/util/MathUtil';
 import { SOLDIER_DEFAULT_ACCENT, SoldierModel, type SoldierPose } from './SoldierModel';
 import { buildHeldWeapon, type WeaponLook } from './GearLook';
-import { inLeavingShip, resolveArmorDef } from './RemoteAvatar';
+import { CLIMB_PHASE_MAX_DY, REMOTE_RUNG_VOLUME, inLeavingShip, resolveArmorDef } from './RemoteAvatar';
 import type { SoldierPool } from './SoldierPool';
-import { STRIDE_MIN_SPEED } from './PlayerController';
+import { LADDER_RUNG_M, STRIDE_MIN_SPEED } from './PlayerController';
 
 const EMPTY_BODIES: readonly AllyBodyView[] = [];
 /** Recoil pulse interval during sustained fire (the same as the remote avatar's `FIRE_PULSE_INTERVAL`). */
@@ -91,6 +91,14 @@ export class AllyAvatar {
   private downedBlend = 0;
   private aimBlend = 0;
   private carryBlend = 0;
+  /**
+   * 2026-09-21 (A-18): on a ladder its path took (`ALLY_FLAGS.CLIMB`). The rung phase comes from the height change,
+   * π per `LADDER_RUNG_M` — the remote squadmate's rule (`RemoteAvatar.updateClimb`); the sim already faces the rungs.
+   */
+  private climbBlend = 0;
+  private climbPhase = 0;
+  private climbLastY = Number.NaN;
+  private climbStepIdx = 0;
   private recoil = 0;
   private firePulse = 0;
   /** The pose was reset to neutral once while hidden (dead → the corpse stands in for it). */
@@ -187,6 +195,9 @@ export class AllyAvatar {
     const reloading = (flags & ALLY_FLAGS.RELOAD) !== 0 && !downed;
     const sprinting = (flags & ALLY_FLAGS.SPRINT) !== 0 && !downed && !carry;
     const crouching = v.pose === 'crouch' && !downed;
+    const climbing = (flags & ALLY_FLAGS.CLIMB) !== 0 && !downed;
+    this.updateClimb(ctx, v, climbing);
+    this.climbBlend = damp(this.climbBlend, climbing ? 1 : 0, 12, dt);
 
     this.sprintBlend = damp(this.sprintBlend, sprinting ? 1 : 0, 8, dt);
     this.aimBlend = damp(this.aimBlend, aiming ? 1 : 0, 12, dt);
@@ -207,16 +218,17 @@ export class AllyAvatar {
     // movement direction (the same rule as the local body)
     const vel = v.velocity;
     const speed = dormant ? 0 : Math.hypot(vel.x, vel.z);
-    const faceYaw = aiming || firing || reloading || downed || dormant || carry;
+    const faceYaw = aiming || firing || reloading || downed || dormant || carry || climbing;
     if (faceYaw || speed <= 0.4) this.bodyYaw = dampAngle(this.bodyYaw, v.yaw, downed ? 7 : 12, dt);
     else this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-vel.x, -vel.z), 12, dt);
 
-    this.emitFootstep(ctx, v, sprinting);
+    if (!climbing) this.emitFootstep(ctx, v, sprinting);
 
     const p = this.pose;
     p.moveBlend = dormant ? 0 : v.moveBlend;
     p.sprint = this.sprintBlend;
-    p.stridePhase = v.stridePhase;
+    p.stridePhase = this.climbBlend > 0.01 ? this.climbPhase : v.stridePhase;
+    p.climb = this.climbBlend;
     p.crouch = this.crouchBlend;
     p.prone = this.proneBlend;
     p.downed = this.downedBlend;
@@ -249,6 +261,22 @@ export class AllyAvatar {
     if (ctx.time - this.stepAt < FOOTSTEP_MIN_INTERVAL_S) return;
     this.stepAt = ctx.time;
     ctx.bus.emit('remote:footstep', { position: v.position, sprinting, peerId: v.id });
+  }
+
+  /** The rung phase from the height change, and a quiet clank at every rung — `RemoteAvatar.updateClimb`'s rule. */
+  private updateClimb(ctx: GameContext, v: AllyBodyView, climbing: boolean): void {
+    if (!climbing) { this.climbLastY = Number.NaN; return; }
+    const y = v.position.y;
+    if (Number.isFinite(this.climbLastY)) {
+      const dy = Math.abs(y - this.climbLastY);
+      if (dy < CLIMB_PHASE_MAX_DY) this.climbPhase += dy / LADDER_RUNG_M * Math.PI;
+    }
+    this.climbLastY = y;
+    const idx = Math.floor(this.climbPhase / Math.PI);
+    if (idx !== this.climbStepIdx) {
+      this.climbStepIdx = idx;
+      if (this.shown) ctx.bus.emit('audio:play', { id: 'ladder_step', position: v.position, volume: REMOTE_RUNG_VOLUME });
+    }
   }
 
   private syncArmor(ctx: GameContext, v: AllyBodyView): void {

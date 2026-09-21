@@ -119,7 +119,7 @@ export class Structures {
   private readonly byId = new Map<string, Inst>();
   private readonly defs: StructureDef[] = [];
   private readonly ladders: LadderDef[] = [];
-  /** 2026-09-12: the building navs (reach smokes · debug only — never used in a decision). */
+  /** 2026-09-12: the building navs (reach smokes · site spawn points · 2026-09-21 the nav graph's region rectangles — `navOf`). */
   private readonly navs: NavRow[] = [];
   /**
    * Zones whose rogue drop has already been rolled (the `zoneId` of `structure:investigated`). It holds not only
@@ -191,7 +191,8 @@ export class Structures {
   /**
    * 2026-09-13: the building nav of structure `id`, null with none. The **site spawn points** (`SiteSpawns` —
    * `WorldRef.getSiteSpawnPoints`) read the inside of the front door · the level heights · the locked room rectangle
-   * from it. World collision · surface checks still never look at it.
+   * from it. 2026-09-21 (A-18): the nav graph takes each building's rectangle (`cx` · `cz` · `yaw` · `halfW` · `halfD`) as
+   * the grid it bakes the floors into (`WorldSystem.startNav`). World collision · surface checks still never look at it.
    */
   navOf(id: string): StructureNav | null {
     return this.navs.find((n) => n.id === id)?.nav ?? null;

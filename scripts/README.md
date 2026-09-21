@@ -89,6 +89,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-mining.mjs` | housing, items, meta | Mining rules, wallet, exchange trades, crypto data |
 | `smoke-mining-ui.mjs` | housing, hub | Mining screen tabs, core slots, coin picker, furniture models |
 | `smoke-named.mjs` | enemies, weapons | Named rogues: prone capsule, buried muzzle, scan-drone adoption, replica hooks, faction. Plus the **animation LOD** (2026-09-20): a sniper past `ENEMY_ANIM_LOD_FREEZE_M` still draws its scope glint and still spends `glintHold` (a named rig is exempt — it integrates `dt` and carries a telegraph), and a plain bug at the same distance is frozen at the base FOV but animated again through an 8× scope (the bands are screen size) |
+| `smoke-nav.mjs` | world, allies | Nav graph (A-18): bake, every path **walked** with real world queries (door · floor 2 · roof by ladder · locked room before / after opening), `walkable` through a wall, search cost, an android reaching floor 2 and a roof (`--android` runs only that part) |
 | `smoke-netlink.mjs` | net, ui, hub | Link states, anonymous background probe, connection badge, refused links, shell relay source |
 | `smoke-npc-quests.mjs` | meta, enemies, world, weapons | NPC quest engine: first contact, offers, objectives commit, delivery, report, saves |
 | `smoke-phase2.mjs` | player, weapons, inventory, game, ui | Downed / bleed / give up / respawn, quick-use wheel, heal hold, grenade cooking |

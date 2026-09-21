@@ -224,6 +224,10 @@ const SMOKES = {
      drawn (a 0.8 m gap at a stair entrance · a door a railing blocks · stairs that open outwards only), measured over several
      seeds by a body-radius flood fill (the real `getSurfaceY` + `resolveCollision`). */
   'smoke-structure-reach': { file: 'scripts/smoke-structure-reach.mjs', folders: ['world'] },
+  /* 2026-09-21 (TODO A-18): the shared nav graph — every path **walked** with the movers' own world queries (door ·
+     floor 2 · the roof by its ladder · a locked room before and after it opens), `walkable` through a wall, the search
+     cost, and an android told to go to floor 2 and to a roof getting there (the second one up the ladder). */
+  'smoke-nav':          { file: 'scripts/smoke-nav.mjs',          folders: ['world', 'allies'] },
   /* 2026-09-13 (per-planet enemy factions · world-sites): the site spawn spots — `getSiteSpawnPoints` indoors (on a
      building floor · inside the walls · outside a locked room · walkable from the front door) · outdoors (outside a footprint ·
      outside the rail corridor · no collision) · platforms · ruins · determinism · minGap · an empty answer on the training

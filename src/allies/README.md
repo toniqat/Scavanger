@@ -18,7 +18,7 @@ Contract: `src/shared/allies.ts`, the android section at the end of `src/shared/
 | `parts/Spawn.ts` | Raid entry: reset, base kit, per-slot spawn offset, `ally:podDrop`, landing timer |
 | `parts/Fsm.ts` | One proposal per frame → reaction delay → transition; state dispatch; follow **or** roam (harness in/out); junk dropping |
 | `parts/Harness.ts` | Squad leader lookup and the harness radius (halves while the leader keeps one heading, ×`ALLY_LEAD_HARNESS_MUL` while 앞장서라 runs) |
-| `parts/Nav.ts` | Steering, obstacle avoidance, **2 m squad separation** (`separate`), **spread toward a person** (`spreadToward`), surface-before-collision movement, stuck sidestep (judged on net travel over a window, so shaking against a wall counts), harness clamp |
+| `parts/Nav.ts` | Steering, obstacle avoidance, **2 m squad separation** (`separate`), **spread toward a person** (`spreadToward`), surface-before-collision movement, stuck sidestep (judged on net travel over a window, so shaking against a wall counts), harness clamp; **the way round a wall** (2026-09-21, A-18): `route` · `plan` on `WorldRef.nav`, `routeLeft`, ladder climbing (`tickClimb` · `dropClimb`) |
 | `parts/Roam.ts` | Free search inside the harness (`roam`): pick a structure / cover point of interest, give it up when another body already holds it, random patrol otherwise; walkable destination sampling and the look-around pause |
 | `parts/Combat.ts` | Sensing + line of sight (one query per frame), **per-weapon engage range** (`engageRangeOf`), the PC's enemy ping, cover via `pickCoverSpot` (skipped at contact range), bursts, friendly-fire guard, `applyAllyHit` |
 | `parts/Vitals.ts` | Shield → hp → downed → dead, hazard and planet-atmosphere ticks, revive, corpse call |
@@ -79,11 +79,23 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
   `보급 상자 (n등급)`. An `'item'` ping carries no id — a pickup is spawned and taken within seconds, so the **spot** is the
   target and one window (`parts/Loot` `PING_ITEM_MATCH_M`) answers both 「can anyone take this job」 (`Commands.canFulfil`) and
   「what is there now」 (`Loot.autoProposal`). A pinged job that cannot be done any more ends through `Commands.finishTask`.
-- **No pathfinding, so an unreachable loot target is given up** (2026-09-21, TODO E-14): when the distance to a crate · ground
-  item has not closed by `ALLY_JOB_PROGRESS_M` for `ALLY_JOB_GIVEUP_S` (`Loot.stalled`), a pinged job ends through
-  `Commands.finishTask` with `CHAT_KO.cantReach`, and an autonomous pick goes silently into `Ally.unreachable` for the raid (a
-  fresh ping may still send it there). A crate behind a wall whose door is far away is therefore out of reach by design until
-  shared pathfinding exists (TODO A-18).
+- **Every move goes round walls through the nav graph, and only there** (2026-09-21, TODO A-18). `Nav.step` is the one door
+  all movement goes through, so `route` lives inside it: a destination the straight line reaches on `WorldRef.nav`
+  (`walkable`) keeps the old steering; otherwise it plans (`NAV_CAN_PERSON`, no ladders while carrying) and aims at the next
+  waypoint, replanning every `ALLY_NAV_REPLAN_S`, when the goal moves `ALLY_NAV_GOAL_MOVE_M` or after a stuck sidestep.
+  **No answer = the old behaviour** (not baked yet, inside a ship, `none`): nothing about the steering was taken away. While the
+  graph answers, the circle avoidance is off (`Ally.navSteer`) — it read building walls as their circumscribed circles and
+  pushed bodies away from the door they aimed at.
+- **A ladder on the path is climbed atomically**: `Fsm.update` hands the frame to `Nav.tickClimb` (over the foot → up → across
+  to the exit, or the reverse) and runs no proposal or act until it is off; downed · death drop it on the spot
+  (`Nav.dropClimb`), a teleport clears it. The body raises `ALLY_FLAGS.CLIMB` and `player/AllyAvatars` draws the ladder pose.
+- **`Nav.step` reports floors**: the distance it returns adds whatever of the height difference exceeds `FLOOR_DY` (2 m), so a
+  crate on floor 2 is not "reached" from right under it on floor 1.
+- **An unreachable loot target is still given up** (2026-09-21, TODO E-14): when the **route** left to a crate · ground item
+  (`Nav.routeLeft` — along the path, so walking away from a crate toward the building's door is progress) has not closed by
+  `ALLY_JOB_PROGRESS_M` for `ALLY_JOB_GIVEUP_S` (`Loot.stalled`), a pinged job ends through `Commands.finishTask` with
+  `CHAT_KO.cantReach`, and an autonomous pick goes silently into `Ally.unreachable` for the raid (a fresh ping may still send
+  it there). What still ends here is what no path reaches: a locked room, a counter top, a gap too tight for a body.
 - Other folders' contract members are called with `?.`; a missing one degrades that behaviour only.
 - **Intended limits** (2026-09-16): solo (`/android` cheat, no relay) death still fails the raid at once even with an
   android standing (a real android is a relay bot member, so the wipe check takes the `isMultiplayer` branch); an
@@ -123,15 +135,20 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 - **A crate ping names its container by id** (`PingMessage.containerId`, 2026-09-19). Rejected: matching by ping position (kept only
   as the fallback for a ping with no id).
 - **An unreachable crate / item is given up after `ALLY_JOB_GIVEUP_S` with one line** (`거기까진 못 가겠다.`, 2026-09-21). Rejected:
-  giving up silently (the player cannot tell why); sidestepping forever (a wall with no gap still hangs the job). The fix is the
-  steering (a windowed stuck test in `Nav.step`), not the map. **Pathfinding is deferred (TODO A-18) and will be one layer for enemies
-  too** (A\* per android, a flow field per player) — bugs walking round through doors changes what hiding in a building is worth.
+  giving up silently (the player cannot tell why); sidestepping forever (a wall with no gap still hangs the job). Kept after the nav
+  graph arrived: a locked room is still unreachable.
+- **Pathfinding is one shared layer in `world/`, A\* per android** (2026-09-21, TODO A-18 — enemies get a flow field per player in
+  phase 2). Rejected: a private android-only planner in this folder (the enemies need the same graph, and §4.1 forbids sharing it
+  any other way); pathing always (the straight line is walked exactly as before whenever it is clear).
 - **Atmosphere damage takes the exposure gate, not the preparation gate.** Rejected: giving an android the leader's preparation (a
   bought prep would protect bodies it was never bought for).
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/allies`.
+- 2026-09-21 — TODO A-18 phase 1: `Nav.step` goes round walls on `WorldRef.nav` (`route` · `plan`, circle avoidance off while the
+  graph answers — `Ally.navSteer`), climbs ladders on the path (`tickClimb` · `dropClimb`, `ALLY_FLAGS.CLIMB`, atomic in
+  `Fsm.update`), reports floor differences in its distance, and `Loot.stalled` measures the route left (`Nav.routeLeft`).
 - 2026-09-21 — TODO E-14: `Nav.step` judges 「stuck」 on net travel over the `STUCK_S` window (per-frame shaking against a wall
   used to read as walking, so the sidestep never fired), and `Loot` gives up a crate · item it stops closing on
   (`ALLY_JOB_GIVEUP_S` · `ALLY_JOB_PROGRESS_M`, line `거기까진 못 가겠다.`); the unused `Ally.lastPos` became `stuckFrom`.
@@ -143,6 +160,3 @@ Last 5 only — older: `git log -- src/allies`.
   opened container, the atmosphere tick gained the exposure gate, and `Harness.debugOverride` is cleared on every raid boundary.
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); the seven verbatim user decisions inside `「」` and every Korean on-screen / ping label (`가자` · `주의` · `앞장서라` · `탈출하고 싶다` · the weight states) kept verbatim, no string literal touched.
 - 2026-09-18 — Androids never engage a nest egg: `queryNear` leaves props out, so sensing / targeting / contract 「적」 pings skip them, and an 「적」 ping that names an egg is refused rather than agreed to (`parts/Commands.onEnemyPing` · `tickEnemyPing`).
-- 2026-09-16 — AI pass 2: `roam` free search · 2 m separation · spread · per-weapon engage range · contact-range firing fix ·
-  move-ping oscillation fix · agreeing to a PC's enemy / extraction ping · 앞장서라 doubles the harness and expires ·
-  pinged crates first · the base kit now exists in the ship.

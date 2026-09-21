@@ -155,6 +155,9 @@ try {
 
   /* ── 5. sense → enemy ping → fire → applyAllyHit ──────────────────────── */
   console.log('combat: sense, enemy ping, burst, damage to the enemy');
+  // Cleared **before** the enemy is staged: the android senses a scavenger 20 m ahead within a frame, and under a
+  // loaded runner a frame ran between staging and a reset placed after it — the ping was wiped and the check failed.
+  await resetEv();
   const staged = await P(async (a) => {
     const ctx = window.__game.ctx; const world = ctx.world;
     const esys = window.__game.getSystem('enemies');
@@ -186,7 +189,6 @@ try {
   if (!staged) {
     skipped('an enemy could be staged', 'enemies.debugSpawn returned nothing');
   } else {
-    await resetEv();
     // Assert `combat` while the fight is on — a scavenger dies fast and the android is back to `follow` after.
     const sawCombat = await waitFor(page, (id) => {
       const s2 = window.__game.getSystem('allies').debugInfo(id);

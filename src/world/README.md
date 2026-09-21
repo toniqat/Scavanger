@@ -18,7 +18,7 @@ through `ctx.world` (only `main.ts` imports `WorldSystem`).
 | `noise.ts` | Seeded `noise2` / `noise3`, `fbm`, `ridged`, `billow`, `lerp` / `clamp` / `smoothstep`. |
 | `biomes.ts` | Five biome palettes; `biomeById(PlanetDef.biome)`; `pickBiome(seed)` fallback mirrors core's sky-palette draw. |
 | `Terrain.ts` | Heightfield (`EXTENT`, `CELL`, 8×8 chunk meshes, vertex colours, procedural detail textures); flattens pads, digs basement pits; `getHeightAt`, `getNormalAt`, `getSlopeAt`, ray-march. |
-| `SpatialHash.ts` | 16 m XZ grid of `ObstacleEntry`: `add` (cylinder + optional shot cylinder), `addBox`, `addHull`, `addRamp`, `move`, `remove`, `query`, `overlaps`, `walkSegment`; internal flags `passRays` / `passSmall`. |
+| `SpatialHash.ts` | 16 m XZ grid of `ObstacleEntry`: `add` (cylinder + optional shot cylinder), `addBox`, `addHull`, `addRamp`, `move`, `remove`, `query`, `overlaps`, `walkSegment`; internal flags `passRays` / `passSmall`; `onChange` (the nav graph's re-measure hook, null outside a baked raid). |
 | `obb.ts` | Box collider math: `boxContainsXZ`, `boxPushOut`, `rayBox`, `boxHitNormal`, `rampTopAt`, `rayRamp`, `BOX_HEADROOM`. |
 | `hull.ts` | Convex prism math: `convexHull2D` (≤ `HULL_MAX_VERTS`), `hullContainsXZ`, `hullPushOut`, `rayHull`, `hullHitNormal`, `hullAreaCentroid`. |
 | `propHull.ts` | `propHullOf` — measures a prop instance's movement hull + shot bands from the drawn mesh above ground. |
@@ -44,6 +44,7 @@ through `ctx.world` (only `main.ts` imports `WorldSystem`).
 | `hazard/parts/Visuals.ts` | Walls (shader clip + spore union), particles ramped by progress, `warm(shaders)`. |
 | `Structures.ts` | Abandoned structures: build, doors / planet-bound keys, roof scanner, ladders, windows, containers, ceiling turrets, light pool, `struct` / `structq`, rogue-drop zone record, `previewContainerItems`, `debugNav`, `isTurretArmed`. |
 | `structures/` | Vocabulary + parts for buildings — see [`structures/README.md`](structures/README.md). |
+| `nav/` | The raid's walkable graph (`WorldRef.nav`, TODO A-18): outdoor grid + per-structure grids, ladders, A\*, re-measure — see [`nav/README.md`](nav/README.md). |
 | `Rails.ts` | Rail centreline, tram state machine, cab + platform call consoles, `tram` / `tramq`. No geometry. |
 | `rails/model.ts` | `RailPath` math, rail / tram dimensions and colours, `RailBuild`, `TramInst`. Axis convention lives here. |
 | `rails/parts/Track.ts` | Ties, rails, piers, walkable deck boxes every `RAIL_DECK_STEP`. |
@@ -84,7 +85,8 @@ through `ctx.world` (only `main.ts` imports `WorldSystem`).
   `burrowGroundOk(x, z, radius)` (2026-09-15, optional on `WorldRef`: true only on flat bare ground with nothing in the
   circle — rules in `BurrowGround.ts`; training / tutorial worlds return false; thresholds `BURROW_GROUND_*` in csv).
 - **Sub-refs**: `fog` (`FogRef`), `hazard` (`HazardRef`), `rover` (`RoverRef`), `env` (planet `env` column), `training` (`TrainingRef`),
-  `tutorial` (`TutorialWorldRef`). Each is null when the mode / planet does not have it.
+  `tutorial` (`TutorialWorldRef`), `nav` (`NavRef`, 2026-09-21 — planet raids only, `ready` once the bake finished). Each is null when the
+  mode / planet does not have it. Debug: `debugNav` (the `NavGraph`, counts · bake time).
 - **`previewLayout(seed, planet, intel?)`** — pure; callable from the hub (no meshes, no state touched).
 - **Events emitted**: `world:ready {seed, playerSpawn, planet}`, `world:cleared`, `fog:revealed`, `fog:discovered`, `hazard:planned / announced /
   started / progress / insideChanged`, `atmo:override`, `ghost:damage`, `crate:open` (structure containers add `zoneId` / `zoneKind`),
@@ -110,8 +112,9 @@ Every host sync above is also pushed on `flow rejoined`; clients re-request on `
 ## Generation
 
 Order in `WorldSystem.generate`: `planLayoutFor` (hazard kind → biome → layout) → terrain → nests → pads → outposts →
-structures → rails → rover road + vehicle → hazard (groves) → props → crates → gather → ambience → fog. `world:ready` is
-emitted at the end, inside the `game:newMission` emit.
+structures → rails → rover road + vehicle → hazard (groves) → props → crates → gather → ambience → fog → **nav start**.
+`world:ready` is emitted at the end, inside the `game:newMission` emit. The nav graph is only *started* there — it bakes
+over the next frames (`NAV_BAKE_BUDGET_MS`, ~50–150 ms of CPU in total), so generation time is unchanged.
 
 - Layout order inside `generateLayout`: **rail first, then spawn, then the rover road**, then everything else avoids them
   (`railFree` / `roverFree`). Rail is a line through the origin or a loop around it — one degree of freedom — so it cannot
@@ -145,6 +148,12 @@ Box math is used only when `o.box` is set; cylinder code paths are separate.
 
 ## Rules
 
+- **The nav graph measures with the movers' own queries and follows every collider change (2026-09-21, TODO A-18).**
+  `getSurfaceY` is its floor and `resolveCollision` its "does a body fit", so a new collider shape needs nothing there; a
+  collider added · removed · moved after generation must go through the hash (`insert` · `remove` · `move`), whose
+  `onChange` queues the cells under it for a re-measure — a collider changed behind the hash's back (a mutated
+  `position` with no `move`) leaves the graph believing the old shape. Every client bakes, only the authority queries;
+  nothing is on the wire. — `nav/`, `SpatialHash.onChange`
 - **A scattered prop casts a shadow only within `PROP_SHADOW_DIST_M` of the eye.** One variant is one
   `InstancedMesh` spanning the map with `frustumCulled = false`, so three.js could never drop a single instance
   from the shadow pass — the four boulder meshes alone were 92k of S2's 158k world shadow triangles.
@@ -263,7 +272,7 @@ Box math is used only when `o.box` is set; cylinder code paths are separate.
 
 Kinds: outpost (`버려진 전진기지`), lab, wreck (`data/structures.csv`). Outposts and labs have walls of `wallH`, a ceiling
 per floor, a random second floor (`upperChance`), a roof reached by a ladder on the top floor's partition
-(`getLadders`, `ladder:grab`; enemies cannot climb), an interior stair to floor 2, windows, and the **map scanner on the
+(`getLadders`, `ladder:grab`; enemies cannot climb yet; androids take it when their path does), an interior stair to floor 2, windows, and the **map scanner on the
 roof** (hold → `fog.reveal(STRUCTURE_SCAN_RADIUS)` + `ScanWave` for everyone; once per structure, host-confirmed). Wrecks
 are open-topped, no scanner.
 
@@ -520,8 +529,8 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world`.
+- 2026-09-21 — The raid's walkable graph (TODO A-18 phase 1): `nav/` (`NavGraph` + parts) is started at the end of a planet raid's generation, bakes an outdoor 1 m grid and a 0.5 m multi-floor grid per structure / rail platform over the next frames, links ladders and region seams, answers `WorldRef.nav.findPath` · `walkable`, and re-measures the cells under any collider the hash reports changed (`SpatialHash.onChange` — a door opening, a barricade, the tram, the rover). `Structures.navOf` now also feeds the region rectangles.
 - 2026-09-21 — The ceiling turret's target goes on the wire, and explosives reach the rover (B-100 · B-98 · B-99, 사용자 결정): `struct turret {id, tg, st}` carries the **authority's** chosen body, so `CeilingTurretSet` splits into `hostUpdate` · `replicaUpdate` (`applyWire` · `activeWire` for a late joiner) and a replica no longer warns the wrong person; `rover/parts/Parts.roverBlastPoint` pulls a blast centre onto the hull box so 「a grenade takes a wheel」 resolves like a bullet does; and a non-host client sums a frame's player-side damage **per hit zone** before sending `roverq hit` (one message a frame per zone, not one per bullet).
 - 2026-09-21 — The rover gets hit zones · two guns · hostility · wreck crates (사용자 결정): 4 wheel zones + a front SMG and a rear AR turret resolved from the impact point (`rover/parts/Parts.ts`, hull collider `destructible`), part damage also coming off the hull; `ROVER_AGGRO_DAMAGE` of player-side damage turns the car hostile for the raid (refuses boarding, shoots people at `ROVER_TURRET_PC_ACCURACY`, keeps its route); destruction drops basement-tier cube crates (`rover/parts/Wreck.ts`). `ContainerSet` gained style 3 and a map-wide by-id index so a set built mid-raid is reachable.
 - 2026-09-21 — Planet-bound keys · the ceiling turret (사용자 결정): `structures.csv` `key` is now the **kind** and `StructureDef.unlockDefId` is `<kind>_<raid planet>`, the prompt · deny toast name that planet, a container's bonus key draws its planet uniformly, and an **indestructible** `CeilingTurretSet` (`structures/parts/Turret.ts`) guards the basement and the lab's locked room until that door is opened.
 - 2026-09-21 — The rover turret hands its target to the shot (B-73): `updateTurretLogic`'s `fire` callback takes `targetId` and both `rover:fired` emits carry it (`null` on a replica, which only receives the impact point). `smoke-rover`'s turret check stands on the event instead of reaching into the turret's `private` state.
-- 2026-09-20 — `docs/PERF.md` perf Phase A2 (world render cost): scattered props cast only within `PROP_SHADOW_DIST_M` (near / far `InstancedMesh` pair per casting variant, re-split every `PROP_SHADOW_REPACK_M` of eye movement — `Props.repackShadowLod`); crates, containers and debris stopped casting; pebbles dropped to `PROP_PEBBLE_DETAIL` (80 → 20 triangles each, 137k → 34k in S2). `SUN_SHADOW_HALF_M` moved to csv so `core/Atmosphere` and `Props` read one number. `WorldSystem.update` now computes `eyeFor` once and shares it.

@@ -98,8 +98,11 @@ export type AllyPose = 'stand' | 'crouch' | 'downed' | 'dormant' | 'carry' | 'de
 /** Wire order (`AllyWire.po`). Never reorder. */
 export const ALLY_POSES: readonly AllyPose[] = ['stand', 'crouch', 'downed', 'dormant', 'carry', 'dead'];
 
-/** `AllyBodyView.flags` · `AllyWire.f` bits. */
-export const ALLY_FLAGS = { AIM: 1, FIRE: 2, RELOAD: 4, SPRINT: 8, HIDDEN: 16 } as const;
+/**
+ * `AllyBodyView.flags` · `AllyWire.f` bits. appended (2026-09-21, A-18): `CLIMB` — hanging on a ladder the path took
+ * (`allies/parts/Nav`); the body draws the ladder pose and the height change drives the rung phase.
+ */
+export const ALLY_FLAGS = { AIM: 1, FIRE: 2, RELOAD: 4, SPRINT: 8, HIDDEN: 16, CLIMB: 32 } as const;
 
 export interface AllyRosterEntry {
   readonly id: AllyId;

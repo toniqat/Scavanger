@@ -110,7 +110,7 @@ folder's responsibility changes.
 
 | Folder | System | Publishes on `ctx` | Responsibility |
 |---|---|---|---|
-| [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | Procedural terrain · biomes · props (convex-hull colliders) · collision/ray/surface queries · crates · gather nodes · fog of war · abandoned structures (floors · stairs · roof · locked doors · windows) · rails/trams · rover · hazards · site spawn points · intel layout preview · training range · tutorial planet |
+| [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | Procedural terrain · biomes · props (convex-hull colliders) · collision/ray/surface queries · the raid's walkable graph (`ctx.world.nav`, A\* · ladders) · crates · gather nodes · fog of war · abandoned structures (floors · stairs · roof · locked doors · windows) · rails/trams · rover · hazards · site spawn points · intel layout preview · training range · tutorial planet |
 | [`src/enemies/`](src/enemies/README.md) | `EnemySystem` | `ctx.enemies` | Bugs · humanoid factions (android · rogue · raider) AI · spawns/site occupation/drops · named rogues · sandworm · artillery · corpse looting · status effects · enemy explosions · reactions to shots · host/replica sync + request guards · tutorial enemies |
 | [`src/extraction/`](src/extraction/README.md) | `ExtractionSystem` | `ctx.extraction` | Extraction console · call countdown · ship landing (hull colliders, enemy entry block) · boarding · non-cancellable grace · liftoff cinematic; host-authoritative |
 
@@ -242,6 +242,11 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Fog of war: `ctx.world.fog`, painted locally from snapshots (late joiners `fogq sync`); undiscovered objects appear nowhere (`fog.isDiscovered`). Hazards are seed + mission-time functions with no wire (`hzq sync`), fog density only via `atmo:override`. New hazard shapes must be measured over thousands of seeds for "when does it reach the drop point".
 - Moving ships have world colliders while landed (`extraction/Hull.ts`); enemy entry is a query (`ctx.extraction.keepEnemyOut`).
 - Teleport/dash movement steps the body like walking, never a single ray — `implants/parts/Devices.dashReach`. Thrown grenades sub-step by at most their diameter, surface before `resolveCollision`, and query the wall push with the body lowered by `PROP_TOP_MARGIN − radius` (else the top 7 cm of every wall lets them through) — `weapons/Grenade.ts`.
+- **Pathfinding is one graph in `world/nav`, measured with the movers' own queries** (`getSurfaceY` · `resolveCollision`), so
+  it cannot disagree with how bodies move (2026-09-21, TODO A-18). Every client bakes it, only the authority queries
+  `ctx.world.nav`, nothing is on the wire. A mover keeps its old steering whenever the straight line is `walkable` or the
+  graph has no answer; a collider changed after generation must go through the hash (`insert` · `remove` · `move`) or the
+  graph never re-measures it (`SpatialHash.onChange`). Link rules (step · slope · ramp side) live only in `nav/parts/Graph.linkOk`.
 - Airborne impulses keep horizontal momentum until landing (`PlayerController.airCarry`).
 - A dropped item takes a **free spot at spawn** — a spiral out from the landing guess (`PICKUP_SPOT_RINGS` × `PICKUP_SPOT_STEP_M`) keeping `PICKUP_SEPARATION_M` from every pickup's `restSpot`, never a per-frame separation pass, and never a lost item (all rings taken = the original spot). Compare against `restSpot`, not `position`: a bag swap drops many items in one frame and they are all still at the muzzle. Decided where the drop is decided, so the chosen spot rides the existing `item drop` message — `pickups/PickupSystem.freeSpotFor`.
 - Skill XP from movement reads `PlayerRef.selfMovedMeters` (self-propelled odometer), never a position delta — ship / vehicle / carried / grapple / dash / impulse movement never counts (`PlayerController.selfMoved`).

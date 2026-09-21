@@ -3819,3 +3819,15 @@ export interface RoverRef {
 
 
 
+
+/* ══ appended 2026-09-21: shared pathfinding (TODO A-18, owner: world/nav — contract in `shared/nav.ts`) ══ */
+import type { NavRef } from './nav';
+
+export interface WorldRef {
+  /**
+   * appended (2026-09-21, A-18): the raid's walkable graph — ask it for a way round a wall. Null outside a planet raid
+   * (training range · tutorial) and before the first raid; `ready` is false while the bake is still running (it is
+   * spread over the first frames of a raid). Authority-side movers only; nothing about it goes on the wire.
+   */
+  readonly nav?: NavRef | null;
+}

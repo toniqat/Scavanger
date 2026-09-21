@@ -267,6 +267,9 @@ export class AllySystem implements GameSystem, AlliesRef {
     if (!a) return false;
     a.position.set(x, y, z);
     a.hidden = false;
+    // A teleported body is off any ladder and off any path (TODO A-18) — both were measured from where it stood.
+    a.climb = null;
+    a.navHas = false;
     return true;
   }
   /** One unit's current state · hp · what it carries (for a smoke's assertions). */

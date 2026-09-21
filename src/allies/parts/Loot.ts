@@ -119,7 +119,7 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
   _v1.copy(info.position);
   const left = Nav.step(sys, a, _v1, ALLY_WALK_SPEED, dt);
   if (left > ALLY_LOOT_REACH_M) {
-    if (stalled(a, left, dt)) {
+    if (stalled(a, Nav.routeLeft(a, _v1), dt)) {
       // An autonomous pick is dropped for the raid in silence; a pinged one is answered (`giveUp`).
       a.unreachable.add(info.id);
       a.lootContainerId = null;
@@ -145,7 +145,7 @@ function actPickup(sys: AllySystem, a: Ally, dt: number): void {
   _v1.copy(pk.position);
   const left = Nav.step(sys, a, _v1, ALLY_RUN_SPEED, dt);
   if (left > ALLY_LOOT_REACH_M) {
-    if (stalled(a, left, dt)) { a.pickupId = null; giveUp(sys, a); Nav.halt(a); }
+    if (stalled(a, Nav.routeLeft(a, _v1), dt)) { a.pickupId = null; giveUp(sys, a); Nav.halt(a); }
     return;
   }
   Nav.halt(a);
@@ -159,10 +159,12 @@ function actPickup(sys: AllySystem, a: Ally, dt: number): void {
 
 /**
  * 「Can it still get there」 — true once the distance left has not closed by `ALLY_JOB_PROGRESS_M` for
- * `ALLY_JOB_GIVEUP_S`. There is no pathfinding (`parts/Nav` header), so a crate · item behind a wall is simply out of
- * reach; without this the body shook against that wall holding `taskKind` for the rest of the raid, and `isIdle`
- * never came back true (2026-09-21 user's decision 「시한 후 포기 + 대사」, TODO E-14). Measured on the distance, not the
- * movement: shaking in place moves a full step every frame and closes nothing.
+ * `ALLY_JOB_GIVEUP_S`. Without it the body shook against a wall holding `taskKind` for the rest of the raid, and
+ * `isIdle` never came back true (2026-09-21 user's decision 「시한 후 포기 + 대사」, TODO E-14). Measured on the
+ * distance, not the movement: shaking in place moves a full step every frame and closes nothing.
+ * Since the nav graph (TODO A-18) the distance is the **route** left (`Nav.routeLeft`) — walking away from a crate to
+ * reach the building's door is progress. What still ends here is a goal no path reaches: a locked room (the search
+ * answers `partial` and the body stops at the nearest spot), a counter top, a gap too tight for a body.
  */
 function stalled(a: Ally, left: number, dt: number): boolean {
   if (left < a.jobBestD - ALLY_JOB_PROGRESS_M) { a.jobBestD = left; a.jobStallT = 0; return false; }

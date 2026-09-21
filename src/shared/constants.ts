@@ -2478,3 +2478,30 @@ export const INDOOR_LIGHT_AMBIENT_MUL = K.num('INDOOR_LIGHT_AMBIENT_MUL');
 export const INDOOR_FOG_MUL = K.num('INDOOR_FOG_MUL');
 /** Seconds those two corrections take to cross over, so a doorway does not flicker. */
 export const INDOOR_LIGHT_FADE_S = K.num('INDOOR_LIGHT_FADE_S');
+/* appended (2026-09-21, TODO A-18): shared pathfinding — the graph `world/nav` bakes (contract `shared/nav.ts`) */
+/** Outdoor nav grid cell (m). The map is `MAP_SIZE / NAV_CELL_M` cells on a side. */
+export const NAV_CELL_M = K.num('NAV_CELL_M');
+/** Nav grid cell inside a structure · rail platform (m), aligned to the building's axes. */
+export const NAV_STRUCT_CELL_M = K.num('NAV_STRUCT_CELL_M');
+/** How far (m) a structure's grid reaches past its walls — the band where it joins the outdoor grid. */
+export const NAV_STRUCT_MARGIN_M = K.num('NAV_STRUCT_MARGIN_M');
+/** Steepest terrain (deg) the graph links — the player's walking limit. */
+export const NAV_MAX_SLOPE_DEG = K.num('NAV_MAX_SLOPE_DEG');
+/** Radius (m) a path end is snapped to a walkable node within. */
+export const NAV_SNAP_M = K.num('NAV_SNAP_M');
+/** ms per frame spent baking the graph at raid start. */
+export const NAV_BAKE_BUDGET_MS = K.num('NAV_BAKE_BUDGET_MS');
+/** How often (Hz) cells whose colliders changed are re-measured. */
+export const NAV_REMEASURE_HZ = K.num('NAV_REMEASURE_HZ');
+/** ms spent per re-measure pass; the rest waits for the next one. */
+export const NAV_REMEASURE_BUDGET_MS = K.num('NAV_REMEASURE_BUDGET_MS');
+/** Node expansions one A* may spend before it answers `partial`. */
+export const NAV_SEARCH_MAX_NODES = K.num('NAV_SEARCH_MAX_NODES');
+/** Seconds between an android's replans while it follows a path. */
+export const ALLY_NAV_REPLAN_S = K.num('ALLY_NAV_REPLAN_S');
+/** A goal that moved this far (m) from the planned one is planned again at once. */
+export const ALLY_NAV_GOAL_MOVE_M = K.num('ALLY_NAV_GOAL_MOVE_M');
+/** XZ distance (m) at which a waypoint counts as reached. */
+export const ALLY_NAV_WAYPOINT_M = K.num('ALLY_NAV_WAYPOINT_M');
+/** A ladder link costs its climb height × this (a search weight — climbing is slower than walking). */
+export const NAV_LADDER_COST_MUL = K.num('NAV_LADDER_COST_MUL');

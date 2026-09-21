@@ -22,6 +22,12 @@ export class SpatialHash {
   private all: ObstacleEntry[] = [];
   private stampCounter = 1;
   maxRadius = 0;
+  /**
+   * 2026-09-21 (A-18): told the circle a collider covers whenever one is inserted, removed or **really** moved — the
+   * nav graph (`nav/NavGraph.onHashChange`) re-measures the cells under it (a door opening, a barricade, the tram).
+   * Null outside a baked raid, so every other world keeps paying nothing.
+   */
+  onChange: ((x: number, z: number, r: number) => void) | null = null;
 
   constructor(readonly cellSize = 16) {}
 
@@ -32,6 +38,7 @@ export class SpatialHash {
 
   insert(o: ObstacleEntry): void {
     this.all.push(o);
+    this.onChange?.(o.position.x, o.position.z, o.radius);
     // 2026-09-08: bucket by the **larger** of the movement and shot cylinders. `query` still filters on `o.radius`,
     // so a wider bucketing changes nothing there — it only keeps `walkSegment` from missing a prop whose shot
     // cylinder reaches into a cell its collider does not.
@@ -52,6 +59,7 @@ export class SpatialHash {
   remove(o: ObstacleEntry): void {
     const i = this.all.indexOf(o);
     if (i >= 0) this.all.splice(i, 1);
+    this.onChange?.(o.position.x, o.position.z, o.radius);
     const s = this.cellSize;
     const rr = o.shotRadius !== undefined && o.shotRadius > o.radius ? o.shotRadius : o.radius;
     const x0 = Math.floor((o.position.x - rr) / s), x1 = Math.floor((o.position.x + rr) / s);
@@ -118,6 +126,11 @@ export class SpatialHash {
    * (the player's standing query · the mesh) has to re-acquire nothing.
    */
   move(o: ObstacleEntry, x: number, y: number, z: number, yaw?: number): void {
+    // A parked tram · rover is moved to where it already is every frame — only a real move is news to the nav graph.
+    if (this.onChange && (o.position.x !== x || o.position.y !== y || o.position.z !== z || (yaw !== undefined && o.box && o.box.yaw !== yaw))) {
+      this.onChange(o.position.x, o.position.z, o.radius);
+      this.onChange(x, z, o.radius);
+    }
     const s = this.cellSize;
     const rr = o.shotRadius !== undefined && o.shotRadius > o.radius ? o.shotRadius : o.radius;
     const same =

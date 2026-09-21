@@ -37,7 +37,7 @@ revive / carry interactions. Weapons, implants and gadgets act on the player onl
 | `Hellpod.ts` | Procedural drop pod + drop choreography; `group` holds the light, `body` holds the meshes |
 | `RemotePods.ts` | Three pre-built pods that replay squadmates' `pod drop` |
 | `RemotePlayerSystem.ts` | Remote avatars lifecycle, remote footsteps, revive interactables, carry host, ghosts (host), remote falls, ally avatars + `ally revive` receipt + ally pod drops, debug hooks |
-| `AllyAvatars.ts` | Android squadmate bodies (`ctx.allies.getBodies()` → `SoldierModel` with the android look): pose mapping, held gun / armor (`shared/shotSounds.weaponClassOfDef`), footsteps, `revive:ally:<id>`, shot FX (shot id from `shared/shotSounds.shotSoundOfDef` — the table weapons/ reads), carry socket, smoke injection hooks |
+| `AllyAvatars.ts` | Android squadmate bodies (`ctx.allies.getBodies()` → `SoldierModel` with the android look): pose mapping, held gun / armor (`shared/shotSounds.weaponClassOfDef`), footsteps, the ladder pose while `ALLY_FLAGS.CLIMB` (rung phase from the height change, `ladder_step` per rung — `RemoteAvatar`'s rule), `revive:ally:<id>`, shot FX (shot id from `shared/shotSounds.shotSoundOfDef` — the table weapons/ reads), carry socket, smoke injection hooks |
 | `RemoteAvatar.ts` | `RemoteAvatarRef`: pose from snapshot flags, held item, armor, suspended grey look, climb / furniture / rover visibility, per-avatar `weaponSocket` |
 | `Carry.ts` | `CarryHost` seam between the two systems (`PlayerSystem.setCarryHost`) |
 | `Portraits.ts` | `createPortraits` — separate WebGL canvas for the launch-slot panel portraits (null when no context) |
@@ -246,8 +246,8 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 ## Recent changes
 
 Last 5 only — older: `git log -- src/player`.
+- 2026-09-21 — TODO A-18: `AllyAvatars` draws an android on a ladder (`ALLY_FLAGS.CLIMB` → `pose.climb`, the rung phase from the height change and a `ladder_step` clank per rung, the footstep suppressed) — the same rule as a remote squadmate, whose `CLIMB_PHASE_MAX_DY` · `REMOTE_RUNG_VOLUME` are now exported from `RemoteAvatar` for it.
 - 2026-09-20 — B-63 / B-64: android guns read the one shot-sound table (`shared/shotSounds.ts`, so a legendary no longer fires the rifle sample) and an android carry is released by `RemotePlayerSystem.myCarrierIsAlly` instead of `AllyAvatars.has` — a carrier whose avatar vanished used to leave the local body stuck on a gone socket. `AllyAvatars.has(id)` is gone with its last caller; both defects are now covered by `scripts/smoke-ally-avatars.mjs`.
 - 2026-09-20 — A soldier body draws far less: shadows from the torso · head · limb segments only (13–17 meshes, was 43–65), the occlusion silhouette from the torso + head (3, was 43), and `GearLook` armour plates / held items cast nothing. An android goes 182 draws → ~70 (`SoldierModel.core` / `shadowed`, `GearLook.finish`; user's decision, `docs/PERF.md` perf Phase 1).
 - 2026-09-19 — Audit B-47…B-50: stale comments corrected (`rescueRevive` now gates on `usesHellpod`), dead code / imports dropped (`wasGrounded`, `RigInput.stridePhase`, 578 unused import entries in 8 files), stale-avatar sweeps count the avatars actually drawn, terms unified (armor, stride count).
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
-- 2026-09-17 — `gaming` char buff also for a standing video-game session (`housing.gameSession.seatUid` null, no furniture pose) — `parts/Buffs.ts`.

@@ -35,12 +35,12 @@ const SUSPENDED_FLAG_MASK = PlayerFlags.HAS_WEAPON | PlayerFlags.TWO_HANDED | Pl
   | PlayerFlags.IN_POD | PlayerFlags.IN_HUB;
 
 /* ── Ladder (2026-09-11) ── */
-/** A snapshot height change bigger than this in one frame is a teleport / stream restart, not climbing. */
-const CLIMB_PHASE_MAX_DY = 1;
+/** A snapshot height change bigger than this in one frame is a teleport / stream restart, not climbing. (`AllyAvatars` too.) */
+export const CLIMB_PHASE_MAX_DY = 1;
 /** A climbing peer is matched to the ladder whose base is this close (XZ, m) to face its rungs. */
 const CLIMB_LADDER_MATCH_M = 1.2;
-/** Volume of a remote rung clank (positional; the local climber plays 0.45 / 0.6). */
-const REMOTE_RUNG_VOLUME = 0.35;
+/** Volume of a remote rung clank (positional; the local climber plays 0.45 / 0.6). (`AllyAvatars` too.) */
+export const REMOTE_RUNG_VOLUME = 0.35;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _wp = new THREE.Vector3();

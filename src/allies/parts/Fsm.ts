@@ -89,9 +89,11 @@ export function update(sys: AllySystem, dt: number): void {
   for (const a of sys.bodies) {
     if (a.mode !== 'raid') continue;
     a.stateT += dt;
-    if (a.dead) { a.flags = ALLY_FLAGS.HIDDEN; continue; }
+    if (a.dead) { Nav.dropClimb(sys, a); a.flags = ALLY_FLAGS.HIDDEN; continue; }
     if (a.hidden) continue;            // Inside the drop pod · inside a ship that lifted off
-    if (a.downed) { Nav.halt(a); continue; }
+    if (a.downed) { Nav.dropClimb(sys, a); Nav.halt(a); continue; }
+    // On a ladder its path took (TODO A-18): the climb is atomic — no proposal, no act until it is off again.
+    if (a.climb) { a.flags = ALLY_FLAGS.CLIMB; a.running = false; Nav.tickClimb(sys, a, dt); continue; }
     // Weighing builds an array, so it is redone once a period only (at once when the load changed).
     a.weightT -= dt;
     a.lootScanT -= dt;

@@ -8,8 +8,8 @@
 import * as THREE from 'three';
 import { Random } from '@/shared';
 import type {
-  AllyBodyView, AllyEquip, AllyId, AllyMode, AllyPose, AllyStateId, AllyBagRef, CoverSpot, ItemInstance, Obstacle, PeerId,
-  WeightState,
+  AllyBodyView, AllyEquip, AllyId, AllyMode, AllyPose, AllyStateId, AllyBagRef, CoverSpot, ItemInstance, LadderDef, NavPath,
+  Obstacle, PeerId, WeightState,
 } from '@/shared';
 import type { AllyRequestKind } from '../model';
 
@@ -112,6 +112,34 @@ export class Ally implements AllyBodyView {
    */
   nearObs: Obstacle[] = [];
   obsT = 0;
+
+  /* ── Pathfinding (2026-09-21, TODO A-18 — `parts/Nav`) ── */
+  /** The path buffer (made once from `WorldRef.nav.createPath`). */
+  navPath: NavPath | null = null;
+  /** A path is being followed: `navPath.points[navIdx]` is the next waypoint. */
+  navHas = false;
+  navIdx = 0;
+  /** The goal the path was planned for — a real goal that wandered further than `ALLY_NAV_GOAL_MOVE_M` plans again. */
+  readonly navGoal = new THREE.Vector3();
+  /** Time left until the next replan (s). */
+  navT = 0;
+  /** Plan again on the next step (a sidestep fired, a climb ended). */
+  navReplan = false;
+  /**
+   * The graph answered the last plan — the straight line is walkable, or a path is being followed. While true the
+   * circle avoidance (`Nav.avoidObstacles`) stays off: the graph already measured the body against every collider, and
+   * the avoidance reads a building wall as its circumscribed circle (11 m+ for a long wall) and pushed the body away
+   * from the very door the path aimed at.
+   */
+  navSteer = false;
+  /**
+   * The ladder being climbed, null when not on one. Climbing is atomic — `Fsm.update` hands the whole frame to
+   * `Nav.tickClimb` until it is off again; downed · death drop it on the spot (`Nav.dropClimb`).
+   * `climbPhase` 0 = moving over the ladder's foot (or its hatch, going down) · 1 = climbing · 2 = stepping off.
+   */
+  climb: LadderDef | null = null;
+  climbUp = true;
+  climbPhase = 0;
 
   /* ── Free search (2026-09-16 user's decision 「분대장 범위 안을 자유롭게 탐색」) ── */
   /** The patrol spot it is heading for (the value is meaningless while `hasRoamDest` is false). */
@@ -233,6 +261,13 @@ export class Ally implements AllyBodyView {
     this.stuckWant = 0;
     this.stuckFrom.copy(this.position);
     this.sideT = 0;
+    this.navHas = false;
+    this.navIdx = 0;
+    this.navT = 0;
+    this.navReplan = false;
+    this.navSteer = false;
+    this.climb = null;
+    this.climbPhase = 0;
     this.hasRoamDest = false;
     this.hasRoamPoi = false;
     this.roamPauseT = 0;
