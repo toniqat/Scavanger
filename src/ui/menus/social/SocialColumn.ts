@@ -7,6 +7,7 @@ import {
 } from '@/shared';
 import { el, setText, toggleClass } from '../../dom';
 import { buildProfileCard, inviteBadgeText } from './ProfileCard';
+import { buildPlayerTrust } from '../messenger/Trust';   // 2026-09-21: player trust on friend / recent cards
 import { SocialMenu } from './SocialMenu';
 import { SocialPages } from './SocialPages';
 import { SOCIAL_UNAVAILABLE_KO, socialOf } from './socialSource';
@@ -219,7 +220,8 @@ export class SocialColumn {
   }
 
   private buildKey(s: SocialRef): string {
-    const row = (p: SocialPlayer): string => `${p.code}|${p.name}|${p.level}|${p.presence}|${p.squad}|${p.inviteAt ?? ''}`;
+    /* 2026-09-21: the pair trust value is part of the key, so a raid grant / a like repaints the card. */
+    const row = (p: SocialPlayer): string => `${p.code}|${p.name}|${p.level}|${p.presence}|${p.squad}|${p.inviteAt ?? ''}|${this.ctx.net?.trust?.get(p.code).points ?? ''}`;
     const lobby = this.opts.squad
       ? (this.ctx.net?.lobby?.players ?? []).filter((p) => !isBotPlayer(p)).map((p) => `${p.id}:${p.slot}:${p.name}`).join(',')
       : '';
@@ -277,14 +279,14 @@ export class SocialColumn {
 
     /* 친구 */
     setText(this.friendHead, `친구 ${social.friends.length} · 접속 ${social.onlineFriends}`);
-    this.friendGrid.replaceChildren(...social.friends.map((p) => buildProfileCard(p, handlers, false, now)));
+    this.friendGrid.replaceChildren(...social.friends.map((p) => buildProfileCard(p, handlers, false, now, buildPlayerTrust(ctx, p.code, p.name))));
     this.friendEmpty.hidden = social.friends.length > 0;
     toggleClass(this.friendGrid, 'is-empty', social.friends.length === 0);
 
     /* 최근 플레이어 */
     const recent = social.recent.slice(0, SOCIAL_RECENT_MAX);
     setText(this.recentHead, `최근 플레이어 ${recent.length}`);
-    this.recentGrid.replaceChildren(...recent.map((p) => buildProfileCard(p, handlers, false, now)));
+    this.recentGrid.replaceChildren(...recent.map((p) => buildProfileCard(p, handlers, false, now, buildPlayerTrust(ctx, p.code, p.name))));
     this.recentEmpty.hidden = recent.length > 0;
     toggleClass(this.recentGrid, 'is-empty', recent.length === 0);
   }

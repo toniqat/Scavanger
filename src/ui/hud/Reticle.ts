@@ -148,11 +148,15 @@ export class Reticle {
   /** Whether code is stepping `reveal` right now (i.e. `.reticle`'s CSS transition is off). */
   private revealStepping = false;
   private ctx: GameContext | null = null;
+  /** The consumable-mode dot (hidden while the survey camera draws its own frame). */
+  private dotEl: HTMLElement;
+  /** 2026-09-21: `ctx.survey.active` as last applied to the dot / readout. */
+  private surveyOn = false;
   private unsubs: Array<() => void> = [];
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'reticle', parent });
-    el('div', { cls: 'dot', parent: this.root });
+    this.dotEl = el('div', { cls: 'dot', parent: this.root });
     // top, bottom (vertical), left, right (horizontal)
     for (let i = 0; i < 4; i++) {
       this.ticks.push(el('div', { cls: `tick ${i < 2 ? 'v' : 'h'}`, parent: this.root }));
@@ -413,6 +417,8 @@ export class Reticle {
 
   /** Whether the reticle is in consumable mode (dot only + count) (debug / smoke). */
   get isConsumable(): boolean { return this.quickItem !== null; }
+  /** 2026-09-21: the dot and the readout are hidden for the survey camera's frame (debug / smoke). */
+  get surveyHidden(): boolean { return this.surveyOn; }
   /** The readout right of the dot while in consumable mode, '' otherwise (debug / smoke). */
   get consumableText(): string { return this.lastQuickText; }
 
@@ -451,6 +457,15 @@ export class Reticle {
     if (imp && (imp.equipped !== this.implant || imp.wielded !== this.wielded)) {
       this.implant = imp.equipped; this.wielded = imp.wielded;
       this.syncHook();
+    }
+    // Survey camera (2026-09-21): its HUD draws its own frame, so the consumable-mode dot and the `×1 · %` readout
+    // step aside while it is up. Read at use time; written only on a change (visibility, no layout read).
+    const survey = !!ctx.survey?.active;
+    if (survey !== this.surveyOn) {
+      this.surveyOn = survey;
+      const vis = survey ? 'hidden' : '';
+      this.dotEl.style.visibility = vis;
+      this.qinfo.style.visibility = vis;
     }
     // Consumable readout: rewritten only after an event marked it dirty (one boolean per frame otherwise).
     if (this.quickDirty) this.syncQuick();

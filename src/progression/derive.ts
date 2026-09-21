@@ -4,7 +4,7 @@ import {
   GYM_STATS, GYM_TRAINED_MAX,
   DETECT_BASE_RADIUS, DETECT_ENEMY_BASE_RADIUS, DETECT_ENEMY_PER_PERCEPTION, DETECT_PER_PERCEPTION,
   PERK_IDS, PLAYER_MAX_STAMINA, SKILL_LEVEL_MAX, STAT_BASE, STAT_MAX, STAT_MIN, WEIGHT_BASE_CAPACITY, WEIGHT_PER_STRENGTH,
-  XP_BASE, XP_EXPONENT,
+  xpToNextLevel,
   GRAVITY, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, PLAYER_HEIGHT, THROW_RANGE_MUL_MAX, THROW_RANGE_MUL_MIN,
   mealQualityBonus,
   /* 2026-09-13 cooking / research skills */
@@ -125,7 +125,7 @@ function over(profile: PlayerProfile, id: StatId, imp: ImplantContribution): num
 
 /** XP required to go from `level` to `level + 1`. */
 export function xpForLevel(level: number): number {
-  return Math.max(1, Math.round(XP_BASE * Math.pow(Math.max(1, level), XP_EXPONENT)));
+  return xpToNextLevel(level);   // one formula, in `shared/constants` (the result screen draws bars with it)
 }
 
 /**

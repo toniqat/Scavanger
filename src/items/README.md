@@ -100,6 +100,11 @@ Direct `@/items` imports: `inventory/` (grids, crafting, tooltips, sort, durabil
 - **Library series**: one `library_series.csv` row = one series; `libraryItemDefs(medium)` generates one item per volume. Effects, shelf
   math and recipe unlocks are `src/housing` (`src/shared/library.ts` loads the effect columns). Values: `BOOK_VALUE_BY_VOLUME`,
   `DISC_VALUE_BY_RARITY` × `DISC_VALUE_VOLUME_STEP`, `RECORD_VALUE_BY_RARITY`.
+- **Survey cameras** (2026-09-21): `cam_survey_1…5` are `gadget` rows with no `gadgetId` and a `durabilityMax` (seconds of
+  recording); the grade speed is `data/survey_cameras.csv` (`shared/survey.ts` `surveyCameraOf`, cross-checked against the
+  item rows in `ItemDefs.ts`). Repair / salvage come from `make_cam_survey_*` (gadget bench). **Never loot**: `isLootableDef`
+  refuses them, so every crate and corpse pool — and every seeded roll — is what it was before they existed. `ItemSpec` gives
+  them `조사 속도` · `사거리` rows.
 - **Card text**: descriptions carry no numbers. `ItemSpec.itemSpecRows` renders them from `constants.csv` values and item columns
   (`gadgetUseTime` — blank for the defibrillator falls back to `DEFIB_USE_TIME_S`, `durabilityMax`, `heal*`); both tooltips
   (`ui/hud/ItemTip`, `inventory/ui/Tooltip`) call it and `parseItemText`, each with its own palette.
@@ -272,8 +277,8 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 ## Recent changes
 
 Last 5 only — older: `git log -- src/items`.
+- 2026-09-21 — Survey cameras: five `items.csv` rows + `make_cam_survey_*` recipes, `isLootableDef` keeps them out of every loot pool, `ItemDefs` cross-checks `survey_cameras.csv`, `ItemSpec` camera rows.
 - 2026-09-21 — Keys are **planet-bound** (사용자 결정): ten ids replace the two skeleton keys, the retired pair aliases to 아켈론 II, and one table entry per kind fans out to five variants (`expandWeightTarget`, `resolvePlanetKeyRef`, `planetKeyVariantsOf`, `Loot.rollCorpseWithMax`'s `corpseKeyPlanet` fork) — see 「행성 전용 열쇠」.
 - 2026-09-19 — Comment audit B-51~B-54: uniques are called **mythic** (not 전설) everywhere, csv counts and the repair/salvage multiplier table are out of the comment prose (they point at the csv / the constants), 「정제 작업대」 → 「가공 작업대」, and the `repairCost` tombstone block in `WeaponStats.ts` is gone.
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, csv names and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-17 — `data/loot_corpse_samples.csv` (`CorpseTable.samples`, `Loot.rollCorpseSamples`): the bug types listed there drop only 미확인 세포 with a tier rolled **per unit** on a forked corpse rng; stacks split at `SAMPLE_STACK_MAX`; exempt from the epic+ gate (cell IV at csv rates).
-- 2026-09-17 — `ItemSpec`: explosive damage rows read as a range `min-max` (frag `30-60`, incendiary blast `15-30`, mine `40-80`, remote mine `50-100`).

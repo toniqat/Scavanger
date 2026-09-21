@@ -1,4 +1,4 @@
-import type { GameContext } from '@/shared';
+import type { GameContext, PlayerCode, PlayerTrustInfo } from '@/shared';
 import { REP_LEVEL_MAX, REP_TABLE, repLevelOf } from '@/shared';
 import { clamp01, el } from '../../dom';
 
@@ -131,4 +131,32 @@ export function buildTrustChip(name: string, amount: number, color: string, size
   const count = el('div', { cls: 'item-chip-count', parent: thumb });
   el('span', { cls: 'item-chip-have', text: `+${fmt(amount)}`, parent: count });
   return chip;
+}
+
+/* ── 2026-09-21: player ↔ player trust (`ctx.net.trust`, `shared/playerTrust.ts`) ─────────────────────────────── */
+
+/** The one hover line of a player pair — `신뢰도 Lv.2 · 75 / 130`. */
+export function playerTrustTitle(name: string, t: PlayerTrustInfo): string {
+  const span = t.next === null ? `${fmt(t.points)} · 최고 등급` : `${fmt(t.points)} / ${fmt(t.next)}`;
+  return `${name ? `${name} 님과의 ` : ''}신뢰도 Lv.${t.level} · ${span}`;
+}
+
+/**
+ * **Player trust** drawn exactly like NPC trust (`Lv.n [gauge]`, the same `.ms-trust` look) — for a friend / recent-player
+ * card in the 친구 tab. The value is the relay's pair value (`ctx.net.trust.get`); null without a net system (the caller
+ * leaves the spot empty). A pair that never played reads `Lv.0` with an empty gauge — that is information too.
+ */
+export function buildPlayerTrust(ctx: GameContext, code: PlayerCode, name: string): HTMLElement | null {
+  const ref = ctx.net?.trust;
+  if (!ref || !code) return null;
+  let t: PlayerTrustInfo;
+  try { t = ref.get(code); } catch { return null; }
+  const wrap = el('span', { cls: 'ms-trust in-card' });
+  wrap.title = playerTrustTitle(name, t);
+  wrap.dataset.code = code;
+  wrap.dataset.level = String(t.level);
+  el('span', { cls: 'ms-trust-lv ui-mono', text: `신뢰 Lv.${t.level}`, parent: wrap });
+  const bar = el('span', { cls: 'ms-bar ms-trust-bar', parent: wrap });
+  el('i', { parent: bar }).style.transform = `scaleX(${t.frac.toFixed(3)})`;
+  return wrap;
 }

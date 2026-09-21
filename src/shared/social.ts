@@ -641,3 +641,19 @@ export function roomSystemTextKo(line: Pick<RoomLine, 'system' | 'name' | 'targe
   }
 }
 /* ══ end 2026-09-14 group messenger rooms ══ */
+
+/* ══ appended 2026-09-21: player ↔ player trust (`shared/playerTrust.ts`, owner: server/ · net/) ══ */
+export interface SocialRecord {
+  /**
+   * Pair trust with other players (`PlayerCode` → accumulated points). Symmetric: the relay writes the same value on
+   * **both** records of the pair in one step. Server-owned; `sanitizeSocial` keeps valid codes with points > 0, at most
+   * `PLAYER_TRUST_PAIRS_MAX` (highest first). Survives unfriending and blocks; the GC drops codes that no longer resolve.
+   */
+  trust?: Record<PlayerCode, number>;
+}
+
+export interface SocialSnapshot {
+  /** My pair trust values (codes that still resolve, points > 0). Absent from an older relay = all zero. */
+  trust?: Record<PlayerCode, number>;
+}
+/* ══ end 2026-09-21 player trust ══ */

@@ -3,7 +3,7 @@
 `MetaSystem` (`name: 'meta'`, registered in `main.ts` right after `InventorySystem`) publishes `ctx.meta` (`MetaRef`,
 contract in `src/shared/meta.ts`). It owns the 4 corporations' reputation, the credit balance, the `기업 네트워크` screen
 (the Tab window's `기업` tab), shops and selling, contracts, the Ceres implant repair desk, the NPC quest engine behind the
-messenger (`ctx.meta.npc`), per-NPC trust, and intel broker purchases (`ctx.meta.intel`). Character XP belongs to
+messenger (`ctx.meta.npc`), per-NPC trust, intel broker purchases (`ctx.meta.intel`), and the mailbox (`ctx.meta.mail`). Character XP belongs to
 `progression/`, items to `inventory/`, the messenger UI to `ui/`; this folder reaches them only through `ctx.*Ref`.
 All numbers come from `data/` (`corps.csv`, `corp_stock.csv`, `contracts.csv`, `npcs.csv`, `npc_quests.csv`,
 `npc_objectives.csv`, `intel_options.csv`, `tables.csv`, `tuning.csv`) through `src/shared/meta.ts`, `npc.ts`, `intel.ts`.
@@ -17,16 +17,17 @@ All numbers come from `data/` (`corps.csv`, `corp_stock.csv`, `contracts.csv`, `
 | `model.ts` | Folder vocabulary (types, constants, `isValidHit`); re-exported by `MetaSystem.ts` |
 | `Rules.ts` | Pure rules: `repInfoOf`, shop filter (`ruleMatches`, `corpSells`, `shopRarityCap`, `shopQtyOf`, `buildShop`, `implantRepairMaterialIds`), `killGoalOf`, `contractBlockReason`, `contractHitDelta`, `settleContract`, implant repair (`IMPLANT_REPAIR_FEE`, `implantGrade`, `implantRepairFee`, `isRepairableImplantDef`, `implantRepairCost`, `canRepairImplant`), legacy `questStateOf`/`questBlockReason`, Korean `REASON` strings |
 | `NpcRules.ts` | Pure NPC rules: `enemyMatches`, `weaponSpecClass`, `itemMatches`, `requirementMet` (level, corp rep, NPC trust, completed quests, progress flags), `objectiveLabel`, `rewardSummary`, `npcTrustLabel`, `npcTrustReason`, `legacyQuestState`, `freshNpcSave`, `sanitizeNpcSave`, `NPC_REASON` |
-| `Storage.ts` | `MetaSave` (`META_SAVE_VERSION`) in localStorage `slotKey(META_STORAGE_KEY)`: `freshMetaSave`, `sanitizeMetaSave`, `MetaStorage` (debounced `markDirty`, `flush` on `pagehide`/`beforeunload`/hub entry/dispose, `upload` → `ctx.net.profile.set('meta', …)`, `replace` adopts a server document without echoing), `MAX_PROGRESS` |
+| `Storage.ts` | `MetaSave` (`META_SAVE_VERSION` 3 — v3 added `mail`) in localStorage `slotKey(META_STORAGE_KEY)`: `freshMetaSave`, `sanitizeMetaSave`, `MetaStorage` (debounced `markDirty`, `flush` on `pagehide`/`beforeunload`/hub entry/dispose, `upload` → `ctx.net.profile.set('meta', …)`, `replace` adopts a server document without echoing), `MAX_PROGRESS` |
 | `parts/Credits.ts` | Credit balance owner: `addCredits` (optimistic + `credits:tx`), `creditsTx` (awaits the relay answer), `serverTx`, `adoptServerCredits`, `onProfileLoaded`, `getRep`/`addRep`; relayed `meta` / `metaq` validation (`onMetaMessage`, `onMetaRequest`) |
 | `parts/Trade.ts` | Shop and selling: `getShop`, `priceOf`, `buy`, `completePurchase`, `failPurchase`, `onPurchaseFailure`, `sell`, `getSellable`, placement helpers (`fits`, `addAnywhere`, `takeBack`, `findAnywhere`, `countAll`) |
 | `parts/Contracts.ts` | Contracts: accept/abandon, `reportContractHit`, live trackers (`trackLootValue`, `trackItemCount`, `carriedCount`), squad contract rows (`applySquadContract`, `broadcastContract`), `settleMission`, `libraryTrustMulOf`, `commitQuestTx`; legacy corp-quest API stubs |
 | `parts/ImplantDesk.ts` | Ceres implant repair desk: `getRepairableImplants`, `getImplantRepair`, `repairImplant`, `performRepair`, `giveBack`, `finishRepair`, `onImplantRepaired`, `isRepairPending` |
 | `parts/NpcQuests.ts` | `class NpcQuests implements NpcQuestRef` = `ctx.meta.npc`: contact/offer evaluation, event log → messages, intro choices, accept/deliver/report, unread and `readAtOf`, raid tracks, NPC trust, progress flags, console helpers (`forceContact`, `forceOffer`, `devProgress`, `reset`) |
 | `parts/NpcObjectives.ts` | Raid objective counting for active NPC quests: `advance`, `tryConfirm`, `onKill`, `onDiscover`, `onSearch`, `onInteract`, `trackRecover`, `settleRaid`, `resetRaid` |
+| `parts/Mail.ts` | `class Mail implements MailRef` = `ctx.meta.mail` (contract `shared/mail.ts`): `send` (idempotent by id — `seen` remembers deleted ids too), `list` (newest first), `unreadCount`, `markRead`, `claim` / `claimAll` (ship only, **stash only**, stack by `stackMax`, what does not fit stays in the mail), `deleteRead` (read **and** claimed only); `freshMailSave`, `sanitizeMailSave`; console `reset` |
 | `parts/Intel.ts` | `class Intel implements IntelRef` = `ctx.meta.intel`: `get`, `effects`, `costOf`, `maxTierOf`, `buy`, `discard`, `consume`, lobby sync |
-| `parts/Console.ts` | Dev console commands `credits`, `rep`, `contract`, `implant`, `npc` (calls the APIs above only; registered when `ctx.console.enabled`) |
-| `ui/CorpView.ts` | The corp screen body (`CorpPage` = `trade` \| `contracts` \| `implants`, `implants` only at `ceres`): corp rail, trade desk (stock, buy/sell trays, stash + bag card), contract page, implant desk; cell fitting (`fitLayout`) |
+| `parts/Console.ts` | Dev console commands `credits`, `rep`, `contract`, `implant`, `npc`, `mail` (`mail send [<defId> <qty> …]` = a test mail, `list`, `claim`, `clear`, `reset`) (calls the APIs above only; registered when `ctx.console.enabled`) |
+| `ui/CorpView.ts` | The corp screen body (2026-09-21: `corpHidden` keeps the survey corp off the rail until its unlock quest) (`CorpPage` = `trade` \| `contracts` \| `implants`, `implants` only at `ceres`): corp rail, trade desk (stock, buy/sell trays, stash + bag card), contract page, implant desk; cell fitting (`fitLayout`) |
 | `ui/TileGrid.ts` | Fill-style item grid for stock/trays/desk: packs caller-built tiles (`InventoryRef.buildItemTile`) first-fit in the inventory grid markup; `setCell` |
 | `ui/HoldAsk.ts` | "Confirm once more" popup (favorite-item sale): 1 s hold confirm, Escape token `meta:holdAsk`, attaches to `ctx.uiRoot` |
 | `ui/dom.ts` | `el`, `setText`, `toggleClass`, `fmtNum` (non-credit numbers only), `chevrons(dir, count)` |
@@ -45,7 +46,7 @@ All numbers come from `data/` (`corps.csv`, `corp_stock.csv`, `contracts.csv`, `
 - screen: `openCorpMenu(corp?)` (refused during a raid; opens the Tab window on `ctx.inventory.openScreen('corp')`), `closeCorpMenu`,
   `isMenuOpen`, `createCorpView(host)` → `EmbeddedView`
 - persistence: `save`, `resetMeta`
-- sub-refs: `npc?: NpcQuestRef` (`src/shared/npc.ts`), `intel?: IntelRef` (`src/shared/intel.ts`); NPC trust `npcTrust`, `npcTrustLevel`,
+- sub-refs: `npc?: NpcQuestRef` (`src/shared/npc.ts`), `intel?: IntelRef` (`src/shared/intel.ts`), `mail?: MailRef` (`src/shared/mail.ts`); NPC trust `npcTrust`, `npcTrustLevel`,
   `addNpcTrust`
 
 Main consumers: `game/` (`settleMission` before `game:complete`/`game:over`), `hub/` (computer → `openCorpMenu`, intel screen →
@@ -55,7 +56,8 @@ Main consumers: `game/` (`settleMission` before `game:complete`/`game:over`), `h
 **Events emitted**: `meta:loaded`, `meta:creditsChanged {credits, delta, reason}`, `meta:repChanged {corp, rep, level, delta, levelUp}`,
 `meta:contractAccepted`, `meta:contractAbandoned`, `meta:contractProgress`, `meta:contractSettled`, `meta:squadContract`,
 `meta:purchase`, `meta:sale`, `meta:npcTrustChanged`, `npc:message`, `npc:unreadChanged`, `npc:questChanged {prev}`,
-`npc:objectiveProgress {raid, done, delta}`, `npc:questReady`, `intel:purchased`, `intel:changed`, `ui:corpToggled {open, corp}`,
+`npc:objectiveProgress {raid, done, delta}`, `npc:questReady`, `intel:purchased`, `intel:changed`, `mail:changed {unread, total}`,
+`mail:received {id, from}`, `ui:corpToggled {open, corp}`,
 `ui:notify`, `audio:play`. Toasts for `meta:*` / `npc:*` events are drawn by `ui/`.
 
 **Events consumed**: `game:newMission`, `game:complete`, `game:over`, `game:abort`, `game:phaseChanged`, `world:ready`, `hub:entered`,
@@ -154,6 +156,20 @@ engine: `NpcRules.ts`, `parts/NpcQuests.ts`, `parts/NpcObjectives.ts`; UI (messe
 - `sanitizeNpcSave` must carry `choice` events (index within the current `introChoices`) and `flags`; dropping either re-opens answered
   intros or resets contact conditions after a reload.
 
+### 조사 기업 · 조사 목표 (2026-09-21)
+
+- **The 5th corp `atlas` (아틀라스 측량)** is the survey corp (`shared/survey.ts` `SURVEY_CORP_ID`). It is **hidden from the
+  corp rail** (`CorpView.corpHidden`, `.corp-tab[hidden]`) and locked until `SURVEY_UNLOCK_QUEST` (`q_at_1`) is complete — the
+  quest state is the only persistence of the unlock, and that quest's `rewardRep atlas:100` is what lifts it to
+  `CORP_ACCESS_REP_LEVEL`. Its one `gadget` shop rule holds survey cameras only, and no other corp may sell one
+  (`Rules.corpSells`); grades open by the usual rep rarity cap. It has no contracts.
+- **`survey` objective** (`npc_objectives.csv` `subject`, target = percent, empty subject = any): not a raid objective. It
+  mirrors the subject's account progress (`ctx.survey`) into `NpcQuestSave.p` on `survey:progress`, on accept and on profile
+  load (`NpcObjectives.syncSurvey`) — progress never goes down, so it is committed as it rises. It `countsHere` during a raid.
+- **A quest offer can mail a parcel** (`npc_quests.csv` `mailSubject` · `mailBody` · `mailItems` → `NpcQuestDef.mail`):
+  `offer()` sends it through `ctx.meta.mail?.send` with the id `npc:<npc>:<quest>`. 윤시아 (`npc_yoon_sia`, after Raven's
+  `q_rv_1`) mails the first survey camera with `q_at_1`, then offers `q_at_2 … q_at_12`.
+
 ### NPC trust
 
 Per-NPC trust (`NpcSave.trust`) is separate from corp reputation and uses the same `REP_TABLE` levels. Quests grant it via `npcTrust`
@@ -229,8 +245,8 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 ## Recent changes
 
 Last 5 only — older: `git log -- src/meta`.
+- 2026-09-21 — Survey corp `atlas` (hidden until `q_at_1`, cameras only — `Rules.corpSells`, `CorpView.corpHidden`), NPC objective `survey` (`NpcObjectives.syncSurvey`, `NpcRules.objectiveLabel`), quest offers that mail a parcel (`NpcQuestDef.mail`).
+- 2026-09-21 — The mailbox (`parts/Mail.ts`, `ctx.meta.mail`): NPCs mail parcels (`send({id, from, subject, body, items})`, idempotent by id); claims go to the ship stash only and keep what does not fit; `읽은 메일 삭제` never takes a mail with items left. Saved as `MetaSave.mail {list, seen}` — `META_SAVE_VERSION` 3, a v2 document reads as an empty mailbox; caps `MAIL_KEEP_MAX` · `MAIL_SEEN_IDS_MAX` · `MAIL_SUBJECT_MAX_CHARS` · `MAIL_BODY_MAX_CHARS` (the meta document shares `PROFILE_DOC_MAX_BYTES`). Console `mail`.
 - 2026-09-21 — Doc fixes (B-77 · B-78 · B-79): one name for the screen, `기업 네트워크` — what the ship computer's prompt actually draws — in `ui/TileGrid.ts`, `ui/CorpView.ts` and here; `아직 꽂지 않은` corrected to the drawn `아직 꽂지 않음`; the 「two cards」 note re-stated as the one card `makeInvCards` builds; `CurrencyReward` · `QuestInfo` · `QuestState` imports dropped (nothing referenced them since the 2026-09-14 quest tab removal).
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1): 305 lines over 15 files. Korean on-screen labels, csv names and decision headings kept verbatim in backticks / 「」 (9 lines whose whole substance is such a quote stay Korean), no string literal, `REASON` value, csv key or event name touched; proved comment-only by stripping every comment from both sides and comparing the whole text.
 - 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
-- 2026-09-18 — `ENEMY_TYPE_KO` gained `bug_egg: '벌레 알'` so an NPC kill goal that names the new nest egg reads as a word, not an id (`NpcRules.ts`).
-- 2026-09-17 — Contract columns `.cc-` → `.ctr-` (`meta.css`, `ui/CorpView.ts`): `ui/styles/title.css` owns `.cc-` for character creation, and a prefix belongs to one folder (`scripts/check-css-prefixes.mjs`).

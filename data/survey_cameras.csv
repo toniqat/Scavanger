@@ -1,0 +1,8 @@
+# 조사 카메라 등급 (2026-09-21, src/survey). defId = data/items.csv 의 카메라 줄 (내구도 · 등급 · 가치는 거기에 있다).
+# speedMul = 기록 속도 배수 (대상의 seconds 를 이 값으로 나눈다).
+defId,speedMul
+cam_survey_1,1
+cam_survey_2,1.25
+cam_survey_3,1.5
+cam_survey_4,1.8
+cam_survey_5,2.2

@@ -27,6 +27,7 @@ publishes the profile-document sync (`ctx.net.profile`), social + private chat (
 | `RemotePlayer.ts` | `RemotePlayerRef`: 16-sample ring buffer rendered at `now - NET_INTERP_DELAY`, stream restart detection, ghost overlay, buff / pose mirrors |
 | `ProfileSync.ts` | `ProfileRef` (`ctx.net.profile`): server record mirror, revisioned persistent write queue, `setMany` transactions, `addCredits` → `credits:tx` |
 | `SocialSync.ts` | `SocialRef` (`ctx.net.social`): friends / requests / recent / blocks, squad invites, private chat (nonces, backlog, per-slot history + unread) |
+| `TrustSync.ts` | `TrustRef` (`ctx.net.trust`): player ↔ player pair trust from `SocialSnapshot.trust` + `trust:gain`, the like window (`trust:window`, optimistic until it arrives), `like` → `trust:like`, `beforeRaid` captured on a raid `game:start` |
 | `RoomSync.ts` | `RoomsRef` (`ctx.net.rooms`): group-room mirror, pending → ack lines, history pages, per-room read marks |
 
 ## Public API
@@ -126,6 +127,14 @@ the lists. Invites: at most `SQUAD_INVITE_MAX`, own TTL timers, reply by invite 
 records without `readAt` count as read. Chat window `/r` and the messenger share this history. Level is pushed with
 `setLevel` (debounced, re-sent after every welcome).
 
+**`ctx.net.trust` — `TrustSync`** (2026-09-21, rules in `shared/playerTrust.ts`, wire in `docs/MULTIPLAYER.md` §11). The relay
+owns every value; the pair map is replaced by each `SocialSnapshot.trust` (welcome · `social:state`) and one pair is updated
+by `trust:gain` (→ `net:trustChanged {code, name, points, delta, reason, mine?}` for the result screen). A raid `game:start`
+(not a rejoin) captures the values (`beforeRaid`) and takes the lobby's other humans as the like window's guess, so
+`canLike` is true before the relay's `trust:window` arrives; the relay then decides (`net:trustWindow`), a refusal comes back
+as `net:trustRefused` and takes the optimistic mark back. Levels are `playerTrustInfo(points, PLAYER_TRUST_TABLE)`. Likes are
+refused locally while disconnected or anonymous.
+
 **`ctx.net.rooms` — `RoomSync`.** Mirror of the relay's rooms, invites and line cache. It never sends `room:get` itself
 (the relay pushes `room:state` after welcome; an old relay would answer `lobby:error invalid`, so `available` stays false).
 `say` adds a `pending` line at once, ack → `sent` / `failed` (10 s or disconnect → `failed`). `respond` is the only
@@ -215,8 +224,8 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 ## Recent changes
 
 Last 5 only — older: `git log -- src/net`.
+- 2026-09-21 — Player ↔ player trust: `TrustSync` as `ctx.net.trust` (`get` · `infoOf` · `beforeRaid` · `canLike` · `hasLiked` · `like`), fed by welcome / `social:state` / `trust:gain` / `trust:window` / `trust:refused` in `parts/Messages` + `parts/Socket`, captured on a raid `game:start`.
 - 2026-09-21 — `lobby:look.shipModel` became a **nudge** (B-101): the relay no longer stores what the client says — it fills `LobbyPlayer.shipModel` from that member's own `progression` document. `pushShipModel` therefore de-duplicates against the new `NetSystem._pushedShipModel` instead of against my own lobby row: that row is the relay's answer, and a profile with no uploaded document leaves it empty for good, so the old comparison nudged on **every** `lobby:state` and each nudge broadcast another one. The field is cleared in `dropLobby`.
 - 2026-09-21 — `docs/TODO.md` B-83: the never-read `NetSystem.embeddedCache` field removed (a 2026-09-15 「builds ship no server」 leftover — `NET_SHELL_RELAY_ROUTE` is asked for by `ui/menus/SettingsMenu` alone), and the JSDoc of the `meal serve` wire deleted on 2026-09-16 taken off `plateRelay`.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-17 — `sanitizeShipVisit` keeps `cultures` (placed uid · slot < `CULTURE_MAX_SLOTS` · medium id · `s: 1` strain flag, one per slot) for the visited culture tank model.
-- 2026-09-16 — `parts/Meal.ts` (host-relayed `meal req` / `serve`) replaced by `parts/Plates.ts`: each member's own `plate state` + `plateq sync` on hub-session entry → `net:squadPlate`.

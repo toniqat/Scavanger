@@ -3817,9 +3817,6 @@ export interface RoverRef {
   readonly hostile?: boolean;
 }
 
-
-
-
 /* ══ appended 2026-09-21: shared pathfinding (TODO A-18, owner: world/nav — contract in `shared/nav.ts`) ══ */
 import type { NavRef } from './nav';
 
@@ -3830,4 +3827,34 @@ export interface WorldRef {
    * spread over the first frames of a raid). Authority-side movers only; nothing about it goes on the wire.
    */
   readonly nav?: NavRef | null;
+}
+
+/* ══ appended 2026-09-21: raid-end settlement rework (owner: game fills, ui draws — `shared/raidRewards.ts`) ══ */
+export interface MissionRewards {
+  /** appended (2026-09-21): the XP cards that make up `xpEarned` (death / library multipliers already applied). */
+  cards?: import('./raidRewards').RaidXpCard[];
+  /** appended (2026-09-21): `XP_DEATH_MUL` when the raid ended without extraction, else 1 — the cards say so. */
+  deathMul?: number;
+  /** appended (2026-09-21): page ④ rows — human squadmates of this raid (empty / omitted solo). */
+  squad?: import('./raidRewards').RaidSquadEntry[];
+  /** appended (2026-09-21): page ③ rows — every squad member's contract (mine included). */
+  contracts?: import('./raidRewards').RaidContractRow[];
+}
+export interface MissionStats {
+  /** appended (2026-09-21): value of what is carried at raid end that was **found in this raid** (`raidFound`). */
+  raidFoundValue?: number;
+  /** appended (2026-09-21): gather nodes collected this raid. */
+  gathers?: number;
+  /** appended (2026-09-21): structure ids discovered this raid (platform · lab · outpost · crashed ship). */
+  structuresFound?: string[];
+  /** appended (2026-09-21): fog explored fraction at raid end, 0 … 1. */
+  mapExplored?: number;
+}
+
+export interface WeaponsRef {
+  /**
+   * appended 2026-09-21 (owner: weapons, reader: survey/): the survey camera as the held quick item — `active`,
+   * its instance, and this frame's fire / aim input (already gated like a gun's). Mutated in place every frame.
+   */
+  readonly surveyHand?: import('./survey').SurveyHandState;
 }

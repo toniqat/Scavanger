@@ -55,6 +55,8 @@ import { SOCIAL_BLOCK_MAX, SOCIAL_WHISPER_INBOX_MAX, SOCIAL_WHISPER_INBOX_TTL_MS
 import type { CreditLedger } from '../src/shared/credits.ts';
 import { CREDIT_TX_INVALID_KO } from '../src/shared/credits.ts';
 import { type CreditEconomy, emptyLedger, sanitizeLedger } from './Economy.ts';
+/* 2026-09-21: player ↔ player trust (`SocialRecord.trust`) */
+import { PLAYER_TRUST_PAIRS_MAX, PLAYER_TRUST_POINTS_MAX } from '../src/shared/playerTrust.ts';
 
 /** B-4: one kept offline whisper (`SocialRecord.inbox` entry). */
 export type WhisperInboxLine = NonNullable<SocialRecord['inbox']>[number];
@@ -180,7 +182,27 @@ function sanitizeSocial(raw: unknown, now: number = Date.now()): SocialRecord | 
   if (blocked.length > 0) out.blocked = blocked;
   const inbox = sanitizeInbox(raw.inbox, selfOrBlocked, now);
   if (inbox.length > 0) out.inbox = inbox;
+  /* 2026-09-21: pair trust survives blocks and unfriending (it is history) — only self and junk are dropped. */
+  const trust = sanitizeTrust(raw.trust, self);
+  if (trust) out.trust = trust;
   return out;
+}
+
+/**
+ * 2026-09-21: `SocialRecord.trust` as stored — valid codes, whole points in `1 … PLAYER_TRUST_POINTS_MAX`, at most
+ * `PLAYER_TRUST_PAIRS_MAX` entries (the highest kept). undefined when nothing is left.
+ */
+function sanitizeTrust(raw: unknown, drop: ReadonlySet<PlayerCode>): Record<PlayerCode, number> | undefined {
+  if (!isRecord(raw)) return undefined;
+  const rows: [PlayerCode, number][] = [];
+  for (const [code, v] of Object.entries(raw)) {
+    if (!isValidPlayerCode(code) || drop.has(code) || typeof v !== 'number' || !Number.isFinite(v)) continue;
+    const p = Math.min(PLAYER_TRUST_POINTS_MAX, Math.floor(v));
+    if (p > 0) rows.push([code, p]);
+  }
+  if (rows.length === 0) return undefined;
+  rows.sort((a, b) => b[1] - a[1]);
+  return Object.fromEntries(rows.slice(0, PLAYER_TRUST_PAIRS_MAX));
 }
 
 /**
@@ -858,6 +880,47 @@ export class ProfileStore {
     return lines;
   }
 
+  /* ── 2026-09-21: player ↔ player trust ───────────────────────────────── */
+
+  /** Pair trust between two profiles (0 when either has no social record or they never gained any). */
+  trustOf(aId: PeerId, bId: PeerId): number {
+    const a = this.social(aId);
+    const b = this.social(bId);
+    if (!a || !b || !a.code || !b.code) return 0;
+    return Math.max(a.trust?.[b.code] ?? 0, b.trust?.[a.code] ?? 0);
+  }
+
+  /**
+   * Adds `delta` to the pair and writes the **same** new value on both records (symmetric by construction — a record
+   * that drifted, e.g. one side trimmed by `PLAYER_TRUST_PAIRS_MAX`, is healed from the higher side). Returns the new
+   * points, or null when either side has no social record / code or it is the same profile.
+   */
+  addTrust(aId: PeerId, bId: PeerId, delta: number): number | null {
+    if (aId === bId) return null;
+    const a = this.social(aId);
+    const b = this.social(bId);
+    if (!a || !b || !a.code || !b.code || a.code === b.code) return null;
+    const d = Number.isFinite(delta) ? Math.max(0, Math.floor(delta)) : 0;
+    const next = Math.min(PLAYER_TRUST_POINTS_MAX, this.trustOf(aId, bId) + d);
+    const put = (rec: SocialRecord, code: PlayerCode): void => {
+      const map = rec.trust ?? {};
+      map[code] = next;
+      /* Over the cap the lowest pair goes (never the one just written). */
+      const codes = Object.keys(map);
+      if (codes.length > PLAYER_TRUST_PAIRS_MAX) {
+        codes.sort((x, y) => map[x] - map[y]);
+        for (const c of codes) {
+          if (Object.keys(map).length <= PLAYER_TRUST_PAIRS_MAX) break;
+          if (c !== code) delete map[c];
+        }
+      }
+      rec.trust = map;
+      this.touchSocial(rec);
+    };
+    if (next > 0) { put(a, b.code); put(b, a.code); }
+    return next;
+  }
+
   /* ── 2026-09-11 (B-2): garbage collection ─────────────────────────────── */
 
   /** The owner connected or disconnected just now (the relay calls this for token sockets only). Never creates a record. */
@@ -929,6 +992,12 @@ export class ProfileStore {
           if (inbox.length === 0) delete soc.inbox; else soc.inbox = inbox;
           dirty = true;
         }
+      }
+      /* 2026-09-21: a trust pair whose other profile is gone goes with it (not part of the lists, so not `changed`). */
+      if (soc.trust) {
+        let dropped = false;
+        for (const c of Object.keys(soc.trust)) if (!this.byCode.has(c)) { delete soc.trust[c]; dropped = true; report.danglingRefs++; }
+        if (dropped) { if (Object.keys(soc.trust).length === 0) delete soc.trust; dirty = true; }
       }
       /* B-4: a blocked code whose profile is gone cannot be drawn (or unblocked) — dropped like a dangling entry. */
       const blocked = soc.blocked?.filter(resolves);

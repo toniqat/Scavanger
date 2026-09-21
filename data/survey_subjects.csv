@@ -1,0 +1,31 @@
+# 조사 대상 (2026-09-21, src/survey — 사용자 결정). id 는 세이브 · NPC 퀘스트 목표(npc_objectives.csv 의 subject)가 찾는 값이므로 바꾸지 않는다.
+# 대상은 **종류 단위**다 — 같은 종류가 프레임에 여럿 들어와도 한 프레임에 한 번만 오른다.
+# kind: enemy(적 — match = 적 타입 id, data/enemies.csv) | rover(탐사 차량) | tram(전차) | platform(선로 플랫폼)
+#       | structure(구조물 — match = outpost | lab | wreck) | nest(벌레 둥지 — 둥지 구멍, match 에 적은 적 타입(알)도 둥지로 센다)
+# seconds = 일반 카메라(속도 ×1) · 줌 없이 · 처음 가는 행성에서 0 → 100 % 까지 걸리는 기록 시간(초).
+# raidCap = 한 레이드에서 이 대상이 오를 수 있는 최대치 (0–1). 진행도는 계정(캐릭터) 단위로 쌓이고 줄지 않는다.
+# radius · height = 월드가 크기를 주지 않는 대상의 경계 상자(m): 전차 · 둥지는 둘 다, 구조물 · 플랫폼은 height 만 (반경은 월드 값).
+#   적 · 탐사 차량은 비운다 (몸의 크기를 그대로 쓴다). 줌 중에는 이 상자가 프레임 안에 **다 들어와야** 오른다.
+# 튜토리얼 전용 적(tut_*)은 대상이 아니다.
+id,name,kind,match,seconds,raidCap,radius,height
+sv_scavenger,스캐빈저,enemy,scavenger|scavenger_summon,40,0.5,,
+sv_hunter,헌터,enemy,hunter,50,0.5,,
+sv_warrior,워리어,enemy,warrior,60,0.5,,
+sv_spewer,스퓨어,enemy,spewer,60,0.5,,
+sv_toxic,독성 버그,enemy,toxic,60,0.5,,
+sv_charger,차저,enemy,charger,80,0.4,,
+sv_artillery,포격 버그,enemy,artillery,90,0.4,,
+sv_behemoth,베헤모스,enemy,behemoth,120,0.34,,
+sv_sandworm,땅굴벌레,enemy,sandworm|sandworm_weak,90,0.5,,
+sv_android,안드로이드,enemy,android,60,0.5,,
+sv_rogue,로그,enemy,rogue|rogue_boss,60,0.5,,
+sv_raider,레이더,enemy,raider,70,0.5,,
+sv_scan_drone,스캔 드론,enemy,rogue_scan_drone,60,0.5,,
+sv_named,네임드,enemy,rogue_sniper|rogue_hammer|rogue_heavy,90,0.5,,
+sv_nest,벌레 둥지,nest,bug_egg,60,0.5,3,2
+sv_rover,탐사 차량,rover,,90,0.5,,
+sv_tram,전차,tram,,90,0.5,7,4
+sv_platform,선로 플랫폼,platform,,60,0.5,,6
+sv_outpost,버려진 전진기지,structure,outpost,90,0.5,,10
+sv_lab,버려진 연구실,structure,lab,90,0.5,,10
+sv_wreck,불시착한 함선,structure,wreck,120,0.5,,10

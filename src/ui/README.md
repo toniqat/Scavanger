@@ -24,7 +24,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/ChatLog.ts` | Squad chat log + input (Enter opens, sends and stays open; Tab/Esc closes), `/r` reply to the last private chat, hides lines from blocked peers, relays `chat:post` |
 | `hud/CheatTag.ts` | `MOVE CHEAT` corner tag (`cheat:moveCheat`) |
 | `hud/CommsWheel.ts` | `H`-hold communication wheel (`Keys.COMMS`): reads its own input, sends `comm`, posts chat/toast |
-| `hud/Community.ts` | Ship-only top-right messenger thumbnail with unread badge; owns the panel frame (blocker, cursor, Escape, key guide), `Keys.INVITE` tap = toggle / hold = accept squad invite stack, NPC contact toasts, squad-leader transfer row menu |
+| `hud/Community.ts` | Ship-only top-right messenger thumbnail with unread badge; owns the panel frame (blocker, cursor, Escape, key guide), `Keys.INVITE` tap = toggle / hold = accept squad invite stack, NPC contact toasts, squad-leader transfer row menu; the **mailbox button** left of the messenger button (`.ml-btn`, unread badge + pop on `mail:received`) and the `MailWindow` it hosts (never open together with the messenger) |
 | `hud/Compass.ts` | Top heading strip: pads/ship markers, fog-discovered landmarks, red enemy ticks inside `enemyDetectRadius` + scan reveals; fades in after the intro wake |
 | `hud/ContractPanel.ts` | Top-left active contract + squadmates' contract rows (never in training) |
 | `hud/CookGauge.ts` | Grenade cook arc (`grenade:holdChanged`) |
@@ -68,7 +68,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/RaidAlerts.ts` | DOM-less event → toast converter: landmark discovery, raider drop warning, rover trips/damage |
 | `hud/ReloadGauge.ts` | Reload / weapon-swap ring at the crosshair (ignores the bow); freezes dimmed on `weapon:reloadPaused` (a hold is not a cancel) |
 | `hud/RescuePicker.ts` (+ `rescuePicker.css`) | Full-screen rescue-drop target picker (`rescue:selectTarget`) |
-| `hud/Reticle.ts` | Crosshair: stance/aim gap + bloom, hitmarkers, consumable dot readout, grapple chip, blocked-muzzle colour, bow draw mode, defib circles; hidden during the intro wake, then fades in over `TUTORIAL_RETICLE_FADE_S` |
+| `hud/Reticle.ts` | Crosshair: stance/aim gap + bloom, hitmarkers, consumable dot readout, grapple chip, blocked-muzzle colour, bow draw mode, defib circles; the consumable dot and its readout step aside while `ctx.survey.active` (the survey frame is the aim point); hidden during the intro wake, then fades in over `TUTORIAL_RETICLE_FADE_S` |
 | `hud/RoomLabel.ts` | `방 n · 용도` label on `hub:roomEntered` |
 | `hud/RoverHud.ts` | Rover passenger HUD: `rover-view` class, hp bar, state line, `M` key guide |
 | `hud/ScanReveal.ts` | Through-wall pillars for scan-revealed corpses/enemies (`scan:cast`) |
@@ -109,20 +109,25 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `menus/ControlsPanel.ts` | Keyboard + mouse controls diagram (settings `키 설정`) |
 | `menus/KeybindMenu.ts` | Key rebinding overlay (mouse-glyph binding buttons) |
 | `menus/keybindNotice.ts` | One-shot boot notice for retired / colliding saved keybinds (`takeKeybindLoadReport`) |
-| `menus/DeathScreen.ts` | Solo death / raid-failed screen with auto-return countdown |
-| `menus/MissionComplete.ts` | Extraction result screen (death look for squadmates who were down) |
-| `menus/ResultReport.ts` | Shared result body: `buildResultHeader`, `buildPlanetLine`, loot value line, death cause row (enemy portrait or procedural icon) |
-| `menus/RewardsBlock.ts` | XP count-up, level-up moment + `level_up` chime, contract settlement line (`contractOutcome`) |
+| `menus/DeathScreen.ts` | Solo death / raid-failed screen with auto-return countdown; header + the paged `results/ResultBody` |
+| `menus/MissionComplete.ts` | Extraction result screen (death look for squadmates who were down); header + the paged `results/ResultBody` |
+| `menus/ResultReport.ts` | `buildResultHeader`, `buildPlanetLine`; page ① — `이번 레이드 획득` (`raidFoundValue`) + loot value line, death cause row (enemy portrait or procedural icon) |
+| `menus/RewardsBlock.ts` | Page ② — XP total, `사망 ×m` tag, level + XP bar walked across every level crossed (`shared/xpToNextLevel`), one horizontal row of XP cards (`rewards.cards`) counting one after another, level-up moment + `level_up` chime; `contractOutcome` wording |
+| `menus/results/ResultBody.ts` | The paged body both result screens share: step strip, pages ① 전리품 → ② 경험치 → ③ 분대 계약 → ④ 분대원 (squad only), `다음` / `Space` (snaps the running animation first), `.actions` `함선으로 귀환` on the last page |
+| `menus/results/ContractsPage.ts` | Page ③ — every member's contract row (`rewards.contracts`, falls back to my `rewards.contract`) |
+| `menus/results/SquadPage.ts` | Page ④ — up to four squadmate face tiles (match-tab look), 좋아요 → `ctx.net.trust.like`, pair trust bar from `trustBefore` + raid gain (+ like gain) through `trust.infoOf` |
+| `menus/results/icons.ts` | Procedural SVG: XP card kinds, like thumb, check |
 | `menus/messenger/Messenger.ts` | Messenger panel body inside the Community frame: tabs `대화` / `친구` / `퀘스트`, `ui:openMessenger` targets |
 | `menus/messenger/ChatTab.ts` | Conversation list (NPC, private chat, group rooms) + bubbles, NPC quest cards, room management, staged "typing" reveal of unread NPC lines (WAAPI dots), intro choices `MESSENGER_CHOICE_DELAY_S` after the last line, half-height empty tail (`.ms-tail`) under every thread |
 | `menus/messenger/QuestsTab.ts` | Active / completed NPC quests + detail card (deliver, report) |
-| `menus/messenger/QuestCard.ts` | NPC quest card shared by chat bubble and quest detail |
+| `menus/messenger/QuestCard.ts` | NPC quest card shared by chat bubble and quest detail; objective tag `레이드` / `함선` / `조사` (a `survey` objective) |
 | `menus/messenger/Popover.ts` | Single in-panel popover (create room, invite, rename) |
-| `menus/messenger/Trust.ts` | NPC personal trust read + gauge / avatar ring / reward chip |
+| `menus/messenger/Trust.ts` | NPC personal trust read + gauge / avatar ring / reward chip; player ↔ player trust `buildPlayerTrust` (`신뢰 Lv.n` + gauge from `ctx.net.trust`, same `.ms-trust` look) |
 | `menus/messenger/sources.ts` | `npcOf` / `roomsOf` accessors + smoke debug refs |
 | `menus/messenger/textInput.ts` | IME-safe text input wiring (Enter after composition end, keys never reach the game) |
+| `menus/mail/MailWindow.ts` | Mailbox window (hosted by `hud/Community`): list (avatar · sender · subject · date · unread dot · `첨부`) with the `읽은 메일 삭제` / `모두 받기` bar, the selected mail with its attachments as inventory tiles + `받기`; blocker `COMMUNITY_BLOCKER`, Escape / cursor token `MAIL_WINDOW_TOKEN`, key guide `mail`; redraws on `mail:changed`. Rules live in `ctx.meta.mail` |
 | `menus/messenger/format.ts` | Clock / clip / room system line / initials helpers |
-| `menus/social/SocialColumn.ts` | Friends column (squad, requests, friends, recent) hosted in the messenger `친구` tab |
+| `menus/social/SocialColumn.ts` | Friends column (squad, requests, friends, recent) hosted in the messenger `친구` tab; friend and recent cards carry the pair's player trust (`buildPlayerTrust`, trust points in the repaint key) |
 | `menus/social/ProfileCard.ts` | Player card + `초대 중 · n초` badge text |
 | `menus/social/SocialMenu.ts` | Card right-click menu (`분대 초대` — invite only, greyed with `PLAY_BLOCK_LABELS`; `개인 대화`, friend add/remove, block) + remove-friend confirm |
 | `menus/social/SocialPages.ts` | Block-list page over the column |
@@ -140,11 +145,12 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `styles/loading.css` | `.ldg-*` (LoadingGauge) |
 | `styles/mapquests.css` | `.mq-*` (QuestPanels — quest panels, tooltip and the tutorial objective panel `.mq-tut*`) |
 | `styles/messenger.css` | `.ms-*` (Messenger) |
+| `styles/mail.css` | `.ml-*` (mailbox button placement + `MailWindow`; reuses `.community-panel` · `.cp-*` · `.ms-btn` · `.ms-av`) |
 | `styles/music.css` | `.mus-*` (MusicPlayer) |
 | `styles/named.css` | `.ns-*` (NamedScanWarning) |
 | `styles/netBadge.css` | `.net-badge`, `.nb-*` (NetBadge) |
 | `styles/raidHud.css` | Raid HUD: clock, weapon box, quick strip, vitals, `.hud-tut-hidden`, liftoff cinematic (`.hud.cinematic` crosshair/rings instant hide, `#ui-root.hud-cine` / `.hud-cine-out` whole-HUD fade) |
-| `styles/results.css` | `.rs-*` (ResultReport) |
+| `styles/results.css` | `.rs-*` (ResultReport, `menus/results/*` — steps, cards, contract rows, squad tiles) |
 | `styles/rover.css` | Map legend swatches, rover destination panel, `.hud.rover-view` hide list, `.rv-*` |
 | `styles/shipCall.css` | `.scall` ship-call thumbnail (StratagemPanel); geometry read from `implant.css` variables |
 | `styles/social.css` | Invite badge, block-list page, private-chat line states (ChatLog, SocialColumn) |
@@ -206,9 +212,9 @@ Stacking (CSS `z-index`; `.hud` layers and plain `.menu` have none and follow DO
 |---|---|
 | `ui:notify` | many widgets (drawn by `Notifications`) |
 | `ui:objective {text, subText}` | `HudSystem` per extraction phase (`OBJECTIVE_TEXT`) |
-| `ui:mapToggled` · `ui:chatToggled` · `ui:communityToggled` + `ui:messengerToggled` · `ui:settingsToggled` · `ui:keybindsToggled` | MapScreen · ChatLog · Community · SettingsMenu · KeybindMenu |
+| `ui:mapToggled` · `ui:chatToggled` · `ui:communityToggled` + `ui:messengerToggled` · `ui:mailToggled` · `ui:settingsToggled` · `ui:keybindsToggled` | MapScreen · ChatLog · Community · SettingsMenu · KeybindMenu |
 | `ui:displayChanged` | SettingsMenu (applied by `main.ts` to the Engine) |
-| `ui:keyGuide {owner, keys}` | MapScreen `map`, Community `community`, RescuePicker `rescue`, RoverHud `rover` |
+| `ui:keyGuide {owner, keys}` | MapScreen `map`, Community `community`, MailWindow `mail`, RescuePicker `rescue`, RoverHud `rover` |
 | `input:bindingsChanged` | KeybindMenu |
 | `hub:enter {ship}` | DeathScreen, MissionComplete, `enterShip` |
 | `game:newMission {mode:'tutorial'}` | `enterShip` (sets `missionMode` / `missionPlanet` / `missionIntel` first) |
@@ -262,7 +268,9 @@ Types live in `src/shared/events.ts`, `src/shared/types.ts`, `src/shared/net.ts`
 **Smoke / debug hooks** (`window.__game.getSystem('hud')`): read-only getters named after the widget state
 (`isMapOpen`, `isChatOpen`, `keyGuideOwner`, `keyGuideEntries`, `screenFadeOpacity` / `screenFadeShown` /
 `screenFadeHeld`, `fallVignetteOpacity`, `isCinematic`, `cinematicHudOpacity`, `bowReticle`, `dangerIndicatorCount`, `musicPlayerView`, `netBadgeState`,
-`messenger`, `squadRows`, `allyNameplates`, `chatLines`, `toastTexts`, `pingViews`, `loadingGaugeState`, …) and
+`messenger`, `squadRows`, `allyNameplates`, `chatLines`, `toastTexts`, `pingViews`, `loadingGaugeState`, …; result
+screens: `MissionComplete` / `DeathScreen` `.resultBody` → `pageId`, `pageOrder`, `next()`, `rewards.cardViews` / `deathTag`,
+`contracts.rowTexts`, `squad.tileViews`) and
 injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRooms`, `debugLocalBuffs`, `debugAllies`.
 
 ## Rules
@@ -414,8 +422,8 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
+- 2026-09-21 — Survey camera hooks: `hud/Reticle` hides the consumable dot and the `×1 · %` readout while `ctx.survey.active` (visibility written on a change only, `surveyHidden` for smokes); `QuestCard` tags a `survey` objective `조사` instead of `함선`. Covered by `scripts/smoke-survey.mjs`.
+- 2026-09-21 — Player ↔ player trust in the messenger `친구` tab: friend and recent-player cards show `신뢰 Lv.n` + the NPC-trust gauge (`menus/messenger/Trust.buildPlayerTrust`, `.ms-trust.in-card`), hover = the pair's points.
+- 2026-09-21 — The result screen is **paged** (`menus/results/ResultBody`, shared by `MissionComplete` and `DeathScreen`): ① loot (`이번 레이드 획득` + 전리품 가치 / 잃은 전리품 가치 + cause) → ② XP cards in one scrolling row filling a multi-level XP bar, `사망 ×m` tag → ③ every member's contract → ④ squadmate tiles with 좋아요 and a pair-trust bar (squad only). `다음` / `Space` advance; `함선으로 귀환` only on the last page.
+- 2026-09-21 — The mailbox: a `우편함` button left of the messenger button (same look, unread count badge, the messenger dot's pop on a new mail, ship only under the same gates) opens `menus/mail/MailWindow` — list left with `읽은 메일 삭제` · `모두 받기`, the mail right with attachment tiles (hover = item card) and `받기` into the stash. The two windows never stand together; the mail window holds `COMMUNITY_BLOCKER` so the Tab window / pause menu below behave as under the messenger. `hud/Community`'s dot pop curve became the shared `popTransform`.
 - 2026-09-21 — The crosshair reload ring freezes instead of lying while a reload is **held** (`weapon:reloadPaused` / `Resumed`, `.reload.paused`), and `hud/HealGauge` gained the right-button ally hold plus the `.heal-ally` chip that names the squadmate the button would treat (dim `아군 없음` when nobody is valid).
-- 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
-- 2026-09-20 — The animation-restart idiom (`remove → void offsetWidth → add`, 19 sites in 13 `hud/` files) is an **intended limit** now, not a to-do: the user declined the twin-`@keyframes` cure and accepted the extra flush on a flash frame (was `docs/TODO.md` B-68 · B-69; `## Rules`, `## Decisions`). No code change — the smoke's `KNOWN_IDIOM` ratchet stays.
-- 2026-09-20 — The toast stack stops forcing a layout inside the frame during the tutorial: `hud/Notifications` measured `.tut-controls` with `getBoundingClientRect` **every frame** while that panel was up (§4.2; counted at 180 reads in 180 frames). It now measures from a `ResizeObserver` on the panel plus the window `resize` — both run after layout, outside `Engine.frame` — and `update()` only re-finds the panel. `scripts/smoke-layout-reads.mjs` grew a fourth window (tutorial frames with the panel up) that fails on the old code and passes on the new.
-- 2026-09-20 — `docs/PERF.md` perf Phase B: the HUD reads no layout inside a frame, and a smoke counts it. `hud/ChatLog` stopped measuring a row per line (a `column-reverse` scroller pins its own bottom, the closed height is a `calc()`), a chat row's first layout is paid at boot, and `hud/Detection` · `hud/ScanReveal` build their pillar pools on `world:ready` instead of on the first corpse. S4's android first-contact frame: js 17.9 → 15.5 ms, spike frames 1 → 0 (twice). The animation-restart `offsetWidth` idiom was swept into a `dom.restartAnim` helper in the same pass and **reverted the same day** — it cannot replay a finished or a descendant animation; it is a listed exception in the smoke instead (an intended limit — `## Rules` above).

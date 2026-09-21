@@ -14,8 +14,9 @@ import type { SocialRecord } from './social';
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** Documents the server stores per profile. Each owning folder decides the shape (it is its own localStorage save). */
-export type ProfileDocKey = 'meta' | 'stash' | 'loadout' | 'progression' | 'ship';
-export const PROFILE_DOC_KEYS: readonly ProfileDocKey[] = ['meta', 'stash', 'loadout', 'progression', 'ship'];
+/** `survey` appended 2026-09-21: survey camera progress (`src/survey/parts/Store.ts`, shape `SurveySave`). */
+export type ProfileDocKey = 'meta' | 'stash' | 'loadout' | 'progression' | 'ship' | 'survey';
+export const PROFILE_DOC_KEYS: readonly ProfileDocKey[] = ['meta', 'stash', 'loadout', 'progression', 'ship', 'survey'];
 
 /** Server-side profile record as sent in `welcome.profile` / `profile:docs`. */
 export interface ProfileRecord {

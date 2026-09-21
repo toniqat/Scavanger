@@ -7,6 +7,7 @@ import type {
   Interactable, InteractableRegistry, MissionStats, HubRef, PickupsRef, WeaponsRef, StratagemsRef,
 } from './types';
 import type { NetRef } from './net';
+import type { SurveyRef } from './survey';
 import type { MissionMode } from './types';
 /* appended (Phase 11, 2026-09-07): planet selection */
 import type { PlanetId } from './planets';
@@ -137,6 +138,8 @@ export class GameContext {
   allies: AlliesRef | null = null;
   /** 2026-09-15: the raid the title's `이어하기` · `레이드 포기` point at (`shared/raidResume`). Published by game/GameFlowSystem. */
   raidResume: RaidResumeRef | null = null;
+  /** 2026-09-21: the survey camera — account progress per subject, this raid's gains. Published by survey/SurveySystem. */
+  survey: SurveyRef | null = null;
   /* ── appended: Phase 7 (2026-09-06) ── */
   /** Mode of the running / last mission (`game/` sets it from `game:newMission.mode` before the world generates). */
   missionMode: MissionMode = 'raid';

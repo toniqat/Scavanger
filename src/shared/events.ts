@@ -1821,5 +1821,31 @@ export interface GameEvents {
   'rover:hostile': Record<string, never>;
 }
 
+export interface GameEvents {
+  /**
+   * Fact (net): a pair's player trust moved on the relay (`trust:gain`). `reason` raid = the shared-raid grant, like =
+   * a like; `mine` (likes) true = I sent it, false = they liked me. `points` is the pair's new total.
+   */
+  'net:trustChanged': { code: import('./social').PlayerCode; name: string; points: number; delta: number; reason: 'raid' | 'like'; mine?: boolean };
+  /** Fact (net): my like window for the last raid changed (relay `trust:window`, a raid start, a refusal). Re-read `ctx.net.trust.canLike`. */
+  'net:trustWindow': { open: boolean };
+  /** Fact (net): the relay refused my like (`trust:refused`). `message` is the Korean line to show. */
+  'net:trustRefused': { code: import('./social').PlayerCode; error: import('./playerTrust').TrustLikeError; message: string };
+}
 
+export interface GameEvents {
+  /** Fact (meta): the mailbox changed — delivery, read, claim, delete, or a profile reload. `ui/` redraws the button and window. */
+  'mail:changed': { unread: number; total: number };
+  /** Fact (meta): a new mail arrived (`send` accepted it). No toast — the mail button's red dot pops (`ui/hud/Community`). */
+  'mail:received': { id: string; from: string };
+  /** The ship mail window opened / closed (`ui/hud/Community`; blocker `COMMUNITY_BLOCKER`, token `MAIL_WINDOW_TOKEN`). */
+  'ui:mailToggled': { open: boolean };
+}
 
+export interface GameEvents {
+  /**
+   * 2026-09-21 (owner: survey/): a subject's account progress crossed a whole percent (`percent` = floor of
+   * `progress × 100`). meta/ reads it for the `survey` NPC objective.
+   */
+  'survey:progress': { subjectId: string; progress: number; percent: number };
+}

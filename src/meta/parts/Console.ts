@@ -1,6 +1,6 @@
 /**
  * src/meta/parts/Console.ts — the dev console commands `credits` / `rep` / `contract` / `implant` / `npc`
- * (2026-09-14 — in place of the old `quest`).
+ * (2026-09-14 — in place of the old `quest`) / `mail` (2026-09-21).
  *
  * Registered on dev clients only (see `src/console`). It holds no game rule at all and calls the APIs above.
  */
@@ -41,7 +41,7 @@ export function registerConsole(sys: MetaSystem): void {
       },
     },
     {
-      name: 'rep', usage: 'rep <helix|bastion|nomad|ceres|한국어> <±n>', description: '기업 신뢰도를 더하거나 뺍니다',
+      name: 'rep', usage: 'rep <helix|bastion|nomad|ceres|atlas|한국어> <±n>', description: '기업 신뢰도를 더하거나 뺍니다',
       run: (args) => {
         if (args.length < 2) return { error: '사용법: /rep <기업> <±n>' };
         const corp = sys.resolveCorp(args.slice(0, -1).join(' '));
@@ -194,6 +194,52 @@ export function registerConsole(sys: MetaSystem): void {
         if (args.length === 2 && args[0] === 'flags') return NPC_FLAGS.filter((s) => s.startsWith(args[1] ?? ''));
         if (args.length === 2 && args[0] === 'contact') return NPC_DEFS.map((d) => d.id).filter((s) => s.startsWith(args[1] ?? ''));
         if (args.length === 2) return NPC_QUEST_DEFS.map((d) => d.id).filter((s) => s.startsWith(args[1] ?? ''));
+        return [];
+      },
+    },
+    /*
+     * 2026-09-21: the mailbox. `mail send [<defId> <qty> …]` delivers a test mail (a fresh id every time, so it is never
+     * swallowed by the idempotent `send`); with no items it carries a bandage stack and a sapphire.
+     */
+    {
+      name: 'mail', usage: 'mail list|send [<defId> <qty> …]|claim|clear|reset', description: '우편함 — 테스트 메일 보내기 / 목록 / 모두 받기 / 읽은 메일 삭제 / 초기화',
+      run: (args) => {
+        const mail = sys.mail;
+        const sub = (args[0] ?? 'list').toLowerCase();
+        if (sub === 'list') {
+          const l = mail.list();
+          if (l.length === 0) return '우편함이 비었습니다';
+          return l.map((m) => `${m.read ? ' ' : '*'} ${m.id} · ${m.fromName} · ${m.subject}${m.items.length ? ` · 첨부 ${m.items.map((i) => `${i.defId}×${i.qty}`).join(', ')}` : ''}`).join('\n');
+        }
+        if (sub === 'send') {
+          const items: { defId: string; qty: number }[] = [];
+          for (let i = 1; i < args.length; i += 2) {
+            const defId = args[i];
+            const qty = args[i + 1] === undefined ? 1 : num(args[i + 1]);
+            if (!sys.ctx.loot?.getItemDef(defId)) return { error: `알 수 없는 아이템: ${defId}` };
+            if (Number.isNaN(qty) || qty < 1) return { error: `수량이 올바르지 않습니다: ${args[i + 1]}` };
+            items.push({ defId, qty: Math.floor(qty) });
+          }
+          if (items.length === 0) items.push({ defId: 'heal_bandage', qty: 3 }, { defId: 'gem_sapphire', qty: 1 });
+          const id = `dev:${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
+          const ok = mail.send({
+            id, from: '시스템', subject: '테스트 메일',
+            body: '개발 콘솔에서 보낸 테스트 메일입니다.\n첨부 아이템은 함선 창고로 받습니다.',
+            items,
+          });
+          return ok ? `메일 발송: ${id}` : { error: '발송 실패' };
+        }
+        if (sub === 'claim') return `모두 받기: ${mail.claimAll()}`;
+        if (sub === 'clear') return `읽은 메일 ${mail.deleteRead()}통 삭제`;
+        if (sub === 'reset') { sys.mailPart.reset(); return '우편함 초기화'; }
+        return { error: '사용법: /mail list|send [<defId> <qty> …]|claim|clear|reset' };
+      },
+      complete: (args) => {
+        if (args.length <= 1) return ['list', 'send', 'claim', 'clear', 'reset'].filter((s) => s.startsWith((args[0] ?? '').toLowerCase()));
+        if (args[0] === 'send' && args.length % 2 === 0) {
+          const q = args[args.length - 1] ?? '';
+          return (sys.ctx.loot?.getAllItemDefs() ?? []).map((d) => d.id).filter((s) => s.startsWith(q)).slice(0, 40);
+        }
         return [];
       },
     },

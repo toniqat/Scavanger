@@ -139,6 +139,14 @@ gad_remote_mine,원격 지뢰,gadget,rare,1,1,3,340,0.9,▣,true,remoteMine,,,,,
 gad_drone_ground,지상 드론,gadget,rare,2,2,1,1150,1.6,⛭,true,droneGround,,,,,,,,,,"바닥에 내려놓고 조종하는 정찰 드론. 꺼내도 사라지지 않고 조종기로 남으며, 드론이 부서지면 하나가 사라진다. 위에 지뢰를 올릴 수 있다.",,,,,,,,,,,,,,,,,,,,,,,,,,1
 gad_drone_air,공중 드론,gadget,epic,2,2,1,2200,1.2,✈,true,droneAir,,,,,,,,,,"공중에 띄워 조종하는 정찰 드론. 꺼내도 사라지지 않고 조종기로 남으며, 드론이 부서지면 하나가 사라진다. 연결이 끊겨도 제자리에 떠 있다.",,,,,,,,,,,,,,,,,,,,,,,,,,1
 gad_thumper,진동 장치,gadget,rare,1,2,1,900,2.5,⏚,true,thumper,,,,,,,,,,"땅에 박아 두면 1초마다 바닥을 내리친다. 다섯 번째 타격에 땅굴벌레가 그 자리로 찾아온다. 회수할 수 없고, 벌레가 솟구치면 부서진다.",,,,,,,,,,,,,,,,,,,,,,,,,,1
+# 2026-09-21 조사 카메라 (src/survey): 퀵슬롯에 넣어 드는 **내구도 도구**. gadgetId 가 없다 — 손에 들면 weapons/ 가 조사 카메라로 다룬다 (shared/survey.ts surveyCameraOf).
+#   등급별 기록 속도는 data/survey_cameras.csv, 내구도는 durabilityMax (= 기록 가능한 초 — constants.csv SURVEY_CAMERA_WEAR_PER_S). 수리 · 분해는 recipes.csv 의 make_cam_survey_*.
+#   상자 · 시체에서는 나오지 않는다 (items/LootTables.isLootableDef) — 윤시아의 우편과 아틀라스 측량 상점이 출처다.
+cam_survey_1,조사 카메라,gadget,common,2,1,1,180,0.9,◙,true,,300,,,,,,,,,"아틀라스 측량의 보급형 조사 카메라. 좌클릭을 누르고 있으면 프레임 안의 대상을 기록하고, 우클릭으로 줌을 당긴다."
+cam_survey_2,개량형 조사 카메라,gadget,uncommon,2,1,1,300,0.9,◙,true,,400,,,,,,,,,"센서를 바꿔 단 조사 카메라. 같은 시간에 더 많이 기록한다."
+cam_survey_3,정밀 조사 카메라,gadget,rare,2,1,1,480,1.0,◙,true,,500,,,,,,,,,"광학 안정 장치가 달린 현장 조사용 카메라."
+cam_survey_4,광역 조사 카메라,gadget,epic,2,1,1,760,1.1,◙,true,,650,,,,,,,,,"아틀라스 조사팀 정식 장비. 먼 대상도 선명하게 기록한다."
+cam_survey_5,아틀라스 조사 카메라,gadget,legendary,2,1,1,1400,1.2,◙,true,,800,,,,,,,,,"아틀라스 측량이 최상위 조사원에게만 내주는 카메라."
 
 prep_respirator,여과 호흡기,prep,uncommon,1,2,2,180,0.90,⌾,,,,,,,,,,,,"유독 대기를 걸러 내는 반면형 호흡기. 함선에서 쓰면 다음 레이드 한 번 동안 유독 환경 피해를 완전히 막는다.",,,,,toxin,방독
 prep_coolant,내열 냉각재,prep,uncommon,1,2,2,180,0.90,⌾,,,,,,,,,,,,"몸에 두르는 상변화 냉각재. 함선에서 쓰면 다음 레이드 한 번 동안 고온 환경 피해를 완전히 막는다.",,,,,heat,내열

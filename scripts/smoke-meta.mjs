@@ -263,7 +263,7 @@ try {
   await P(() => window.__game.ctx.meta.save());
   const setsS = await P(() => ({ sets: window.__fakeProfile.sets.slice(), doc: window.__fakeProfile.docs.meta }));
   // 2026-09-14: MetaSave v2 (the NPC quests' `npc`)
-  ok(setsS.sets.includes('meta') && setsS.doc && setsS.doc.v === 2 && setsS.doc.credits === tx.credits, "save → profile.set('meta', save)", JSON.stringify({ sets: setsS.sets, credits: setsS.doc?.credits, v: setsS.doc?.v }));
+  ok(setsS.sets.includes('meta') && setsS.doc && setsS.doc.v === 3 && setsS.doc.credits === tx.credits, "save → profile.set('meta', save)", JSON.stringify({ sets: setsS.sets, credits: setsS.doc?.credits, v: setsS.doc?.v }));
   // net:profileLoaded: the server document replaces the save, the balance is the server's
   const snapS = await P(() => JSON.parse(localStorage.getItem('scav.s1.meta')));
   const loadedBefore = (await ev('meta:loaded')).length;
@@ -580,8 +580,8 @@ try {
   const snap = { credits: await credits(), rep: (await rep('helix')).rep, level: (await rep('helix')).level };
   await P(() => window.__game.ctx.meta.save());
   const saved = await P(() => { try { return JSON.parse(localStorage.getItem('scav.s1.meta')); } catch { return null; } });
-  ok(saved && saved.v === 2 && saved.credits === snap.credits && saved.corps.helix.rep === snap.rep && saved.activeContract === null && saved.npc && typeof saved.npc.quests === 'object',
-    'localStorage scav.s1.meta v2 holds credits / rep / npc', JSON.stringify(saved && { v: saved.v, credits: saved.credits, npc: !!saved.npc }));
+  ok(saved && saved.v === 3 && saved.credits === snap.credits && saved.corps.helix.rep === snap.rep && saved.activeContract === null && saved.npc && typeof saved.npc.quests === 'object',
+    'localStorage scav.s1.meta v3 holds credits / rep / npc', JSON.stringify(saved && { v: saved.v, credits: saved.credits, npc: !!saved.npc }));
   await page.reload({ waitUntil: 'load' });
   await boot();
   ok(await credits() === snap.credits, `credits persisted (${snap.credits})`, `${await credits()}`);
@@ -595,7 +595,8 @@ try {
     // 2026-09-07: the standalone `.menu.corp-menu` overlay is gone — the 기업 screen is the Tab window's 기업 tab
     const root = document.querySelector('.inv-screen.corp-view');
     if (!root) return null;
-    const tabs = [...root.querySelectorAll('.corp-tab')].map((b) => ({ corp: b.dataset.corp, on: b.classList.contains('is-on') }));
+    const tabs = [...root.querySelectorAll('.corp-tab:not([hidden])')]   // 2026-09-21: `atlas` sits hidden until q_at_1
+      .map((b) => ({ corp: b.dataset.corp, on: b.classList.contains('is-on') }));
     // Phase 12: the 임플란트 tab exists in the DOM for every corp but is `hidden` unless the corp is 세레스 바이오
     const subs = [...root.querySelectorAll('.corp-subtabs .scr-tab:not([hidden])')].map((b) => ({
       page: b.dataset.page, on: b.classList.contains('is-on'),
@@ -613,7 +614,7 @@ try {
       // 2026-09-12 2nd pass (user's decision): that column is **a panel of its own, separate from the main one** —
       // `.corp-rail` comes out as a direct child of the screen host (`.corp-view`) rather than of `.corp-shell`, and
       // stands on its own left of the screen centre. The '기업' label top left was removed too.
-      railTabs: root.querySelectorAll('.corp-view > .corp-rail .corp-tabs .corp-tab').length,
+      railTabs: root.querySelectorAll('.corp-view > .corp-rail .corp-tabs .corp-tab:not([hidden])').length,
       railDetached: !root.querySelector('.corp-shell .corp-rail'),
       railOrder: [...root.querySelectorAll('.corp-view > .corp-rail > *')].map((e) => e.className.split(' ')[0]),
       tree: [...root.querySelectorAll('.corp-rail .corp-tabs > *')].map((e) => e.classList.contains('corp-branch') ? 'branch' : e.dataset.corp),

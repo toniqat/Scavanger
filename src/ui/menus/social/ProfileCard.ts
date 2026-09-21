@@ -31,7 +31,7 @@ export function inviteBadgeText(until: number, now: number): string | null {
  * 아이디 and the level — `초대 중 · 72초`, counting down to `inviteAt + SQUAD_INVITE_TTL_S` on the relay clock (`now`).
  * The deadline rides on `data-until` so the column can tick the text without rebuilding the card.
  */
-export function buildProfileCard(p: SocialPlayer, h: ProfileCardHandlers, request = false, now = Date.now()): HTMLElement {
+export function buildProfileCard(p: SocialPlayer, h: ProfileCardHandlers, request = false, now = Date.now(), trust: HTMLElement | null = null): HTMLElement {
   const card = el('div', { cls: `sc-card is-${p.presence}${request ? ' is-request' : ''}` });
   card.dataset.code = p.code;
   const top = el('div', { cls: 'sc-top', parent: card });
@@ -49,6 +49,8 @@ export function buildProfileCard(p: SocialPlayer, h: ProfileCardHandlers, reques
   const pres = el('span', { cls: 'sc-pres', parent: bot });
   el('i', { cls: 'dot', parent: pres });
   el('span', { cls: 't', text: PRESENCE_LABELS[p.presence] ?? '오프라인', parent: pres });
+  /* 2026-09-21: player ↔ player trust under the name (friends · recent players — the column passes it). */
+  if (trust) card.appendChild(trust);
 
   if (request && h.onRespond) {
     const acts = el('div', { cls: 'sc-acts', parent: card });

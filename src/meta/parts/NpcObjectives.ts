@@ -15,6 +15,8 @@
  */
 import type { MissionStats, NpcInteractKind, NpcObjectiveDef, NpcObjectiveKind, NpcQuestDef, NpcQuestSave, WeaponClass } from '@/shared';
 import { NPC_QUEST_MAP, NPC_RAID_OBJECTIVE_KINDS, raidFoundSeed } from '@/shared';
+/* 2026-09-21: the `survey` objective reads the survey subjects' account progress */
+import { SURVEY_SUBJECTS } from '@/shared';
 import { enemyMatches } from '../NpcRules';
 import type { NpcQuests } from './NpcQuests';
 
@@ -170,4 +172,40 @@ export function resetRaid(nq: NpcQuests): void {
   nq.raidProgress.clear();
   nq.searched.clear();
   nq.discovered.clear();
+}
+
+/* ── 2026-09-21: survey objectives ─────────────────────────────────────────
+ * A `survey` objective is not a raid objective: it mirrors a subject's **account** progress (`ctx.survey`), which
+ * never goes down, so every rise is written straight into the saved progress (`NpcQuestSave.p`, whole percent) and
+ * the objective is done the moment it reaches `target`. Called on `survey:progress`, on accept (a subject already
+ * recorded before the quest counts at once) and on profile load. */
+
+/** Whole percent a `survey` objective reads — its subject's, or the best of every subject when it names none. */
+function surveyPercent(nq: NpcQuests, o: NpcObjectiveDef): number {
+  const s = nq.ctx.survey;
+  if (!s) return 0;
+  let p = 0;
+  if (o.subject) p = s.progressOf(o.subject);
+  else for (const d of SURVEY_SUBJECTS) p = Math.max(p, s.progressOf(d.id));
+  return Math.floor(Math.max(0, Math.min(1, p)) * 100 + 1e-6);
+}
+
+/** `readyCheck` false = the caller runs `checkReady` itself (accept — so `npc:questReady` goes out once). */
+export function syncSurvey(nq: NpcQuests, readyCheck = true): void {
+  for (const [def, s] of actives(nq)) {
+    let any = false;
+    def.objectives.forEach((o, i) => {
+      if (o.kind !== 'survey' || confirmed(s, o, i)) return;
+      const before = s.p[i] ?? 0;
+      const v = Math.min(o.target, surveyPercent(nq, o));
+      if (v <= before) return;
+      s.p[i] = v;
+      any = true;
+      // `raid` = it happened in a raid, so the HUD's 「퀘스트 목표 달성」 toast fires when it completes there
+      nq.ctx.bus.emit('npc:objectiveProgress', { questId: def.id, index: i, progress: v, target: o.target, done: v >= o.target, delta: v - before, raid: nq.counting() });
+    });
+    if (!any) continue;
+    nq.sys.store.markDirty();
+    if (readyCheck) nq.checkReady(def, s);
+  }
 }

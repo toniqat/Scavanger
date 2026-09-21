@@ -54,7 +54,8 @@ function objectiveRow(q: NpcQuestInfo, o: NpcObjectiveInfo, mode: QuestCardMode,
   const main = el('div', { cls: 'ms-qomain', parent: row });
   const line = el('div', { cls: 'ms-qoline', parent: main });
   el('span', { cls: 'ms-qolabel', text: o.label, parent: line });
-  el('span', { cls: 'ms-qokind', text: o.raid ? '레이드' : '함선', parent: line });
+  // A survey objective counts wherever the camera records (raids only), so neither 레이드 nor 함선 says it right.
+  el('span', { cls: 'ms-qokind', text: o.def.kind === 'survey' ? '조사' : o.raid ? '레이드' : '함선', parent: line });
   if (showProgress) {
     const shown = Math.max(0, Math.min(o.progress, o.target));
     el('span', { cls: 'ms-qonum ui-mono', text: `${shown} / ${o.target}`, parent: line });

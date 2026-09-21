@@ -28,7 +28,9 @@ export const NPC_ROLES = ['executive', 'staff', 'independent'] as const;
 export type NpcRole = typeof NPC_ROLES[number];
 export const NPC_ROLE_LABEL_KO: Readonly<Record<NpcRole, string>> = { executive: '임원', staff: '직원', independent: '무소속' };
 
-export const NPC_OBJECTIVE_KINDS = ['deliver', 'recover', 'interact', 'kill', 'discover', 'search'] as const;
+export const NPC_OBJECTIVE_KINDS = ['deliver', 'recover', 'interact', 'kill', 'discover', 'search',
+  /* appended 2026-09-21: a survey subject's account progress (`subject` column, percent target) — not a raid kind */
+  'survey'] as const;
 export type NpcObjectiveKind = typeof NPC_OBJECTIVE_KINDS[number];
 /** Objectives filled inside a raid (the training range excluded). Only `deliver` is filled in the ship. */
 export const NPC_RAID_OBJECTIVE_KINDS: ReadonlySet<NpcObjectiveKind> = new Set(['recover', 'interact', 'kill', 'discover', 'search']);
@@ -43,7 +45,7 @@ export type NpcEnemyGroup = typeof NPC_ENEMY_GROUPS[number];
 
 const WEAPON_CLASSES: readonly WeaponClass[] = ['AR', 'SMG', 'SR', 'DMR', 'SG', 'PISTOL'];
 const STRUCTURE_KINDS: readonly StructureKind[] = ['outpost', 'lab', 'wreck'];
-const CORPS: readonly string[] = ['helix', 'bastion', 'nomad', 'ceres'];
+const CORPS: readonly string[] = ['helix', 'bastion', 'nomad', 'ceres', /* appended 2026-09-21: the survey corp */ 'atlas'];
 const PLANETS: readonly string[] = ['amber', 'tundra', 'mossy', 'ashen', 'crimson'];
 
 /** The `item` column's 「그 계열 총기 아무거나」 (any weapon of that class) notation: `weapon:SG`. */
@@ -511,3 +513,52 @@ export interface NpcQuestRef {
   /** Adds to the cumulative count (no negatives). A change makes the contact conditions be looked at again. */
   bumpFlag(flag: NpcFlag, delta?: number): void;
 }
+
+/* ══ appended 2026-09-21 (agent SURVEY): the `survey` objective's subject · a quest offer that mails a parcel ══ */
+import { SURVEY_SUBJECT_MAP } from './survey';
+
+export interface NpcObjectiveDef {
+  /**
+   * `survey` only: the subject id (`data/survey_subjects.csv`) whose **account** progress must reach `target` %.
+   * Absent = any subject. Committed the moment it is reached (survey progress never goes down).
+   */
+  subject?: string;
+}
+
+export interface NpcQuestDef {
+  /**
+   * A parcel mailed **when this quest is offered** (`npc_quests.csv` `mailSubject` · `mailBody` · `mailItems`) —
+   * `MailRef.send` with the id `npc:<npc>:<quest id>`, so a re-offer never mails twice. Absent = no mail.
+   */
+  mail?: { subject: string; body: string; items: readonly { defId: string; qty: number }[] };
+}
+
+/* The base loader above does not know the `subject` column (it predates it): read it here, row by row in the same
+ * order, and attach it to the objective it built. A `survey` row with an unknown subject, or a `subject` on any
+ * other kind, is reported. */
+{
+  const counters = new Map<string, number>();
+  for (const r of csvRows('npc_objectives.csv')) {
+    const quest = r.raw('quest');
+    const i = counters.get(quest) ?? 0;
+    counters.set(quest, i + 1);
+    const o = OBJECTIVES_BY_QUEST.get(quest)?.[i];
+    if (!o) continue;
+    const subject = r.optStr('subject');
+    if (o.kind !== 'survey') {
+      if (subject) issue(r, 'subject', `'${o.kind}' 목표에는 subject 가 쓰이지 않는다`);
+      continue;
+    }
+    if (subject && !SURVEY_SUBJECT_MAP.has(subject)) { issue(r, 'subject', `모르는 조사 대상 '${subject}' (data/survey_subjects.csv)`); continue; }
+    if (o.target > 100) issue(r, 'target', 'survey 목표의 target 은 퍼센트(1–100)다');
+    if (subject) (o as { subject?: string }).subject = subject;
+  }
+  for (const r of csvRows('npc_quests.csv')) {
+    const def = NPC_QUEST_MAP.get(r.raw('id'));
+    if (!def || !(r.has('mailSubject') || r.has('mailBody') || r.has('mailItems'))) continue;
+    (def as { mail?: NpcQuestDef['mail'] }).mail = {
+      subject: r.str('mailSubject'), body: r.str('mailBody'), items: r.has('mailItems') ? r.costList('mailItems') : [],
+    };
+  }
+}
+/* ══ end SURVEY ══ */

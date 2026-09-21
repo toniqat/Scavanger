@@ -19,8 +19,10 @@ const T = /* data/tuning.csv */ keyTable('tuning.csv');
  * can label things without importing meta/.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-export type CorpId = 'helix' | 'bastion' | 'nomad' | 'ceres';
-export const CORP_IDS: readonly CorpId[] = ['helix', 'bastion', 'nomad', 'ceres'];
+export type CorpId = 'helix' | 'bastion' | 'nomad' | 'ceres'
+  /* appended 2026-09-21: the survey corporation (`shared/survey.ts` `SURVEY_CORP_ID`) — hidden until its NPC's first quest */
+  | 'atlas';
+export const CORP_IDS: readonly CorpId[] = ['helix', 'bastion', 'nomad', 'ceres', /* appended 2026-09-21 */ 'atlas'];
 
 /**
  * One line of a corp's shop stock. An `ItemDef` is sold by a corp when any rule matches: same `category`; for
@@ -471,3 +473,9 @@ export interface MetaSave {
   intel?: IntelSpec | null;
 }
 /* ══ end 2026-09-14 the intel broker · NPC trust ══ */
+
+/* ══ appended 2026-09-21: mailbox (owner: meta — `shared/mail.ts`) ══ */
+export interface MetaRef {
+  /** The mailbox. Absent on an older build. */
+  mail?: import('./mail').MailRef;
+}

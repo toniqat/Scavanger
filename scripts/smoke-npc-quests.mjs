@@ -433,7 +433,7 @@ try {
   const snap = await P((n) => { const r = window.__game.ctx.meta.npc; window.__game.ctx.meta.save(); return { msgs: r.getMessages(n).length, quests: r.getQuests().map((q) => `${q.def.id}:${q.state}`).sort(), unread: r.unreadTotal }; }, NPC0);
   const saved = await P(() => { try { return JSON.parse(localStorage.getItem('scav.s1.meta')); } catch { return null; } });
   // 2026-09-14 3rd pass: `getQuests()` drops offered, so the saved quest count is **greater than or equal to** it
-  ok(saved && saved.v === 2 && saved.npc && Object.keys(saved.npc.quests).length >= snap.quests.length && Array.isArray(saved.npc.log[NPC0]), 'localStorage meta v2 carries npc contacts / log / quests',
+  ok(saved && saved.v === 3 && saved.npc && Object.keys(saved.npc.quests).length >= snap.quests.length && Array.isArray(saved.npc.log[NPC0]), 'localStorage meta v3 carries npc contacts / log / quests',
     JSON.stringify(saved && { v: saved.v, quests: Object.keys(saved.npc?.quests ?? {}).length }));
   await page.reload({ waitUntil: 'load' });
   await boot();

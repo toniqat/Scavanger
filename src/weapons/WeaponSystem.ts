@@ -32,6 +32,8 @@ import * as Defib from './parts/Defib';
 import * as AllyHeal from './parts/AllyHeal';
 import * as Svc from './parts/Services';
 import * as Aim from './parts/AimLine';
+/* 2026-09-21: the survey camera as the held quick item (input routing only — survey/ does the recording) */
+import * as SurveyHand from './parts/SurveyHand';
 
 export class WeaponSystem implements GameSystem {
   readonly name = 'weapons';
@@ -182,6 +184,12 @@ export class WeaponSystem implements GameSystem {
   allyAimName: string | null | undefined = undefined;
 
 
+  /**
+   * 2026-09-21: the survey camera in hand, published as `ctx.weapons.surveyHand` (survey/ reads it) — mutated in
+   * place every frame by `parts/SurveyHand`.
+   */
+  readonly surveyHand = SurveyHand.makeSurveyHand();
+
   readonly camHit = makeHit();
   readonly gunHit = makeHit();
   /**
@@ -234,6 +242,8 @@ export class WeaponSystem implements GameSystem {
       getGrenades: () => this.grenades.getViews(),
       // Phase 7: per-frame pose / held item / attachment list for the player snapshot (`PlayerSnapshot.h / att`, THROWING… flags)
       remoteState: this.remoteState,
+      // 2026-09-21: the survey camera as the held item (`parts/SurveyHand`) — read by survey/
+      surveyHand: this.surveyHand,
       // 2026-09-16 (the bottom-right weapon panel): the HUD asks every frame — to draw 「the last primary held」
       //   dimmed while a consumable is in hand or the gun is holstered, `weapon:equipped` alone is not enough (a
       //   swap or a loadout change finished with a consumable in hand never emits it). A melee swing does not count
@@ -459,6 +469,7 @@ export class WeaponSystem implements GameSystem {
     //   a consumable is held; with none it is never called, so the last name would stay up).
     if (!this.quick) this.emitAllyAim(null, false, null);
     let uniqueUpdated = false;
+    SurveyHand.beginSurveyFrame(this);   // 2026-09-21: raised again below only while the camera takes input
     if (this.phase === 'swapping') this.updateSwap(dt);
     else if (this.phase === 'reloading') this.updateReload(dt);
     else if (this.quick) this.updateQuickHand(dt, host, usable, inputFree);
@@ -502,6 +513,9 @@ export class WeaponSystem implements GameSystem {
     const ws = this.weaponState;
     const armed = !!weapon && !this.holstered;
     ws.hasWeapon = armed;
+    // 2026-09-21: aim held with the survey camera in hand = the camera's zoom, which is the gun ADS path in
+    //   player/ (it enters ADS only with `hasWeapon`). The gun itself stays drawn down (`quick` is set).
+    if (this.surveyHand.aimed) ws.hasWeapon = true;
     ws.reloading = armed && this.phase === 'reloading';
     ws.firing = armed && this.firingTimer > 0;
     ws.twoHanded = armed && weapon ? weapon.stats.weaponClass !== 'PISTOL' : false;
@@ -917,6 +931,14 @@ export class WeaponSystem implements GameSystem {
 
   /** Button released, swap, implant wield, death / downed, phase change, world reset: the hold is thrown away. */
   cancelHeal(): void { return Heal.cancelHeal(this); }
+
+  /* ── the survey camera (2026-09-21, parts/SurveyHand) ── */
+  /** Is the thing in hand a survey camera — `updateQuickHand` sends only this hand to `updateSurveyHand`. */
+  isSurveyHand(q: QuickHand): boolean { return SurveyHand.isSurveyHand(q); }
+  /** Every frame with the camera in hand: zoom hand-off + the fire / aim flags of `surveyHand`. */
+  updateSurveyHand(inputFree: boolean): void { return SurveyHand.updateSurveyHand(this, inputFree); }
+  /** The camera's zoom through the gun zoom cache (`parts/Firing.applyCameraZoom`). */
+  applyCameraZoom(zoom: number): void { return Fire.applyCameraZoom(this, zoom); }
 
   /* ── defibrillator aiming (2026-09-15, parts/Defib) ── */
   /** Is the thing in hand a defibrillator — `updateQuickHand` sends only this hand to `updateDefibHand`. */

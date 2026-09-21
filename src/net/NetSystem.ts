@@ -21,6 +21,9 @@ import { ProfileSync } from './ProfileSync';
 import { PROFILE_QUEUE_STORAGE_KEY } from '@/shared';
 import { SocialSync } from './SocialSync';
 import { RoomSync } from './RoomSync';
+/* 2026-09-21: player ↔ player trust (`ctx.net.trust`) */
+import { TrustSync } from './TrustSync';
+import type { TrustRef } from '@/shared';
 import type { RoomsRef } from '@/shared';
 import { RemotePlayer } from './RemotePlayer';
 import { Snapshotter } from './Snapshotter';
@@ -136,6 +139,8 @@ export class NetSystem implements GameSystem, NetRef {
   readonly socialSync = new SocialSync();
   /** 2026-09-14: `ctx.net.rooms` — the group-room mirror (`RoomSync`). */
   readonly roomSync = new RoomSync();
+  /** 2026-09-21: `ctx.net.trust` — pair trust with other players, pushed by the relay (`TrustSync`). */
+  readonly trustSync = new TrustSync();
 
   /* ── A-3c (2026-09-11) → the dining plate (2026-09-16) ── */
   /** 2026-09-16: the dining plate — `plate state` / `plateq sync` (`parts/Plates`). */
@@ -205,6 +210,8 @@ export class NetSystem implements GameSystem, NetRef {
   get social(): SocialRef { return this.socialSync; }
   /** 2026-09-14: group rooms (always present; `available` is false offline / anonymous / a relay without rooms). */
   get rooms(): RoomsRef { return this.roomSync; }
+  /** 2026-09-21: player ↔ player trust (always present; values are all zero until the relay pushes a snapshot). */
+  get trust(): TrustRef { return this.trustSync; }
   /* ── Phase 8 ── */
   /**
    * Relay wall clock in epoch ms: the offset captured at the last `welcome` / `pong` plus the elapsed local time.
@@ -249,6 +256,9 @@ export class NetSystem implements GameSystem, NetRef {
     this.roomSync.serverNow = () => this.serverNow();
     this.roomSync.me = () => this.socialSync.me;
     this.roomSync.isBlocked = (code) => this.socialSync.isBlocked(code);
+    /* 2026-09-21: the trust mirror only sends `trust:like` and emits bus facts. */
+    this.trustSync.bus = ctx.bus;
+    this.trustSync.send = (m) => this.client.send(m);
 
     try {
       const stored = localStorage.getItem(slotKey(NAME_STORAGE_KEY));
@@ -271,6 +281,7 @@ export class NetSystem implements GameSystem, NetRef {
         this.profileSync.onDisconnected();
         this.socialSync.onDisconnected();   // Phase 11: nothing social survives a connection (the server owns it)
         this.roomSync.onDisconnected();     // 2026-09-14: rooms are server-owned too (the line cache stays)
+        this.trustSync.onDisconnected();    // 2026-09-21: likes wait for the next welcome (values stay for display)
         this.cryptoMarket.onDisconnected(); // 2026-09-13: prices are only `available` on a live connection
         this.onSocketDown(wasConnected);
       }

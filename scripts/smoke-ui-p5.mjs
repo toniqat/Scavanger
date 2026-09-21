@@ -1,6 +1,7 @@
 // Phase 5 HUD / menu smoke (src/ui): title `Lv. n` chip, contract panel under the objective, meta toasts (credits chip,
 // reputation level, contract settlement, quest / purchase / sale lines) and the result-screen XP settlement block
-// (count-up, level-up highlight + audio, XP bar, contract line). Enters a solo mission, then feeds synthetic bus events
+// (count-up, level-up highlight + audio, XP bar, contract line — since 2026-09-21 on the paged result screen: `.rewards`
+// is page ②, reached with `resultBody.next()`, and the contract line is page ③'s `.rs-ct` row; smoke-results.mjs owns the pages). Enters a solo mission, then feeds synthetic bus events
 // from `page.evaluate` and asserts the DOM — `ctx.meta` may still be the skeleton.
 // Phase 7 additions: the level-up moment fires at the boundary crossing (badge + `.up-burst` + a single `audio:play
 // level_up`, no `progress:levelUp` toast), contract wording keyed on `settlement.outcome` (never `ctx.stats.extracted`),
@@ -12,7 +13,7 @@
 // cursor sprite + cursor mode on the map (no `exitPointerLock`), and the item card's `100 C` credit bar.
 // C-13 · C-19 (2026-09-11): the 회복 스프레이 ring never goes .ready at a full gauge, and the thin nameplate
 // shield bar (ref.shield / maxShield; hidden when downed or suspended). C-36 follow-up: the item card's
-// 가방 소모품 row. 142 checks. Needs the relay on 8787 too (the hub's
+// 가방 소모품 row. 153 checks. Needs the relay on 8787 too (the hub's
 // `ensureConnected` logs a console error otherwise), e.g. `npm run dev:all` or `npm run server` + a private vite.
 // Usage: node scripts/smoke-ui-p5.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
@@ -477,57 +478,91 @@ try {
   const live = await hud('metaToastCount');
   ok(live <= 4, `meta toast stack capped at 4 (${live})`);
 
+  // 2026-09-21 (paged result screen): the body is `results/ResultBody` — ① 전리품 (`.stats`) → ② 경험치 (`.rewards`) →
+  // ③ 분대 계약 (`.rs-ct` rows) → ④ 분대원 (squad raids only). The XP count-up starts when page ② is entered, so every
+  // `.rewards` read below comes after `resultBody.next()`; the contract line that used to sit in `.rewards` is page ③'s
+  // `.rs-ct` row (same outcome wording, `.is-success` / `.is-keep` / `.is-lost` for the old `.success` / `.keep` / `.lost`).
+  // The level label now reads `Lv. 2` until the count really crosses the boundary, then `Lv. 2 → 3`; the bar starts at
+  // the pre-raid XP walked back from the final `xp / xpToNext` (xpToNextLevel(2) = round(120 · 2^1.35) = 306 — `XP_BASE` ·
+  // `XP_EXPONENT` in data/constants.csv), so `40 / 300 XP` is the number after the count, not before it.
   console.log('mission complete rewards');
   const base = await P(() => JSON.parse(JSON.stringify(window.__game.ctx.stats)));
+  const pageOf = (w) => P((w) => { const b = window.__game.getSystem('hud')[w].resultBody; const m = document.querySelector(w === 'complete' ? '.menu.complete' : '.menu.death'); return { id: b.pageId, order: [...b.pageOrder], last: b.onLastPage, navHidden: m.querySelector('.rs-nav').hidden, actionsHidden: m.querySelector('.actions').hidden, stepsHidden: m.querySelector('.rs-steps').hidden }; }, w);
+  const nextPage = (w) => P((w) => window.__game.getSystem('hud')[w].resultBody.next(), w);
+  const ctRows = (sel) => P((s) => [...document.querySelectorAll(`${s} .rs-ct`)].map((r) => ({ cls: r.className, name: r.querySelector('.rs-ct-name')?.textContent ?? '', tag: r.querySelector('.rs-ct-tag')?.textContent ?? '', label: r.querySelector('.rs-ct-label')?.textContent ?? '', prog: r.querySelector('.rs-ct-prog')?.textContent ?? '', pay: r.querySelector('.rs-ct-pay')?.textContent ?? null })), sel);
+  const xpStart2 = Math.round(120 * Math.pow(2, 1.35)) - (340 - 40);
   await P(() => { window.__ev['audio:play'].length = 0; });
   await emit('game:complete', { stats: { ...base, extracted: true, lootValue: 900, rewards: { xpEarned: 340, levelBefore: 2, levelAfter: 3, xp: 40, xpToNext: 300, contract: { id: 'helix_1', corp: 'helix', name: '소탕 작전 I', success: true, progress: 25, target: 25, rep: 60, xp: 150, credits: 120 } } } });
-  let rw = await P(() => { const m = document.querySelector('.menu.complete'); const r = m.querySelector('.rewards'); return { menu: m.className, hidden: r.hidden, lv: r.querySelector('.lv').textContent, gain: r.querySelector('.xp-gain').textContent, num: r.querySelector('.xp-num').textContent, up: r.classList.contains('up'), badge: r.querySelector('.up-badge').hidden, contract: r.querySelector('.contract-line').textContent, ccls: r.querySelector('.contract-line').className, counting: window.__game.getSystem('hud').completeRewards.isCounting, order: (() => { const s = m.querySelector('.stats'); const a = m.querySelector('.actions'); return !!(s.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(r.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING); })() }; });
-  ok(!/\bhidden\b/.test(rw.menu) && !rw.hidden && rw.order, 'game:complete with rewards → .rewards block between stats and actions', `${rw.menu} hidden=${rw.hidden} order=${rw.order}`);
-  ok(rw.lv === 'Lv. 2 → 3' && !rw.up && rw.badge && rw.counting, 'Lv. 2 → 3, no highlight before the count-up ends', JSON.stringify(rw));
-  ok(rw.num === '40 / 300 XP', 'XP bar numbers 40 / 300 XP', rw.num);
-  ok(rw.contract === '계약 성공 · 소탕 작전 I · 신뢰도 +60 · 크레딧 +120 C' && /\bsuccess\b/.test(rw.ccls), 'contract success line (outcome wording)', `${rw.contract} ${rw.ccls}`);
+  let pg = await pageOf('complete');
+  ok(pg.id === 'loot' && JSON.stringify(pg.order) === '["loot","xp","contracts"]' && !pg.last && !pg.navHidden && pg.actionsHidden && !pg.stepsHidden,
+    'game:complete (solo, rewards) → page ① 전리품 of loot · xp · contracts, 다음 shown, 함선으로 귀환 hidden', JSON.stringify(pg));
+  let rw = await P(() => ({ hidden: document.querySelector('.menu.complete .rewards').hidden, counting: window.__game.getSystem('hud').completeRewards.isCounting }));
+  ok(rw.hidden && !rw.counting, 'page ① keeps .rewards hidden and the count-up waits for page ②', JSON.stringify(rw));
+  ok(await nextPage('complete'), 'resultBody.next() → true (moved to page ②)');
+  rw = await P(() => { const m = document.querySelector('.menu.complete'); const r = m.querySelector('.rewards'); return { menu: m.className, hidden: r.hidden, lv: r.querySelector('.lv').textContent, gain: r.querySelector('.xp-gain').textContent, num: r.querySelector('.xp-num').textContent, up: r.classList.contains('up'), badge: r.querySelector('.up-badge').hidden, cards: window.__game.getSystem('hud').completeRewards.cardViews, tag: window.__game.getSystem('hud').completeRewards.deathTag, counting: window.__game.getSystem('hud').completeRewards.isCounting, order: (() => { const s = m.querySelector('.stats'); const a = m.querySelector('.actions'); return !!(s.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(r.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING); })() }; });
+  ok(!/\bhidden\b/.test(rw.menu) && !rw.hidden && rw.order, 'page ② → .rewards block shown, DOM order stats → rewards → actions', `${rw.menu} hidden=${rw.hidden} order=${rw.order}`);
+  ok(rw.lv === 'Lv. 2' && !rw.up && rw.badge && rw.counting, 'Lv. 2 before the crossing, no highlight before the count-up ends', JSON.stringify(rw));
+  ok(rw.num === `${xpStart2} / 306 XP`, `XP bar starts at the pre-raid ${xpStart2} / 306 XP (walked back from 40 / 300)`, rw.num);
+  ok(rw.cards.length === 1 && rw.cards[0].id === 'total' && rw.tag === '', 'no producer cards → one card built from xpEarned, no 사망 tag', JSON.stringify(rw.cards) + rw.tag);
   // The level-up moment fires when the count-up crosses the boundary (bar hits the old cap), not at the end.
   const cross = await waitFor(page, () => {
     const r = document.querySelector('.menu.complete .rewards');
     if (!r.classList.contains('up')) return null;
-    return { gain: r.querySelector('.xp-gain').textContent, badge: r.querySelector('.up-badge').hidden, burst: !!r.querySelector('.up-burst'), bursting: window.__game.getSystem('hud').completeRewards.isBursting, counting: window.__game.getSystem('hud').completeRewards.isCounting, audio: window.__ev['audio:play'].filter((a) => a.id === 'level_up').length };
+    return { gain: r.querySelector('.xp-gain').textContent, lv: r.querySelector('.lv').textContent, badge: r.querySelector('.up-badge').hidden, burst: !!r.querySelector('.up-burst'), bursting: window.__game.getSystem('hud').completeRewards.isBursting, counting: window.__game.getSystem('hud').completeRewards.isCounting, audio: window.__ev['audio:play'].filter((a) => a.id === 'level_up').length };
   }, 'level-up crossing', 10000);
   const atCross = Number(cross.gain.replace(/[^\d]/g, ''));
   ok(cross.counting && atCross > 0 && atCross < 340, `.up fires mid count-up (${cross.gain}), not at the end`, JSON.stringify(cross));
-  ok(!cross.badge && cross.burst && cross.bursting, '레벨 업 badge + .up-burst light burst at the crossing', JSON.stringify(cross));
+  ok(cross.lv === 'Lv. 2 → 3', 'the level label turns Lv. 2 → 3 at the crossing', cross.lv);
+  // The badge is re-shown from the next rAF (animation restart without a layout read) — wait for it.
+  const badgeUp = await waitFor(page, () => !document.querySelector('.menu.complete .rewards .up-badge').hidden, 'level-up badge', 3000).catch(() => false);
+  ok(badgeUp && cross.burst && cross.bursting, '레벨 업 badge + .up-burst light burst at the crossing', JSON.stringify(cross));
   ok(cross.audio === 1, 'audio:play level_up emitted exactly once at the crossing', String(cross.audio));
   await waitSim(1.6);
-  rw = await P(() => { const r = document.querySelector('.menu.complete .rewards'); return { gain: r.querySelector('.xp-gain').textContent, fill: r.querySelector('.xp-bar .fill').style.transform, up: r.classList.contains('up'), badge: r.querySelector('.up-badge').hidden, counting: window.__game.getSystem('hud').completeRewards.isCounting, audio: window.__ev['audio:play'].filter((a) => a.id === 'level_up').length }; });
+  rw = await P(() => { const r = document.querySelector('.menu.complete .rewards'); return { gain: r.querySelector('.xp-gain').textContent, num: r.querySelector('.xp-num').textContent, lv: r.querySelector('.lv').textContent, fill: r.querySelector('.xp-bar .fill').style.transform, up: r.classList.contains('up'), badge: r.querySelector('.up-badge').hidden, counting: window.__game.getSystem('hud').completeRewards.isCounting, card: window.__game.getSystem('hud').completeRewards.cardViews[0], audio: window.__ev['audio:play'].filter((a) => a.id === 'level_up').length }; });
   ok(rw.gain === '+340' && !rw.counting, 'count-up ends at +340', rw.gain);
+  ok(rw.num === '40 / 300 XP' && rw.lv === 'Lv. 2 → 3' && rw.card.xp === '+340' && rw.card.state === 'done', 'XP bar numbers end at 40 / 300 XP, Lv. 2 → 3, card done at +340', JSON.stringify(rw));
   ok(rw.up && !rw.badge, 'level-up highlight (.up + 레벨 업 badge) stays after the count', JSON.stringify(rw));
   ok(/scaleX\(0\.13/.test(rw.fill), 'bar settles at 40 / 300 (13 %)', rw.fill);
   ok(rw.audio === 1, 'still a single level_up chime after the count (no second play at the end)', String(rw.audio));
   await sleep(1000);
   ok(await P(() => !document.querySelector('.menu.complete .rewards .up-burst')), 'burst element is removed after its animation');
+  ok(await nextPage('complete'), 'resultBody.next() → page ③ 분대 계약');
+  pg = await pageOf('complete');
+  let ct = await ctRows('.menu.complete');
+  ok(pg.id === 'contracts' && pg.last && pg.navHidden && !pg.actionsHidden, 'page ③ is the last solo page — 다음 hidden, 함선으로 귀환 shown', JSON.stringify(pg));
+  ok(ct.length === 1 && /\bis-me\b/.test(ct[0].cls) && /\bis-success\b/.test(ct[0].cls) && ct[0].tag === '계약 성공' && ct[0].label === '소탕 작전 I' && ct[0].prog === '25 / 25' && ct[0].pay === '신뢰도 +60 · 크레딧 +120 C',
+    'contract success row (outcome wording 계약 성공 · 소탕 작전 I · 25 / 25 · 신뢰도 +60 · 크레딧 +120 C, .is-success)', JSON.stringify(ct));
+  ok((await nextPage('complete')) === false, 'next() on the last page → false');
   await emit('game:phaseChanged', { phase: 'playing', prev: 'complete' });
   ok(await P(() => document.querySelector('.menu.complete').classList.contains('hidden')), 'complete screen hides when the phase moves on');
 
   console.log('death screen rewards');
   await emit('game:over', { stats: { ...base, extracted: false, rewards: { xpEarned: 80, levelBefore: 3, levelAfter: 3, xp: 120, xpToNext: 300, contract: { id: 'helix_2', corp: 'helix', name: '소탕 작전 II', success: false, progress: 12, target: 60, rep: 0, xp: 0, credits: 0 } } } });
-  rw = await P(() => { const m = document.querySelector('.menu.death'); const r = m.querySelector('.rewards'); return { menu: m.className, hidden: r.hidden, lv: r.querySelector('.lv').textContent, num: r.querySelector('.xp-num').textContent, fill: r.querySelector('.xp-bar .fill').style.transform, contract: r.querySelector('.contract-line').textContent, ccls: r.querySelector('.contract-line').className, counting: window.__game.getSystem('hud').deathRewards.isCounting }; });
-  ok(!/\bhidden\b/.test(rw.menu) && !rw.hidden && rw.counting, 'game:over with rewards → death screen .rewards block', `${rw.menu} hidden=${rw.hidden}`);
-  ok(rw.lv === 'Lv. 3' && rw.num === '120 / 300 XP', 'no level-up → Lv. 3, 120 / 300 XP', `${rw.lv} ${rw.num}`);
+  pg = await pageOf('death');
+  ok(pg.id === 'loot' && pg.order.join() === 'loot,xp,contracts', 'game:over with rewards → death screen opens on page ①', JSON.stringify(pg));
+  await nextPage('death');
+  rw = await P(() => { const m = document.querySelector('.menu.death'); const r = m.querySelector('.rewards'); return { menu: m.className, hidden: r.hidden, lv: r.querySelector('.lv').textContent, num: r.querySelector('.xp-num').textContent, fill: r.querySelector('.xp-bar .fill').style.transform, counting: window.__game.getSystem('hud').deathRewards.isCounting }; });
+  ok(!/\bhidden\b/.test(rw.menu) && !rw.hidden && rw.counting, 'page ② → death screen .rewards block counting', `${rw.menu} hidden=${rw.hidden}`);
+  ok(rw.lv === 'Lv. 3' && rw.num === '40 / 300 XP', 'no level-up → Lv. 3, starts at 40 / 300 XP', `${rw.lv} ${rw.num}`);
   ok(/scaleX\(0\.13/.test(rw.fill), 'bar starts at the pre-mission fraction (40 / 300)', rw.fill);
-  ok(rw.contract === '계약 실패 · 진척 유지 안 됨 · 소탕 작전 II 12 / 60' && /\blost\b/.test(rw.ccls), 'death contract line without outcome falls back to 계약 실패 · 진척 유지 안 됨 · p / t', `${rw.contract} ${rw.ccls}`);
   // 2026-09-09: auto-revive was dropped — this screen has no `부활` button; the only button left is `함선으로 귀환`.
   ok(!(await hud('isRaidFailed')) && (await P(() => !document.querySelector('.menu.death .ui-btn.respawn')
-    && [...document.querySelectorAll('.menu.death .ui-btn')].some((b) => b.textContent === '함선으로 귀환'))),
+    && [...document.querySelectorAll('.menu.death .actions .ui-btn')].map((b) => b.textContent).join() === '함선으로 귀환')),
   'plain death: no 부활 button any more, 함선으로 귀환 only');
   await waitSim(1.8);
-  rw = await P(() => { const r = document.querySelector('.menu.death .rewards'); return { gain: r.querySelector('.xp-gain').textContent, up: r.classList.contains('up'), fill: r.querySelector('.xp-bar .fill').style.transform, counting: window.__game.getSystem('hud').deathRewards.isCounting, audio: window.__ev['audio:play'].filter((a) => a.id === 'level_up').length }; });
-  ok(rw.gain === '+80' && !rw.counting && !rw.up && /scaleX\(0\.4/.test(rw.fill) && rw.audio === 1, 'death count-up ends at +80, bar 40 %, no level-up audio', JSON.stringify(rw));
+  rw = await P(() => { const r = document.querySelector('.menu.death .rewards'); return { gain: r.querySelector('.xp-gain').textContent, num: r.querySelector('.xp-num').textContent, up: r.classList.contains('up'), fill: r.querySelector('.xp-bar .fill').style.transform, counting: window.__game.getSystem('hud').deathRewards.isCounting, audio: window.__ev['audio:play'].filter((a) => a.id === 'level_up').length }; });
+  ok(rw.gain === '+80' && rw.num === '120 / 300 XP' && !rw.counting && !rw.up && /scaleX\(0\.4/.test(rw.fill) && rw.audio === 1, 'death count-up ends at +80, 120 / 300 XP, bar 40 %, no level-up audio', JSON.stringify(rw));
+  await nextPage('death');
+  ct = await ctRows('.menu.death');
+  ok(ct.length === 1 && ct[0].tag === '계약 실패 · 진척 유지 안 됨' && ct[0].label === '소탕 작전 II' && ct[0].prog === '12 / 60' && /\bis-lost\b/.test(ct[0].cls) && ct[0].pay === null,
+    'death contract row without outcome falls back to 계약 실패 · 진척 유지 안 됨 · p / t (.is-lost)', JSON.stringify(ct));
   await emit('game:phaseChanged', { phase: 'playing', prev: 'dead' });
   // outcome beats the screen: an `incomplete` settlement on the death screen still reads 계약 미완 · 계속
   await emit('game:over', { stats: { ...base, extracted: false, rewards: { xpEarned: 5, levelBefore: 3, levelAfter: 3, xp: 125, xpToNext: 300, contract: { id: 'helix_2', corp: 'helix', name: '소탕 작전 II', success: false, outcome: 'incomplete', progress: 12, target: 60, rep: 0, xp: 0, credits: 0 } } } });
-  rw = await P(() => { const r = document.querySelector('.menu.death .rewards'); return { contract: r.querySelector('.contract-line').textContent, ccls: r.querySelector('.contract-line').className }; });
-  ok(rw.contract === '계약 미완 · 계속 · 소탕 작전 II 12 / 60' && /\bkeep\b/.test(rw.ccls), 'outcome incomplete on the death screen → 계약 미완 · 계속 (.keep)', `${rw.contract} ${rw.ccls}`);
+  await nextPage('death'); await nextPage('death');
+  ct = await ctRows('.menu.death');
+  ok(ct.length === 1 && ct[0].tag === '계약 미완 · 계속' && ct[0].prog === '12 / 60' && /\bis-keep\b/.test(ct[0].cls), 'outcome incomplete on the death screen → 계약 미완 · 계속 (.is-keep)', JSON.stringify(ct));
   await emit('game:phaseChanged', { phase: 'playing', prev: 'dead' });
-
   console.log('raid failed');
   await P(() => { window.__ev['game:respawn'].length = 0; });
   await emit('game:raidFailed', { stats: { ...base, extracted: false } });
@@ -553,16 +588,24 @@ try {
 
   console.log('rewards hidden without data');
   await emit('game:complete', { stats: { ...base, extracted: true, rewards: { xpEarned: 10, levelBefore: 1, levelAfter: 1, xp: 10, xpToNext: 120, contract: null } } });
-  rw = await P(() => { const r = document.querySelector('.menu.complete .rewards'); return { hidden: r.hidden, chidden: r.querySelector('.contract-line').hidden, lv: r.querySelector('.lv').textContent }; });
-  ok(!rw.hidden && rw.chidden && rw.lv === 'Lv. 1', 'contract null → block shown, contract line hidden', JSON.stringify(rw));
+  pg = await pageOf('complete');
+  await nextPage('complete');
+  rw = await P(() => { const r = document.querySelector('.menu.complete .rewards'); return { hidden: r.hidden, lv: r.querySelector('.lv').textContent }; });
+  ok(pg.order.join() === 'loot,xp,contracts' && !rw.hidden && rw.lv === 'Lv. 1', 'contract null → XP page still shown (Lv. 1)', JSON.stringify({ pg, rw }));
+  await nextPage('complete');
+  rw = await P(() => { const m = document.querySelector('.menu.complete'); const e = m.querySelector('.rs-ct-empty'); return { rows: m.querySelectorAll('.rs-ct').length, empty: e.hidden, text: e.textContent }; });
+  ok(rw.rows === 0 && !rw.empty && rw.text === '진행 중인 계약이 없었습니다', 'contract null → page ③ has no row, 진행 중인 계약이 없었습니다', JSON.stringify(rw));
   await emit('game:phaseChanged', { phase: 'playing', prev: 'complete' });
   await emit('game:complete', { stats: { ...base, extracted: true } });
   rw = await P(() => { const m = document.querySelector('.menu.complete'); return { menu: m.className, hidden: m.querySelector('.rewards').hidden, counting: window.__game.getSystem('hud').completeRewards.isCounting }; });
+  pg = await pageOf('complete');
   ok(!/\bhidden\b/.test(rw.menu) && rw.hidden && !rw.counting, 'rewards undefined → block hidden (legacy emitter)', JSON.stringify(rw));
+  ok(pg.order.join() === 'loot' && pg.last && pg.stepsHidden && pg.navHidden && !pg.actionsHidden, 'rewards undefined → page ① only, no step strip, 함선으로 귀환 right away', JSON.stringify(pg));
   await emit('game:phaseChanged', { phase: 'playing', prev: 'complete' });
   await emit('game:over', { stats: { ...base, extracted: false } });
   rw = await P(() => ({ hidden: document.querySelector('.menu.death .rewards').hidden }));
-  ok(rw.hidden, 'death screen hides the block without rewards too', JSON.stringify(rw));
+  pg = await pageOf('death');
+  ok(rw.hidden && pg.order.join() === 'loot' && pg.last, 'death screen hides the block without rewards too (page ① only)', JSON.stringify({ rw, pg }));
   await emit('game:phaseChanged', { phase: 'playing', prev: 'dead' });
 
   console.log('suspended members / squad badges');

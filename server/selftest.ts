@@ -52,6 +52,9 @@ import { NET_ACCENT_PARAM } from '../src/shared/net.ts';
 import { ANDROID_BAY_COUNT, NET_MAX_PLAYERS, androidIdOf, androidPlayersOf, humanPlayersOf } from '../src/shared/net.ts';
 import { androidNameOf } from '../src/shared/allies.ts';
 import type { RelayServer } from './RelayServer.ts';
+/* 2026-09-21 — part 16: player ↔ player trust */
+import { TrustRaids } from './Trust.ts';
+import { TRUST_LIKE_ERROR_KO } from '../src/shared/playerTrust.ts';
 
 const GRACE_MS = 300;
 const results: string[] = [];
@@ -2619,6 +2622,9 @@ async function main(): Promise<void> {
 
     /* ══════════════════════ part 15 (2026-09-15): android squadmates — bot members ════════════════════ */
     await part15AndroidBots(url, server);
+
+    /* ══════════════════════ part 16 (2026-09-21): player ↔ player trust ════════════════════ */
+    await part16PlayerTrust();
   } catch (e) {
     fail('unexpected exception', (e as Error).message);
   } finally {
@@ -2659,6 +2665,15 @@ async function part11ProfileRevisions(url: string): Promise<void> {
   const a3 = await r.wait('profile:ack', (mm) => mm.writeId === 'w3');
   assert(a3.revs.meta === 2, 'E-6: baseRev = current rev → accepted, rev + 1', a3);
   assert(await r.expectNone('lobby:error', 100), 'E-6: revision writes never answer with lobby:error');
+
+  /* 2026-09-21: the survey camera's progress is a profile document too (`survey`, src/survey/parts/Store.ts) */
+  const SURVEY_DOC = { v: 1, s: { scavenger: { p: 0.25, pl: ['lumen'] } } };
+  r.send({ t: 'profile:set', key: 'survey', doc: SURVEY_DOC, baseRev: 0, writeId: 'sv1' });
+  const sv1 = await r.wait('profile:ack', (mm) => mm.writeId === 'sv1');
+  r.send({ t: 'profile:get' });
+  d = await r.wait('profile:docs');
+  assert(sv1.revs.survey === 1 && JSON.stringify(d.profile.docs.survey) === JSON.stringify(SURVEY_DOC) && d.profile.docsRev?.survey === 1,
+    'survey: profile:set survey is acked (rev 1) and profile:get returns it verbatim', { ack: sv1, doc: d.profile.docs.survey });
 
   /* transactions */
   r.send({ t: 'profile:setMany', txId: 'tx1', docs: { stash: { doc: { s: 1 }, baseRev: 0 }, loadout: { doc: { l: 1 }, baseRev: 0 } } });
@@ -2718,6 +2733,7 @@ async function part11ProfileRevisions(url: string): Promise<void> {
   ({ c: r, welcome: rw } = await connect('R11b', url, { token: T, name: '리비전' }));
   const rv = rw.profile?.docsRev;
   assert(rv?.meta === 3 && rv.stash === 2 && rv.loadout === 2 && rv.progression === 1 && rv.ship === undefined, 'E-6: welcome after a reconnect carries docsRev of every stored document', rv);
+  assert(rv?.survey === 1 && JSON.stringify(rw.profile?.docs.survey) === JSON.stringify(SURVEY_DOC), 'survey: the document comes back in welcome after a reconnect', rw.profile?.docs.survey);
   r.close();
 
   /* file round-trip: revs persist, a legacy document is seeded 1, hostile revs are cleaned */
@@ -2737,6 +2753,13 @@ async function part11ProfileRevisions(url: string): Promise<void> {
     const replayAfterRestart = s2.writeDocs('q', 'x2', { meta: { doc: { m: 2 }, baseRev: 1 } });
     assert(replayAfterRestart.kind === 'conflict', 'E-6 store: write ids are memory only — after a restart a resend is judged on its baseRev', replayAfterRestart);
     s2.close();
+    const s2s = new ProfileStore({ dataDir: dir, saveDebounceMs: 20, quiet: true });
+    s2s.writeDocs('qs', 'sv', { survey: { doc: { v: 1, s: { nest: { p: 1, pl: [] } } }, baseRev: 0 } });
+    s2s.close();
+    const s2r = new ProfileStore({ dataDir: dir, quiet: true });
+    assert(s2r.revOf('qs', 'survey') === 1 && JSON.stringify(s2r.snapshot('qs').docs.survey) === '{"v":1,"s":{"nest":{"p":1,"pl":[]}}}',
+      'survey store: the survey document round-trips through profiles.json', s2r.snapshot('qs').docs);
+    s2r.close();
     writeFileSync(join(dir, PROFILE_FILE), JSON.stringify({ v: 1, profiles: {
       legacy: { credits: 1, docs: { meta: { z: 1 }, stash: { z: 2 } }, updatedAt: 1 },
       hostile: { credits: 1, docs: { meta: { z: 1 }, ship: { z: 3 } }, updatedAt: 1, docsRev: { meta: -5, ship: 'x', stash: 9, bogus: 4 } },
@@ -3833,6 +3856,141 @@ async function part15AndroidBots(url: string, server: RelayServer): Promise<void
   for (const cl of [a, b, cc, dd]) cl.close();
   await sleep(GRACE_MS + 400);
   assert(server.lobbies.byCode(l2.code) === undefined, 'part 15 cleanup: the last lobby is gone', { lobby: l2.code });
+}
+
+/**
+ * part 16 (2026-09-21): player ↔ player trust — `server/Trust.ts` bookkeeping without sockets (grant once per pair,
+ * the minimum time, likes: self · not a mate · not counted · already · the window), `ProfileStore.addTrust` symmetry,
+ * then the relay flow on its own server (short `raidMinMs`): an early finish does not count, the pair is paid when the
+ * second of the two finishes (a host's `lobby:reset` counts as its finish), likes are validated and paid once, the
+ * values ride `social:state.trust`, and an android is never a mate.
+ */
+async function part16PlayerTrust(): Promise<void> {
+  /* ── store-free rules ── */
+  const nums = { raidGain: 10, likeGain: 5, raidMinMs: 1_000, likeWindowMs: 10_000 };
+  const tr = new TrustRaids(nums);
+  const t0 = 1_000_000;
+  tr.start('L1', ['pa', 'pb', 'pc'], t0);
+  const fa = tr.finish('pa', 'L1', t0 + 500);
+  assert(fa !== null && !fa.counted && fa.pay.length === 0, 'part 16: a finish before PLAYER_TRUST_RAID_MIN_S does not count', fa);
+  assert(tr.finish('pb', 'OTHER', t0 + 2_000) === null, 'part 16: a finish reported from another lobby changes nothing');
+  const fb = tr.finish('pb', 'L1', t0 + 2_000);
+  assert(fb !== null && fb.counted && fb.pay.length === 0, 'part 16: the first counted finisher pays nobody yet', fb);
+  const fc = tr.finish('pc', 'L1', t0 + 3_000);
+  assert(fc !== null && fc.counted && fc.pay.join(',') === 'pb', 'part 16: the second counted finisher pays the pair once (not the early leaver)', fc);
+  assert(tr.finish('pc', 'L1', t0 + 3_100) === null && tr.finish('pa', 'L1', t0 + 3_100) === null, 'part 16: finishing twice changes nothing (no second payment)');
+  assert(tr.like('pa', 'pb', t0 + 3_200) === 'not_counted', 'part 16: a member whose finish did not count cannot like');
+  assert(tr.like('pb', 'pb', t0 + 3_200) === 'self', 'part 16: liking yourself → self');
+  assert(tr.like('pb', 'px', t0 + 3_200) === 'not_mate', 'part 16: liking someone outside the raid → not_mate');
+  assert(tr.like('pb', 'pc', t0 + 3_200) === 'ok' && tr.like('pb', 'pc', t0 + 3_300) === 'already', 'part 16: one like per (liker, target, raid)');
+  assert(tr.like('pc', 'pb', t0 + 3_300) === 'ok', 'part 16: the other direction is its own like');
+  assert(tr.like('pc', 'pa', t0 + 3_300) === 'ok', 'part 16: a mate who left early can still be liked');
+  const wb = tr.window('pb', t0 + 3_400);
+  assert(!!wb && wb.open && wb.mates.slice().sort().join(',') === 'pa,pc' && wb.liked.join(',') === 'pc', 'part 16: window = mates of that raid + who I liked', wb);
+  const wa = tr.window('pa', t0 + 3_400);
+  assert(!!wa && !wa.open && wa.mates.length === 0, 'part 16: an early leaver\'s window is closed', wa);
+  assert(tr.like('pb', 'pa', t0 + 2_000 + nums.likeWindowMs + 1) === 'no_raid', 'part 16: past PLAYER_TRUST_LIKE_WINDOW_S the like is refused (no_raid)');
+  tr.start('L2', ['pb', 'pc'], t0 + 4_000);
+  assert(tr.like('pb', 'pa', t0 + 4_100) === 'not_mate' && tr.window('pb', t0 + 4_100)?.open === false, 'part 16: the next raid start closes the previous window');
+  assert(tr.drop('pc') && tr.finish('pc', 'L2', t0 + 9_000) === null, 'part 16: a dropped member (leave · abandon) finishes nothing');
+  tr.prune(t0 + 4_000 + nums.likeWindowMs + 5_000);
+  assert(tr.size === 0, 'part 16: prune forgets raids past the like window', tr.size);
+
+  /* ── ProfileStore.addTrust: one value on both records ── */
+  const st = new ProfileStore({ dataDir: null, quiet: true });
+  const sa = st.ensureSocial('storeA', 'A');
+  const sb = st.ensureSocial('storeB', 'B');
+  assert(st.addTrust('storeA', 'storeB', 10) === 10 && st.addTrust('storeB', 'storeA', 5) === 15, 'part 16: addTrust accumulates on the pair, whichever side asks');
+  assert(sa.trust?.[sb.code] === 15 && sb.trust?.[sa.code] === 15 && st.trustOf('storeB', 'storeA') === 15, 'part 16: both records carry the same value', { a: sa.trust, b: sb.trust });
+  assert(st.addTrust('storeA', 'storeA', 5) === null && st.addTrust('storeA', 'nobody', 5) === null, 'part 16: self / a profile without a social record → null');
+  st.close();
+
+  /* ── the relay flow ── */
+  const MIN_MS = 250;
+  const srv = await startRelayServer({
+    port: 0, host: '127.0.0.1', quiet: true, heartbeatMs: 1_000, reconnectGraceMs: GRACE_MS, dataDir: null, profileGcIntervalMs: null,
+    trustNumbers: { raidGain: 10, likeGain: 5, raidMinMs: MIN_MS, likeWindowMs: 60_000 },
+  });
+  const u = `ws://127.0.0.1:${srv.port}${NET_WS_PATH}`;
+  try {
+    const { c: a, welcome: wA } = await connect('A16', u, { token: makeToken('x'), name: '분대장' });
+    const { c: b, welcome: wB } = await connect('B16', u, { token: makeToken('y'), name: '일찍나감' });
+    const { c: c, welcome: wC } = await connect('C16', u, { token: makeToken('z'), name: '끝까지' });
+    const codeA = wA.social?.me.code ?? '';
+    const codeB = wB.social?.me.code ?? '';
+    const codeC = wC.social?.me.code ?? '';
+    a.send({ t: 'lobby:create', name: '분대장' });
+    const code = (await a.wait('lobby:state')).lobby.code;
+    b.send({ t: 'lobby:join', code, name: '일찍나감' });
+    await b.wait('lobby:state');
+    c.send({ t: 'lobby:join', code, name: '끝까지' });
+    await c.wait('lobby:state');
+    const readyAll = async (): Promise<void> => {
+      for (const cl of [a, b, c]) cl.send({ t: 'lobby:ready', ready: true });
+      await a.wait('lobby:state', (mm) => mm.lobby.players.every((p) => p.ready));
+    };
+    await readyAll();
+    await pickPlanet(a, 'mossy');
+    a.send({ t: 'lobby:start', seed: 1601 });
+    await Promise.all([a, b, c].map((cl) => cl.wait('game:start')));
+
+    /* B quits at once — too early to count */
+    b.send({ t: 'lobby:mission', inMission: false });
+    const winB = await b.wait('trust:window');
+    assert(!winB.open && winB.mates.length === 0, 'part 16: an early lobby:mission false → the like window is closed', winB);
+    await sleep(MIN_MS + 80);
+    /* C finishes first (counted) — nobody else has, so nothing is paid yet */
+    c.send({ t: 'lobby:mission', inMission: false });
+    const winC = await c.wait('trust:window');
+    assert(winC.open && winC.mates.slice().sort().join(',') === [codeA, codeB].sort().join(',') && winC.liked.length === 0,
+      'part 16: a counted finish → window open with every human mate (codes only)', winC);
+    assert(await c.expectNone('trust:gain', 150), 'part 16: the first finisher is paid nothing yet');
+    /* the host ends its session with lobby:reset → the A–C pair is paid on both sides */
+    a.send({ t: 'lobby:reset' });
+    const [gA, gC] = await Promise.all([a.wait('trust:gain'), c.wait('trust:gain')]);
+    assert(gA.code === codeC && gA.reason === 'raid' && gA.delta === 10 && gA.points === 10 && gC.code === codeA && gC.points === 10,
+      'part 16: the host\'s lobby:reset counts as its finish — the A–C pair gains PLAYER_TRUST_RAID_GAIN on both sides', { gA, gC });
+    assert(await b.expectNone('trust:gain', 150), 'part 16: the early leaver gains nothing');
+    /* likes */
+    b.send({ t: 'trust:like', code: codeA });
+    const rB = await b.wait('trust:refused');
+    assert(rB.error === 'not_counted' && rB.message === TRUST_LIKE_ERROR_KO.not_counted, 'part 16: an early leaver cannot like (not_counted)', rB);
+    a.send({ t: 'trust:like', code: codeC });
+    const [lA, lC] = await Promise.all([a.wait('trust:gain', (mm) => mm.reason === 'like'), c.wait('trust:gain', (mm) => mm.reason === 'like')]);
+    assert(lA.mine === true && lA.points === 15 && lC.mine === false && lC.code === codeA && lC.points === 15,
+      'part 16: a like adds PLAYER_TRUST_LIKE_GAIN to the pair; the target hears mine:false', { lA, lC });
+    const winA = await a.wait('trust:window', (mm) => mm.liked.includes(codeC));
+    assert(winA.open, 'part 16: the like window lists who I liked', winA);
+    a.send({ t: 'trust:like', code: codeC });
+    assert((await a.wait('trust:refused')).error === 'already', 'part 16: liking the same mate twice → already');
+    a.send({ t: 'trust:like', code: codeA });
+    assert((await a.wait('trust:refused')).error === 'self', 'part 16: liking yourself → self');
+    a.send({ t: 'trust:like', code: codeB });
+    const lB = await a.wait('trust:gain', (mm) => mm.code === codeB);
+    assert(lB.points === 5, 'part 16: a mate who left early can still be liked', lB);
+    const snap = await a.wait('social:state', (mm) => mm.social.trust?.[codeC] === 15 && mm.social.trust?.[codeB] === 5, 2_000);
+    assert(!!snap, 'part 16: social:state.trust carries my pair values');
+    b.flush();
+    b.send({ t: 'lobby:mission', inMission: false });
+    assert(await b.expectNone('trust:window', 200), 'part 16: a second lobby:mission false changes nothing');
+
+    /* second raid with an android: it is never a mate */
+    a.flush(); b.flush(); c.flush();
+    a.send({ t: 'lobby:android', bay: 0, recruit: true });
+    await a.wait('lobby:state', (mm) => mm.lobby.players.length === 4);
+    await readyAll();
+    a.send({ t: 'lobby:start', seed: 1602 });
+    await Promise.all([a, b, c].map((cl) => cl.wait('game:start')));
+    a.send({ t: 'trust:like', code: codeB });
+    assert((await a.wait('trust:refused')).error === 'not_counted', 'part 16: a new raid start replaces the old window (inside → not_counted)');
+    await sleep(MIN_MS + 80);
+    a.send({ t: 'lobby:reset' });
+    const winA2 = await a.wait('trust:window', (mm) => mm.open);
+    assert(winA2.open && winA2.mates.length === 2 && !winA2.mates.some((m) => !isValidPlayerCode(m)), 'part 16: an android is never a trust mate', winA2);
+    a.close(); b.close(); c.close();
+  } finally {
+    await srv.close();
+  }
 }
 
 main().catch((e) => { console.error('selftest crashed', e); process.exit(1); });

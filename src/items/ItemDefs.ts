@@ -6,6 +6,8 @@ import type { GrenadeKind } from '@/shared';
 import {
   AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_KINDS, QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, RARITY_ORDER, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade } from '@/shared';
 import { GROW_SOCKET_EFFECTS, GROW_SOCKET_TARGETS, SAMPLE_FAMILIES } from '@/shared';
+/* appended (2026-09-21, the survey camera): the camera table is cross-checked against the item rows */
+import { SURVEY_CAMERAS, addDataIssue } from '@/shared';
 /* appended (2026-09-16, sample families): family glyphs — a sample tile's glyph is the family, its colour the rarity */
 import type { SampleFamily } from '@/shared';
 import { SAMPLE_FAMILY_ICON } from '@/shared';
@@ -778,6 +780,17 @@ export const ITEM_DEFS: readonly ItemDef[] = [
 ];
 
 export const ITEM_DEF_MAP: ReadonlyMap<string, ItemDef> = new Map(ITEM_DEFS.map((d) => [d.id, d]));
+
+/* 2026-09-21 (the survey camera): every `data/survey_cameras.csv` row must name an item row that is a durable,
+ * quick-usable tool — the camera wears and is repaired through `durabilityMax`, and weapons/ only takes it into the
+ * hand from a quick slot. A broken reference is a data problem, not a silent no-op. */
+for (const cam of SURVEY_CAMERAS.values()) {
+  const d = ITEM_DEF_MAP.get(cam.defId);
+  if (!d) addDataIssue({ file: 'survey_cameras.csv', line: 0, column: 'defId', message: `모르는 아이템 '${cam.defId}' (data/items.csv)` });
+  else if (!(d.durabilityMax && d.durabilityMax > 0) || !isQuickUsable(d)) {
+    addDataIssue({ file: 'survey_cameras.csv', line: 0, column: 'defId', message: `'${cam.defId}' 은 durabilityMax 가 있고 퀵슬롯에 들어가는 줄이어야 한다` });
+  }
+}
 
 /** 2026-09-13: an old id (`data/item_aliases.csv`) is resolved to the new id before the lookup — the safety net
  * for an id the save-migrating folders missed. `ITEM_DEF_MAP` knows exact ids only. */

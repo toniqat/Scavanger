@@ -11,7 +11,7 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 | File | Responsibility |
 |---|---|
 | `GameFlowSystem.ts` | `GameSystem` (`name: 'gameflow'`): event subscriptions, timers, per-frame `update`, one-line delegates into `parts/`. Re-exports `model.ts`. |
-| `model.ts` | Folder vocabulary: `LIFTOFF_TO_COMPLETE` (= `EXTRACTION_LIFTOFF_TO_COMPLETE_S`), `DEATH_TO_SCREEN`, `MISSION_FAILS_WHEN_ALL_DEAD`, threat ramp constants. No XP numbers (raid XP is `data/enemies.csv` `raidXp` + `XP_DEATH_MUL` in `data/constants.csv`). No state, no class references. |
+| `model.ts` | Folder vocabulary: `LIFTOFF_TO_COMPLETE` (= `EXTRACTION_LIFTOFF_TO_COMPLETE_S`), `DEATH_TO_SCREEN`, `MISSION_FAILS_WHEN_ALL_DEAD`, threat ramp constants. No XP numbers (raid XP is `data/enemies.csv` `raidXp` + `RAID_XP_*` / `XP_DEATH_MUL` in `data/constants.csv`). No state, no class references. |
 | `parts/Phases.ts` | Phase transitions, pause, Escape (`escapeKey` / `escapePause`), focus loss, `onNewMission` / `onWorldReady` / `onGameStarting`, training exit, `onAbort`, mode predicates (`isTraining`, `isTutorial`, `inShip`, `inMission`, `inLiveMission`). |
 | `parts/Death.ts` | Local death / downed / revived, rescue landing, all-dead check, `complete()` / `gameOver()`, voluntary return to ship, tutorial respawn and tutorial skip-extraction, `awardMissionXp`. |
 | `parts/Session.ts` | Raid session save and resume: relay blob (`isRaidSession`, with the body `pose`), solo localStorage (`isSoloRaid`, `saveSolo`, `saveSoloAt`, `resumeSoloRaid`), ghost restore + timeout fallback, tutorial step / checkpoint saves. |
@@ -20,6 +20,7 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 | `parts/CorpseNet.ts` | Player corpse creation and sync (`pcorpse` / `pcorpseq`), `spawnLocalCorpse`, `crate:looted` → `emptied` (broadcast by the host only, accepted only from the host). |
 | `parts/Leader.ts` | Squad-leader device (`leader_device` interactable, `lead` / `leadq` wire), its scene-resident point light, the single host-changed toast. |
 | `parts/RaidReport.ts` | Result-screen data (`GameFlowSystem.report`): peak carried value, damage tallies per source, killing blow → `stats.peakLootValue` / `stats.death`. |
+| `parts/RaidXp.ts` | Raid-end XP settlement. `RaidXpTracker` (`GameFlowSystem.raidXp`) counts my `gather:collected` → `stats.gathers`, `fog:discovered` rail / structure / POI ruin → `stats.structuresFound` (`<kind>:<id>`, kind `platform` · `lab` · `outpost` · `wreck` · `ruin`), `fog:revealed` → `stats.mapExplored` (max) — straight into `ctx.stats`, so the session blob carries them. `finalizeStats` (explored fraction, `stats.raidFoundValue` = bag · quick · pouch `raidFound` value), `buildRaidXp` → `RaidXpCard`s (kill · gather · discover · mapReveal · survey per subject · trust per human squadmate · contract), `RaidSquadEntry` rows, `RaidContractRow` rows. |
 | `parts/LoadGate.ts` | Raid-entry loading gate (`GameFlowSystem.loadGate`): render hold from `game:newMission` to squad-wide readiness, `load` wire, `raid:loadProgress` / `raid:loadReleased`, fade-in. Debug hooks `debugAddMember` / `debugClearMembers` / `debugSetTimeout`. |
 | `Corpses.ts` | `PlayerCorpseManager` (= `ctx.corpses`, implements `CorpsesRef`) and `PlayerCorpseObject` (interactable container + frozen `SoldierModel` mesh, tram riding, empty-corpse sink `stepSink` / `sinkDepth`); removed-id set and `ownerHadCorpse`. Holds a `pcorpse` subscription of its own for the ride note — `clear()` (mission reset) keeps it, `dispose()` (system teardown) drops it. |
 | `SoloRaid.ts` | Pure localStorage store for solo sessions: `SoloRaidSave` / `SoloRaidPose`, `load/save/clearSoloRaid`, `soloRaidStatus`, `soloRaidBootStatus`, clock record `readClockHigh` / `bumpClockHigh`. No context, no listeners. |
@@ -39,7 +40,7 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
   `corpse:playerEmptied`, `leader:deviceDropped`, `leader:deviceTaken`, `ui:resumeGate {shown}`, `ui:notify`,
   `raid:loadProgress` / `raid:loadReleased`, `ui:screenFade` (loading gate only), `raid:resumeChanged {offer, checking}`,
   `pcorpse spawn` (squad abandon from the title).
-- **Consumes**: `game:newMission`, `world:ready`, `world:cleared`, `player:landed`, `player:died`, `player:downed`,
+- **Consumes**: `gather:collected`, `fog:discovered`, `fog:revealed` (`parts/RaidXp`), `game:newMission`, `world:ready`, `world:cleared`, `player:landed`, `player:died`, `player:downed`,
   `player:revived`, `player:spawned`, `extraction:activated` / `shipLanded` / `boarded` / `liftoff {aboard, squadDone}` /
   `reset`, `rescue:landed`, `crate:looted`, `game:returnToShip`, `game:abort`, `game:paused`, `training:exitRequested`,
   `inventory:itemAdded`, `inventory:loadoutSaved`, `hub:entered`, `tutorial:changed`, `tutorial:checkpoint`,
@@ -49,7 +50,7 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 - **Wire** (`src/shared/net.ts`): `flow` (`over` · `complete` · `abort` from the host; `rejoined` from a rejoiner),
   `pcorpse` (`spawn` · `sync` · `emptied`) / `pcorpseq sync`, `lead` (`drop` · `taken`) / `leadq sync`,
   `load` (`p` from everyone, `go` from the host). Clients drop `flow` / `load go` not sent by `lobby.hostId`.
-- **Calls out**: `InventoryRef.stripForCorpse` / `captureRaidState` / `applyRaidState`, `PlayerRef.die` /
+- **Calls out** (2026-09-21 additions: `SurveyRef.raidGains`, `NetRef.trust.get`, `MetaRef.getSquadContracts`, `InventoryRef.countWhere`, `WorldRef.getStructures` / `fog.explored`): `InventoryRef.stripForCorpse` / `captureRaidState` / `applyRaidState`, `PlayerRef.die` /
   `restoreState` / `teleport` / `playIntroWake`, `ProgressionRef.addXp` / `armPreps` / `clearActivePreps` /
   `stripImplantsForCorpse`, `MetaRef.settleMission` / `intel.consume`, `NetRef.saveRaid` / `leaveMission` / `transferHost` /
   `reportHostDown` / `ensureConnected` / `rejoinMission` / `abandonRaid`, `TutorialRef.restartTrack`,
@@ -269,8 +270,8 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 ## Recent changes
 
 Last 5 only — older: `git log -- src/game`.
+- 2026-09-21 — Raid-end XP is a set of cards (`parts/RaidXp`): kill · gather · discover · map revealed · survey · squadmate trust · contract, each × `XP_DEATH_MUL` without extraction, raid-sourced ones × the library multiplier; `rewards.cards` / `deathMul` / `squad` / `contracts` and `stats.raidFoundValue` · `gathers` · `structuresFound` · `mapExplored` filled. Tutorial still fixed (one `튜토리얼 완료` card).
 - 2026-09-21 — The `onRespawnRequest` contract stub is gone (B-97): both `GameFlowSystem.onRespawnRequest` and `Death.onRespawnRequest` were dead — nothing subscribed to `game:respawn` and the body was empty. `tickRespawn` · `game:respawnAvailable` · `PLAYER_RESPAWN_DELAY` still stand.
 - 2026-09-21 — `docs/TODO.md` B-68 · B-69 · B-70 · B-71 · B-72: 89 dead imports left by the `GameFlowSystem` split removed (`model.ts` now imports no sibling module as a value); `PlayerCorpseManager` keys its `pcorpse` subscription on the `NetRef` it belongs to and gains `dispose()`; the `pcorpse emptied` host guard no longer lets a message with no sender through; 14 comments realigned with the code and 5 csv numbers taken out of prose.
 - 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, decision headings and verbatim user decisions kept in backticks / 「」, no string literal touched.
-- 2026-09-16 — Empty player/android corpses start their removal delay only after the last viewer closes the loot window (`PlayerCorpseManager.viewers`, `releaseEmptied`, host sends `pcorpse emptied` at release); 레이드 실패 auto return emits `ui:shipReturn`.

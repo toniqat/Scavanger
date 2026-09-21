@@ -17,6 +17,8 @@ import {
 import { boostItemOf, shieldChargeOf } from './ItemDefs';
 /* 2026-09-15 (the sandworm · the thumper) */
 import { THUMPER_HP, THUMPER_INTERVAL_S, THUMPER_STRIKES } from '@/shared';
+/* 2026-09-21 (the survey camera) */
+import { SURVEY_MAX_RANGE_M, surveyCameraOf } from '@/shared';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * Item **spec rows** (2026-09-15, the gadget rework · user's decision)
@@ -269,6 +271,15 @@ export function itemSpecRows(def: ItemDef): SpecRow[] {
     } else {
       rows.push({ k: '전술 임플란트', v: '전부 충전 · 쿨타임 초기화', tone: 'good' });
     }
+    return rows;
+  }
+
+  /* 2026-09-21 the survey camera (`data/survey_cameras.csv`): the grade's speed and the reach — the frame / zoom
+     rules are the camera's own HUD, not card rows */
+  const cam = surveyCameraOf(def.id);
+  if (cam) {
+    rows.push({ k: '조사 속도', v: [dim('×'), num(cam.speedMul)] });
+    rows.push({ k: L.range, v: metre(SURVEY_MAX_RANGE_M) });
     return rows;
   }
 

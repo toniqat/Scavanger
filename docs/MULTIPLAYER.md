@@ -247,3 +247,28 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
 - A host promoted mid-mission does not inherit the old host's guard anchors / lures.
 - A corpse the host never opened validates only the first take per index.
 - `ee grenadeHit` matches replica grenades by proximity.
+
+## 11. Player ↔ player trust
+
+2026-09-21 user decision — rules in `src/shared/playerTrust.ts`, relay bookkeeping in `server/Trust.ts`, client mirror
+`src/net/TrustSync.ts` (`ctx.net.trust`). **Relay-authoritative**; no gameplay message carries it.
+
+- One **symmetric** value per pair of profiles (`PlayerCode` pair), stored as `SocialRecord.trust[code]` on **both** records
+  (`ProfileStore.addTrust` writes the same value on each side). Levels are client-side only: `PLAYER_TRUST_TABLE`
+  (`data/tables.csv`) through `playerTrustInfo`.
+- **Raid grant.** A raid `lobby:start` records the humans marked `inMission` who have a profile (never a bot, never an
+  anonymous socket). A member *finishes* with `lobby:mission {inMission:false}` **without** `keep`, or — the raid host — with
+  `lobby:reset`. A finish counts only after `PLAYER_TRUST_RAID_MIN_S`. Every pair of counted finishers gains
+  `PLAYER_TRUST_RAID_GAIN` once, the moment the second of the two finishes. `keep` (a reload), `lobby:abandon`, leaving the
+  lobby / grace expiry / kick, or a training start while the raid is unfinished for that member → no gain, no likes.
+- **Likes.** Client → server `trust:like {code}`. The liker's finish must have counted; the target must be another human
+  of that raid (finished or not); once per (liker, target, raid); open until the liker's next raid start or
+  `PLAYER_TRUST_LIKE_WINDOW_S`. Success adds `PLAYER_TRUST_LIKE_GAIN` to the pair.
+- Server → client: `trust:window {open, mates, liked}` (after my finish, after each like / refusal, after `welcome`) ·
+  `trust:gain {code, name, points, delta, reason: 'raid'|'like', mine?}` to **both** sides of a paid pair ·
+  `trust:refused {code, error, message}` (`TrustLikeError`: unavailable · not_found · self · no_raid · not_mate ·
+  not_counted · already). Every payment is followed by a coalesced `social:state` whose `SocialSnapshot.trust` carries my
+  pair map (codes that still resolve).
+- Raid records are **memory-only**: a relay restart forgets unfinished raids (never paid) and closes like windows.
+- Client bus: `net:trustChanged` (from `trust:gain`) · `net:trustWindow` · `net:trustRefused`. `TrustRef.beforeRaid(code)` is
+  the value captured at my last raid's `game:start` — the settlement's `trustBefore`.

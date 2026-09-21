@@ -17,6 +17,11 @@ import { el, fmtInt, setText, toggleClass } from '../dom';
  *     it cannot be drawn), otherwise the cause icon (SVG, procedural) — the small name at the top right, the big number
  *     below it = the damage taken from that cause (for an enemy, **that one body**). With an unknown cause the row hides.
  * The kill · crates opened · damage taken cells are gone. Styles live in `styles/results.css` (prefix `.rs-`).
+ *
+ * **2026-09-21 (paged result screen, user's decision):** this is page ① of `results/ResultBody`. An extraction shows two
+ * rows — `이번 레이드 획득` (`stats.raidFoundValue`, what was found in this raid and is carried out) above the `전리품 가치`
+ * total (`stats.lootValue`); the found row hides when a producer does not send the field. The count-up starts on
+ * `enter()` (the page being shown), `finish()` snaps it to the end (the player pressed `다음` early).
  */
 
 export type ResultMode = 'extract' | 'death';
@@ -94,6 +99,8 @@ function iconSvg(key: string): string {
 
 export class ResultReport {
   readonly root: HTMLElement;
+  private foundRow: HTMLElement;
+  private foundVal: HTMLElement;
   private lootRow: HTMLElement;
   private lootLabel: HTMLElement;
   private lootVal: HTMLElement;
@@ -105,6 +112,8 @@ export class ResultReport {
 
   private mode: ResultMode = 'extract';
   private target = 0;
+  private foundTarget = 0;
+  private lastFound = '';
   private timer = 0;
   private counting = false;
   private lastText = '';
@@ -113,6 +122,11 @@ export class ResultReport {
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'stats rs-stats', parent });
+
+    this.foundRow = el('div', { cls: 'rs-loot rs-found', parent: this.root });
+    el('span', { cls: 'ui-label rs-loot-label', text: '이번 레이드 획득', parent: this.foundRow });
+    this.foundVal = el('span', { cls: 'rs-loot-v', text: formatCredits(0), parent: this.foundRow });
+    this.foundRow.hidden = true;
 
     this.lootRow = el('div', { cls: 'rs-loot', parent: this.root });
     this.lootLabel = el('span', { cls: 'ui-label rs-loot-label', text: '전리품 가치', parent: this.lootRow });
@@ -138,10 +152,16 @@ export class ResultReport {
     setText(this.lootLabel, dead ? '잃은 전리품 가치' : '전리품 가치');
     const raw = dead ? (s.peakLootValue ?? s.lootValue) : s.lootValue;
     this.target = Number.isFinite(raw) ? Math.max(0, raw) : 0;
+    const found = s.raidFoundValue;
+    const showFound = !dead && typeof found === 'number' && Number.isFinite(found);
+    this.foundRow.hidden = !showFound;
+    this.foundTarget = showFound ? Math.max(0, found) : 0;
     this.timer = 0;
-    this.counting = true;
+    this.counting = false;
     this.lastText = formatCredits(0);
+    this.lastFound = this.lastText;
     setText(this.lootVal, this.lastText);
+    setText(this.foundVal, this.lastFound);
     this.fillCause(dead ? (s.death ?? null) : null);
   }
 
@@ -176,6 +196,16 @@ export class ResultReport {
     else draw();
   }
 
+  /** The page is shown — start the count-up. */
+  enter(): void { this.timer = 0; this.counting = true; }
+
+  /** Snap the count-up to its end (the player moved on before it finished). */
+  finish(): void {
+    if (!this.counting) return;
+    this.timer = LOOT_DELAY + LOOT_DUR;
+    this.update(0);
+  }
+
   update(dt: number): void {
     if (!this.counting) return;
     this.timer += dt;
@@ -184,6 +214,8 @@ export class ResultReport {
     const eased = 1 - Math.pow(1 - t, 3);
     const txt = formatCredits(this.target * eased);
     if (txt !== this.lastText) { this.lastText = txt; setText(this.lootVal, txt); }
+    const ftxt = formatCredits(this.foundTarget * eased);
+    if (ftxt !== this.lastFound) { this.lastFound = ftxt; setText(this.foundVal, ftxt); }
     if (t >= 1) {
       this.counting = false;
       if (this.mode === 'extract') this.ctx?.bus.emit('audio:play', { id: 'ui_equip' });
@@ -194,6 +226,8 @@ export class ResultReport {
 
   /* ── debug ── */
   get lootText(): string { return this.lootVal.textContent ?? ''; }
+  /** `이번 레이드 획득` value text, '' when that row is hidden. */
+  get foundText(): string { return this.foundRow.hidden ? '' : (this.foundVal.textContent ?? ''); }
   get causeShown(): boolean { return !this.causeRow.hidden; }
   get isCounting(): boolean { return this.counting; }
 }

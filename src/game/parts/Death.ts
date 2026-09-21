@@ -31,6 +31,8 @@ import * as Leader from './Leader';
 /* appended (2026-09-11, C-70): the forced raid-session save right after death — `GameFlowSystem.saveRaid` is
    private, so the same `parts` module is called directly */
 import * as Session from './Session';
+/* appended (2026-09-21): the raid-end XP cards (kill · gather · discover · map · survey · trust · contract) */
+import * as RaidXp from './RaidXp';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
 export function onLocalDied(sys: GameFlowSystem): void {
@@ -470,9 +472,10 @@ export function libraryRaidXpMul(ctx: GameContext): number {
 /**
  * Bank the mission result into the persistent profile (progression/). Runs once per mission, before the
  * result screen appears, so `game:complete` / `game:over` listeners already see the new level.
- * 2026-09-16 (user's decision): raid XP comes **only from kills** — `stats.killXp` (Σ `data/enemies.csv` `raidXp`
- * of my last-hit kills, summed by enemies/) × (extracted ? 1 : `XP_DEATH_MUL`) × library multiplier. No loot-value,
- * extraction or survival-time XP. Contract / quest reward XP is added on top, unmultiplied.
+ * 2026-09-21 (user's decision): raid XP is the sum of the `RaidXpCard`s `parts/RaidXp` builds — kills (the
+ * 2026-09-16 `stats.killXp`) · gathering · structure discovery · map revealed · survey · squadmate trust · contract —
+ * each × (extracted ? 1 : `XP_DEATH_MUL`), the raid-sourced ones × the library multiplier. Still no loot-value,
+ * extraction or survival-time XP. Also fills `rewards.cards` / `deathMul` / `squad` / `contracts`.
  * A training-range mission never pays out (and never settles a contract).
  */
 export function awardMissionXp(sys: GameFlowSystem): void {
@@ -485,61 +488,60 @@ export function awardMissionXp(sys: GameFlowSystem): void {
   try {
     const s = ctx.stats;
     const extracted = s.extracted;
-    /*
-     * 2026-09-15 (A-17, user's decision 「고정 지급 · 정확히 Lv.2」): a **completed tutorial raid** does not go through
-     * the settlement formula and takes `TUTORIAL_RAID_XP` as it is (csv). 「정확히 Lv.2」 is what the decision
-     * asks for, so that row is kept at `XP_BASE` — tuning either one alone breaks it, and nothing here checks.
-     * With kill XP and the library `raidXp` multiplier folded in, some players reach level 3, which makes
-     * the number of points the ship track (`levelUp` → `stats`) has to teach waver. The tutorial has no corporation
-     * contract, so `settleMission` is not called either (an old contract may still be open, and the tutorial must
-     * not settle it).
-     * A **tutorial that ended without extracting** (ESC's `튜토리얼 건너뛰기` could not get the player aboard the
-     * ship, so it went `game:returnToShip` → `gameOver()`) is not a 「completion」 either, so it pays **0** — the
-     * branch right below — and not the main game's formula.
-     */
     const tutorialClear = sys.isTutorial() && extracted;
-    let xp = 0;
-    if (tutorialClear) {
-      xp = Number.isFinite(TUTORIAL_RAID_XP) ? Math.max(0, Math.round(TUTORIAL_RAID_XP)) : 0;
-    } else if (sys.isTutorial()) {
-      /*
-       * 2026-09-15 (user's decision 「튜토리얼 전체로 딱 Lv.2」): a tutorial that was not completed (the skip could
-       * not get the player aboard the ship, so it went `game:returnToShip` → `gameOver()`) **does not go through
-       * the main game's settlement formula either** — kill XP × the death multiplier was applied as it is, so
-       * tutorial XP wavered from player to player. It is not a completion, so it is 0 (a path that gives neither
-       * the ship nor the level). The contract settlement is skipped too, by the condition below.
-       */
-      xp = 0;
-    } else {
-      /*
-       * 2026-09-16 (user's decision 「레이드 경험치는 처치로만」): the kill site has already added `data/enemies.csv`
-       * `raidXp` per killed type into `stats.killXp` — here only that sum is read. There is no loot-value,
-       * extraction-bonus or survival-time XP (it blocks the path where merely holding loot long enough raised a
-       * level). An old save with no `killXp` (a blob from before this field) reads 0.
-       */
-      const killXp = typeof s.killXp === 'number' && Number.isFinite(s.killXp) ? Math.max(0, s.killXp) : 0;
-      xp = killXp * (extracted ? 1 : XP_DEATH_MUL);
-      // 2026-09-13 (library series): the raid XP books — `raidXp` adds to the multiplier (0.1 = +10 %). It
-      // multiplies the raid's share (kill XP) only, never the contract reward XP below — that reward is a fixed
-      // `contracts.csv` value.
-      xp = Math.round(xp * libraryRaidXpMul(ctx));
-    }
+    // 2026-09-21: the readings that are not event-driven (explored fraction · raid-found value) — page ① reads them.
+    RaidXp.finalizeStats(sys);
 
     // `raids` / `extractions` are plain profile counters; ProgressionRef has no setter, so bump + save.
     prog.profile.raids += 1;
     if (extracted) prog.profile.extractions += 1;
     const levelBefore = prog.level;
-    // Phase 5: settle the active corp contract first — its XP reward is paid through `addXp` below.
+
+    let xp = 0;
     let contract = null;
-    const meta = ctx.meta;
-    if (!sys.isTutorial() && meta && typeof meta.settleMission === 'function') {
-      try { contract = meta.settleMission(s); } catch (e) { console.error('[gameflow] contract settlement failed', e); }
+    let result: RaidXp.RaidXpResult | null = null;
+    if (sys.isTutorial()) {
+      /*
+       * 2026-09-15 (A-17, user's decision 「고정 지급 · 정확히 Lv.2」): a **completed tutorial raid** does not go through
+       * the settlement formula and takes `TUTORIAL_RAID_XP` as it is (csv). 「정확히 Lv.2」 is what the decision
+       * asks for, so that row is kept at `XP_BASE` — tuning either one alone breaks it, and nothing here checks.
+       * With kill XP and the library `raidXp` multiplier folded in, some players reach level 3, which makes
+       * the number of points the ship track (`levelUp` → `stats`) has to teach waver. The tutorial has no corporation
+       * contract, so `settleMission` is not called either (an old contract may still be open, and the tutorial must
+       * not settle it).
+       * A **tutorial that ended without extracting** (ESC's `튜토리얼 건너뛰기` could not get the player aboard the
+       * ship, so it went `game:returnToShip` → `gameOver()`) is not a 「completion」 either, so it pays **0** — not
+       * the main game's formula (2026-09-15, 「튜토리얼 전체로 딱 Lv.2」).
+       * 2026-09-21: the fixed reward is still one card so the cards keep summing to `xpEarned` (`raidRewards` has
+       * no tutorial kind; `contract` is the closest — a fixed reward, never multiplied).
+       */
+      xp = tutorialClear && Number.isFinite(TUTORIAL_RAID_XP) ? Math.max(0, Math.round(TUTORIAL_RAID_XP)) : 0;
+    } else {
+      /*
+       * 2026-09-21 (user's decision — the result screen rework): raid XP is the sum of the cards `parts/RaidXp`
+       * builds (kills · gathering · structure discovery · map revealed · survey · one per squadmate's trust ·
+       * contract). Every card × `XP_DEATH_MUL` without extraction; the library `raidXp` multiplier applies to the
+       * raid-sourced cards only, never to the contract reward (a fixed `contracts.csv` value) — the 2026-09-16 rule
+       * kept. An old save with none of the new counters reads 0 for each.
+       * Phase 5: settle the active corp contract first — its XP reward becomes the `contract` card.
+       */
+      const meta = ctx.meta;
+      if (meta && typeof meta.settleMission === 'function') {
+        try { contract = meta.settleMission(s); } catch (e) { console.error('[gameflow] contract settlement failed', e); }
+      }
+      result = RaidXp.buildRaidXp(sys, contract, extracted ? 1 : XP_DEATH_MUL, libraryRaidXpMul(ctx));
+      xp = result.xp;
     }
-    if (contract?.success && contract.xp > 0) xp += contract.xp;
     if (xp > 0) prog.addXp(xp);
     prog.save();
     // Result screens (ui) read the rewards from the `game:complete` / `game:over` stats payload.
-    s.rewards = { xpEarned: xp, levelBefore, levelAfter: prog.level, xp: prog.xp, xpToNext: prog.xpToNext, contract };
+    s.rewards = {
+      xpEarned: xp, levelBefore, levelAfter: prog.level, xp: prog.xp, xpToNext: prog.xpToNext, contract,
+      cards: result ? result.cards : (xp > 0 ? [{ kind: 'contract', id: 'tutorial', title: '튜토리얼 완료', xp }] : []),
+      deathMul: result ? result.deathMul : 1,
+      squad: result ? result.squad : [],
+      contracts: result ? result.contracts : [],
+    };
   } catch (e) {
     console.error('[gameflow] mission XP award failed', e);
   }

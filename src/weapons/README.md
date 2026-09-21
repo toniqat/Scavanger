@@ -20,6 +20,7 @@ presentation only (`RemoteWeapons`); enemy damage from other clients goes throug
 | `parts/Healing.ts` | Hold-to-use consumables (heal, shield charger, combat boosts, timed gadgets), heal spray channel, `item:channelChanged`, consumable slow |
 | `parts/Defib.ts` | Defibrillator: charge, aim at a downed ally, fire on release (`gadget:defibAim`); a **shouldered** body is aimed through its carrier (`carrierPositionOf`) |
 | `parts/AllyHeal.ts` | Right-button use of a heal item / 실드 충전기 **on a squadmate or an android**: what it gives (`allyGiftOf`), aim pick (`pickAllyTarget`), the hold, `buff heal` / `shield` or `AlliesRef.heal` / `chargeShield`, `heal:allyTargetChanged` / `allyHoldChanged` |
+| `parts/SurveyHand.ts` | The **survey camera** in hand (2026-09-21): `ctx.weapons.surveyHand` (`active` · `uid` · `defId` · `trigger` · `aimed`, gated like a gun trigger), `hasWeapon` while aimed so player/ enters ADS, the camera zoom through `Firing.applyCameraZoom`. Routes input only — survey/ records |
 | `parts/Throwing.ts` | Grenade hold / cook (R) / overhand or underhand throw, in-hand explosion, `grenade:countChanged` |
 | `parts/Services.ts` | `UniqueServices` object — the only way `unique/` reaches the world (mag, drain, hitscan, aim, recoil, feed …) |
 | `AimSway.ts` | Per-class sway amplitude / frequency from `data/aim_sway.csv`, handed to `PlayerWeaponHost.setAimSway` (the rig does the motion) |
@@ -112,6 +113,9 @@ shells, barriers / deployables), pellets merged into one hitmarker per pool step
   never silent; the chip hides entirely only when there is no squadmate and no android at all.
 - **Gadgets**: LMB = `ctx.gadgets.use`; RMB toggles throw mode, detonates remote mines (C4) or does nothing for drone
   controllers. Placing the last C4 turns the hand into a detonator (`remoteState.detonator`). Drone items stay in hand.
+- **Survey camera** (2026-09-21, `parts/SurveyHand`): a `surveyCameraOf` item in hand skips every gadget path — LMB held =
+  `surveyHand.trigger`, RMB held = `surveyHand.aimed` + ADS (the rig's `aimZoom` = `ctx.survey.zoom`, no scope overlay).
+  The zoom steps (interact / reload while aimed) and the recording itself are survey/'s.
 - **Carry gate**: any weapon input while carrying a squadmate calls `ctx.player.dropCarried('action')` and ends the frame.
 
 ## Legendary uniques
@@ -134,7 +138,7 @@ players.
 
 ## Public API
 
-- **`ctx.weapons`**: `getGrenades()` (HUD indicators), `remoteState` (held item, throwing / cooking / charging /
+- **`ctx.weapons`**: `getGrenades()` (HUD indicators), `surveyHand` (the survey camera in hand — read by survey/), `remoteState` (held item, throwing / cooking / charging /
   spraying / heavy, attachment ids; mutated in place, read by net's snapshot builder).
 - **Emits**: `weapon:equipped`, `ammoChanged`, `fired`, `dryFire`, `reloadStarted`, `reloadFinished`,
   `reloadCancelled`, `reloadPaused`, `reloadResumed`, `hit`, `scopeChanged`, `durabilityChanged`, `broken`,
@@ -195,8 +199,8 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 ## Recent changes
 
 Last 5 only — older: `git log -- src/weapons`.
+- 2026-09-21 — The survey camera as a quick item (`parts/SurveyHand`, `ctx.weapons.surveyHand`): fire / aim routed to survey/, ADS with the camera's zoom (`Firing.applyCameraZoom`), no gadget use or throw toggle.
 - 2026-09-21 — A reload is **held**, not cancelled, by the roll and the 갈고리 (`reloadPauses` · `setReloadPause` · `weapon:reloadPaused` / `Resumed`); an 오버차지 channel starting cancels it. Right-click gives a heal item or a 실드 충전기 to the squadmate — person or android — on the crosshair (`parts/AllyHeal`, no movement penalty; `buff heal` / `shield` or `AlliesRef.heal` / `chargeShield`). The defibrillator reaches a shouldered body.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-20 — One shot-sound table (B-63): `WeaponKind` · `kindOf` · `shotSoundId` moved to `shared/shotSounds.ts` and are delegates here, so player/ plays the same ids for android guns (a legendary no longer sounds like a rifle there).
 - 2026-09-18 — Melee does not hit through walls/roofs/floors (`meleeReachesBody` from the eye to the enemy's 3 body points; deployables `lineClear`); a grenade behind geometry does not hurt the local player (`blastReachesBody`).
-- 2026-09-17 — Player damage cut to 1/3 (data only: `weapons.csv`, unique / melee constants; AR −15 % and range 210 first); shotguns: ADS no longer tightens spread (`adsTightensSpread`; hip spread = old ADS 3.5°).

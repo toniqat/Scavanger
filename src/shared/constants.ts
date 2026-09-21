@@ -2562,3 +2562,82 @@ export const ENEMY_NAV_STUCK_S = K.num('ENEMY_NAV_STUCK_S');
 export const ENEMY_NAV_OFF_S = K.num('ENEMY_NAV_OFF_S');
 /** Damage multiplier of a bug's bite on a deployable (moved out of `enemies/ai/Structures` on 2026-09-21; value unchanged). */
 export const STRUCT_DAMAGE_MUL = K.num('STRUCT_DAMAGE_MUL');
+
+/**
+ * XP needed to go from `level` to `level + 1` — the same formula as `progression/derive.xpForLevel` (which should
+ * delegate here). The paged result screen walks it backwards to fill the XP bar across several level-ups
+ * (`ui/menus/RewardsBlock`); `MissionRewards` carries only the final level's `xpToNext`.
+ */
+export function xpToNextLevel(level: number): number {
+  return Math.max(1, Math.round(XP_BASE * Math.pow(Math.max(1, level), XP_EXPONENT)));
+}
+
+/* 2026-09-21 (raid-end XP settlement — owner: game/parts/RaidXp): XP per raid-XP card source. */
+/** Raid XP per gather node I collected this raid. */
+export const RAID_XP_PER_GATHER = K.num('RAID_XP_PER_GATHER');
+/** Raid XP per rail platform discovered this raid. */
+export const RAID_XP_DISCOVER_PLATFORM = K.num('RAID_XP_DISCOVER_PLATFORM');
+/** Raid XP per lab discovered this raid. */
+export const RAID_XP_DISCOVER_LAB = K.num('RAID_XP_DISCOVER_LAB');
+/** Raid XP per abandoned outpost (`StructureKind 'outpost'`) discovered this raid. */
+export const RAID_XP_DISCOVER_OUTPOST = K.num('RAID_XP_DISCOVER_OUTPOST');
+/** Raid XP per crashed ship discovered this raid. */
+export const RAID_XP_DISCOVER_WRECK = K.num('RAID_XP_DISCOVER_WRECK');
+/** Raid XP per POI ruin (`fog:discovered {kind:'outpost'}`) discovered this raid. */
+export const RAID_XP_DISCOVER_RUIN = K.num('RAID_XP_DISCOVER_RUIN');
+/** Raid XP for a fully revealed map; paid × explored fraction. */
+export const RAID_XP_MAP_FULL = K.num('RAID_XP_MAP_FULL');
+/** Raid XP per survey percentage point gained this raid (one card per subject). */
+export const RAID_XP_SURVEY_PER_PCT = K.num('RAID_XP_SURVEY_PER_PCT');
+/** Raid XP per human squadmate at pair-trust level 0. */
+export const RAID_XP_TRUST_BASE = K.num('RAID_XP_TRUST_BASE');
+/** Raid XP added per pair-trust level (before this raid) on top of `RAID_XP_TRUST_BASE`. */
+export const RAID_XP_TRUST_PER_LEVEL = K.num('RAID_XP_TRUST_PER_LEVEL');
+
+/** Pair trust a finished squad raid adds to every pair of humans who finished it together (relay-granted, once per raid per pair). */
+export const PLAYER_TRUST_RAID_GAIN = K.num('PLAYER_TRUST_RAID_GAIN');
+/** Pair trust one result-screen like adds (once per liker → target per raid, relay-validated). */
+export const PLAYER_TRUST_LIKE_GAIN = K.num('PLAYER_TRUST_LIKE_GAIN');
+/** A raid finish earlier than this (s after the start) earns no pair trust and gives no likes (the relay reads the csv itself — `server/Trust.ts`). */
+export const PLAYER_TRUST_RAID_MIN_S = K.num('PLAYER_TRUST_RAID_MIN_S');
+/** Longest a finished raid keeps its like window open (s); the next raid start closes it earlier. Relay-read. */
+export const PLAYER_TRUST_LIKE_WINDOW_S = K.num('PLAYER_TRUST_LIKE_WINDOW_S');
+/** Player pair trust level thresholds (accumulated points); index = level, index 0 is 0. */
+export const PLAYER_TRUST_TABLE: readonly number[] = numberList('tables.csv', 'PLAYER_TRUST_TABLE');
+/** Highest player pair trust level. */
+export const PLAYER_TRUST_LEVEL_MAX = PLAYER_TRUST_TABLE.length - 1;
+
+/** Mails kept in the mailbox; past it the oldest read + claimed ones go (a mail with unclaimed items never does). */
+export const MAIL_KEEP_MAX = K.num('MAIL_KEEP_MAX');
+/** Mail ids remembered after delivery so a deleted mail is never delivered again; oldest forgotten first. */
+export const MAIL_SEEN_IDS_MAX = K.num('MAIL_SEEN_IDS_MAX');
+/** Subject / body length caps (chars) — the mailbox rides the meta document, which shares `PROFILE_DOC_MAX_BYTES`. */
+export const MAIL_SUBJECT_MAX_CHARS = K.num('MAIL_SUBJECT_MAX_CHARS');
+export const MAIL_BODY_MAX_CHARS = K.num('MAIL_BODY_MAX_CHARS');
+/** The mail window's Escape-stack / cursor token (its `uiBlockers` token is `COMMUNITY_BLOCKER` — `ui/hud/Community`). */
+export const MAIL_WINDOW_TOKEN = 'mail';
+
+/** 2026-09-21 survey camera (owner: survey/). Farthest a subject can be recorded from (m, plus its radius). */
+export const SURVEY_MAX_RANGE_M = K.num('SURVEY_MAX_RANGE_M');
+/** Height of the camera's frame as a fraction of the screen height. */
+export const SURVEY_RECT_H_FRAC = K.num('SURVEY_RECT_H_FRAC');
+/** Frame width ÷ height. */
+export const SURVEY_RECT_ASPECT = K.num('SURVEY_RECT_ASPECT');
+/** Frame size multiplier while zoomed (aim held). */
+export const SURVEY_ZOOM_RECT_MUL = K.num('SURVEY_ZOOM_RECT_MUL');
+/** Camera zoom range (×) and the step one interact / reload press moves it. */
+export const SURVEY_ZOOM_MIN = K.num('SURVEY_ZOOM_MIN');
+export const SURVEY_ZOOM_MAX = K.num('SURVEY_ZOOM_MAX');
+export const SURVEY_ZOOM_STEP = K.num('SURVEY_ZOOM_STEP');
+/** Survey speed multiplier at `SURVEY_ZOOM_MAX` (1 at `SURVEY_ZOOM_MIN`, linear between). */
+export const SURVEY_ZOOM_SPEED_MAX_MUL = K.num('SURVEY_ZOOM_SPEED_MAX_MUL');
+/** Speed multiplier for a subject already recorded on this planet in an earlier raid. */
+export const SURVEY_REPEAT_PLANET_MUL = K.num('SURVEY_REPEAT_PLANET_MUL');
+/** Camera durability lost per second of recording. */
+export const SURVEY_CAMERA_WEAR_PER_S = K.num('SURVEY_CAMERA_WEAR_PER_S');
+/** Subject name tags on screen at once. */
+export const SURVEY_LABEL_MAX = K.num('SURVEY_LABEL_MAX');
+/** Least seconds between local progress saves while recording. */
+export const SURVEY_SAVE_INTERVAL_S = K.num('SURVEY_SAVE_INTERVAL_S');
+/** Least seconds between two camera warning toasts. */
+export const SURVEY_NOTIFY_INTERVAL_S = K.num('SURVEY_NOTIFY_INTERVAL_S');

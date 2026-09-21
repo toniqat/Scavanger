@@ -6,6 +6,8 @@ import {
   CONTRACT_MAX_ACTIVE, CONTRACT_SQUAD_SHARE, RARITY_ORDER, REP_LEVEL_MAX, REP_TABLE, SHOP_BAG_RARITY_BONUS, SHOP_RARITY_CAP_BY_REP,
   SHOP_UNLOCK_REP_LEVEL, buyPriceOf, repLevelOf, rarityRank as sharedRarityRank,
 } from '@/shared';
+/* 2026-09-21: the survey camera is sold by the survey corp only (`corpSells`) */
+import { SURVEY_CORP_ID, surveyCameraOf } from '@/shared';
 /* The implant repair fee lives in `data/tuning.csv`. */
 import { csvRows, keyTable } from '@/shared';
 
@@ -94,6 +96,9 @@ export function corpSells(
 ): boolean {
   if (level < SHOP_UNLOCK_REP_LEVEL) return false;
   if (!(def.value > 0)) return false;
+  /* 2026-09-21 (user's decision): survey cameras are the survey corp's alone — its `gadget` rule holds cameras only,
+   * and no other corp's `gadget` rule (노마드 장비) takes one. Their grades open by the usual rep rarity cap. */
+  if (!!surveyCameraOf(def.id) !== (corp.id === SURVEY_CORP_ID)) return false;
   if (rarityRank(def.rarity) > shopRarityCap(level, def)) return false;
   for (const rule of corp.stock) if (ruleMatches(rule, def, level, getWeaponDef, repairMats)) return true;
   return false;

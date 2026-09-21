@@ -73,6 +73,10 @@ const SMOKES = {
      opened · the label · the chat line · a left click does not leak into the gun · previewing an enemy corpse / supply crate /
      structure container ≡ opening it · the label disappears on a raid reset. */
   'smoke-drone-scan':   { file: 'scripts/smoke-drone-scan.mjs',   folders: ['gadgets', 'inventory'] },
+  /* 2026-09-21: the survey camera — unlock line (q_rv_1 → npc_yoon_sia → parcel mail → q_at_1 → atlas tab), one tick per
+     subject kind, raid cap, zoom 2..8 with E/R consumed, a subject on the zoomed frame border gains nothing, wear only while
+     recording, ×1/4 on a planet already surveyed, persistence. */
+  'smoke-survey':       { file: 'scripts/smoke-survey.mjs',       folders: ['survey', 'weapons', 'meta'] },
   'smoke-controls-hub': { file: 'scripts/smoke-controls-hub.mjs', folders: ['ui', 'hub', 'inventory', 'implants', 'progression', 'player', 'net'] },
   'smoke-ship-rooms':   { file: 'scripts/smoke-ship-rooms.mjs',   folders: ['hub', 'housing'] },
   'smoke-inventory-p6': { file: 'scripts/smoke-inventory-p6.mjs', folders: ['inventory', 'housing', 'items'] },
@@ -86,6 +90,12 @@ const SMOKES = {
   'smoke-progression':  { file: 'scripts/smoke-progression.mjs',  folders: ['progression'] },
   'smoke-ui-p6':        { file: 'scripts/smoke-ui-p6.mjs',        folders: ['ui'] },
   'smoke-ui-p5':        { file: 'scripts/smoke-ui-p5.mjs',        folders: ['ui', 'meta', 'game'] },
+  /* 2026-09-21 (paged result screen): page order / skipping · step strip · one horizontal card row · cards sum to xpEarned ·
+     사망 ×0.4 · Space · 함선으로 귀환 on the last page · squad 좋아요 against a stubbed ctx.net.trust · the real RaidXp settlement. */
+  'smoke-results':      { file: 'scripts/smoke-results.mjs',      folders: ['ui', 'game', 'net'] },
+  /* 2026-09-21 (mailbox): badge · window (Esc / Tab / messenger exclusion) · list / detail · 받기 · no_space / partial ·
+     모두 받기 · 읽은 메일 삭제 · idempotent ids · survives a reload. */
+  'smoke-mail':         { file: 'scripts/smoke-mail.mjs',         folders: ['meta', 'ui'] },
   'smoke-uniques':      { file: 'scripts/smoke-uniques.mjs',      folders: ['weapons', 'items', 'enemies', 'player', 'ui'] },
   'smoke-rogue-v2':     { file: 'scripts/smoke-rogue-v2.mjs',     folders: ['enemies'] },
   'smoke-humanoid-ai':  { file: 'scripts/smoke-humanoid-ai.mjs',  folders: ['enemies'] },

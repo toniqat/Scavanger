@@ -22,6 +22,8 @@ import * as Leader from './parts/Leader';
 import type { LeaderDeviceObject } from './parts/Leader';
 /* appended (2026-09-15): results screen rework — peak carried value · damage per source · the last hit */
 import { RaidReport } from './parts/RaidReport';
+/* appended (2026-09-21): the raid-end XP counters (gathers · structures found · map explored) */
+import { RaidXpTracker } from './parts/RaidXp';
 /* appended (2026-09-15): the raid-entry loading gate */
 import { LoadGate } from './parts/LoadGate';
 /* appended (2026-09-15): title `이어하기` · `레이드 포기` */
@@ -58,6 +60,8 @@ export class GameFlowSystem implements GameSystem {
    * reads (`parts/RaidReport`).
    */
   readonly report = new RaidReport(this);
+  /** 2026-09-21 (raid-end XP settlement): counts gathers · discovered structures · map explored into `ctx.stats` (`parts/RaidXp`). */
+  readonly raidXp = new RaidXpTracker(this);
   /**
    * 2026-09-15 (raid-entry loading): the gate that holds the screen after the launch countdown until every
    * squad member is ready (`parts/LoadGate`). `ui/`'s radial gauge and the smokes read it as
@@ -162,6 +166,7 @@ export class GameFlowSystem implements GameSystem {
     // 2026-09-15: must subscribe **before** the `player:died` → `onLocalDied` (strip into the corpse) below, so
     // the carried value is measured at the moment of death.
     this.report.bind();
+    this.raidXp.bind();
     /*
      * 2026-09-15 (raid-entry loading): the gate binds here too. Its `game:newMission` subscription must come
      * **before the `onNewMission` below** — if the phase rolls on before the gate takes its hold, the first
@@ -523,7 +528,7 @@ export class GameFlowSystem implements GameSystem {
   /**
    * Bank the mission result into the persistent profile (progression/). Runs once per mission, before the
    * result screen appears, so `game:complete` / `game:over` listeners already see the new level.
-   * Raid XP comes only from kills (`stats.killXp`, × `XP_DEATH_MUL` when not extracted) — 2026-09-16.
+   * Raid XP = the sum of the `parts/RaidXp` cards (× `XP_DEATH_MUL` when not extracted) — 2026-09-21.
    * The training range never pays out (and never settles a contract).
    */
   awardMissionXp(): void { return Death.awardMissionXp(this); }
@@ -531,6 +536,7 @@ export class GameFlowSystem implements GameSystem {
   dispose(): void {
     for (const u of this.unsubs) u();
     this.report.dispose();
+    this.raidXp.dispose();
     this.loadGate.dispose();
     this.raidResume.dispose();
     this.netUnsub?.(); this.netUnsub = null;

@@ -31,7 +31,7 @@ import './meta.css';
  * (`ProfileSync` queues + stamps an offline `set`).
  * ──────────────────────────────────────────────────────────────────────────── */
 
-export const CORP_ALIASES: Readonly<Record<string, CorpId>> = { helix: 'helix', bastion: 'bastion', nomad: 'nomad', ceres: 'ceres' };
+export const CORP_ALIASES: Readonly<Record<string, CorpId>> = { helix: 'helix', bastion: 'bastion', nomad: 'nomad', ceres: 'ceres', atlas: 'atlas' };
 export const GOAL_IDS: readonly ContractGoalKind[] = ['kill_bugs', 'kill_rogues', 'open_crates', 'loot_corpses', 'extract_with_value', 'use_stratagems', 'extract_with_items'];
 /**
  * 2026-09-12 (E2): goals whose progress is **read from the inventory**, never counted from hits — `reportContractHit`

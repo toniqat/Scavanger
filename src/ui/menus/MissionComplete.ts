@@ -2,8 +2,9 @@ import type { GameContext, MissionStats } from '@/shared';
 import { missionPlanetLabel } from '@/shared';
 import { el, fmtTime, setText, toggleClass } from '../dom';
 import { MenuBase } from './MenuBase';
-import { RewardsBlock } from './RewardsBlock';
-import { ResultReport, buildPlanetLine, buildResultHeader, type PlanetLine, type ResultHeader } from './ResultReport';
+import type { RewardsBlock } from './RewardsBlock';
+import { buildPlanetLine, buildResultHeader, type PlanetLine, type ResultHeader, type ResultReport } from './ResultReport';
+import { ResultBody } from './results/ResultBody';
 
 const SUB_DEAD = '스캐빈저 신호 소실 — 장비는 유해에 남았습니다';
 
@@ -22,13 +23,16 @@ const SUB_DEAD = '스캐빈저 신호 소실 — 장비는 유해에 남았습�
  * gone — but the **death look's subtitle** (`SUB_DEAD`) uses that element, so it is not removed, only `hidden` on an
  * extraction (`hidden`, not `style.display` — the root contract). The planet row is `buildPlanetLine`'s two pieces (a
  * grey `행성` + a white name), looking the same as in `DeathScreen`.
+ *
+ * **2026-09-21 (paged result screen, user's decision):** the body is `results/ResultBody` — ① 전리품 → ② 경험치 →
+ * ③ 분대 계약 → ④ 분대원 (squad raids only), `다음` / `Space` between them, `함선으로 귀환` on the last page only.
+ * `DeathScreen` puts the same body under its header.
  */
 export class MissionComplete extends MenuBase {
   private head: ResultHeader;
   private subtitleEl: HTMLElement;
   private planet: PlanetLine;
-  private report: ResultReport;
-  private rewards: RewardsBlock;
+  private body: ResultBody;
 
   constructor(parent: HTMLElement) {
     super(parent, 'complete');
@@ -40,17 +44,13 @@ export class MissionComplete extends MenuBase {
     this.subtitleEl.hidden = true;
     this.planet = buildPlanetLine(head);
 
-    this.report = new ResultReport(this.frame);
-    this.rewards = new RewardsBlock(this.frame);
-
-    const actions = el('div', { cls: 'actions', parent: this.frame });
-    this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('ui:shipReturn', {}), 'primary');   // 2026-09-16: black → loading → fade in (`ShipReturn`)
+    // 2026-09-16: `함선으로 귀환` = black → loading → fade in (`ShipReturn`); 2026-09-21: on the last page only
+    this.body = new ResultBody(this.frame, () => this.ctx.bus.emit('ui:shipReturn', {}));
   }
 
   override bind(ctx: GameContext): void {
     super.bind(ctx);
-    this.rewards.bind(ctx);
-    this.report.bind(ctx);
+    this.body.bind(ctx);
     this.unsubs.push(
       ctx.bus.on('game:complete', ({ stats }) => { this.fill(stats); this.show(); }),
       ctx.bus.on('game:phaseChanged', ({ phase }) => { if (phase !== 'complete') this.hide(); }),
@@ -67,20 +67,26 @@ export class MissionComplete extends MenuBase {
     this.subtitleEl.hidden = !dead;
     setText(this.planet.value, missionPlanetLabel(this.ctx.missionMode, this.ctx.missionPlanet));   // 2026-09-16: the tutorial = `표류 행성`
     setText(this.head.time, fmtTime(s.timeSeconds));
-    this.report.fill(s, dead ? 'death' : 'extract');
-    this.rewards.fill(s.rewards, dead ? 'dead' : 'complete');
+    this.body.fill(s, dead);
   }
 
-  protected override onHide(): void { this.rewards.stop(); this.report.stop(); }
+  protected override onShow(): void { this.body.attach(); }
+  protected override onHide(): void { this.body.detach(); }
 
-  /** The XP settlement block (debug). */
-  get rewardsBlock(): RewardsBlock { return this.rewards; }
-  /** The loot / death-cause rows (debug). */
-  get resultReport(): ResultReport { return this.report; }
+  /** The XP settlement page (debug). */
+  get rewardsBlock(): RewardsBlock { return this.body.rewards; }
+  /** The loot / death-cause page (debug). */
+  get resultReport(): ResultReport { return this.body.report; }
+  /** The paged body — `pageId`, `pageOrder`, `next()`, the pages (debug / smoke). */
+  get resultBody(): ResultBody { return this.body; }
 
   update(dt: number): void {
     if (!this.visible) return;
-    this.rewards.update(dt);
-    this.report.update(dt);
+    this.body.update(dt);
+  }
+
+  override dispose(): void {
+    this.body.dispose();
+    super.dispose();
   }
 }

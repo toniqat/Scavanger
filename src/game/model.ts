@@ -32,6 +32,8 @@ export const DISCONNECT_ABORT_DELAY = 2;
  * 2026-09-16: no numbers here any more. Raid XP = Σ per-kill `raidXp` (`data/enemies.csv`, summed into
  * `ctx.stats.killXp` by enemies/) × (extracted ? 1 : `XP_DEATH_MUL` from `data/constants.csv`) × library multiplier —
  * `parts/Death.awardMissionXp`. The old per-kill flat value, loot-value, extraction and survival-time terms are gone.
+ * 2026-09-21: kills are now one card of several (gather · discover · map · survey · trust · contract) — the
+ * per-source numbers are `RAID_XP_*` in `data/constants.csv`, the cards are built in `parts/RaidXp`.
  */
 
 /**

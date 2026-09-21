@@ -16,6 +16,8 @@ import {
   CORP_DEFS, NAMED_ROGUE_NAME_KO, NAMED_ROGUE_TYPES, NPC_DEF_MAP, NPC_FLAGS, NPC_ITEM_WEAPON_PREFIX, NPC_LOG_MAX, NPC_QUEST_MAP,
   STRUCTURE_LABEL_KO, csvRows, formatCompactSigned, formatCredits, planetLabel,
 } from '@/shared';
+/* 2026-09-21: the `survey` objective names its subject */
+import { SURVEY_SUBJECT_MAP } from '@/shared';
 
 /** Korean reason strings (the messenger button · the console print them as they are). */
 export const NPC_REASON = {
@@ -158,6 +160,8 @@ export function objectiveLabel(o: NpcObjectiveDef, itemName: (defId: string) => 
     case 'discover': return `${where}${STRUCTURE_LABEL_KO[o.site ?? 'outpost']} 발견`;
     case 'search': return `${where}${STRUCTURE_LABEL_KO[o.site ?? 'outpost']} 컨테이너 ${n}개 조사`;
     case 'interact': return `${where}${INTERACT_KO[o.interact ?? 'scanner']}${n > 1 ? ` ${n}회` : ''}`;
+    /* 2026-09-21: a survey subject's account progress — `스캐빈저 조사 100%`, no subject = any one */
+    case 'survey': return `${o.subject ? SURVEY_SUBJECT_MAP.get(o.subject)?.name ?? o.subject : '아무 대상이나'} 조사 ${n}%`;
   }
 }
 

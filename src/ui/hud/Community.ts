@@ -5,6 +5,8 @@ import {
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { AskPopup } from '../menus/askPopup';
+/* 2026-09-21: the mailbox — its button stands left of the messenger's, its window is hosted here too */
+import { MailWindow } from '../menus/mail/MailWindow';
 import { Messenger, messengerUnreadTotal } from '../menus/messenger/Messenger';
 import type { SocialColumn } from '../menus/social/SocialColumn';
 import { socialOf } from '../menus/social/socialSource';
@@ -16,6 +18,20 @@ import type { CutsceneWatch } from './CutsceneWatch';
  * (2026-09-11, found by smoke-social once a real `SocialSync` drove the stack).
  */
 const STALE_KEY = '#';
+
+/**
+ * The red dot's pop at time `u` (0..1) as a transform — the messenger dot and (2026-09-21) the mail dot share it.
+ * Only the curve's shape (ratios) lives here: the first peak at 55 % of the time, the second peak at 22 % of the
+ * height, the swell up to +25 % over the first 30 %.
+ */
+function popTransform(u: number): string {
+  const first = 0.55;
+  const y = u < first
+    ? MESSENGER_DOT_POP_PX * Math.sin(Math.PI * (u / first))
+    : MESSENGER_DOT_POP_PX * 0.22 * Math.sin(Math.PI * ((u - first) / (1 - first)));
+  const k = 1 + 0.25 * Math.sin(Math.PI * Math.min(1, u / 0.3));
+  return `translateY(${(-y).toFixed(2)}px) scale(${k.toFixed(3)})`;
+}
 
 /**
  * The **messenger** icon + panel host + squad invite stack (`.community`, social layer — the layer that stays visible in the ship).
@@ -55,6 +71,13 @@ const STALE_KEY = '#';
  * cutscene starts. **2026-09-09:** Tab (`Keys.INVENTORY`) closes the panel too (consumed), and the open panel emits
  * `ui:keyGuide {owner:'community'}` (`우클릭 메뉴` · `P 닫기`). **2026-09-11 (B-3 · B-4):** an invite card's × is a real
  * decline; the panel head's `차단 목록 n` opens the 친구 tab's blocked page.
+ *
+ * **2026-09-21 — the mailbox** (user's decision): a second button **left of the messenger button** (`.ml-btn`, the same
+ * `.cm-btn` look, the same count badge = `MailRef.unreadCount()`, the same pop on `mail:received` — no toast), opening
+ * its own window (`menus/mail/MailWindow`). It lives in this class because it shares every gate the messenger has (ship
+ * only, tutorial, cutscene, over the Tab window / pause menu) and because the two windows are **never open together**:
+ * opening one closes the other. The mail window holds the same blocker token (`COMMUNITY_BLOCKER`), so the menus below
+ * treat it exactly as the messenger panel (Tab / Escape go to it first). No key of its own (no keybind yet).
  */
 export class Community {
   readonly root: HTMLElement;
@@ -71,6 +94,13 @@ export class Community {
   private overKind: 'none' | 'inv' | 'pause' = 'none';
   private panel!: HTMLElement;
   private messengerView!: Messenger;
+  /* 2026-09-21: the mailbox button + window */
+  private mailBtn: HTMLButtonElement;
+  private mailDot: HTMLElement;
+  private mailView!: MailWindow;
+  private lastMailUnread = -1;
+  private mailPopT = -1;
+  private mailPopPending = false;
   private ctx!: GameContext;
   private unsubs: Array<() => void> = [];
   private shown = false;
@@ -115,6 +145,18 @@ export class Community {
     this.keyEl.classList.add('cm-key');
     this.inviteWrap = el('div', { cls: 'cm-invites', parent: this.root });
     this.btn.addEventListener('click', (e) => { e.stopPropagation(); this.toggle(); });
+    // 2026-09-21: the mailbox button (absolutely placed left of the messenger button — `styles/mail.css`)
+    this.mailBtn = el('button', { cls: 'cm-btn ml-btn interactive', parent: this.root });
+    this.mailBtn.title = '우편함';
+    el('span', {
+      cls: 'cm-glyph',
+      html: '<svg class="ml-glyph" viewBox="0 0 24 24"><path d="M3 13l3-8h12l3 8"/><rect x="3" y="13" width="18" height="7" rx="1"/><path d="M3 13h5l1.5 2.5h5L16 13h5"/></svg>',
+      parent: this.mailBtn,
+    });
+    el('span', { cls: 'cm-tag', text: '우편함', parent: this.mailBtn });
+    this.mailDot = el('i', { cls: 'cm-dot has-num ui-mono', parent: this.mailBtn });
+    this.mailDot.hidden = true;
+    this.mailBtn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleMail(); });
   }
 
   bind(ctx: GameContext): void {
@@ -129,6 +171,8 @@ export class Community {
     const self = this;
     this.messengerView = new Messenger(frame, { close: () => self.close(), get isOpen() { return self._open; } });
     this.messengerView.bind(ctx);
+    this.mailView = new MailWindow(ctx.uiRoot, () => this.closeMail());
+    this.mailView.bind(ctx);
     this.panel.addEventListener('mousedown', (e) => e.stopPropagation());
     /*
      * 2026-09-09 — **squad leader transfer**. Right-clicking a squadmate row in the 친구 tab (`.sc-srow[data-peer-id]`,
@@ -162,8 +206,11 @@ export class Community {
       ctx.bus.on('social:inviteClosed', () => { this.inviteKey = STALE_KEY; this.held = 0; }),
       // The 닫기 label and the invite hint both name the live `Keys.INVITE` — never cache a key label.
       ctx.bus.on('input:bindingsChanged', () => { this.inviteKey = STALE_KEY; paintKeycap(this.keyEl, Keys.INVITE); this.messengerView.refreshKeyLabels(); if (this._open) this.emitGuide(); }),
-      ctx.bus.on('game:phaseChanged', () => { if (this._open && !ctx.isHubPhase()) this.close(); }),
-      ctx.bus.on('game:newMission', () => { if (this._open) this.close(); }),
+      ctx.bus.on('game:phaseChanged', () => { if (this._open && !ctx.isHubPhase()) this.close(); if (!ctx.isHubPhase()) this.closeMail(); }),
+      ctx.bus.on('game:newMission', () => { if (this._open) this.close(); this.closeMail(); }),
+      /* 2026-09-21: the mailbox badge — recounted on the next frame; a new mail pops the dot like an NPC message */
+      ctx.bus.on('mail:changed', () => { this.lastMailUnread = -1; }),
+      ctx.bus.on('mail:received', () => { if (!this.mailView.isOpen && ctx.isHubPhase()) this.mailPopPending = true; this.lastMailUnread = -1; }),
       /* 2026-09-14: the messenger */
       ctx.bus.on('npc:unreadChanged', () => { this.unreadAcc = 1; }),
       ctx.bus.on('social:unreadChanged', () => { this.unreadAcc = 1; }),
@@ -190,6 +237,12 @@ export class Community {
   get socialColumn(): SocialColumn { return this.messengerView.column; }
   /** The messenger body (debug / smoke). */
   get messenger(): Messenger { return this.messengerView; }
+  /** The mail window (debug / smoke). */
+  get mailWindow(): MailWindow { return this.mailView; }
+  /** Whether the mail window is open (debug / smoke). */
+  get isMailOpen(): boolean { return this.mailView?.isOpen ?? false; }
+  /** The number on the mail button's badge (debug / smoke). */
+  get mailBadge(): number { return Math.max(0, this.lastMailUnread); }
   /** The number on the thumbnail's badge (debug / smoke). */
   get unreadBadge(): number { return Math.max(0, this.lastUnread); }
 
@@ -211,6 +264,7 @@ export class Community {
     const tutorial = ctx.tutorial?.hides('community') ?? false;
     const on = ctx.isHubPhase() && (free || overMenu) && !cutscene && !tutorial;
     if (tutorial && this._open) this.close();
+    if (tutorial) this.closeMail();
     if (on !== this.shown) {
       this.shown = on;
       toggleClass(this.root, 'show', on);
@@ -219,19 +273,26 @@ export class Community {
     const kind = overInv ? 'inv' : overPause ? 'pause' : 'none';
     if (kind !== this.overKind) {
       this.overKind = kind;
-      for (const n of [this.root, this.panel]) {
+      for (const n of [this.root, this.panel, this.mailView.panel]) {
         toggleClass(n, 'over-inv', kind === 'inv');
         toggleClass(n, 'over-pause', kind === 'pause');
       }
     }
     if (this._open && (!ctx.isHubPhase() || cutscene)) this.close();
+    if (this.mailView.isOpen && (!ctx.isHubPhase() || cutscene)) this.closeMail();
     // 2026-09-09: Tab closes every screen (the pause menu stacked on top keeps it, like P below).
     // 2026-09-16: a panel opened over a menu closes **only the panel** on Tab — the Tab window · pause menu below do not take Tab while this blocker is held.
     if (this._open && (free || overMenu) && ctx.input.wasPressed(Keys.INVENTORY)) {
       ctx.input.consume(Keys.INVENTORY);
       this.close();
     }
-    if (!on && !this._open) return;
+    // 2026-09-21: the mail window closes on Tab the same way (the two are never open together)
+    if (this.mailView.isOpen && (free || overMenu) && ctx.input.wasPressed(Keys.INVENTORY)) {
+      ctx.input.consume(Keys.INVENTORY);
+      this.closeMail();
+    }
+    if (!on && !this._open && !this.mailView.isOpen) return;
+    this.updateMail(dt);
 
     const social = socialOf(ctx);
     const count = social?.available ? social.onlineFriends : 0;
@@ -302,13 +363,47 @@ export class Community {
       this.dot.style.transform = '';
       return;
     }
-    // only the curve’s shape (ratios) lives here: the first peak at 55 % of the time, the second peak at 22 % of the height, the swell up to +25 % over the first 30 %
-    const first = 0.55;
-    const y = u < first
-      ? MESSENGER_DOT_POP_PX * Math.sin(Math.PI * (u / first))
-      : MESSENGER_DOT_POP_PX * 0.22 * Math.sin(Math.PI * ((u - first) / (1 - first)));
-    const k = 1 + 0.25 * Math.sin(Math.PI * Math.min(1, u / 0.3));
-    this.dot.style.transform = `translateY(${(-y).toFixed(2)}px) scale(${k.toFixed(3)})`;
+    this.dot.style.transform = popTransform(u);
+  }
+
+  /**
+   * 2026-09-21 — the mail button's frame: the unread badge (recounted only after `mail:changed` / `mail:received`),
+   * its pop (the messenger dot's curve and length — `popTransform`), and the window's own redraw.
+   */
+  private updateMail(dt: number): void {
+    const mail = this.ctx.meta?.mail ?? null;
+    this.mailBtn.hidden = !mail;
+    if (!mail) return;
+    if (this.lastMailUnread < 0) {
+      const n = mail.unreadCount();
+      this.lastMailUnread = n;
+      this.mailDot.hidden = n <= 0;
+      setText(this.mailDot, n > 99 ? '99+' : String(n));
+      if (this.mailPopPending && !this.mailDot.hidden) { this.mailPopPending = false; this.mailPopT = 0; }
+    }
+    if (this.mailPopT >= 0) {
+      this.mailPopT += Math.max(0, dt);
+      const u = this.mailPopT / Math.max(1e-3, MESSENGER_DOT_POP_S);
+      if (u >= 1 || this.mailDot.hidden) { this.mailPopT = -1; this.mailDot.style.transform = ''; }
+      else this.mailDot.style.transform = popTransform(u);
+    }
+    this.mailView.update();
+  }
+
+  private toggleMail(): void { if (this.mailView.isOpen) this.closeMail(); else this.openMail(); }
+
+  /** Open the mail window (closes the messenger panel first — never both). */
+  openMail(): void {
+    if (this.mailView.isOpen || !this.ctx.meta?.mail) return;
+    if (this._open) this.close();
+    this.mailPopPending = false;
+    this.mailView.open();
+  }
+
+  closeMail(): void {
+    if (!this.mailView?.isOpen) return;
+    this.mailView.close();
+    this.lastMailUnread = -1;
   }
 
   /** Whether the red dot is popping right now (debug / smoke). */
@@ -395,6 +490,7 @@ export class Community {
   open(): void {
     if (this._open) return;
     const ctx = this.ctx;
+    this.closeMail();   // 2026-09-21: never both windows
     this._open = true;
     this.popPending = false;
     this.panel.hidden = false;
@@ -441,6 +537,7 @@ export class Community {
       this.ctx?.input.setCursorMode(false, COMMUNITY_BLOCKER);
     }
     this.messengerView?.dispose();
+    this.mailView?.dispose();
     this.panel?.remove();
     this.root.remove();
   }

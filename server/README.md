@@ -1,7 +1,7 @@
 # server/ — WebSocket relay (lobbies, relay, profile / social / room stores, credit validation)
 
 Small Node server (`ws`) that owns lobbies, forwards opaque `GameMessage`s between lobby members, and keeps per-token
-stores: profiles (credits + opaque documents + social record + credit ledger), raid session blobs, group rooms and the
+stores: profiles (credits + opaque documents — `PROFILE_DOC_KEYS`: meta · stash · loadout · progression · ship · survey — + social record + credit ledger), raid session blobs, group rooms and the
 crypto market. It never inspects relayed gameplay payloads — the lobby host is the gameplay authority. The only game
 facts it validates are credit transactions (reason grammar + generated economy table) and the shape of lobby fields.
 It runs only as `npm run server` (`index.ts`), started from the repo by `start-server.bat` — builds ship no server
@@ -23,15 +23,17 @@ in the npm scripts). Files must be erasable TypeScript (no enums / namespaces / 
 | `Invites.ts` | Memory-only `InviteTable` (one open invite per (from, to), TTL timers) and `PushCoalescer` (batches social pushes per viewer) |
 | `Rooms.ts` | `RoomStore`: group-room rules and limits, returns `RoomOp` (lines + who needs a fresh `room:state`), `rooms.json` persistence. Knows nothing of sockets, friends or blocks |
 | `Economy.ts` | Pure credit validation: `ECONOMY_TABLE` (JSON import of `economy.gen.json`, shape-checked by `loadEconomyTable` — a broken table stops startup), `CreditEconomy.check` / `commit`, ledger sanitize / prune, injected crypto quote source, `devEconomyFromEnv` |
+| `Trust.ts` | Player ↔ player trust bookkeeping: `TrustRaids` (who shared which raid, counted finishes, pairs paid once, likes, like windows, prune) — memory-only, no sockets / store; `loadTrustNumbers` reads the four `PLAYER_TRUST_*` rows of `data/constants.csv` from disk (a broken row stops startup) |
 | `CryptoMarket.ts` | Server-authoritative coin prices: mean-reverting log price with jumps per tick from a stateless hash (a gap replays identically), 1-minute / 1-hour candles, `history`, `quoteRange`, `crypto.json` persistence with backfill |
 | `economy.gen.json` | **Generated, committed** economy table (item value / stack, repair fees, contract and NPC-quest credit rewards, price multipliers, `CREDITS_MAX`, rover fare range, `intel`, `crypto`, `hash`). Written by `npm run data:check -- --write` (`scripts/economy-table.mjs`) from the client's own modules; `data:check` fails when stale. Never hand-edit |
-| `selftest.ts` | `npm run net:selftest` — boots relays on random ports (memory stores) and drives real sockets through every protocol area (parts 1–14, squads / docking in 8d) plus store-level checks |
+| `selftest.ts` | `npm run net:selftest` — boots relays on random ports (memory stores) and drives real sockets through every protocol area (parts 1–16, squads / docking in 8d, player trust in 16) plus store-level checks |
 | `tsconfig.json` | `npm run typecheck:server` (`erasableSyntaxOnly`) |
 | `data/` | Runtime stores (git-ignored): `profiles.json` (+ `.bak`, `profiles.corrupt-<ts>.json`), `rooms.json` (+ same), `crypto.json` (+ same; deleting it only loses chart history — 31 days are re-backfilled deterministically) |
 
 Runtime imports from `src/shared`: `net.ts`, `profile.ts`, `social.ts`, `credits.ts`, `cryptoMarket.ts`, `intel.ts`,
 `planets.ts`, `allies.ts` (`androidNameOf` only — every import inside that file is `import type`, so nothing else
-follows it into the relay) (`types.ts` type-only).
+follows it into the relay), `playerTrust.ts`, `data/csv.ts` (the import-free csv parser, for `Trust.loadTrustNumbers`)
+(`types.ts` type-only).
 
 ## Connections, sessions, grace
 
@@ -103,6 +105,7 @@ frame is always `lobby:error invalid`. Frame caps: 64 KB (`MAX_MESSAGE_BYTES`), 
 | `social:inviteReply {id, accept}` | Decline / accept → atomic move (`busy` while in a squad of 2+ or inside a mission); every close goes through `closeInvite` (`social:inviteResult` to inviter, `social:inviteClosed` to invitee). Accepting into a docked lobby docks the joiner (client side); into an undocked one everyone stays in their own ship |
 | `social:whisper {code, text, nonce?}` | Sanitized, `SOCIAL_WHISPER_MAX`; online → `social:whisper`; offline friend + nonce → stored in `inbox`; `social:whisperAck {nonce, ok, at?, stored?, code?}`; to a blocker: dropped but acked `ok:true` |
 | `room:get` · `create` · `invite` · `reply` · `leave` · `kick` · `rename` · `say` · `history` | Group rooms (below) → `room:state`, `room:line`, `room:ack`, `room:history`, `room:error` |
+| `trust:like {code}` | 2026-09-21 player trust: `unavailable` → `not_found` → `TrustRaids.like` (`self` · `no_raid` · `not_mate` · `not_counted` · `already`) → `trust:refused {code, error, message}` + `trust:window`; ok → `ProfileStore.addTrust(+PLAYER_TRUST_LIKE_GAIN)`, `trust:gain {reason:'like', mine}` to both sides, coalesced `social:state`, `trust:window` |
 | `crypto:watch {on}` | Per-socket flag (anonymous allowed); `on` → `crypto:prices` now and every tick |
 | `crypto:history {coin, range}` | `crypto:history {coin, range, at, candles}` to that socket; unknown → no answer; token bucket `CRYPTO_HISTORY_BURST` / `CRYPTO_HISTORY_PER_S` |
 
@@ -186,6 +189,13 @@ whether an intel purchase was really used. Only `index.ts` reads the dev-economy
 - Blocks are silent toward the blocked side (whispers dropped but acked, requests only in their outgoing, invites hidden
   and expire). Joining is refused by direction (`blockRefusal`). Blocking a current squadmate does not kick them.
 - Recent players are recorded when two profiles share a lobby (docked or not), never for friends, capped at `SOCIAL_RECENT_MAX`.
+- **Player trust** (2026-09-21, rules in `src/shared/playerTrust.ts`, wire in `docs/MULTIPLAYER.md` §11). A raid `lobby:start`
+  records its humans (`inMission`, profile, not a bot) in `TrustRaids`; `lobby:mission false` without `keep` and the host's
+  `lobby:reset` are the finish (`finishTrust`), counted after `PLAYER_TRUST_RAID_MIN_S`; each pair of counted finishers is paid
+  `PLAYER_TRUST_RAID_GAIN` once when the second finishes (`trust:gain` to both). `announceLeave` (leave · grace · kick · move),
+  `lobby:abandon`, and a training start / entry drop an unfinished member. The value lives in `SocialRecord.trust` on both
+  records (`addTrust`, capped at `PLAYER_TRUST_PAIRS_MAX` per profile, dangling codes dropped by the GC) and reaches the owner
+  as `SocialSnapshot.trust`. `collectGarbage` also prunes `TrustRaids`.
 
 ## Server console (`Console.ts`)
 
@@ -247,12 +257,18 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 - **`LobbyPlayer.shipModel` comes from the member's own profile** (2026-09-21), before a shop exists. Rejected: a profile-first /
   client-fallback blend (the fallback is the hole). The nudge is de-duplicated on the sender, never against its own lobby row.
 - **Group rooms: owner model, friends-only invites, not linked to chat.**
+- **The relay reads its player-trust numbers straight from `data/constants.csv`** (`Trust.loadTrustNumbers`, 2026-09-21).
+  Rejected: baking them into `economy.gen.json` (they are not economy, and the generator is a separate script). The relay only
+  ever runs from this repo, so the csv is always beside it.
+- **Player trust: a finish counts after `PLAYER_TRUST_RAID_MIN_S`; the pair is paid when the second of two finishers ends**
+  (2026-09-21). Rejected: paying at the start (a start-and-quit farm) and paying at the lobby reset (a member who left the
+  lobby right after finishing would miss it).
 
 ## Recent changes
 
 Last 5 only — older: `git log -- server`.
+- 2026-09-21 — Profile document `survey` (survey camera progress, `src/survey/parts/Store.ts`) joined `PROFILE_DOC_KEYS`; the store needed no code change (the key list is generic, the doc is a few KiB against `PROFILE_DOC_MAX_BYTES`). Selftest: wire round-trip (ack · `profile:get` · welcome after reconnect) and `profiles.json` round-trip.
+- 2026-09-21 — Player ↔ player trust: `Trust.ts` (`TrustRaids`, `loadTrustNumbers`), `SocialRecord.trust` on both records (`Store.addTrust` · `trustOf`, sanitize, GC), `trust:like` → `trust:gain` / `trust:window` / `trust:refused`, raid start / finish / drop hooks, `SocialSnapshot.trust`; selftest part 16.
 - 2026-09-21 — The ship model stops being the client's word (B-101, user's decision): `Store.shipModel(id)` reads `PlayerProfile.shipModel` out of that profile's own `progression` document (shape-checked with `sanitizeShipModel`, the one place the relay looks inside a `docs` blob) and `lobbyState` fills `LobbyPlayer.shipModel` with it beside `code` · `level`. `Lobby.setShipModel` is gone; `lobby:look.shipModel` survives only as the nudge that asks for the re-read.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched. The operator console's Korean output strings stay — they are program output, not comments.
 - 2026-09-15 — Title resume / abandon: `lobby:mission {false, keep}` keeps the raid blob (and a replaced socket no longer drops it), `lobby:abandon` → `LobbyPlayer.drifted` (`Lobby.setDrifted`, `drifted` error, cleared by start / reset), selftest cases in the raid-session part.
-- 2026-09-15 — A relay whose console pipe lost its reader (a `--keep-relay` runner exiting) no longer spins: `index.ts` swallows stdout / stderr stream errors and the `uncaughtException` reporter cannot re-enter.
-- 2026-09-15 — Android squadmates: `LobbyPlayer.bot` members (`lobby:android`, `lobby:androidReturned`), humans-only caps with latest-bot eviction, bots excluded from host / relay / presence / grace, console `lobbies` marks them, selftest part 15.

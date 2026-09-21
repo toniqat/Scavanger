@@ -30,3 +30,7 @@ ceres,attachment,,,,2,,
 ceres,implant,,,,,uncommon,
 ceres,material,,,,,,true
 
+# atlas — 아틀라스 측량 (2026-09-21). 조사 카메라(survey_cameras.csv 의 아이템)만 판다 — 다른 기업의 gadget 줄은 카메라를 받지 않고,
+#   이 기업의 gadget 줄은 카메라만 받는다 (meta/Rules.corpSells). 등급은 신뢰도별 상점 등급 상한(tables.csv SHOP_RARITY_CAP_BY_REP)이 연다:
+#   Lv.1 일반 · 고급 → Lv.2 희귀 → Lv.3 서사 → Lv.4 전설.
+atlas,gadget,,,,,,

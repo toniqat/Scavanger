@@ -5,7 +5,9 @@
 # site (discover · search) = outpost(전진기지) | lab(연구소) | wreck(불시착 함선). interact = scanner | basement_door | lab_door | tram | rover
 # planet (레이드 목표만, 선택) = amber | tundra | mossy | ashen | crimson. chain (레이드 목표만, 선택) = 같은 값의 목표끼리는 한 레이드 안에서 모두 채워야 함께 확정된다.
 # label (선택) = 자동 문구 대신 쓸 목표 문구.
-quest,kind,target,item,enemy,weapon,site,interact,planet,chain,label
+# 2026-09-21 (agent SURVEY): kind survey = 조사 대상의 **계정 진행도**가 target % 에 닿으면 바로 확정 (레이드 목표가 아니다 — 진행도는 줄지 않는다).
+#   subject = data/survey_subjects.csv 의 id, 비우면 아무 대상이나. survey 가 아닌 목표에는 쓰지 않는다.
+quest,kind,target,item,enemy,weapon,site,interact,planet,chain,label,subject
 q_hx_s1,deliver,12,mat_scrap,,,,,,,
 q_hx_s1,deliver,8,mat_gunpowder,,,,,,,
 q_hx_s2,interact,1,,,,,scanner,,,
@@ -102,3 +104,22 @@ q_kn_3,kill,10,,raider,SG,,,,,
 q_kn_3,recover,1,weapon:SG,,,,,,,
 q_kn_4,interact,1,,,,,scanner,,,
 q_kn_4,kill,1,,rogue_sniper,,,,,,
+q_at_1,survey,100,,,,,,,,,
+q_at_2,survey,100,,,,,,,,,sv_scavenger
+q_at_2,survey,50,,,,,,,,,sv_hunter
+q_at_3,survey,100,,,,,,,,,sv_outpost
+q_at_4,survey,100,,,,,,,,,sv_rover
+q_at_5,survey,100,,,,,,,,,sv_tram
+q_at_5,survey,50,,,,,,,,,sv_platform
+q_at_6,survey,100,,,,,,,,,sv_nest
+q_at_6,survey,50,,,,,,,,,sv_warrior
+q_at_7,survey,100,,,,,,,,,sv_android
+q_at_8,survey,100,,,,,,,,,sv_rogue
+q_at_8,survey,100,,,,,,,,,sv_raider
+q_at_9,survey,100,,,,,,,,,sv_lab
+q_at_9,survey,50,,,,,,,,,sv_spewer
+q_at_10,survey,100,,,,,,,,,sv_artillery
+q_at_10,survey,100,,,,,,,,,sv_charger
+q_at_11,survey,100,,,,,,,,,sv_sandworm
+q_at_12,survey,100,,,,,,,,,sv_wreck
+q_at_12,survey,100,,,,,,,,,sv_behemoth

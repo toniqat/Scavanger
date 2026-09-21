@@ -127,7 +127,8 @@ try {
   /* 2026-09-15, 2nd pass: the old gadget 「화염수류탄」 (gad_incendiary) was merged into the incendiary grenade, which
      takes one away (-1), and dropping `ItemCategory 'grenade'` brought the two grenades into this category (+2). */
   /* 2026-09-15 (the sandworm): the thumper `gad_thumper` is the 13th gadget */
-  ok((cat.byCat.gadget ?? 0) === 15, `15 gadget items — 가젯 13 + 수류탄 2 (${cat.byCat.gadget})`);
+  /* 2026-09-21 (the survey camera): the five camera grades `cam_survey_1…5` are `gadget` items without a `gadgetId` (+5) */
+  ok((cat.byCat.gadget ?? 0) === 20, `20 gadget items — 가젯 13 + 수류탄 2 + 조사 카메라 5 (${cat.byCat.gadget})`);
   ok((cat.byCat.herb ?? 0) >= 3, `herb items (${cat.byCat.herb})`);
   ok(cat.recipes >= 10, `craft recipes: ${cat.recipes}`);
   ok(cat.weighted, 'every item def carries a weight');

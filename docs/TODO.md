@@ -44,6 +44,8 @@
 | A-8 | **게임패드**. 리바인딩은 키보드 + 마우스 버튼만 | `grep -rni "gamepad" src/` → 0 hit |
 | A-7 | **BGM 이 소리가 아니라 상태다.** 설정의 `음악` 슬라이더도 함선의 음악 플레이어도 2026-09-14 부터 **있지만**, `bgm` 채널에는 연결된 것이 없어 값만 저장 · 표시된다. 트랙을 붙이면 그 두 화면은 그대로 쓸 수 있다 | `src/ui/menus/SettingsMenu.ts` `CHANNELS` 에 `bgm` 이 있다 · `housing/parts/Music.ts` · `ui/hud/MusicPlayer.ts` (CLAUDE.md §4.8 「Music is state, not sound」) |
 | B-10 | **채널 티커의 음소거가 플래그 하나**. 스프레이 도중 끝난 붕대는 토스트가 없고, `active:false` 를 놓치면 라인이 남는다 | `src/ui/hud/Notifications.ts` |
+| B-102 | **조사 카메라를 해금 전에도 제작할 수 있다.** 수리 · 분해비가 레시피 재료에서 나오므로 `make_cam_survey_1…5` 가 가젯 작업대 레시피로 있고, 그래서 `q_rv_1` 소포 · `atlas` 신뢰도 등급 제한을 건너뛴다. 막을지(수리 전용 레시피 플래그) 사용자 결정 필요 | `data/recipes.csv` `make_cam_survey_*` · `items/Salvage.checkSalvageEconomy` |
+| B-103 | **줌 중 E 를 consume 해도 `isDown` 은 남는다.** 조사 카메라 줌에서 E(축소)를 길게 누르면 근처 홀드 상호작용이 시작될 수 있다 | `src/survey/SurveySystem.ts` input gate · `shared/Input.ts` |
 
 ## 묶음 8 — AI 길찾기
 
@@ -55,6 +57,10 @@
 
 지금은 비어 있다 — 2026-09-14 에 수치 줄 D-1 … D-6 · D-9 … D-12 는 사용자 결정으로 뺐고, 2026-09-15 에 남은 시각 잔손질
 D-7(병사 림) · D-8(드랍쉽 그리블)을 끝냈다. 실플레이 뒤 튜닝 항목이 생기면 D-13 부터 잇는다.
+
+| ID | 항목 | 근거 |
+|---|---|---|
+| D-14 | **레이드 경험치 · 플레이어 신뢰도 · 조사 수치는 첫 추정치다** (2026-09-21 구현). 실플레이 뒤 `RAID_XP_*` · `PLAYER_TRUST_*` · `PLAYER_TRUST_TABLE` · `survey_subjects.csv` `seconds`/`raidCap` · `survey_cameras.csv` 를 조정 | `data/constants.csv` · `data/tables.csv` · `data/survey_*.csv` |
 
 ---
 

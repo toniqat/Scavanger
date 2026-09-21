@@ -65,6 +65,10 @@ import { NET_ACCENT_PARAM, sanitizeAccent, sanitizeShipModel } from '../src/shar
    of `src/shared/net.ts` */
 import { ANDROID_BAY_COUNT, isAndroidId, isBotPlayer } from '../src/shared/net.ts';
 import type { PlayBlock } from '../src/shared/social.ts';
+/* 2026-09-21: player ↔ player trust (`trust:like` · `trust:window` · `trust:gain` · `trust:refused` — server/Trust.ts) */
+import type { TrustLikeError } from '../src/shared/playerTrust.ts';
+import { TRUST_LIKE_ERROR_KO } from '../src/shared/playerTrust.ts';
+import { TrustRaids, loadTrustNumbers, type TrustNumbers } from './Trust.ts';
 
 /** 2026-09-15: what a `lobby:look.accent` string may carry before `sanitizeAccent` judges it (`#rrggbb` + stray whitespace). */
 const MAX_ACCENT_INPUT = 32;
@@ -187,6 +191,8 @@ export interface RelayServerOptions {
   economyTable?: EconomyTable;
   /** 2026-09-13: RNG seed of a **fresh** crypto market (a `crypto.json` keeps its own). Selftest only. */
   cryptoSeed?: number;
+  /** 2026-09-21: player-trust numbers (default: `data/constants.csv`, `loadTrustNumbers`). Selftest only. */
+  trustNumbers?: TrustNumbers;
 }
 
 export interface RelayServer {
@@ -226,6 +232,8 @@ export interface RelayServer {
   readonly crypto: CryptoMarket | null;
   /** 2026-09-14: the group room store (`rooms.json` next to `profiles.json`). */
   readonly rooms: RoomStore;
+  /** 2026-09-21: who shared which raid, for player trust (memory-only). */
+  readonly trustRaids: TrustRaids;
 }
 
 function randomPeerId(): PeerId {
@@ -432,6 +440,9 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
     case 'room:history':
       if (!isValidRoomId(m.room) || (m.before !== undefined && !isFiniteNum(m.before))) return null;
       return m.before === undefined ? { t: 'room:history', room: m.room } : { t: 'room:history', room: m.room, before: m.before as number };
+    /* appended: 2026-09-21 — player trust. Shape only; every rule is `TrustRaids.like`'s. */
+    case 'trust:like':
+      return validSocialCode(m.code) ? { t: 'trust:like', code: m.code as string } : null;
     default:
       return null;
   }
@@ -518,6 +529,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   if (!market) log('crypto market off (economy table has no crypto section)');
   const lobbies = new LobbyManager();
   const clients = new Map<PeerId, Client>();
+  /* 2026-09-21: player trust — the numbers are read from `data/constants.csv` at startup (a broken row stops it). */
+  const trustRaids = new TrustRaids(opts.trustNumbers ?? loadTrustNumbers());
   /** C-29: `null` = unlimited. */
   let maxClients: number | null = normalizeMax(opts.maxClients);
   /** Lobby members whose socket is down: id → grace timer that removes them. */
@@ -666,10 +679,20 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       const card = other === undefined ? null : store.card(other);
       if (card) blocked.push(card);
     }
-    return {
+    const snap: SocialSnapshot = {
       me: { code: soc.code, name: soc.name, level: soc.level },
       friends: rows(soc.friends), incoming: rows(soc.incoming), outgoing: rows(soc.outgoing), recent, blocked,
     };
+    /* 2026-09-21: my pair trust values — only codes that still resolve (the GC drops the rest later). */
+    if (soc.trust) {
+      const trust: Record<PlayerCode, number> = {};
+      let any = false;
+      for (const [code, points] of Object.entries(soc.trust)) {
+        if (points > 0 && store.peerByCode(code) !== undefined) { trust[code] = points; any = true; }
+      }
+      if (any) snap.trust = trust;
+    }
+    return snap;
   };
 
   /**
@@ -865,6 +888,54 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     if (!code) return null;
     const id = store.peerByCode(code);
     return id === undefined ? null : { code, id };
+  };
+
+  /* ── 2026-09-21: player ↔ player trust (rules: `src/shared/playerTrust.ts`, bookkeeping: server/Trust.ts) ── */
+  /** `id`'s like window as codes (sent after a finish, a like, a refusal, and after `welcome`). */
+  const sendTrustWindow = (id: PeerId): void => {
+    const c = clients.get(id);
+    if (!c || !c.hasProfile) return;
+    const w = trustRaids.window(id);
+    if (!w) return;
+    const codes = (ids: readonly PeerId[]): PlayerCode[] => {
+      const out: PlayerCode[] = [];
+      for (const pid of ids) { const code = store.card(pid)?.code; if (code) out.push(code); }
+      return out;
+    };
+    sendTo(c, { t: 'trust:window', open: w.open, mates: codes(w.mates), liked: codes(w.liked) });
+  };
+  /**
+   * Pays `gain` to the pair (both records, `ProfileStore.addTrust`) and tells both sides with `trust:gain` + a coalesced
+   * `social:state`. `liker` marks a like (`mine` on the wire). Returns the new points, null when a side has no profile.
+   */
+  const payTrust = (a: PeerId, b: PeerId, gain: number, reason: 'raid' | 'like', liker?: PeerId): number | null => {
+    const points = store.addTrust(a, b, gain);
+    if (points === null) return null;
+    for (const [me, other] of [[a, b], [b, a]] as const) {
+      const c = clients.get(me);
+      const card = store.card(other);
+      if (c && c.hasProfile && card) {
+        const msg: Extract<ServerToClient, { t: 'trust:gain' }> = { t: 'trust:gain', code: card.code, name: card.name, points, delta: gain, reason };
+        if (reason === 'like') msg.mine = me === liker;
+        sendTo(c, msg);
+      }
+      pushSocial(me);
+    }
+    return points;
+  };
+  /**
+   * `id` ended its session in `lobby`'s raid (`lobby:mission false` without `keep`, or the host's `lobby:reset`).
+   * Pays every pair whose other member already finished in a way that counts, then tells `id` its like window.
+   */
+  const finishTrust = (id: PeerId, lobby: Lobby): void => {
+    const res = trustRaids.finish(id, lobby.code);
+    if (!res) return;
+    for (const other of res.pay) payTrust(id, other, trustRaids.numbers.raidGain, 'raid');
+    log(`trust: ${store.card(id)?.code ?? id} finished the raid of ${lobby.code}${res.counted ? ` (counted, ${res.pay.length} pair(s) paid)` : ' (too early — not counted)'}`);
+    sendTrustWindow(id);
+  };
+  const trustRefused = (c: Client, code: PlayerCode, error: TrustLikeError): void => {
+    sendTo(c, { t: 'trust:refused', code, error, message: TRUST_LIKE_ERROR_KO[error] });
   };
 
   /**
@@ -1065,6 +1136,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   ): void => {
     const { lobby, hostMigrated, deleted } = res;
     const ended = wasStarted && !lobby.started;
+    /* 2026-09-21: out of the lobby with the raid still unfinished for it → that raid pays it no trust. */
+    trustRaids.drop(id);
     log(`lobby ${lobby.code}: ${name}(${id}) ${reason}${ended ? ' → mission over (nobody inside) → reset' : ''}${hostMigrated ? ` → host now ${lobby.hostId}` : ''}${deleted ? ' → lobby deleted' : ''}`);
     if (deleted) { clearMigrate(lobby.code); pushPresence(id); sweepInvites(); return; }
     if (hostMigrated || ended) clearMigrate(lobby.code);
@@ -1407,6 +1480,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
           // Any member, no ready gating: only the starter enters; the rest join later through `lobby:mission`.
           // A training has no target planet (the arena is not on a planet), so `planet` is ignored here.
           lobby.start(m.seed, 'training', c.id);
+          trustRaids.drop(c.id);   // 2026-09-21: a raid left unfinished before this training no longer pays
           log(`lobby ${lobby.code}: training started seed=${m.seed} by ${c.name}(${c.id})`);
           broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobbyState(lobby), mode: 'training' });
           pushLobbyPresence(lobby);
@@ -1423,6 +1497,10 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (m.intel !== undefined) lobby.intel = m.intel;
         const intel = lobby.intel;
         lobby.start(m.seed, 'raid', c.id);
+        /* 2026-09-21: player trust — the humans inside at the start (profiles only, never a bot) share this raid. */
+        const trustHumans: PeerId[] = [];
+        for (const p of lobby.players.values()) if (!isBotPlayer(p) && p.inMission && store.social(p.id)) trustHumans.push(p.id);
+        trustRaids.start(lobby.code, trustHumans);
         log(`lobby ${lobby.code}: started seed=${m.seed} planet=${planet}${intel ? ` intel=${intel.picks.map((p) => `${p.g}${p.tier}`).join(',')}` : ''} players=${lobby.size} (${lobby.connectedCount()} connected)`);
         broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobbyState(lobby), mode: 'raid', planet, intel });
         pushLobbyPresence(lobby);
@@ -1434,6 +1512,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
         if (lobby.hostId !== c.id) { sendError(c, 'not_host'); return; }
+        /* 2026-09-21: a raid host ends its own session with this reset instead of `lobby:mission false`. */
+        finishTrust(c.id, lobby);
         lobby.reset(); // Phase 11: keeps `planet` — the destination outlives the mission
         clearMigrate(lobby.code);
         log(`lobby ${lobby.code}: reset (reopened)`);
@@ -1521,6 +1601,14 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         // training range has nothing to do with drifting — the flag is raised in a raid only)
         if (m.inMission && lobby.get(c.id)?.drifted) { sendError(c, 'drifted'); return; }
         lobby.setInMission(c.id, m.inMission);
+        /*
+         * 2026-09-21: player trust. A `false` without `keep` ends this member's raid (a reload's `keep` does not);
+         * walking into a training while an older raid is still unfinished for it gives that raid up, and a `false`
+         * from such a training is not that raid's end either.
+         */
+        if (!m.inMission && !m.keep) {
+          if (!(lobby.started && lobby.mode === 'training')) finishTrust(c.id, lobby);
+        } else if (m.inMission && lobby.mode === 'training') trustRaids.drop(c.id);
         log(`lobby ${lobby.code}: ${c.name}(${c.id}) inMission=${m.inMission}${m.keep ? ' (reload, blob kept)' : ''} (${lobby.inMissionCount()} in mission)`);
         // 2026-09-15: a reload (`keep`) keeps the blob — the next boot's title resumes or abandons the raid with it
         if (!m.inMission) { if (!m.keep) lobby.raid.delete(c.id); migrateHostAway(lobby, c.id); }
@@ -1543,6 +1631,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         // Already drifted (a double press · a resend) — nothing to change, just the current state back
         if (lobby.get(c.id)?.drifted) { sendTo(c, { t: 'lobby:state', lobby: lobbyState(lobby) }); return; }
         if (!lobby.setDrifted(c.id)) { sendError(c, 'invalid'); return; }
+        trustRaids.drop(c.id);   // 2026-09-21: an abandoned raid pays no trust and gives no likes
         let note = '';
         if (migrateHostAway(lobby, c.id)) note += ` → host now ${lobby.hostId}`;
         if (autoResetMission(lobby)) note += ' → mission over → reset';
@@ -1935,6 +2024,20 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         return;
       }
 
+      /* appended: 2026-09-21 — player trust: a like for a squadmate of my last raid (`TrustRaids.like` rules). */
+      case 'trust:like': {
+        const code = normalizePlayerCode(m.code);
+        if (!socialOf(c)) { trustRefused(c, code, 'unavailable'); return; }
+        const target = peerOfCode(m.code);
+        if (!target) { trustRefused(c, code, 'not_found'); return; }
+        const res = trustRaids.like(c.id, target.id);
+        if (res !== 'ok') { trustRefused(c, target.code, res); sendTrustWindow(c.id); return; }
+        const points = payTrust(c.id, target.id, trustRaids.numbers.likeGain, 'like', c.id);
+        log(`trust: ${store.card(c.id)?.code ?? c.id} liked ${target.code} → ${points ?? '-'}`);
+        sendTrustWindow(c.id);
+        return;
+      }
+
       case 'relay': {
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
@@ -2073,6 +2176,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       notifyWatchers(id);
       /* 2026-09-14: my rooms + open room invites right after the welcome (clients never ask on their own), and room-mates see me online. */
       roomPushes.now(id);
+      /* 2026-09-21: a reloaded result screen gets its like window back. */
+      sendTrustWindow(id);
       markRoomPeers(id);
     }
 
@@ -2216,6 +2321,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   /* ── 2026-09-11 (B-2): profile GC ─────────────────────────────────────── */
   const collectGarbage = (now: number = Date.now()): ProfileGcReport => {
     const report = store.collectGarbage((id) => clients.has(id) || lobbies.lobbyOf(id) !== undefined, now);
+    trustRaids.prune(now);   // 2026-09-21: like windows past PLAYER_TRUST_LIKE_WINDOW_S and raids nobody points at
     // A friend that vanished must also leave the watch index and the open ESC screen of whoever is online right now.
     for (const id of report.changed) {
       if (!clients.has(id)) continue;
@@ -2260,6 +2366,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         collectGarbage,
         crypto: market,
         rooms,
+        trustRaids,
         close: () => new Promise<void>((done) => {
           clearInterval(heartbeat);
           market?.close();   // 2026-09-13: stops the tick timer, writes crypto.json synchronously

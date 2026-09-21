@@ -2,8 +2,9 @@ import type { GameContext, MissionStats } from '@/shared';
 import { RAID_FAILED_AUTO_RETURN_S, missionPlanetLabel } from '@/shared';
 import { el, fmtTime, setText, toggleClass } from '../dom';
 import { MenuBase } from './MenuBase';
-import { RewardsBlock } from './RewardsBlock';
-import { ResultReport, buildPlanetLine, buildResultHeader, type PlanetLine, type ResultHeader } from './ResultReport';
+import type { RewardsBlock } from './RewardsBlock';
+import { buildPlanetLine, buildResultHeader, type PlanetLine, type ResultHeader, type ResultReport } from './ResultReport';
+import { ResultBody } from './results/ResultBody';
 
 /**
  * "전사" screen with mission stats, shown on `game:phaseChanged {phase:'dead'}` (solo; also on the legacy `game:over`).
@@ -28,14 +29,18 @@ import { ResultReport, buildPlanetLine, buildResultHeader, type PlanetLine, type
  * **2026-09-15 (the header, user's decision):** the planet row is `buildPlanetLine`'s two pieces — a grey `행성` label +
  * a slightly larger white name, no middle dot. The subtitle carries this screen's meaning (`신호 소실` · `분대 전멸`),
  * so it **stays** (only the extraction-success subtitle was dropped).
+ *
+ * **2026-09-21 (paged result screen, user's decision):** the body is `results/ResultBody`, the same paged body as
+ * `MissionComplete` (① 잃은 전리품 + 사망 원인 → ② 경험치 with the `사망 ×m` tag → ③ 분대 계약 → ④ 분대원 in a squad).
+ * `함선으로 귀환` sits on the last page; the `n초 후 자동 귀환` line stays under the body on every page (game/ returns
+ * by itself whatever page is up).
  */
 export class DeathScreen extends MenuBase {
   private head: ResultHeader;
   private subtitleEl: HTMLElement;
   private planet: PlanetLine;
   private autoEl: HTMLElement;
-  private report: ResultReport;
-  private rewards: RewardsBlock;
+  private body: ResultBody;
   private failed = false;
   private autoLeft = 0;
   private lastAuto = -1;
@@ -49,19 +54,15 @@ export class DeathScreen extends MenuBase {
     // 2026-09-15: two pieces (a grey `행성` + a white name), looking the same as in `MissionComplete`.
     this.planet = buildPlanetLine(head);
 
-    this.report = new ResultReport(this.frame);
-    this.rewards = new RewardsBlock(this.frame);
-
-    const actions = el('div', { cls: 'actions', parent: this.frame });
-    this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('ui:shipReturn', {}), 'primary');   // 2026-09-16: black → loading → fade in (`ShipReturn`)
+    // 2026-09-16: `함선으로 귀환` = black → loading → fade in (`ShipReturn`); 2026-09-21: on the last page only
+    this.body = new ResultBody(this.frame, () => this.ctx.bus.emit('ui:shipReturn', {}));
     this.autoEl = el('div', { cls: 'auto-return', text: '', parent: this.frame });
     this.autoEl.hidden = true;
   }
 
   override bind(ctx: GameContext): void {
     super.bind(ctx);
-    this.rewards.bind(ctx);
-    this.report.bind(ctx);
+    this.body.bind(ctx);
     this.unsubs.push(
       ctx.bus.on('game:raidFailed', () => this.setFailed(true)),
       ctx.bus.on('game:over', ({ stats }) => { this.fill(stats); this.show(); }),
@@ -73,23 +74,24 @@ export class DeathScreen extends MenuBase {
     );
   }
 
-  protected override onShow(): void { this.applyMode(); }
-  protected override onHide(): void { this.rewards.stop(); this.report.stop(); }
+  protected override onShow(): void { this.applyMode(); this.body.attach(); }
+  protected override onHide(): void { this.body.detach(); }
 
   update(dt: number): void {
     if (!this.visible) return;
-    this.rewards.update(dt);
-    this.report.update(dt);
+    this.body.update(dt);
     if (this.failed && this.autoLeft > 0) {
       this.autoLeft = Math.max(0, this.autoLeft - dt);
       this.applyAuto();
     }
   }
 
-  /** The XP settlement block (debug). */
-  get rewardsBlock(): RewardsBlock { return this.rewards; }
-  /** The lost-loot / death-cause rows (debug). */
-  get resultReport(): ResultReport { return this.report; }
+  /** The XP settlement page (debug). */
+  get rewardsBlock(): RewardsBlock { return this.body.rewards; }
+  /** The lost-loot / death-cause page (debug). */
+  get resultReport(): ResultReport { return this.body.report; }
+  /** The paged body — `pageId`, `pageOrder`, `next()`, the pages (debug / smoke). */
+  get resultBody(): ResultBody { return this.body; }
   /** Whether the screen is in 레이드 실패 mode (debug). */
   get isRaidFailed(): boolean { return this.failed; }
 
@@ -119,11 +121,11 @@ export class DeathScreen extends MenuBase {
   private fill(s: MissionStats): void {
     setText(this.planet.value, missionPlanetLabel(this.ctx.missionMode, this.ctx.missionPlanet));   // 2026-09-16: the tutorial = `표류 행성`
     setText(this.head.time, fmtTime(s.timeSeconds));
-    this.report.fill(s, 'death');
-    this.rewards.fill(s.rewards, 'dead');
+    this.body.fill(s, true);
   }
 
   override dispose(): void {
+    this.body.dispose();
     super.dispose();
   }
 }

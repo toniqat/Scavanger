@@ -309,7 +309,9 @@ export type ClientToServer =
   /* appended (2026-09-15): android squadmates — see the android squadmates section */
   | ClientToServerAppended2026_09_15android
   /* appended (2026-09-15): abandoning a raid from the title · drifting — see the last section */
-  | ClientToServerAppended2026_09_15drift;
+  | ClientToServerAppended2026_09_15drift
+  /* appended (2026-09-21): player ↔ player trust — `shared/playerTrust.ts` */
+  | import('./playerTrust').TrustClientToServer;
 
 export type ServerToClient =
   /**
@@ -364,7 +366,9 @@ export type ServerToClient =
   /* appended (2026-09-14): group messenger rooms — see the group messenger rooms section */
   | ServerToClientAppended2026_09_14rooms
   /* appended (2026-09-15): android squadmates — see the android squadmates section */
-  | ServerToClientAppended2026_09_15android;
+  | ServerToClientAppended2026_09_15android
+  /* appended (2026-09-21): player ↔ player trust — `shared/playerTrust.ts` */
+  | import('./playerTrust').TrustServerToClient;
 
 /* ── Game messages (relayed verbatim, never inspected by the server) ───────── */
 
@@ -2506,3 +2510,9 @@ export interface NetRef {
   abandonRaid?(): void;
 }
 /* ══ end 2026-09-15 abandoning a raid from the title · drifting ══ */
+
+/* ══ appended 2026-09-21: player ↔ player trust (owner: net — `shared/playerTrust.ts`) ══ */
+export interface NetRef {
+  /** Pair trust with other players, pushed by the relay. Null / absent before the net system is up or offline. */
+  readonly trust?: import('./playerTrust').TrustRef | null;
+}

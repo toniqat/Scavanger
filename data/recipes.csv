@@ -131,6 +131,11 @@ make_defib_charge,제세동기 정비,ship,gadget,3,mat_power_cell:2|herb_glowca
 make_dome_shield,돔 실드 제작,ship,gadget,3,mat_ingot:2|mat_capacitor:2|mat_control_module:1,gad_dome_shield,1,,14,crafting,0,"강화합금 잉곳 2 + 축전 모듈 2 + 제어 모듈 1 → 돔 실드. 가젯 작업대 Lv.3, 제작 40 필요."
 make_turret,포탑 제작,ship,gadget,3,mat_ingot:3|mat_machine_parts:4|mat_control_module:1,gad_turret,1,,16,crafting,0,"강화합금 잉곳 3 + 기계 부품 4 + 제어 모듈 1 → 자동 사격 포탑. 가젯 작업대 Lv.3, 제작 40 필요."
 make_drone_air,공중 드론 제작,ship,gadget,3,mat_control_module:1|mat_capacitor:2|mat_machine_parts:2|mat_circuit:2,gad_drone_air,1,,16,crafting,0,"제어 모듈 1 + 축전 모듈 2 + 기계 부품 2 + 회로 기판 2 → 공중 드론. 가젯 작업대 Lv.3, 제작 40 필요."
+make_cam_survey_1,조사 카메라 제작,ship,gadget,1,mat_scrap:4|mat_cable:2|mat_circuit:2,cam_survey_1,1,,8,crafting,0,"폐금속 4 + 전력 케이블 2 + 회로 기판 2 → 조사 카메라. 가젯 작업대."
+make_cam_survey_2,개량형 조사 카메라 제작,ship,gadget,1,mat_alloy:2|mat_cable:2|mat_circuit:2|mat_machine_parts:2,cam_survey_2,1,,10,crafting,0,"합금 판 2 + 전력 케이블 2 + 회로 기판 2 + 기계 부품 2 → 개량형 조사 카메라. 가젯 작업대."
+make_cam_survey_3,정밀 조사 카메라 제작,ship,gadget,2,mat_machine_parts:2|mat_circuit:3|mat_power_cell:2,cam_survey_3,1,,12,crafting,0,"기계 부품 2 + 회로 기판 3 + 파워 셀 2 → 정밀 조사 카메라. 가젯 작업대 Lv.2."
+make_cam_survey_4,광역 조사 카메라 제작,ship,gadget,3,mat_ingot:2|mat_capacitor:2|mat_circuit:3,cam_survey_4,1,,14,crafting,0,"강화합금 잉곳 2 + 축전 모듈 2 + 회로 기판 3 → 광역 조사 카메라. 가젯 작업대 Lv.3."
+make_cam_survey_5,아틀라스 조사 카메라 제작,ship,gadget,3,mat_control_module:2|mat_capacitor:2|mat_circuit:4,cam_survey_5,1,,16,crafting,0,"제어 모듈 2 + 축전 모듈 2 + 회로 기판 4 → 아틀라스 조사 카메라. 가젯 작업대 Lv.3."
 make_antiseptic,소독약 조제,ship,medical,1,mat_can:1|herb_bloodroot:1,mat_antiseptic,1,,4,medicine,0,캔 1 + 혈근초 1 → 소독약. 의학 작업대.
 make_antiseptic_frost,저온 소독약 조제,ship,medical,1,mat_can:2|herb_frostmoss:1,mat_antiseptic,2,,5,medicine,0,"캔 2 + 서리이끼 1 → 소독약 2. 서리이끼 한 줌이 혈근초 두 뿌리를 대신한다. 의학 작업대, 의학 15 필요."
 make_heal_syringe,회복주사 조제,ship,medical,1,mat_syringe:1|mat_antiseptic:1,heal_syringe,1,,5,medicine,0,"주사기 1 + 소독약 1 → 회복주사. 의학 작업대, 의학 25 필요."

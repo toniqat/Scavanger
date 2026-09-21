@@ -44,6 +44,9 @@ export const CSV_WIDE = new Set(['constants.csv', 'tables.csv']);
 
 /** csv → the feature folders that consume its values (which feeds verify's folder → smoke mapping). */
 export const CSV_FOLDERS = {
+  // 2026-09-21: the survey camera — subjects drive survey/ and the `survey` NPC objective; camera grades are items the weapons hand holds
+  'survey_subjects.csv':     ['survey', 'meta'],
+  'survey_cameras.csv':      ['survey', 'items', 'weapons'],
   // The items/ loaders (ItemDefs · WeaponStats · LootTables · Recipes · Salvage · ImplantDefs)
   // 2026-09-11 (the greenhouse rework): with the `soilTag` · `soilUses` columns, housing/'s growing rules consume `ItemDef.soil`
   'items.csv':               ['items', 'inventory', 'housing'],

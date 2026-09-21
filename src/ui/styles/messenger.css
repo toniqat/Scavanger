@@ -364,3 +364,6 @@
   .ms-quests { grid-template-columns: 280px minmax(0, 1fr); }
   .ms-members { width: 180px; }
 }
+
+/* 2026-09-21: player ↔ player trust on a 친구 tab card (`buildPlayerTrust`) — the NPC trust look, full card width. */
+.ms-trust.in-card { display: flex; width: 100%; margin-top: 4px; }

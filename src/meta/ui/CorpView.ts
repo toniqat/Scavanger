@@ -8,7 +8,9 @@ import {
 } from '@/shared';
 import type { ImplantRepairInfo, ImplantRepairResult, MetaSystem, PurchaseFailure } from '../MetaSystem';
 /* 2026-09-16: how many units one shelf slot gives (ammo = a full stack) — `Rules.shopQtyOf` is the one rule */
-import { shopQtyOf } from '../Rules';
+import { REASON, shopQtyOf } from '../Rules';
+/* 2026-09-21: the survey corp stays off the rail until its unlock quest (`corpHidden`) */
+import { SURVEY_CORP_ID, SURVEY_UNLOCK_QUEST } from '@/shared';
 import { chevrons, el, fmtNum, setText, toggleClass } from './dom';
 import { HoldAsk } from './HoldAsk';
 import { TileGrid, type TileSpec } from './TileGrid';
@@ -363,7 +365,17 @@ export class CorpView {
    * every contract starts at Lv.1.
    */
   corpLock(corp: CorpId): string | null {
+    if (this.corpHidden(corp)) return REASON.locked;
     return this.meta.getRep(corp).level < CORP_ACCESS_REP_LEVEL ? `신뢰도 Lv.${CORP_ACCESS_REP_LEVEL} 필요` : null;
+  }
+
+  /**
+   * 2026-09-21 (user's decision): the survey corp is **not on the rail at all** until its NPC's first quest
+   * (`SURVEY_UNLOCK_QUEST`) is complete — a locked tab would announce a corp the story has not introduced yet. The
+   * quest state is the persistence: nothing else is saved for the unlock. A hidden corp is also locked (`corpLock`).
+   */
+  corpHidden(corp: CorpId): boolean {
+    return corp === SURVEY_CORP_ID && this.meta.getQuestState(SURVEY_UNLOCK_QUEST) !== 'complete';
   }
 
   /** `this.corp` when it is open, else the first open corp in rail order (unchanged when none is — the tab is hidden then). */
@@ -435,6 +447,7 @@ export class CorpView {
       setText(this.corpLv.get(id)!, `Lv.${r.level}`);
       // never `disabled`: the locked corp still takes the click that explains itself (same as the sub-tabs)
       const lock = this.corpLock(id);
+      tab.hidden = this.corpHidden(id);   // 2026-09-21: the survey corp waits for its unlock quest
       tab.title = lock ?? '';
       toggleClass(tab, 'is-locked', lock !== null);
       tab.setAttribute('aria-disabled', lock ? 'true' : 'false');

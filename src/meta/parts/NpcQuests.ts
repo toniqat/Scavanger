@@ -147,6 +147,9 @@ export class NpcQuests implements NpcQuestRef {
       b.on('world:interacted', ({ kind }) => Obj.onInteract(this, kind)),
       b.on('inventory:changed', () => Obj.trackRecover(this)),
       b.on('inventory:quickSlotsChanged', () => Obj.trackRecover(this)),
+      /* 2026-09-21: `survey` objectives mirror the survey subjects' account progress (`NpcObjectives.syncSurvey`) */
+      b.on('survey:progress', () => Obj.syncSurvey(this)),
+      b.on('net:profileLoaded', () => Obj.syncSurvey(this)),
     ];
   }
 
@@ -323,6 +326,15 @@ export class NpcQuests implements NpcQuestRef {
   private offer(def: NpcQuestDef): void {
     this.save.quests[def.id] = { s: 'offered', at: Date.now(), p: def.objectives.map(() => 0) };
     this.log(def.npc, 'offer', def.id);
+    /* 2026-09-21 (user's decision — the survey camera arrives by mail): a quest with a `mail*` row sends its parcel
+     * the moment it is offered. The id is stable per NPC × quest, and `MailRef.send` is idempotent by id, so a
+     * console re-offer never mails twice. `mail` is optional on `MetaRef` (an older build has no mailbox). */
+    if (def.mail) {
+      this.ctx.meta?.mail?.send({
+        id: `npc:${def.npc}:${def.id}`, from: def.npc, subject: def.mail.subject, body: def.mail.body,
+        items: def.mail.items.map((it) => ({ defId: it.defId, qty: it.qty })),
+      });
+    }
     this.ctx.bus.emit('npc:questChanged', { id: def.id, npc: def.npc, state: 'offered', prev: null });
   }
 
@@ -547,6 +559,13 @@ export class NpcQuests implements NpcQuestRef {
       const raid = NPC_RAID_OBJECTIVE_KINDS.has(o.kind);
       const countsHere = raid && s.s === 'active' && !done && counting && this.planetOk(o);
       const label = objectiveLabel(o, this.itemName);
+      /* 2026-09-21: a survey objective has nothing to deliver — its progress is the saved mirror of the subject's
+       * account progress (`NpcObjectives.syncSurvey`). It rises only in a raid, so it `countsHere` there — the map's
+       * quest panel lists it like a raid objective. */
+      if (o.kind === 'survey') {
+        const here = s.s === 'active' && !done && counting;
+        return { def: o, label, progress: Math.min(target, s.p[i] ?? 0), target, done, raid, countsHere: here, blocked: null };
+      }
       if (raid) {
         const progress = done ? target : !countsHere ? 0
           : o.kind === 'recover' ? Math.min(target, this.carried(o.item, seed)) : Math.min(target, rp?.[i] ?? 0);
@@ -574,6 +593,7 @@ export class NpcQuests implements NpcQuestRef {
     this.log(def.npc, prev === 'deferred' ? 'brief' : 'accept', id);
     this.sys.store.markDirty();
     this.ctx.bus.emit('npc:questChanged', { id, npc: def.npc, state: 'active', prev });
+    Obj.syncSurvey(this, false);   // 2026-09-21: a subject recorded before the quest was taken counts at once
     this.checkReady(def, s);
     this.evaluate();
     this.emitUnread();

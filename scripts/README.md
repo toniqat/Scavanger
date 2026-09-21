@@ -128,7 +128,10 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-tutorial-raid.mjs` | tutorial, world, game, extraction, player, enemies, ui | Raid track end to end through the real entry path (teleports between sections, real input for judged actions) |
 | `smoke-tutorial-ship.mjs` | tutorial, meta, ui, progression, inventory | Ship track (2 steps): level-up → stats with real input; the track ends only when the inventory closes (no build intro over the character screen); old `messenger` / `ravenQuest` saves read as done; reload after confirming; Raven writes after the tutorial |
 | `smoke-tv-games.mjs` | hub | TV / console models, seat interaction, game staging (housing stubbed) |
-| `smoke-ui-p5.mjs` | ui, meta, game | Title level chip, contract panel, meta toasts, result-screen XP block |
+| `smoke-ui-p5.mjs` | ui, meta, game | Title level chip, contract panel, meta toasts, result-screen XP block (paged: ② XP, ③ contract rows) |
+| `smoke-results.mjs` | ui, game, net | Paged result screen: page order/skip, card row, XP sum, death tag, Space, squad likes (stubbed trust), real RaidXp settlement |
+| `smoke-mail.mjs` | meta, ui | Mailbox: badge, window open/close/exclusion, claim into stash (no_space · partial · all), delete read, idempotent ids, reload |
+| `smoke-survey.mjs` | survey, weapons, meta | Survey camera: unlock line → parcel mail → atlas tab, one tick per kind, raid cap, zoom 2..8 (E/R consumed), border rule, wear, ×1/4 repeat planet, persistence |
 | `smoke-ui-p6.mjs` | ui | Charge gauge, fire-mode lines, status markers, housing hint, give-up bar |
 | `smoke-uniques.mjs` | weapons, items, enemies, player, ui | The six unique weapons incl. bow draw and rocket jump |
 | `smoke-video-games.mjs` | housing, progression, hub, items | TV seat rules, game session with tuned judges, intelligence/perception gains |

@@ -2,6 +2,8 @@ import type { EnemyType, ItemCategory, ItemDef, Rarity, WeaponGrade } from '@/sh
 /* appended (2026-09-13): humanoid faction loot — spawn site bonuses · planet seed pools */
 import type { EnemySpawnSite, PlanetId } from '@/shared';
 import { UNIQUE_WEAPON_IDS, csvGroups, csvRows } from '@/shared';
+/* 2026-09-21: a survey camera is never loot (`isLootableDef`) */
+import { surveyCameraOf } from '@/shared';
 /* appended (2026-09-21): planet-bound keys — one key kind covers its per-planet variants */
 import { PLANET_IDS } from '@/shared';
 
@@ -66,9 +68,14 @@ function expandWeightTarget(target: string): readonly string[] {
  * planets · analysis results) are caught by `npm run data:check`. */
 export const RETIRED_ITEM_IDS: ReadonlySet<string> = new Set([...ITEM_DEF_MAP.values()].filter((d) => d.retired).map((d) => d.id));
 
-/** Can this item be a candidate in a crate or supply draw (i.e. it is not retired). */
+/**
+ * Can this item be a candidate in a crate or supply draw (i.e. it is not retired).
+ * 2026-09-21: nor a **survey camera** (`shared/survey.ts`) — it comes only from the survey NPC's parcel and the
+ * survey corp's shelf (user's decision: the camera is an unlock, not loot). Keeping it out of every pool also keeps
+ * the `gadget` candidate lists — and so every seeded crate / corpse roll — exactly what they were before it existed.
+ */
 export function isLootableDef(d: ItemDef): boolean {
-  return !d.retired;
+  return !d.retired && !surveyCameraOf(d.id);
 }
 
 /* ── planet-bound drops (2026-09-13, library series · video games) ───────────

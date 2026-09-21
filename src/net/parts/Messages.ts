@@ -148,6 +148,8 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
       /* 2026-09-14 (the intel broker): the planet's contract — what the server echoed, else `lobby.intel`
        * (an older relay does not echo it). */
       const intel = mode === 'training' ? null : (msg.intel ?? msg.lobby.intel ?? null);
+      /* 2026-09-21: player trust — the pair values before this raid and its human mates (the like window's guess). */
+      if (mode === 'raid') sys.trustSync.onRaidStart(msg.lobby, sys.localId);
       sys.beginSession(msg.seed, msg.lobby, mode, false, planet, intel);
       return;
     }
@@ -193,9 +195,20 @@ export function handleServerMessage(sys: NetSystem, msg: ServerToClient): void {
     /* Phase 11: social — SocialSync validates every frame before it reaches the UI. */
     case 'social:state':
       sys.socialSync.onState(msg.social);
+      sys.trustSync.onSnapshot(msg.social);   // 2026-09-21: `SocialSnapshot.trust`
       return;
     case 'social:invited':
       sys.socialSync.onInvited(msg.invite);
+      return;
+    /* 2026-09-21: player ↔ player trust — `TrustSync` validates each frame. */
+    case 'trust:gain':
+      sys.trustSync.onGain(msg);
+      return;
+    case 'trust:window':
+      sys.trustSync.onWindow(msg);
+      return;
+    case 'trust:refused':
+      sys.trustSync.onRefused(msg);
       return;
     case 'social:whisper':
       sys.socialSync.onWhisper(msg);

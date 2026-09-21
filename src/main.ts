@@ -22,6 +22,7 @@ import { ConsoleSystem } from '@/console/ConsoleSystem';
 import { TutorialSystem } from '@/tutorial/TutorialSystem';
 import { MetaSystem } from '@/meta/MetaSystem';
 import { AllySystem } from '@/allies/AllySystem';
+import { SurveySystem } from '@/survey/SurveySystem';
 import { ensureMigrated, loadKeybinds } from '@/shared';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -90,6 +91,9 @@ engine.addSystem(new ProgressionSystem());
 engine.addSystem(new HousingSystem());
 engine.addSystem(new WorldSystem());
 engine.addSystem(new HubSystem());        // ship interiors; builds before the player reads ctx.hub
+// 2026-09-21: the survey camera's zoom keys (interact / reload while zoomed) are consumed before player/ reads interact.
+const survey = new SurveySystem();
+engine.addSystem(survey.inputGate);
 engine.addSystem(new PlayerSystem());
 engine.addSystem(new RemotePlayerSystem());
 // Implants run before weapons: the same frame's `blocksWeapons` must be current when weapons reads it.
@@ -108,6 +112,8 @@ engine.addSystem(new ExtractionSystem());
 // 2026-09-15: android squadmates — they judge after enemies · inventory · pickups · extraction have produced this frame's state, and the HUD draws the result.
 engine.addSystem(new AllySystem());
 engine.addSystem(new HudSystem());
+// 2026-09-21: the survey camera — after the HUD, so its `lateUpdate` projects the camera player/ just placed.
+engine.addSystem(survey);
 engine.addSystem(new AudioSystem());
 engine.addSystem(new GameFlowSystem());
 // Developer console last: it reads every other ref and must see the frame's final state (dev clients only).

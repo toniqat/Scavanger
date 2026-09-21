@@ -369,6 +369,8 @@ export function updateQuickHand(sys: WeaponSystem, dt: number, host: Host, usabl
     sys.allyHealHeld ? sys.allyHealKind : allyGift?.kind ?? null,
   );
   if (q.detonator) { sys.updateDetonator(dt, host, inputFree); return; }
+  // 2026-09-21: the survey camera only routes fire / aim to survey/ — no gadget use, no throw-mode toggle
+  if (sys.isSurveyHand(q)) { sys.updateSurveyHand(inputFree); return; }
   // 2026-09-15 (user's decision): the defibrillator fires **on release** — nothing happens once the charge is full
   // until the hand is let go, and meanwhile the crosshair picks up a target (`parts/Defib`). So it never takes the
   // `beginHeal` path, which uses an item the moment it fills.

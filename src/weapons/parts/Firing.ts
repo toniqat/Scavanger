@@ -63,6 +63,19 @@ export function applyAimZoom(sys: WeaponSystem, stats: EffectiveWeaponStats | nu
   sys.ctx.bus.emit('weapon:scopeChanged', { zoom, scope });
   }
 
+/**
+ * 2026-09-21 the survey camera's zoom (`parts/SurveyHand`): the same rig hand-off, de-dup cache and
+ * `weapon:scopeChanged` as a gun's ADS zoom — so the next gun drawn re-sends its own — but never a scope overlay
+ * (`scope: false`; the camera draws its own frame). Sway was already zeroed when the camera came into the hand.
+ */
+export function applyCameraZoom(sys: WeaponSystem, zoom: number): void {
+  if (sys.zoomSent.zoom === zoom && !sys.zoomSent.scope) return;
+  sys.zoomSent.zoom = zoom; sys.zoomSent.scope = false;
+  const host = sys.getHost();
+  if (host && typeof host.setAimZoom === 'function') host.setAimZoom(zoom, false);
+  sys.ctx.bus.emit('weapon:scopeChanged', { zoom, scope: false });
+  }
+
 /* ─────────────────────────── reload ─────────────────────────── */
 export function tryReload(sys: WeaponSystem, w: WeaponInstance): void {
   if (w.unique?.autoFeed) return;   // 2026-09-15 「롱혼」: never reloads — `parts/Slots.autoFeed` refills it from the quiver

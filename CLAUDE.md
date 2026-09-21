@@ -3,7 +3,7 @@
 Helldivers 2-inspired third-person extraction shooter in the browser. Three.js + Vite + TypeScript.
 Arc Raiders-style minimalist UI, Diablo 2-style grid inventory, procedural maps. The game starts in a walkable
 **personal ship** (hub); matchmaking docks the squad into a **shared ship**, and drop pods take it to a raid.
-The relay server keeps a per-token **profile store** (credits · meta · stash · loadout · progression · ship) and a
+The relay server keeps a per-token **profile store** (credits · meta · stash · loadout · progression · ship · survey) and a
 **raid session store**, so a disconnected player can rejoin the raid. Single player without a server runs on localStorage.
 
 > **This file is a navigation hub.** Before any task: ① find the owning folder in the folder map below,
@@ -105,6 +105,7 @@ folder's responsibility changes.
 | [`src/gadgets/`](src/gadgets/README.md) | `GadgetSystem` · `DroneSystem` | `ctx.gadgets` · `ctx.drones` | Consumable gadgets — placement preview · mines · remote mines · turret · dome shield · barricade · jump pad · fire zones (host-authoritative) · ground/air drones (owner-authoritative control and scan) |
 | [`src/stratagems/`](src/stratagems/README.md) | `StratagemSystem` | `ctx.stratagems` | 4 ship calls — G wheel · top-down aim · shared cooldown · rescue drop (5 per squad); squad calls relayed by the host, denials fully refunded |
 | [`src/allies/`](src/allies/README.md) | `AllySystem` | `ctx.allies` | Android squadmates — roster (relay bot members · `/android` cheat) · cockpit bay / pod behaviour in the ship · host-simulated raid AI (reaction-delay FSM, leader harness, cover combat, looting, deliveries, extraction, rescue) · `ally` sync. Builds no meshes (`player/` draws the bodies) |
+| [`src/survey/`](src/survey/README.md) | `SurveySystem` | `ctx.survey` | Survey camera — per-kind subject progress (account, raid cap, ×1/4 on a planet already surveyed), frame HUD + zoom (input gate before player), `survey:progress` for the `survey` NPC objective; the camera hand itself is weapons/ `parts/SurveyHand` |
 
 ### 3.3 World · enemies
 
@@ -184,6 +185,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - **No layout read inside a frame**, counted by `scripts/smoke-layout-reads.mjs` (the bar is 0 while `Engine.frame` is on the stack). A HUD widget that needs the screen size reads `hudViewport` (`ui/hud/viewport.ts`, measured on `resize`); `clientWidth` / `clientHeight` / `getBoundingClientRect` on a per-frame path forces a full UI layout. The one listed exception is the CSS animation restart `remove → void offsetWidth → add` (the smoke's `KNOWN_IDIOM`, a ratchet that may only shrink; keeping the idiom is an accepted limit since 2026-09-20 — `src/ui/README.md` Rules). A DOM shape that first appears mid-raid pays a much larger first layout, so it is warmed at boot or on `world:ready` (`ui/hud/ChatLog.warmUpSoon`, `ui/hud/Detection`, `ui/hud/ScanReveal`).
 - Held keys show a chevron via `.keycap.kc-hold`; every keycap goes through `src/shared/keycap.ts` (`paintKeycap`, text tokens `{ACTION}` / `{ACTION:hold}`; rebind-independent inventory gestures use the fixed tokens `{MOUSE_LEFT}` / `{DOUBLE_CLICK}` — `KEYCAP_FIXED_TOKENS`).
 - Rewards are **currencies** (`data/currencies.csv`, `shared/currency.ts`, `buildCurrencyChip`), never fake item defs.
+- **Mail is for parcels only** (2026-09-21): NPC quest rewards are still paid on report; an NPC parcel rides `npc_quests.csv` `mailItems` and `ctx.meta.mail.send` with id `npc:<npc>:<quest>` (idempotent, deleted ids stay in `seen`). Claiming is ship-only into the **stash**; a mail with unclaimed items is never deleted — `meta/parts/Mail.ts`, `ui/menus/mail/`.
 - Toasts are owned by `src/ui` only; other folders emit events. Right-side toasts start below the tutorial control panel while it shows (`ui/hud/Notifications.update`, DOM `.tut-controls`). NPC messenger arrivals never toast — the messenger button's red dot pops (`ui/hud/Community`).
 - The ship messenger button (with its `Keys.INVITE` keycap) stays usable over the Tab window and the pause menu; its panel draws above them, and while `COMMUNITY_BLOCKER` is held those menus ignore Tab/Escape — `ui/hud/Community`, `ui/menus/PauseMenu.handleKey`, `InventorySystem.update`.
 - Results screens return to the ship with `ui:shipReturn` (fade → loading gauge until the ship compiled → fade in), never a bare `hub:enter`; while it holds the black screen `ui:screenFade` / `game:abort` / `hub:entered` don't clear it — `ui/menus/ShipReturn.ts`.
@@ -217,6 +219,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
   `PlayerProfile.shipModel` out of the `progression` document). `lobby:look.shipModel` survives only as the nudge that
   asks for the re-read (2026-09-21, B-101, user's decision) — `accent` is taste and is still taken as sent.
 - The relay validates credit reasons (`shared/credits.ts` `formatCreditReason`, `server/Economy.ts`, `server/economy.gen.json`); it does not check item ownership. Dev reasons need a relay with `SCAV_DEV_ECONOMY=1` (only `scripts/verify.mjs` starts one). No client-side credit/sell-price multipliers.
+- **Player ↔ player trust is relay-authoritative** (2026-09-21): one symmetric value per pair on both `SocialRecord.trust`; a raid that both humans *finished* (`PLAYER_TRUST_RAID_MIN_S`, no `keep` / abandon / early leave) pays `PLAYER_TRUST_RAID_GAIN` once, and a like on the result screen (`trust:like`, once per liker · target · raid) pays `PLAYER_TRUST_LIKE_GAIN` — judged only in `server/Trust.ts`. Settlement reads `TrustRef.beforeRaid`, never `get`, because the relay may pay before settlement runs.
 - Messages that affect others are accepted only from the authority (lobby host for `strat call`, `ee`, `crate sync`). The
   **ceiling turret's chosen body** joined them on 2026-09-21 (B-100): `struct turret {id, tg, st}`, sent on a change only,
   so a replica paints and warns the body the host is really on instead of re-picking one from its own 20 Hz positions.

@@ -88,6 +88,9 @@
   background: rgba(255, 255, 255, 0.03); color: var(--c-text-dim);
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
+/* 2026-09-21: the survey corp's tab stays off the rail until its unlock quest (`CorpView.corpHidden`) — `display: flex`
+   above would otherwise beat the `hidden` attribute */
+.corp-tab[hidden] { display: none; }
 .corp-tab .caret {
   flex: none; width: 7px; height: 7px; margin: 0 2px;
   border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;

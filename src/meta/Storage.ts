@@ -3,6 +3,8 @@ import { CONTRACT_DEFS, CORP_IDS, CREDITS_INITIAL, CREDITS_MAX, META_STORAGE_KEY
 /* 2026-09-14: the intel broker — the held 「행성 정보」 */
 import { sanitizeIntelSpec } from '@/shared';
 import { freshNpcSave, sanitizeNpcSave } from './NpcRules';
+/* 2026-09-21: the mailbox (`MetaSave.mail`) */
+import { freshMailSave, sanitizeMailSave } from './parts/Mail';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * MetaSave v1 in localStorage `META_STORAGE_KEY` (`scav.meta`), same pattern as `inventory/Stash.ts`:
@@ -14,8 +16,9 @@ import { freshNpcSave, sanitizeNpcSave } from './NpcRules';
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** 2: 2026-09-14 — corp quests (`corps[].quests`) dropped · NPC contact / conversation / quests (`npc`) added. An
- *  old document still reads through `sanitizeMetaSave` unchanged. */
-export const META_SAVE_VERSION = 2;
+ *  old document still reads through `sanitizeMetaSave` unchanged.
+ *  3: 2026-09-21 — the mailbox (`mail`); a v2 document has none and reads as an empty mailbox. */
+export const META_SAVE_VERSION = 3;
 const SAVE_DELAY_MS = 350;
 /** Guard against an absurd progress figure inflating the HUD (loads and live hits are clamped to it). */
 export const MAX_PROGRESS = 1_000_000_000;
@@ -48,6 +51,8 @@ export function freshMetaSave(): MetaSave {
     npc: freshNpcSave(),
     // 2026-09-14: the intel broker — nothing bought
     intel: null,
+    // 2026-09-21: the mailbox — empty
+    mail: freshMailSave(),
   };
 }
 
@@ -72,6 +77,9 @@ export function sanitizeMetaSave(raw: unknown): MetaSave {
    * `snapshot()` into the server profile (so it survives a reload · a reconnect), which is why **dropping it here
    * loses a bought spec to a single refresh.** */
   out.intel = sanitizeIntelSpec(r.intel ?? null);
+  /* 2026-09-21: the mailbox. Like `intel`, this rides `snapshot()` into the server profile — dropping it here would lose
+   * unclaimed parcels to a single refresh. */
+  out.mail = sanitizeMailSave(r.mail);
 
   const ac = r.activeContract;
   if (ac && typeof ac === 'object') {

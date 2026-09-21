@@ -257,6 +257,7 @@ export function onWelcome(sys: NetSystem, msg: Extract<ServerToClient, { t: 'wel
   // Phase 11: the social snapshot belongs to the connection, not the session — refresh it on every welcome, then
   // (re-)publish my level, which the relay forgets when nothing reported it yet.
   sys.socialSync.onWelcome(msg.social);
+  sys.trustSync.onWelcome(msg.social);   // 2026-09-21: pair trust rides the same snapshot (`SocialSnapshot.trust`)
   sys.pushLevel();
 
   if (lobby) {

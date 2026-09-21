@@ -1,0 +1,69 @@
+/* ══ 2026-09-21: the mailbox (menus/mail/MailWindow + the button in hud/Community) ══════════════════════════════════
+   Imported by `menus/mail/MailWindow`. Prefix `ml-`. The window shell reuses the messenger's frame rules
+   (`.community-panel` · `.cp-frame` · `.cp-head` in base.css — backdrop, z-index, `over-inv` / `over-pause`), and the
+   buttons / avatars are the messenger's `.ms-btn` · `.ms-av` (messenger.css, loaded with `hud/Community`). */
+
+/* ── The button: the messenger button's twin, standing to its left (the `.community` root is right-aligned, so it is
+   placed against the root's right edge = the messenger button's right edge, one button + gap further left). ── */
+.community .ml-btn { position: absolute; top: 0; right: calc(64px + 10px); }
+.ml-glyph { width: 24px; height: 24px; display: block; }
+.ml-glyph path, .ml-glyph rect { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+
+/* ── The window ── */
+.community-panel.ml-panel { align-items: flex-start; padding-top: max(20px, calc((100vh - 820px) / 2)); }
+.community-panel.ml-panel .cp-frame.ml-frame {
+  width: min(1040px, calc(100vw - 48px));
+  height: min(720px, calc(100vh - 110px));
+  padding: 18px 22px 18px;
+  gap: 12px;
+}
+.ml-head { align-items: center; gap: 12px; }
+.ml-head .cp-title { font-size: 20px; }
+.ml-head .ui-btn { min-width: 0; width: auto; height: 30px; padding: 0 14px; font-size: 11px; }
+
+.ml-body { flex: 1; min-height: 0; display: flex; gap: 14px; }
+.ml-col { flex: 0 0 340px; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.02); }
+.ml-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.ml-bar { flex: none; display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--c-border); }
+.ml-bar .ms-btn { flex: 1; }
+.ml-empty { padding: 28px 12px; text-align: center; font-size: 12px; color: var(--c-text-faint); }
+
+.ml-row {
+  position: relative; width: 100%;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px 9px 10px;
+  border: none; border-bottom: 1px solid rgba(255, 255, 255, 0.05); border-left: 2px solid transparent;
+  background: none; font: inherit; color: var(--c-text-dim); text-align: left; cursor: pointer;
+}
+.ml-row:hover { background: rgba(255, 255, 255, 0.04); }
+.ml-row.is-on { border-left-color: var(--c-accent); background: rgba(255, 179, 71, 0.08); }
+.ml-row.is-unread { color: var(--c-text); }
+.ml-rmid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ml-rtop, .ml-rsub { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ml-rfrom { flex: 1; min-width: 0; font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ml-rdate { flex: none; font-size: 10px; color: var(--c-text-faint); }
+.ml-rsubj { flex: 1; min-width: 0; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ml-row.is-unread .ml-rsubj { font-weight: 700; }
+.ml-rclip {
+  flex: none; padding: 0 5px; font-size: 9px; line-height: 15px; letter-spacing: 0.08em;
+  border: 1px solid var(--c-accent); color: var(--c-accent);
+}
+.ml-rdot {
+  position: absolute; left: 6px; top: 8px; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--c-danger); box-shadow: 0 0 5px rgba(255, 77, 77, 0.8);
+}
+
+.ml-view { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.02); }
+.ml-vhead { flex: none; display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--c-border); }
+.ml-vwho { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ml-vsubj { font-size: 16px; font-weight: 700; color: var(--c-text); }
+.ml-vfrom { display: flex; gap: 10px; font-size: 11px; color: var(--c-text-dim); }
+.ml-vdate { color: var(--c-text-faint); }
+.ml-vbody { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; white-space: pre-wrap; font-size: 13px; line-height: 1.6; color: var(--c-text); }
+
+.ml-att { flex: none; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--c-border); }
+.ml-atop { display: flex; align-items: center; gap: 10px; }
+.ml-asec { flex: 1; font-size: 11px; letter-spacing: 0.14em; color: var(--c-text-dim); }
+.ml-anone { font-size: 11px; color: var(--c-text-faint); }
+.ml-tiles { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; max-height: 196px; overflow-y: auto; scrollbar-width: thin; }
+.ml-tiles .ml-tile { position: relative; left: auto; top: auto; flex: none; }

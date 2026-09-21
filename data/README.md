@@ -65,7 +65,7 @@ One line per csv. "Loader" is the parsing module under `src/`; values usually ta
 |---|---|---|
 | `recipes.csv` | Crafting recipes: `station` (`field` \| `ship`), `bench` (the workbench the recipe belongs to), `benchLevel`, `inputs`, outputs, `skill` (XP + material refund; `skillRequired` is kept at `0` and unread since 2026-09-16). Also the value source for repair cost and gear salvage | `items/Recipes.ts` |
 | `salvage.csv` | Hand-defined salvage only (ammo, some materials/chargers). Weapon, armor, bag and durable-gadget salvage is generated from `recipes.csv` | `items/Salvage.ts` |
-| `corps.csv` | The 4 corporations | `shared/meta.ts` |
+| `corps.csv` | The 5 corporations (`atlas`, the survey corp, stays hidden until `SURVEY_UNLOCK_QUEST` is complete) | `shared/meta.ts` |
 | `corp_stock.csv` | Shop rules per corp: category, classes/ammo, rep level, max rarity, implant repair materials | `shared/meta.ts` |
 | `contracts.csv` | Corp contracts: goal, target, rep level, rewards, `itemDefId` for `extract_with_items` | `shared/meta.ts` |
 | `crypto.csv` | Mining coins: corp, `unlockQuest`, cycle, yield, base price, volatility | `shared/crypto.ts` |
@@ -77,7 +77,9 @@ One line per csv. "Loader" is the parsing module under `src/`; values usually ta
 |---|---|---|
 | `npcs.csv` | Messenger NPCs: corp, role, first-contact requirements (`reqLevel`, `reqRep`, `reqQuests`, `reqFlag`, `reqNpcRep`), `intro` → `introChoices`/`introChoiceReplies` → `introAfter` | `shared/npc.ts` |
 | `npc_quests.csv` | NPC quests: requirements, rewards (`rewardCredits`, `rewardXp`, `rewardRep`, `rewardItems`, `npcTrust`), dialogue lines. Offered per NPC in row order | `shared/npc.ts` |
-| `npc_objectives.csv` | Quest objectives (`kind` deliver / recover / interact / kill / discover / search, `planet`, `chain`). Row order = display order | `shared/npc.ts` |
+| `npc_objectives.csv` | Quest objectives (`kind` deliver / recover / interact / kill / discover / search / survey (`subject`, target in %), `planet`, `chain`). Row order = display order | `shared/npc.ts` |
+| `survey_subjects.csv` | Survey camera subjects, one per kind (`kind` enemy / rover / tram / platform / structure / nest, `match`, `seconds` to 100 %, `raidCap`, size fallback) | `shared/survey.ts` |
+| `survey_cameras.csv` | Survey camera grades → speed multiplier (the items themselves are `items.csv` rows) | `shared/survey.ts` |
 | `stats.csv` | Character stats; `derived` = character-sheet rows the stat affects | `progression/defs.ts` |
 | `skills.csv` | Skills: linked `stats`, `weaponClass`, `derived` | `progression/defs.ts` |
 

@@ -27,6 +27,9 @@ import { NpcQuests } from './parts/NpcQuests';
 /* 2026-09-14: the intel broker — `ctx.meta.intel` */
 import type { IntelRef } from '@/shared';
 import { Intel } from './parts/Intel';
+/* 2026-09-21: the mailbox — `ctx.meta.mail` */
+import type { MailRef } from '@/shared';
+import { Mail } from './parts/Mail';
 
 export class MetaSystem implements GameSystem, MetaRef {
   readonly name = 'meta';
@@ -42,6 +45,10 @@ export class MetaSystem implements GameSystem, MetaRef {
   readonly intelPart: Intel = new Intel(this);
   /** `MetaRef.intel` */
   get intel(): IntelRef { return this.intelPart; }
+  /** 2026-09-21: the mailbox (no ctx in the constructor; `subscribe` is in `init`). */
+  readonly mailPart: Mail = new Mail(this);
+  /** `MetaRef.mail` */
+  get mail(): MailRef { return this.mailPart; }
   /** Embedded 기업 tabs handed out by `createCorpView` (their message timers tick with the system). */
   private readonly views = new Set<CorpView>();
   /** Corp the next 기업 tab opens on (`openCorpMenu(corp)`); the tab builds a fresh `CorpView` every time. */
@@ -166,6 +173,8 @@ export class MetaSystem implements GameSystem, MetaRef {
     // 2026-09-14: the intel broker — pushed **after** the `net:profileLoaded` subscription too, so it announces
     // the held spec the server document brought
     this.unsubs.push(...this.intelPart.subscribe());
+    // 2026-09-21: the mailbox — after `net:profileLoaded` too, so its `mail:changed` counts the server document
+    this.unsubs.push(...this.mailPart.subscribe());
     this.subscribeNet();
     b.emit('meta:loaded', { credits: this.store.data.credits });
   }
@@ -514,6 +523,7 @@ export class MetaSystem implements GameSystem, MetaRef {
     this.progressAtStart = 0;
     this.questBlocked.clear();
     this.npcQuests.reset();
+    this.mailPart.reset();
     const b = this.ctx.bus;
     b.emit('meta:loaded', { credits: this.store.data.credits });
     if (this.store.data.credits !== before) b.emit('meta:creditsChanged', { credits: this.store.data.credits, delta: this.store.data.credits - before, reason: 'reset' });

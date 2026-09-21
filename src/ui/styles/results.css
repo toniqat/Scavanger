@@ -1,5 +1,6 @@
 /*
  * The body of the results screen (2026-09-15, the results screen rework) — imported by `menus/ResultReport.ts`.
+ * 2026-09-21: the paged body (`menus/results/*` — steps, pages ① … ④, `다음`) lives here too, same prefix.
  * Prefix `.rs-` (checked free with `rg "\.rs-" src`). The results screen's frame, title and `.stats` base live in
  * `styles/base.css`; only the new rows are drawn here. No transitions and no animations — the count-up is written
  * by code in `update(dt)`.
@@ -68,8 +69,163 @@
    colour of `.menu.death` */
 .menu.complete.rs-dead .frame { border-color: rgba(255, 77, 77, 0.35); }
 .menu.complete.rs-dead .frame::before, .menu.complete.rs-dead .frame::after { border-color: var(--c-danger); }
-.menu.death .frame { min-width: min(520px, calc(100vw - 48px)); }
 
 /* The XP gained stays crisp on the death screen too (overriding base.css's dim colour) */
 .menu.death .rewards .xp-row .xp-gain,
 .menu.complete.rs-dead .rewards .xp-row .xp-gain { color: var(--c-accent); }
+
+/* ═══ 2026-09-21 — the paged result screen (`menus/results/ResultBody`) ═══════════════════════════════════════
+   One frame width for both result screens (extraction and death) so the four pages never resize the window: wide
+   enough for four squad tiles and a row of XP cards. Fades and count-ups are stepped by code (reduced motion). */
+.menu .frame.rs-frame { width: min(760px, calc(100vw - 48px)); min-width: 0; max-width: none; gap: 18px; }
+
+/* The step strip: ① 전리품 · ② 경험치 · ③ 분대 계약 · ④ 분대원 */
+.menu .rs-steps { display: flex; gap: 6px; }
+.menu .rs-steps[hidden] { display: none; }
+.menu .rs-step {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-top: 2px solid var(--c-border); color: var(--c-text-faint);
+  font-size: 11px; letter-spacing: 0.14em; white-space: nowrap;
+}
+.menu .rs-step[hidden] { display: none; }
+.menu .rs-step-n {
+  flex: none; width: 18px; height: 18px; display: grid; place-items: center;
+  font-family: var(--ui-mono); font-size: 10px; border: 1px solid currentColor;
+}
+.menu .rs-step-t { overflow: hidden; text-overflow: ellipsis; }
+.menu .rs-step.is-past { color: var(--c-text-dim); border-top-color: var(--c-border-strong); }
+.menu .rs-step.is-on { color: var(--c-accent); border-top-color: var(--c-accent); }
+.menu .rs-step.is-on .rs-step-n { background: rgba(255, 179, 71, 0.14); }
+.menu.death .rs-step.is-on, .menu.complete.rs-dead .rs-step.is-on { color: var(--c-danger); border-top-color: var(--c-danger); }
+.menu.death .rs-step.is-on .rs-step-n, .menu.complete.rs-dead .rs-step.is-on .rs-step-n { background: rgba(255, 77, 77, 0.14); }
+
+/* The page host — a fixed floor so moving between pages does not jump the frame */
+.menu .rs-pages { min-height: 300px; display: flex; flex-direction: column; }
+.menu .rs-pages > [hidden] { display: none !important; }
+
+/* The `다음` row (hidden on the last page, where `.actions` takes its place) */
+.menu .rs-nav { display: flex; justify-content: flex-end; }
+.menu .rs-nav .rs-next { min-width: 180px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
+.menu .rs-nav[hidden], .menu .actions[hidden] { display: none; }
+
+/* ① the found-this-raid row sits above the total, a size smaller */
+.menu .rs-loot.rs-found { border-bottom: none; padding-bottom: 0; }
+.menu .rs-loot.rs-found[hidden] { display: none; }
+.menu .rs-loot.rs-found .rs-loot-v { font-size: 26px; color: var(--c-success); }
+.menu .rs-loot.rs-found:not([hidden]) + .rs-loot { border-top: none; }
+
+/* ② XP — the top block keeps base.css's `.rewards` look; the page drops its box and adds the cards row */
+.menu .rewards.rs-xp { border: none; background: none; padding: 0; gap: 8px; }
+.menu .rs-xp-mul {
+  font-size: 10px; letter-spacing: 0.14em; padding: 2px 6px; white-space: nowrap;
+  color: var(--c-danger); border: 1px solid rgba(255, 77, 77, 0.55); background: rgba(255, 77, 77, 0.1);
+}
+.menu .rs-xp-mul[hidden] { display: none; }
+.menu .rs-cards {
+  display: flex; gap: 10px; margin-top: 14px; padding-bottom: 8px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb, rgba(255, 255, 255, 0.2)) var(--sb-track, transparent);
+}
+.menu .rs-card {
+  --sc: var(--c-border-strong);
+  position: relative; flex: 0 0 132px; height: 150px;
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 10px 8px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+}
+.menu .rs-card::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--sc); opacity: 0.8; }
+.menu .rs-card.is-wait { opacity: 0.38; }
+.menu .rs-card.is-live { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.07); }
+.menu .rs-card.is-live::before { background: var(--c-accent); opacity: 1; }
+.menu .rs-card.k-trust.is-live::before { background: var(--sc); }
+.menu .rs-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.menu .rs-card-icon { width: 28px; height: 28px; display: grid; place-items: center; color: var(--c-text-dim); overflow: hidden; }
+.menu .rs-card.is-live .rs-card-icon, .menu .rs-card.is-done .rs-card-icon { color: var(--c-accent); }
+.menu .rs-card-icon svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.menu .rs-card-face { display: block; width: 28px; height: 28px; object-fit: cover; border: 1px solid var(--sc); }
+.menu .rs-card-title { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu .rs-card-detail { font-size: 11px; color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu .rs-card-xp {
+  margin-top: auto; align-self: flex-end;
+  font-family: var(--ui-mono); font-variant-numeric: tabular-nums;
+  font-size: 20px; font-weight: 700; line-height: 1; color: var(--c-accent);
+}
+.menu .rs-card.is-wait .rs-card-xp { color: var(--c-text-faint); }
+
+/* ③ squad contracts — one row per member */
+.menu .rs-contracts { display: flex; flex-direction: column; gap: 10px; }
+.menu .rs-ct-list { display: flex; flex-direction: column; gap: 8px; }
+.menu .rs-ct {
+  display: grid; grid-template-columns: 150px 1fr; gap: 14px; align-items: center;
+  padding: 10px 12px; border: 1px solid var(--c-border); border-left-width: 3px; background: rgba(255, 255, 255, 0.03);
+}
+.menu .rs-ct.is-me { background: rgba(255, 255, 255, 0.05); }
+.menu .rs-ct.is-success { border-left-color: var(--c-success); }
+.menu .rs-ct.is-keep { border-left-color: var(--c-border-strong); }
+.menu .rs-ct.is-lost { border-left-color: var(--c-danger); }
+.menu .rs-ct.is-none { border-left-color: var(--c-border); }
+.menu .rs-ct-who { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.menu .rs-ct-name { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu .rs-ct-tag { font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-dim); }
+.menu .rs-ct.is-success .rs-ct-tag { color: var(--c-success); }
+.menu .rs-ct.is-lost .rs-ct-tag { color: var(--c-danger); }
+.menu .rs-ct-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.menu .rs-ct-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.menu .rs-ct-label { font-size: 13px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu .rs-ct.is-none .rs-ct-label { color: var(--c-text-faint); }
+.menu .rs-ct-prog { flex: none; font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--c-text-dim); }
+.menu .rs-ct-bar { position: relative; height: 3px; background: var(--c-fill); overflow: hidden; }
+.menu .rs-ct-bar[hidden] { display: none; }
+.menu .rs-ct-fill { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: var(--c-text-dim); }
+.menu .rs-ct.is-success .rs-ct-fill { background: var(--c-success); }
+.menu .rs-ct.is-lost .rs-ct-fill { background: var(--c-danger); }
+.menu .rs-ct-pay { font-size: 11px; letter-spacing: 0.04em; color: var(--c-success); }
+.menu .rs-ct-empty { font-size: 12px; color: var(--c-text-faint); letter-spacing: 0.06em; }
+.menu .rs-ct-empty[hidden] { display: none; }
+
+/* ④ squadmates — the terminal match-tab tile look (hub `.hmt-tile`), no gear list, no ready button */
+.menu .rs-squad { display: flex; flex-direction: column; gap: 10px; }
+.menu .rs-sq-row { display: flex; justify-content: center; gap: 12px; }
+.menu .rs-sq {
+  --sc: var(--c-border-strong);
+  position: relative; flex: 0 1 calc((100% - 36px) / 4); min-width: 0; max-width: 180px;
+  display: flex; flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--sc) 45%, var(--c-border));
+  background: rgba(6, 8, 11, 0.9);
+}
+.menu .rs-sq.is-up { box-shadow: 0 0 18px color-mix(in srgb, var(--sc) 40%, transparent); }
+.menu .rs-sq-face {
+  position: relative; aspect-ratio: 1 / 1; overflow: hidden;
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--sc) 16%, transparent), rgba(6, 8, 11, 0.95) 72%);
+}
+.menu .rs-sq-face::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 2; background: var(--sc); box-shadow: 0 0 10px color-mix(in srgb, var(--sc) 60%, transparent); }
+.menu .rs-sq-face img { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; -webkit-user-drag: none; }
+.menu .rs-sq-initial {
+  position: absolute; inset: 0 0 28% 0; display: none; place-items: center;
+  font-size: 48px; font-weight: 800; line-height: 1; color: color-mix(in srgb, var(--sc) 70%, #fff); opacity: 0.5;
+}
+.menu .rs-sq.no-face .rs-sq-initial { display: grid; }
+.menu .rs-sq-like {
+  position: absolute; top: 8px; right: 8px; z-index: 3;
+  width: 32px; height: 32px; padding: 0; display: grid; place-items: center; cursor: pointer;
+  color: var(--c-text); background: rgba(8, 10, 14, 0.78); border: 1px solid var(--c-border-strong);
+}
+.menu .rs-sq-like svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.menu .rs-sq-like:hover:not(:disabled) { color: var(--c-accent); border-color: var(--c-accent); }
+.menu .rs-sq-like:disabled { cursor: default; opacity: 0.45; }
+.menu .rs-sq-like.is-liked { opacity: 1; color: var(--c-success); border-color: var(--c-success); background: rgba(40, 200, 120, 0.14); }
+.menu .rs-sq-like[hidden] { display: none; }
+.menu .rs-sq-info {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 1; aspect-ratio: 1 / 1;
+  display: flex; align-items: flex-end; gap: 8px; padding: 0 10px 8px; pointer-events: none;
+  background: linear-gradient(180deg, transparent 60%, rgba(6, 8, 11, 0.92));
+}
+.menu .rs-sq-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu .rs-sq-lv { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--c-accent); white-space: nowrap; }
+.menu .rs-sq-trust { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px; border-top: 1px solid var(--c-border); }
+.menu .rs-sq-trust[hidden] { display: none; }
+.menu .rs-sq-thead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.menu .rs-sq-tlv { font-size: 11px; letter-spacing: 0.1em; color: var(--c-text); }
+.menu .rs-sq.is-up .rs-sq-tlv { color: var(--sc); }
+.menu .rs-sq-tgain { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--c-success); }
+.menu .rs-sq-tbar { position: relative; height: 4px; background: var(--c-fill); overflow: hidden; }
+.menu .rs-sq-tfill { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: var(--sc); }
