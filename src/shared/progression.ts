@@ -25,7 +25,7 @@ export type SkillId =
   | 'implant'       // `전술 임플란트` tactical implants (intelligence)
   | 'gun_AR' | 'gun_SMG' | 'gun_SR' | 'gun_DMR' | 'gun_SG'  // `사격` shooting (perception)
   | 'equipment'     // `장비 관리` gear maintenance (dexterity)
-  /* appended (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+  /* appended (2026-09-13, `src/housing/README.md` Decisions) */
   | 'cooking'       // `요리` cooking (dexterity) — the cook-step score (the automatic one included)
   | 'research'      // `연구` research (intelligence) — analysis time · material refunds at the extractor / mixing bench / 3D printer
   /* appended (2026-09-16, user's decision): planet ore veins */
@@ -420,7 +420,7 @@ export type StatXpSource = 'action' | 'minigame';
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * The stats trained by exercising. appended (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): **video games**
+ * The stats trained by exercising. appended (2026-09-13, `src/housing/README.md` Decisions): **video games**
  * train intelligence · perception by the same rules (`applyGymSession` · the training bonus · a 24 h debuff per stat — user's decision 「the same as the gym」).
  */
 export type GymStat = Extract<StatId, 'strength' | 'endurance' | 'intelligence' | 'perception'>;
@@ -499,7 +499,7 @@ export interface ProgressionRef {
   spendStatPoints?(alloc: Partial<Record<StatId, number>>): boolean;
 }
 
-/* ══ appended (2026-09-13): meal quality (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」 — user's decision: 0 … 5 quality stars = +0 … +25 % on the stat numbers) ══
+/* ══ appended (2026-09-13): meal quality (`src/housing/README.md` Decisions — user's decision: 0 … 5 quality stars = +0 … +25 % on the stat numbers) ══
  * There is still one meal slot and the lifetime rules are unchanged — the quality travels next to the meal id (`meal` ↔ `mealQuality`, `mealActive` ↔ `mealActiveQuality`).
  * `armPreps` moves the quality along with the id and `clearActivePreps` empties it along with it. `derive.applyMealBuff` is `amount × (1 + mealQualityBonus(quality))` per row.
  * Both fields have to be carried over by `Profile.migrate` to survive a reload (the same place as the 2026-09-09 `accent` accident). */
@@ -518,7 +518,7 @@ export interface ProgressionRef {
 }
 /* ══ end 2026-09-13 meal quality ══ */
 
-/* ══ appended (2026-09-13): library series · video games · the cooking / research skills (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══
+/* ══ appended (2026-09-13): library series · video games · the cooking / research skills (`src/housing/README.md` Decisions) ══
  * The derived stats of the two new skills (`cooking` · `research`). A library series' `derived` effects are not new fields but fold into `MealBuff` keys like a meal buff
  * (`ProgressionSystem` adds `ctx.housing.getLibraryEffects().derived` at the end of `recompute` — recomputed on `housing:libraryChanged`).
  * Video games use the same `applyGymSession` as the gym — intelligence · perception were added to `GymStat` (the training and debuff rules unchanged). */

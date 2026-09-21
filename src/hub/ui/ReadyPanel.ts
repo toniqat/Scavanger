@@ -106,7 +106,7 @@ const GUIDE_OWNER = 'pod';
 /**
  * The launch ready panel (Phase 10 · **the 2026-09-14 rework**) — four cells across the middle of the ship screen,
  * shown **only while the local player is in a launch slot**. Each cell is a portrait over its top 55 % and gear over
- * the bottom 45 % (`docs/DECISIONS.md` 「2026-09-14 — 정보상」).
+ * the bottom 45 %.
  *
  * The bodies come from `ctx.player.createPortraits(host, HUB_READY_CELLS)` — **one** canvas with `HUB_READY_CELLS`
  * scissored viewports, owned by `player/` because it needs `SoldierModel`. That code slices the canvas into `n`

@@ -1,5 +1,5 @@
-// Single-player smoke test for the **crypto mining screens · furniture models** (2026-09-13, docs/DECISIONS.md
-// 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — agent ④: housing/ui/mining + hub/interiors/FurnitureMining).
+// Single-player smoke test for the **crypto mining screens · furniture models** (2026-09-13 —
+// agent ④: housing/ui/mining + hub/interiors/FurnitureMining).
 // The mining rules · the wallet · trading itself belong to the smoke-mining family (agent ③); what is checked here
 // is whether the screens call the contract properly and draw it:
 //  1. Crafting · placing 1 main computer · 2 compute clusters in the ship's mining facility → both models stand in

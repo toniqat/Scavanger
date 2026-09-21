@@ -8,7 +8,7 @@ import { propHullOf } from './propHull';
 
 interface Part { geo: THREE.BufferGeometry; mat: THREE.Material; castShadow: boolean; receiveShadow: boolean }
 /**
- * 2026-09-20 (`docs/DECISIONS.md` perf Phase A2, user's decision 「먼 바위만 그림자 끄기」): the near / far split of a
+ * 2026-09-20 (`docs/PERF.md` perf Phase A2, user's decision 「먼 바위만 그림자 끄기」): the near / far split of a
  * casting variant's instances. One variant is **one `InstancedMesh` spanning the map** (`frustumCulled = false`,
  * because its bounds are the map), so three.js never dropped a single instance from the shadow pass — the four
  * boulder meshes alone were 92k of S2's 158k world shadow triangles. `near` holds the instances within

@@ -1639,7 +1639,7 @@ export const HIT_REQUEST_BURST_S = K.num('HIT_REQUEST_BURST_S');
 export const HIT_KNOCKBACK_RANGE_SLACK = K.num('HIT_KNOCKBACK_RANGE_SLACK');
 /** C-57 (owner: world): slack (m) of the distance test on `crate opened`. */
 export const CRATE_OPEN_RANGE_SLACK = K.num('CRATE_OPEN_RANGE_SLACK');
-/* appended (2026-09-11, E-8 — docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」 — add-only) */
+/* appended (2026-09-11, E-8 — `src/net/README.md` Decisions — add-only) */
 /** E-8 (owner: enemies): distance-test slack (m) on an explode request. The baseline is `STRAT_MAX_CALL_RANGE`. */
 export const EXPLODE_REQUEST_RANGE_SLACK = K.num('EXPLODE_REQUEST_RANGE_SLACK');
 /** E-8 (owner: enemies): distance-test slack (m) on a status-effect request. The baseline is `max(FLAME_RANGE, SHOCK_RANGE)`. */
@@ -1738,7 +1738,7 @@ export const MEAL_SERVE_RANGE = K.num('MEAL_SERVE_RANGE');
  */
 export const WEAPON_MUZZLE_BLOCK_RANGE = K.num('WEAPON_MUZZLE_BLOCK_RANGE');
 
-/* ══ 2026-09-12 — consumables · implants · keys · drone scan · favourites · the gym (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) ══
+/* ══ 2026-09-12 — consumables · implants · keys · drone scan · favourites · the gym ══
  * Every parallel agent appends **inside its own block only**. The values go in the identically marked block of data/constants.csv. */
 /* ── [A1] the three consumables ── */
 /**
@@ -2048,7 +2048,7 @@ export const ROVER_NOTICE_STOPPED_M = K.num('ROVER_NOTICE_STOPPED_M');
 /* ── end [R4] ── */
 /* ── end 2026-09-13 the rover ── */
 
-/* ── 2026-09-13 library series · video games · the cooking / research skills (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
+/* ── 2026-09-13 library series · video games · the cooking / research skills (`src/housing/README.md` Decisions) ── */
 /** The library series' share — short of the full set, each distinct volume shelved gives this much of the full-set bonus (`librarySeriesFraction`). */
 export const SHELF_SERIES_VOLUME_SHARE = K.num('SHELF_SERIES_VOLUME_SHARE');
 /** Slots of one game disc stand (`SHELF_SLOTS.game`). */
@@ -2069,7 +2069,7 @@ export const RESEARCH_XP_ANALYSIS = K.num('RESEARCH_XP_ANALYSIS');
 export const RESEARCH_XP_CRAFT = K.num('RESEARCH_XP_CRAFT');
 /* ── end 2026-09-13 library series ── */
 
-/* ── 2026-09-14 the tutorial rework · fall damage (docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) ── */
+/* ── 2026-09-14 the tutorial rework · fall damage (`src/tutorial/README.md` Decisions) ── */
 /** The height (m) at which fall damage starts — up to this it is free. */
 export const FALL_DAMAGE_SAFE_M = K.num('FALL_DAMAGE_SAFE_M');
 /** Damage per metre past the safe height (shield first, then hp). */
@@ -2143,7 +2143,7 @@ export const TUTORIAL_AGGRO_DROP_M = K.num('TUTORIAL_AGGRO_DROP_M');
 export const TUTORIAL_ENEMY_EDGE_MARGIN_M = K.num('TUTORIAL_ENEMY_EDGE_MARGIN_M');
 /* ── end 2026-09-15 the tutorial respawn · aggro ── */
 
-/* ── 2026-09-15 android squadmates · raid entry loading (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」; the contract is `shared/allies.ts`) ── */
+/* ── 2026-09-15 android squadmates · raid entry loading (`src/allies/README.md` Decisions; the contract is `shared/allies.ts`) ── */
 import type { AllyStateId } from './allies';
 /** Hp multiplier · the downed bleed pool · hp after being revived (owner: allies). */
 export const ALLY_HP_MUL = K.num('ALLY_HP_MUL');
@@ -2232,7 +2232,7 @@ export const RAID_LOAD_START_GRACE_S = K.num('RAID_LOAD_START_GRACE_S');
 /* ── end 2026-09-15 android squadmates · raid entry loading ── */
 
 /* ══ appended (2026-09-15): the sandworm appearance rule reworked — accumulated probability · summoning by thumper · a young one at threat 1 (owner: enemies/sandworm · world/BurrowGround)
- * docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」. `SANDWORM_WINDOW_*` · `SANDWORM_CHANCE_BY_THREAT` are retired (only the exports stay).
+ * `src/enemies/README.md` Decisions. `SANDWORM_WINDOW_*` · `SANDWORM_CHANCE_BY_THREAT` are retired (only the exports stay).
  * The probability table of one check is in the head comment of `src/enemies/sandworm/Director.ts`.
  */
 /** Threat multiplier of one check — index 0 = planet threat 1 (`data/tables.csv`). threat 1 > 0 (a young one comes out). */
@@ -2260,7 +2260,7 @@ export const BURROW_GROUND_MAX_SLOPE = K.num('BURROW_GROUND_MAX_SLOPE');
 export const BURROW_GROUND_NEST_CLEAR_M = K.num('BURROW_GROUND_NEST_CLEAR_M');
 /* ── end 2026-09-15 the sandworm appearance rule rework ── */
 
-/* ── [2026-09-15] the thumper (owner: gadgets — docs/DECISIONS.md 「2026-09-15 — 땅굴벌레 · 진동 장치」) ── */
+/* ── [2026-09-15] the thumper (owner: gadgets — `src/gadgets/README.md` Decisions) ── */
 /** Interval between strikes on the ground (s) · which strike calls the sandworm · the radius the placement test uses (m, `WorldRef.burrowGroundOk`) · durability · shake radius (m) · shake intensity. */
 export const THUMPER_INTERVAL_S = K.num('THUMPER_INTERVAL_S');
 export const THUMPER_STRIKES = K.num('THUMPER_STRIKES');
@@ -2296,7 +2296,7 @@ export const CAMERA_BASE_FOV_DEG = K.num('CAMERA_BASE_FOV_DEG');
  * Beyond this distance (m) from the camera a living enemy's **pose** is recomputed every other frame, and beyond
  * `ENEMY_ANIM_LOD_FREEZE_M` not at all. Only the joints stop: position, facing and movement keep running every
  * frame, and a body that is flashing from a hit, burning, shocked or dead is animated at any distance — those are
- * the frames a sniper reads at 100 m. `docs/DECISIONS.md` perf Phase 1, user's decision 「40 m 절반 · 80 m 정지」.
+ * the frames a sniper reads at 100 m. `docs/PERF.md` perf Phase 1, user's decision 「40 m 절반 · 80 m 정지」.
  */
 export const ENEMY_ANIM_LOD_HALF_M = K.num('ENEMY_ANIM_LOD_HALF_M');
 /** Beyond this distance (m) a living enemy's pose is not recomputed at all — see `ENEMY_ANIM_LOD_HALF_M`. */
@@ -2316,7 +2316,7 @@ export const ENEMY_ANIM_LOD_FREEZE_M = K.num('ENEMY_ANIM_LOD_FREEZE_M');
  * too low. The one longer reach in the game, `NAMED_SNIPER range` 320, belongs to a named rogue, and a named rogue
  * is never reduced at all.) So **an enemy that can fight anyone still runs every frame**. Skipped frames accumulate their `dt` and go into the
  * next tick in one piece, so speed, attack cadence and every timer are unchanged — what a distant body loses is one
- * frame of reaction. `docs/DECISIONS.md` perf Phase C · B4.
+ * frame of reaction. `docs/PERF.md` perf Phase C · B4.
  */
 export const ENEMY_AI_LOD_HALF_M = K.num('ENEMY_AI_LOD_HALF_M');
 /**
@@ -2342,7 +2342,7 @@ export const ENEMY_AI_LOD_MAX_STEP_S = K.num('ENEMY_AI_LOD_MAX_STEP_S');
  * read as intent (thorax 18 · abdomen 16 · armour 14) and are clipped to this in one place; the ring count is always
  * 0.7 × the segments, floor 8, so a thorax goes from 18×13 to 12×8 and from 432 triangles to 168.
  *
- * Why triangles and not draw calls: the 2026-09-20 A/B (`docs/DECISIONS.md`, perf — the last measurement) cut 31 % of the draw calls and
+ * Why triangles and not draw calls: the 2026-09-20 A/B (`docs/PERF.md`, perf — the last measurement) cut 31 % of the draw calls and
  * `x:rendererRender` did not move — the render block on this machine is GPU time, which only pixels and triangles
  * touch. Phase A, user's decision 「전 타입 12~14 세그먼트」. Bug **bodies** only: eggs have `EGG_SEG_W`, and the
  * sandworm and the humanoid rig are built elsewhere.

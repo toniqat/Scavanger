@@ -47,7 +47,7 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  *     under a scroll position computed for the fallback font. Both were re-pinned by a `stick()` that wrote
  *     `scrollTop = scrollHeight`; **since 2026-09-20 the box pins itself** — see `.chat-lines` below.
  *
- * **2026-09-20 (`docs/DECISIONS.md` perf Phase B) — this widget reads no layout, ever.** It used to force a full
+ * **2026-09-20 (`docs/PERF.md` perf Phase B) — this widget reads no layout, ever.** It used to force a full
  * synchronous layout of the whole UI **per line**: `measure()` asked a fresh row for its
  * `getBoundingClientRect().height` and `stick()` read `scrollHeight`, both from inside the frame, right after
  * `HudSystem.update` had dirtied the HUD. Three android callouts landing in one frame cost **8.3 ms** of that
@@ -349,7 +349,7 @@ export class ChatLog {
   }
 
   /**
-   * **Pay a chat row's first layout at boot** (2026-09-20, `docs/DECISIONS.md` perf Phase B).
+   * **Pay a chat row's first layout at boot** (2026-09-20, `docs/PERF.md` perf Phase B).
    *
    * Removing the per-line `getBoundingClientRect` was only half of it: the browser still lays the row out once, and
    * the *first* row of the page costs far more than the rest — the `.chat-line` rules have never been matched, and

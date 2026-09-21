@@ -1,6 +1,6 @@
 /**
  * src/ui/map/QuestPanels.ts — the **quest panel list** of the tactical map's left column + a hover detail tooltip
- * (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 — user's decision 「the quest list
+ * (2026-09-14 — user's decision 「the quest list
  * panel above the legend, the legend at the bottom left」).
  *
  * What is drawn: `ctx.meta.npc.getRaidTracks()` — NPC quests that are running and have at least one objective that

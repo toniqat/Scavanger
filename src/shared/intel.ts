@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * The intel broker (2026-09-14, user's decision — docs/DECISIONS.md 「2026-09-14 — 정보상」).
+ * The intel broker (2026-09-14, user's decision — `src/meta/README.md` Decisions).
  *
  * The concept is 「buying a planet's intel」, but what it actually does is **pin down how many gimmicks that raid
  * has** (Payday 2's pre-heist asset purchase). Until now a map was a pure function of the two values

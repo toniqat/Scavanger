@@ -27,7 +27,7 @@ import type { OutlineRef, ShaderWarmupRef } from './render';
 import type { DronesRef } from './drones';
 /* appended (2026-09-13): the extraction rework */
 import type { ExtractionRef } from './extraction';
-/* appended (2026-09-14): the intel broker — the resolved form of the bought gimmick locks (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* appended (2026-09-14): the intel broker — the resolved form of the bought gimmick locks (`src/meta/README.md` Decisions) */
 import type { IntelEffects } from './intel';
 /* appended (2026-09-15): android squadmates */
 import type { AlliesRef } from './allies';
@@ -152,7 +152,7 @@ export class GameContext {
    * so `world/` and `core/` can read it inside their synchronous handlers. A training always sets it to null.
    */
   missionPlanet: PlanetId | null = null;
-  /* ── appended (2026-09-14): the intel broker (docs/DECISIONS.md 「2026-09-14 — 정보상」) ── */
+  /* ── appended (2026-09-14): the intel broker (`src/meta/README.md` Decisions) ── */
   /**
    * The resolved form of the **gimmick locks** bought for this raid (`IntelEffects` in `shared/intel`), null when nothing was bought.
    * It is **exactly the same convention** as `missionPlanet` — the emitter of `game:newMission` sets it **before it emits**, so

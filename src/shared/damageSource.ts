@@ -1,5 +1,5 @@
 /*
- * src/shared/damageSource.ts — **the source of a local player's damage** (2026-09-14, NPC quest kill objectives · docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * src/shared/damageSource.ts — **the source of a local player's damage** (2026-09-14, NPC quest kill objectives · `src/meta/README.md` Decisions).
  *
  * 「산탄총으로 레이더 5명 처치」 counts only when the **last hit came from a gun of that class**. But `Enemy.takeDamage`
  * does not know who hit it or with what (a gun · melee · a gadget · a shield bash all call it the same way). So weapons/

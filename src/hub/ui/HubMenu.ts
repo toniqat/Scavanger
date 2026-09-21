@@ -37,7 +37,7 @@ const MSG_TTL = 4500;
 /**
  * Ship terminal (`.menu.hub-menu.fullscreen`) — **full-screen since Phase 11**.
  *
- * **2026-09-15 (squad docking, user's decision — `docs/DECISIONS.md` 「2026-09-15 — 분대 · 도킹 매칭」): two top tabs.**
+ * **2026-09-15 (squad docking, user's decision): two top tabs.**
  * The inventory Tab screen's pill tabs (`nav.scr-tabs > button.scr-tab`, `ui/styles/base.css`) float top-centre of the frame:
  *
  * - **`행성`** (`.hub-pane-planet`): a 3-column grid — empty left column · **the centre planet card** (hologram · name ·

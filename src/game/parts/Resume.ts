@@ -1,7 +1,7 @@
 /**
  * src/game/parts/Resume.ts — **the title's `이어하기` · `레이드 포기`** (`ctx.raidResume`, 2026-09-15).
  *
- * docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 (user's decision):
+ * User's decision (`src/game/README.md` Decisions):
  *  - Starting the game with a raid left over begins **at the title, not straight in the raid**. The first `update()`
  *    used to call `resumeSoloRaid` the moment it saw the solo save — now that decision is one press of `이어하기`.
  *  - Abandon = death in that raid. Solo settles exactly like a death (equipment · bag · implants lost, death XP,

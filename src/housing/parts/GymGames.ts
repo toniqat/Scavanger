@@ -21,7 +21,7 @@
  *   • **A stray press is the next marker's miss** — a press earlier than that marker's window but after the previous one closed
  *     (past `t − (beat − window)`) counts the marker as a miss. Otherwise mashing Space to collect every window would be the best strategy.
  *
- * 2026-09-13 (video games, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): it takes **per-disc tuning** `GymGameTuning`
+ * 2026-09-13 (video games, H2): it takes **per-disc tuning** `GymGameTuning`
  * (`createGymGame(kind, tuning?)`). Exactly as the contract means it —
  *   • `speedMul`  bench-press cursor speed × · beat-game beat interval ÷ (the length 「하」 is held is divided too)
  *   • `windowMul` bench-press good · perfect zone × · beat-game judgement window × (the 「하」 release window too)

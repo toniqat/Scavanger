@@ -68,7 +68,7 @@ export class Lobby {
    * a training ignores it. **`reset()` keeps it** — the destination outlives the mission.
    */
   planet: PlanetId | null = null;
-  /* 2026-09-14 — the intel broker (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+  /* 2026-09-14 — the intel broker (src/meta/README.md Decisions) */
   /**
    * The **fixed gimmicks** the squad leader bought (`lobby:intel`), or null when nobody bought any. The server
    * sanitizes **the shape only** and broadcasts it as it is — it computes no layout (treated like `planet`).
@@ -83,7 +83,7 @@ export class Lobby {
    * Any host change or the end of the mission (`reset()`) turns it off — the flag must not outlive the raid.
    */
   hostDown = false;
-  /* 2026-09-15 — squad · dock matchmaking (docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」) */
+  /* 2026-09-15 — squad · dock matchmaking */
   /**
    * false = only a squad was formed and everyone is in **their own personal ship** (the lobby an invite creates the
    * moment it is sent). true = the squad is in a shared ship.

@@ -153,7 +153,7 @@ const TIP_VALUE_LABEL = '가치';
  * badge joins the header and an item's 분류 · 등급 · 무게 · 가치 rows do not appear. The demand for a frame that is told
  * apart from an item ends here.
  *
- * **Cooking ingredient tiers (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 재료 티어」)**: a meal gets `구분 — <tier name>`
+ * **Cooking ingredient tiers (2026-09-13)**: a meal gets `구분 — <tier name>`
  * (`MEAL_TIER_LABEL_KO`, omitted for a retired meal) · **every stat row** under `사용` (`hud/mealText.mealEffects` — one row for
  * an old def with no `effects`); the old `구분 — 특선 요리` is gone. Soil gets **`내구도 최대 n`** · **`소켓 칸 n 칸`**
  * (`growSocketSlotsFor(rarity)`) instead of `수확 n 회`, a medium the same two rows + `배양 속도` instead of `배양 n 회`, a strain
@@ -164,7 +164,7 @@ const TIP_VALUE_LABEL = '가치';
  * (the table's base time) · `결과 — <계열> 결과표`, and the old `산출물` · `최초 해석` rows are left only on an old def with no family.
  * A retired item (`def.retired`) gets one **`상태 — 더 이상 쓰이지 않는 아이템`** line (dim text) at the top.
  *
- * **Cooking minigame (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」)**: when the hovered element carries `data-uid`
+ * **Cooking minigame (2026-09-13)**: when the hovered element carries `data-uid`
  * and that instance's quality is above 0, a meal gets one **`품질 — ★★★☆☆ +15 %`** row (`hud/mealText.mealQualityText`) under
  * `구분`, and its stat rows become **the numbers with the bonus folded in** (`mealEffects(meal, quality)` — the same formula
  * `derive.applyMealBuff` adds when it is eaten). A chip with no instance (material · reward chips) is the quality-0 baseline.
@@ -525,7 +525,7 @@ export class ItemTip {
        **which skill it raises** and **which shelf of the library it goes on**. The medium is decided by the contract's
        `shelfItemOf` alone, and the shelf name is found in the furniture table (`furniture.csv`) as the library furniture
        whose interaction is that medium's — the name is never copied here (the card follows when the table changes). */
-    /* 2026-09-13 (library series, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): the old single `숙련` row (per skill ·
+    /* 2026-09-13 (library series): the old single `숙련` row (per skill ·
        rarity weighted) is gone — the effect is now decided by the **series**' effect rows. A series medium gets `시리즈` ·
        `권` · the effect rows (the all-volumes value) · `진행` · `보관` · `꽂는 곳` · `등장 행성`. */
     const shelf = shelfItemOf(def);

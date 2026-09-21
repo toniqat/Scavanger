@@ -1,5 +1,5 @@
 /**
- * The performance measurement harness (`docs/DECISIONS.md`, the perf Phase 0 … last-measurement sections). **Not a smoke** (`verify.mjs` only runs the files in its
+ * The performance measurement harness (`docs/PERF.md`, perf Phase 0 … the last measurement). **Not a smoke** (`verify.mjs` only runs the files in its
  * `SMOKES` table), and it asserts nothing: it plays a scenario and prints numbers.
  *
  * Why headful by default: the frame time is the thing being measured, and a headless Chrome does not present frames on
@@ -23,7 +23,7 @@
  *     --display k=v,…     apply `설정 › 화면 설정` before recording: `bloom` · `shadows` (0/1), `scale` (0.5…1).
  *                         The composer passes and the shadow map are part of the render block, so this is how a run
  *                         answers 「how much of `x:rendererRender` is the scene and how much is the post chain」.
- *     --alloc             count **allocation by owner** during each window. `docs/DECISIONS.md` perf Phase C · B6 — S2
+ *     --alloc             count **allocation by owner** during each window. `docs/PERF.md` perf Phase C · B6 — S2
  *                         allocates 63-65 MB/s and its spike frames have everything slow at once, so the question is
  *                         「who makes the garbage」, which is a count, not a timing. The answer comes from the
  *                         **per-mark `performance.memory` delta** (`markAlloc`, and the typed-array census): B6

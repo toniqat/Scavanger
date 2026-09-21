@@ -2,8 +2,7 @@
  * src/player/parts/FurniturePose.ts — **what the body does while furniture holds it** (2026-09-12, A-3a · A-3e).
  *
  * The implementation of `PlayerRef.setFurniturePose` / `furniturePose` / `setFurniturePoseDrive` (caller: hub — the
- * rocking chair · gym machines, contract: end of `shared/types.ts` · `player:furniturePoseEnded`). Decision:
- * `docs/DECISIONS.md` 「2026-09-12 — 헬스장 · 서재 매체」.
+ * rocking chair · gym machines, contract: end of `shared/types.ts` · `player:furniturePoseEnded`).
  *
  * - **In the ship only.** It is refused, changing nothing, while `ctx.phase !== 'hub'` · before spawn · dead ·
  *   downed · in drone control · on a ladder · in a pod · in the hellpod · being carried · shouldering · attached to

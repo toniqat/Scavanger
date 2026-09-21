@@ -164,7 +164,7 @@ export class Notifications {
       b.on('net:peerJoined', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 합류`, 'info', '분대', 3)),
       b.on('net:peerLeft', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 이탈`, 'warning', '분대', 3.5)),
       b.on('net:lobbyLeft', ({ reason }) => { if (reason === 'hostLeft') this.push('호스트가 나갔습니다', 'warning', '분대', 4); }),
-      /* ── 2026-09-15 (android squadmates, docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ──
+      /* ── 2026-09-15 (android squadmates) ──
        * The sole owner of the toasts is here (the 2026-09-11 B-12 contract) — allies · net only emit events. `evicted` is
        * 「사람이 합류해 밀려났다」, so its sentence differs from `removed` (the squad leader sent it back itself). */
       b.on('ally:rosterChanged', ({ roster, added, removed, evicted }) => {
@@ -214,7 +214,7 @@ export class Notifications {
         );
       }),
       /*
-       * 2026-09-13 (the cooking minigame, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」): the result of one cook. housing only emits events and the toast is only here
+       * 2026-09-13 (the cooking minigame): the result of one cook. housing only emits events and the toast is only here
        * (the same contract as the dining table line above). Success = `<요리> ★★★★☆ → 함선 창고|가방`, failure = a `result.reason` warning. The `craft:completed` of the same moment
        * draws no toast below when it is a cook-bench recipe — this line stands in for it (the `inventory:itemAdded` item-gained ticker still appears as for a normal craft).
        */
@@ -232,7 +232,7 @@ export class Notifications {
         }
       }),
       /*
-       * 2026-09-13 (cooking material tiers, `docs/DECISIONS.md` 「2026-09-13 — 요리 재료 티어」): the analyzer's two notices. housing only emits events and the toast is only here
+       * 2026-09-13 (cooking material tiers): the analyzer's two notices. housing only emits events and the toast is only here
        * (the same contract as the dining table line above). The old `housing:sampleDexAdded` (the sample catalogue) is no longer emitted and had no consumer in ui.
        *  - `analysisFound` — an output written into the analysis catalogue for the **first** time.
        *  - `analysisLevelUp` — the moment a family level rises: that level's resolve-time multiplier (`analysisTimeMul`) + the results **newly unlocked** at this level
@@ -404,7 +404,7 @@ export class Notifications {
       // 2026-09-17 (user's decision): equipping · unequipping · swapping a tactical implant draws no toast — the slot art (the implant
       // widget) and the equip sound (`ui_equip` in `audio`) are enough. Only the `implant:equipped` subscription is gone from here.
       /* ── Phase 5: corporations (short lines; the credits chip / rep / contract toasts live in MetaToasts) ── */
-      /* ── 2026-09-14: NPC quests (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — the old corporation quest completion toast (`meta:questChanged`) went
+      /* ── 2026-09-14: NPC quests — the old corporation quest completion toast (`meta:questChanged`) went
        * away with the corporation quests. New NPC messages (`npc:message`) are shown by the messenger (ui/menus/messenger). Nothing is shown in the training range. ── */
       b.on('npc:objectiveProgress', ({ questId, index, done, raid }) => {
         if (!done || !raid || ctx.isTraining()) return;

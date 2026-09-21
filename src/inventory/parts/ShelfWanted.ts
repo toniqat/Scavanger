@@ -1,5 +1,5 @@
 /**
- * src/inventory/parts/ShelfWanted.ts — **the 「not yet shelved in the library」 ribbon** (2026-09-13, the library series · user's decision, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」).
+ * src/inventory/parts/ShelfWanted.ts — **the 「not yet shelved in the library」 ribbon** (2026-09-13, the library series · user's decision).
  *
  * The question it answers: *does this book · video · record tile get the same blue ribbon as a favourite.*
  *

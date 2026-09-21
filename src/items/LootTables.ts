@@ -72,7 +72,6 @@ export function isLootableDef(d: ItemDef): boolean {
 }
 
 /* ── planet-bound drops (2026-09-13, library series · video games) ───────────
- * docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」
  * Books · discs · records come only from **the series' planets** (`data/library_series.csv`); consoles and game
  * discs only from the planets in `game_*.csv`.
  * The crate roll (`Loot.pickDef`) filters candidates by the raid planet, and a category with no candidate at all
@@ -711,7 +710,7 @@ export function numberedArmorIdForTier(tier: number): string | null {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 2026-09-13: humanoid faction (android · rogue · raider) corpses — docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」
+ * 2026-09-13: humanoid faction (android · rogue · raider) corpses
  *   `data/loot_factions.csv`       gun grade distribution · armor · bag · heal (rarity rolls)
  *   `data/loot_faction_sites.csv`  spawn site bonuses (lab = seeds · unidentified samples, outpost = the gun
  *                                  grade distribution is replaced)

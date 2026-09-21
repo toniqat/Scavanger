@@ -1,5 +1,5 @@
 /**
- * src/enemies/Tutorial.ts — **tutorial-only enemies** (2026-09-14, section `D` of `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
+ * src/enemies/Tutorial.ts — **tutorial-only enemies** (2026-09-14).
  *
  * A tutorial raid (`ctx.missionMode === 'tutorial'`) places only enemies of a **fixed spot · fixed type**:
  * no rolls · no waves · no patrols · no spawner · no sandworm · no named · no raider drops.
@@ -19,7 +19,7 @@
  *
  * The android's shell and sparks instead of blood are **the main game's, verbatim**.
  *
- * ── 2026-09-14 3rd pass (`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ──────────────────────────────
+ * ── 2026-09-14 3rd pass ──────────────────────────────
  * 1. **Four dedicated enemy types.** The world list uses `tut_bug_loot` · `tut_bug` · `tut_android_loot` · `tut_android`.
  *    The numbers are their own rows in `data/enemies.csv` (the android has half the hp), the rig · AI · sounds are the base
  *    type's (`EnemyTypes.baseTypeOf`), and the only other difference is the **fixed drop** — only the two `_loot` types drop
@@ -80,7 +80,7 @@ export interface TutorialScriptHost extends RogueSpawnHost {
 /**
  * 2026-09-14 3rd pass — **one bug waiting underground**.
  *
- * A tutorial bug does not stand there from the start; it comes up out of its hole when the player approaches (`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
+ * A tutorial bug does not stand there from the start; it comes up out of its hole when the player approaches.
  * No new concept was made — it calls the **bug burrow spawn** that already exists (2026-09-13: `Pool.spawn(…, emerge)` →
  * `Enemy.startEmerge` + `parts/Burrow.emergeFx` + `ee spawn.em`). That it can be hit but does not attack · move during the 1 s it emerges is that rule too.
  *

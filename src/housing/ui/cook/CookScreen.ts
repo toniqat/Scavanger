@@ -1,5 +1,5 @@
 /**
- * src/housing/ui/cook/CookScreen.ts — **the cook overlay** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」). One panel at the bottom centre of the screen
+ * src/housing/ui/cook/CookScreen.ts — **the cook overlay** (2026-09-13). One panel at the bottom centre of the screen
  * (`.cook-panel`) swaps its contents per step — it does not cover the screen, so the 3D above it (the pose at the cook bench · the fixed camera, hub) stays visible:
  *
  *   step i ─ with an auto appliance the choice card (`choose`: 「직접 하기」 / 「자동 — 자동 교반기 Lv.2 · 60 %」), without one straight on ─▶

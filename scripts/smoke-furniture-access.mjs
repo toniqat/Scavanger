@@ -1,5 +1,5 @@
 // Single-player smoke test for the **furniture placement rules — the access face** (2026-09-13,
-// docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, housing `Rules.placementBlockOf` ·
+// housing `Rules.placementBlockOf` ·
 // `ShipState.sanitize` · hub `interiors/Furniture` interaction direction · `HousingMode` clearance-cell tiles).
 //   0. An old layout → the furniture store: a piece that breaks the rules (a bench with a wall in front · a `사물함`
 //      in the row in front of a bench · a grow station with its wide face blocked · a `사물함` in front of the

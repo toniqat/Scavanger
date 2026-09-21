@@ -7,7 +7,7 @@
 //       `enemy:squadKill`, non-kill hits are rate-limited, a `meta sync` nobody asked for is ignored.
 //   C-57 `crate opened` — unknown id / far sender refused, a near sender accepted, the host only re-hands verified ids.
 //   X-6 knockback — a `HitRequest.kb` from a sender far from the enemy is refused; the per-sender DPS budget trims a flood.
-// Appended 2026-09-11 (E-8, docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」):
+// Appended 2026-09-11 (E-8, src/net/README.md Decisions):
 //   (a) `explode` — junk `p` / out-of-range `dmg` · `r` dropped on shape, a blast 220 m from the sender refused, a
 //       legitimate one next to the sender still damages the enemy (the guard must not eat real play), a flood shares
 //       the `hit` DPS bucket. Observed through the host's `EnemySystem.hitGuardStats` **deltas** (it never resets).

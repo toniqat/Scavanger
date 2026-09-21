@@ -14,7 +14,7 @@ import type { ProfileDocKey, ProfileRecord, ProfileRef, RaidSessionBlob } from '
 import type { MissionMode } from './types';
 /* appended (Phase 11, 2026-09-07): planet selection + social */
 import type { PlanetId } from './planets';
-/* appended (2026-09-14): the intel broker — the fixed gimmicks carried on the lobby and the raid start (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* appended (2026-09-14): the intel broker — the fixed gimmicks carried on the lobby and the raid start (`src/meta/README.md` Decisions) */
 import type { IntelPick } from './intel';
 /* appended (2026-09-08): the shared ship's hangar — a visited member's ship layout rides on `ship state` */
 import type { PlacedBook, PlacedFurniture, RoomPurpose } from './housing';
@@ -150,7 +150,7 @@ export interface LobbyState {
    * started from this lobby carries it in `game:start.planet`; a training ignores it.
    */
   planet?: PlanetId;
-  /* appended (2026-09-14): the intel broker — docs/DECISIONS.md 「2026-09-14 — 정보상」 */
+  /* appended (2026-09-14): the intel broker — `src/meta/README.md` Decisions */
   /**
    * The **fixed gimmicks** the squad leader bought (`lobby:intel`); absent = nobody bought any. A squadmate reads it
    * in the ship and the intel broker panel shows a summary of it (read-only — only the leader buys and discards).
@@ -952,7 +952,7 @@ export interface PlateRequest { t: 'plateq'; ev: 'sync' }
  */
 export interface MealMessage { t: 'meal'; ev: 'req' | 'serve'; def: string; who?: PeerId }
 
-/* ══ 2026-09-12 wire: character buffs · furniture poses (user's decision — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」) ══
+/* ══ 2026-09-12 wire: character buffs · furniture poses (user's decision — `src/player/README.md` Decisions) ══
  *
  * Furniture interaction states such as sitting and exercising became **character buffs**, and meals · preparations ·
  * the gym debuff · environment exposure live in the same list. A squadmate's list arrives by two roads:
@@ -2015,7 +2015,7 @@ export interface CorpseItemWire {
   rf?: number;
 }
 
-/* ══ appended: 2026-09-13 — cooking quality crosses the wire (`ItemInstance.quality`, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ══
+/* ══ appended: 2026-09-13 — cooking quality crosses the wire (`ItemInstance.quality`, `src/housing/README.md` Decisions) ══
  * It rides in the same place as `rf`. Omitted = quality 0 (an older peer · an item that is not a dish). The receiver clamps it with `normalizeMealQuality`. */
 export interface PickupWire {
   /** `ItemInstance.quality` of a dish dropped on the ground. */
@@ -2084,7 +2084,7 @@ export type RoverRequest =
   | { t: 'roverq'; ev: 'hit'; p: Vec3Tuple; a: number };
 /* ══ end 2026-09-13 the rover ══ */
 
-/* ══ appended: 2026-09-13 — crypto quotes (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 · owner: server/CryptoMarket · net/parts/Crypto) ══
+/* ══ appended: 2026-09-13 — crypto quotes (`src/housing/README.md` Decisions · owner: server/CryptoMarket · net/parts/Crypto) ══
  * The relay simulates the coin quotes (`CRYPTO_TICK_S`) and stores the candle history — the chart and trading need a server connection (user's decision).
  * The source of the values is the `crypto` section of `server/economy.gen.json` (← data/crypto.csv · tuning.csv). Anonymous connections are accepted too (a quote is no secret).
  * A trade itself is not a new message but the `credits:tx` reasons `cbuy:` · `csell:` (`shared/credits.ts`). */
@@ -2125,7 +2125,7 @@ export interface NetRef {
 }
 /* ══ end 2026-09-13 crypto quotes ══ */
 
-/* ══ appended: 2026-09-14 — group messenger rooms (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 · owner: server/ · net/) ══
+/* ══ appended: 2026-09-14 — group messenger rooms (`src/meta/README.md` Decisions · owner: server/ · net/) ══
  * Server-authoritative · persistent. A profile (a token) is required — anonymous gets `room:error {code:'unavailable'}`. The types and constants are the last section of `shared/social.ts`.
  * A receiver gets `room:state` whole (the room list and the invites are small). Lines fan out to the connected members with `room:line`.
  * Agent A (server · net) may add variants **only inside** this section (never change an existing field). */
@@ -2164,7 +2164,7 @@ export interface NetRef {
 }
 /* ══ end 2026-09-14 group messenger rooms ══ */
 
-/* ══ appended (2026-09-14): the intel broker — the NetRef surface (docs/DECISIONS.md 「2026-09-14 — 정보상」) ════════
+/* ══ appended (2026-09-14): the intel broker — the NetRef surface (`src/meta/README.md` Decisions) ════════
  *
  * The wire (`IntelWire` · `LobbyState.intel` · `lobby:intel` · `lobby:start.intel` · `game:start.intel`) is already
  * above, but **the `NetRef` method that sends it was missing** — `meta/parts/Intel.ts` (telling the squad after a
@@ -2206,7 +2206,7 @@ export interface GrenadeMessage {
   fire?: 1;
 }
 
-/* ══ appended (2026-09-15): squad · dock matchmaking — docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」 ════════
+/* ══ appended (2026-09-15): squad · dock matchmaking — `src/hub/README.md` Decisions ════════
  *
  * The squad (lobby) and the shared ship are **separate** now. Before, a lobby *was* the shared ship: getting one (create ·
  * join · quick match · 같이 하기 · invite accept) played the docking cutscene at once. Now:
@@ -2317,7 +2317,7 @@ export interface NetRef {
 }
 /* ══ end 2026-09-15 squad · dock matchmaking ══ */
 
-/* ══ appended (2026-09-15): android squadmates · raid entry loading — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 ══
+/* ══ appended (2026-09-15): android squadmates · raid entry loading — `src/allies/README.md` Decisions ══
  *
  * **Bot members** (owner: server/ · net/). A squadmate that came out of an android bay of the shared ship's cockpit
  * (bay 0..ANDROID_BAY_COUNT-1) is a member of the relay lobby — with no socket and `bot: true`, always
@@ -2477,7 +2477,7 @@ export interface DeployableWire {
   age?: number;
 }
 
-/* ══ appended (2026-09-15): abandoning a raid from the title · drifting — docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 ══
+/* ══ appended (2026-09-15): abandoning a raid from the title · drifting — `src/game/README.md` Decisions ══
  *
  * A squadmate who reloaded picks `이어하기` or `레이드 포기` at the title (`shared/raidResume`).
  * - The `lobby:mission {inMission:false, keep:true}` a reloaded page answers `welcome` with **keeps the raid blob** —

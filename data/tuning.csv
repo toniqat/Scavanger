@@ -103,7 +103,7 @@ MEDIUM_WEAR_PER_HARVEST,25,"수확 한 번에 부어 둔 배지가 잃는 내구
 GROW_SOCKET_TIME_FLOOR,0.4,"소켓 speed 를 합산한 성장 · 배양 시간 배수의 바닥 (0.4 = 아무리 끼워도 원래 시간의 40 % 밑으로는 안 줄어든다)."
 GROW_WEAR_MUL_FLOOR,0.2,"소켓 wear 를 합산한 마모 배수의 바닥 (0.2 = 아무리 끼워도 수확마다 원래 마모의 20 % 는 닳는다)."
 
-# housing — 암호화폐 채굴 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — 같은 날 전력 할당이 폐지되어 COMPUTE_CLUSTER_POWER_PER_CORE · POWER_AUTO_TOPUP 은 지웠다)
+# housing — 암호화폐 채굴 (2026-09-13, src/housing/README.md Decisions — 같은 날 전력 할당이 폐지되어 COMPUTE_CLUSTER_POWER_PER_CORE · POWER_AUTO_TOPUP 은 지웠다)
 COMPUTE_CLUSTER_MAX_CORES,9,"연산 클러스터 한 대에 꽂을 수 있는 연산 코어 수."
 COMPUTE_CORE_TIME_MUL,0.5,"코어가 하나 늘 때마다 채굴 주기에 곱하는 값 (1개 = 기준 · 2개 = 50 % · 3개 = 25 % …)."
 # 2026-09-16 (사용자 결정, 채광 개편): 연산 코어가 사라지고 **프로세서**가 연산 클러스터에 직접 꽂힌다.

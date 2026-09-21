@@ -38,7 +38,7 @@ function colorize(geo: THREE.BufferGeometry, hex: number): THREE.BufferGeometry 
 }
 
 /**
- * 2026-09-20 (`docs/DECISIONS.md` perf Phase A, user's decision 「전 타입 12~14 세그먼트」): every sphere a bug body is
+ * 2026-09-20 (`docs/PERF.md` perf Phase A, user's decision 「전 타입 12~14 세그먼트」): every sphere a bug body is
  * built from passes through here, so the detail budget lives in one place (`BUG_MESH_SEGMENTS`) while the per-part
  * `seg` arguments keep saying what the part *wants*. Raising a `seg` above the budget now changes nothing — change
  * the csv row instead.
@@ -264,7 +264,7 @@ export function disposeBugAssets(): void {
  * Rig
  * ──────────────────────────────────────────────────────────────────────────── */
 /**
- * One leg — **pose numbers only, no scene node**. 2026-09-20 (`docs/DECISIONS.md` perf Phase 1): the 6 legs used to be
+ * One leg — **pose numbers only, no scene node**. 2026-09-20 (`docs/PERF.md` perf Phase 1): the 6 legs used to be
  * 6 × (hipYaw · hipPitch · knee groups + femur · tibia meshes) = 12 of a bug's 17 draw calls and 30 of its scene
  * nodes, and bugs were 60 % of everything drawn in a raid. They are now two `InstancedMesh` of 6 instances each
  * (`BugRig.femurs` · `tibias`), whose matrices `animateBug` composes from these numbers directly — the same

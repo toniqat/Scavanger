@@ -1,6 +1,5 @@
 /**
- * src/inventory/parts/Allies.ts — **the hooks android squadmates put into the inventory** (2026-09-15,
- * `docs/DECISIONS.md` 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」).
+ * src/inventory/parts/Allies.ts — **the hooks android squadmates put into the inventory** (2026-09-15).
  *
  * Everything here is only **what the contract named** (the 2026-09-15 android section of `shared/types.ts` · `shared/events.ts`),
  * and allies/ reads only this file's results. It invents no new looting and no new weight formula — it calls the ones people use:

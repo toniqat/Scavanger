@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * Tutorial world queries (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
+ * Tutorial world queries (2026-09-14, `src/tutorial/README.md` Decisions).
  * Owner: `world/tutorial/` — published as `ctx.world.tutorial` (the same place and contract as `ctx.world.training`).
  *
  * The question this file answers: *what is different on the tutorial planet alone.*

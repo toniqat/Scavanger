@@ -1,5 +1,5 @@
 /**
- * src/housing/parts/Mining.ts — **crypto mining · the wallet · the exchange** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, user's decision).
+ * src/housing/parts/Mining.ts — **crypto mining · the wallet · the exchange** (2026-09-13, user's decision).
  *
  * One compute cluster (`furn_compute_cluster`) is one clock — it does not run separately per mounted processor. The cycle is
  * `clusterCycleMs(coin, the perf sum)`, and each completed cycle puts `yieldUnits` into the wallet (`ShipState.cryptoWallet`) by

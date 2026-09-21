@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * Crypto coin defs + the mining · trading numbers (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, user's decision).
+ * Crypto coin defs + the mining · trading numbers (2026-09-13, `src/housing/README.md` Decisions, user's decision).
  *
  * The source is `data/crypto.csv` (8 coins) + `data/tuning.csv` (unit · fee · core multiplier · quote tick). This file
  * uses the csv loader, so **the relay does not import it** — the values the relay needs are moved into the `crypto`

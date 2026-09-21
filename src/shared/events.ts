@@ -1253,7 +1253,7 @@ export interface GameEvents {
   'housing:moveHold': { progress: number | null };
 }
 
-/* ══ appended: 2026-09-12 — library media (A-3e) · the gym (A-3a). docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」 ══ */
+/* ══ appended: 2026-09-12 — library media (A-3e) · the gym (A-3a). `src/housing/README.md` Decisions ══ */
 export interface GameEvents {
   /**
    * (owner: housing) what is shelved in holder `uid` changed — shared by the bookshelf · disc stand · record rack (the
@@ -1288,7 +1288,7 @@ export interface GameEvents {
   'player:furniturePoseEnded': { kind: FurniturePoseKind; reason: 'interact' | 'caller' | 'reset' };
 }
 
-/* ══ appended: 2026-09-12 — character buffs. docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」 ══ */
+/* ══ appended: 2026-09-12 — character buffs. `src/player/README.md` Decisions ══ */
 export interface GameEvents {
   /** (owner: player) my buff list changed — the same array as `PlayerRef.buffs`. ui's buff row and net's `cbuf state` listen. */
   'player:buffsChanged': { buffs: readonly CharBuff[]; revision: number };
@@ -1307,7 +1307,7 @@ export interface GameEvents {
   'weapon:aimBlocked': { blocked: boolean };
 }
 
-/* ══ appended: 2026-09-12 — consumables · implants · keys · drone scan · favorites · the gym. docs/DECISIONS.md 「2026-09-12 — 전투 소모품」 ══
+/* ══ appended: 2026-09-12 — consumables · implants · keys · drone scan · favorites · the gym ══
  * Each parallel agent appends **only inside its own block** (writing `export interface GameEvents { … }` in there). The block order is never changed. */
 /* ── [A1] the three consumables ── */
 /* ── end [A1] ── */
@@ -1367,7 +1367,7 @@ export interface GameEvents {
 /* ── [F] gym minigames ── */
 /* ── end [F] ── */
 
-/* ── [2026-09-13] cooking ingredient tiers (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」) ── */
+/* ── [2026-09-13] cooking ingredient tiers ── */
 export interface GameEvents {
   /**
    * (owner: housing) an output received from the analyzer for the **first** time was written into the analysis
@@ -1447,7 +1447,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-13] burrow spawns · the sandworm ── */
 
-/* ── [2026-09-13] cooking minigames (owner: housing — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ── */
+/* ── [2026-09-13] cooking minigames (owner: housing — `src/housing/README.md` Decisions) ── */
 import type { CookBeatAction, CookGame, CookJudge, CookResult } from './cooking';
 export interface GameEvents {
   /** The cooking station screen opened / closed (the minigame overlay is `housing:cookSession`). */
@@ -1517,7 +1517,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-13] the rover ── */
 
-/* ── [2026-09-13] placement rules · power · crypto mining (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — the rules are the same-day section of `shared/housing.ts`) ── */
+/* ── [2026-09-13] placement rules · power · crypto mining (`src/housing/README.md` Decisions — the rules are the same-day section of `shared/housing.ts`) ── */
 import type { CryptoChartRange } from './cryptoMarket';
 export interface GameEvents {
   /**
@@ -1551,7 +1551,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-13] placement rules · power · crypto mining ── */
 
-/* ── [2026-09-13] library series · video games (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — the rules are the closing sections of `shared/library.ts` · `shared/housing.ts`) ── */
+/* ── [2026-09-13] library series · video games (`src/housing/README.md` Decisions — the rules are the closing sections of `shared/library.ts` · `shared/housing.ts`) ── */
 import type { GameStat } from './library';
 export interface GameEvents {
   /** Fact (housing): the summed library effects changed (shelving · unshelving · placing/collecting a holder or helper piece · power). progression recomputes `derived` and the band · sheet · cooking station redraw. */
@@ -1593,7 +1593,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-14] pinning the inventory tooltip ── */
 
-/* ── [2026-09-14] the messenger · NPC quests · group rooms (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 — the contract itself is the closing sections of `shared/npc.ts` · `shared/social.ts`) ── */
+/* ── [2026-09-14] the messenger · NPC quests · group rooms (`src/meta/README.md` Decisions — the contract itself is the closing sections of `shared/npc.ts` · `shared/social.ts`) ── */
 import type { WeaponClass as WeaponClassForKill } from './types';
 import type { MessengerTab, NpcInteractKind, NpcLogEntry, NpcQuestState } from './npc';
 import type { RoomErrorCode, RoomId, RoomInvite, RoomLine } from './social';
@@ -1640,7 +1640,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-14] the messenger · NPC quests · group rooms ── */
 
-/* ── [2026-09-14] the intel broker · per-NPC trust (docs/DECISIONS.md 「2026-09-14 — 정보상」) ──────
+/* ── [2026-09-14] the intel broker · per-NPC trust (`src/meta/README.md` Decisions) ──────
  * The gimmick lock itself does not travel as an event — the one road to the map is `ctx.missionIntel` (the same
  * convention as `missionPlanet`: set before `game:newMission` is emitted), and the two here are **facts for redrawing
  * the screen**. */
@@ -1678,7 +1678,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-15] fall feedback ── */
 
-/* ── [2026-09-15] android squadmates · raid entry loading (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 — the contract itself is the closing sections of `shared/allies.ts` · `net.ts`) ── */
+/* ── [2026-09-15] android squadmates · raid entry loading (`src/allies/README.md` Decisions — the contract itself is the closing sections of `shared/allies.ts` · `net.ts`) ── */
 import type { AllyId, AllyRosterEntry } from './allies';
 /* appended (2026-09-15): `이어하기` · `레이드 포기` from the title */
 import type { RaidResumeOffer } from './raidResume';
@@ -1732,7 +1732,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-15] android squadmates · raid entry loading ── */
 
-/* ══ appended: 2026-09-15 — the sandworm eruption check reworked · the thumper (owner: enemies/sandworm · gadgets). docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」 ══ */
+/* ══ appended: 2026-09-15 — the sandworm eruption check reworked · the thumper (owner: enemies/sandworm · gadgets). `src/enemies/README.md` Decisions ══ */
 /* (gadgets 2026-09-15: the bus's event table is `GameEvents` — a separately declared `Events` interface is not merged, so `bus.emit` does not know this key.) */
 export interface GameEvents {
   /**
@@ -1745,7 +1745,7 @@ export interface GameEvents {
 }
 /* ── end [2026-09-15] the sandworm · the thumper ── */
 
-/* ══ appended: 2026-09-15 — `이어하기` · `레이드 포기` from the title (owner: game/parts/Resume). docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 ══ */
+/* ══ appended: 2026-09-15 — `이어하기` · `레이드 포기` from the title (owner: game/parts/Resume). `src/game/README.md` Decisions ══ */
 export interface GameEvents {
   /** Fact (game): the raid the title will offer changed (it appeared · disappeared · its roster · a server check starting/ending). ui/menus/TitleMenu redraws. */
   'raid:resumeChanged': { offer: RaidResumeOffer | null; checking: boolean };

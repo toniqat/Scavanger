@@ -1,5 +1,5 @@
 // Cockpit android bays · the bot launch slot · the raid-entry fade smoke (2026-09-15, hub —
-// docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」). One headless client, **no relay lobby**:
+// src/allies/README.md Decisions). One headless client, **no relay lobby**:
 // standing in the shared ship on the docked lobby `HubSystem.debugSharedShip(lobby)` (a smoke-only hook) makes up:
 //   1. The three cockpit bays — position (the bridge half) · a yaw facing the deck · the one-step `exit` outside the
 //      capsule · the capsule collider (a body cannot walk in) · three `hub_android_<bay>` interactables with the

@@ -3,7 +3,7 @@
  *
  * The question this file answers: *is the `radius` m around `(x, z)` flat bare ground a sandworm can erupt from.*
  * The host's spawn-spot check (`enemies/sandworm/Director.validSpot`) and the thumper placement preview
- * (`gadgets/parts/Preview`) must use **the same judgement**, so it lives here alone (docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」).
+ * (`gadgets/parts/Preview`) must use **the same judgement**, so it lives here alone.
  *
  * ## Rules (all must pass for true)
  * 1. The whole circle is inside the map (the centre + both rings' samples).

@@ -1,4 +1,4 @@
-// No layout read inside a frame (CLAUDE.md §4.2), enforced (2026-09-20, `docs/DECISIONS.md` perf Phase B).
+// No layout read inside a frame (CLAUDE.md §4.2), enforced (2026-09-20, `docs/PERF.md` perf Phase B).
 //
 // Why it exists: the rule 「a HUD widget never reads `clientWidth` / `getBoundingClientRect` on a per-frame path」
 // lived only in comments, and nothing failed when it was broken. `hud/ChatLog` broke it for a year — `measure()`
@@ -20,7 +20,7 @@
 // `getAnimations()` drops an animation that has finished with no `fill`, it does not see one that lives on a
 // descendant, and a same-task remove/add (with or without one `requestAnimationFrame`) coalesces into no change.
 // The one cure left (a twin `@keyframes` per animation, two classes alternating) was declined on 2026-09-20 — the
-// idiom is an accepted limit (`src/ui/README.md` Rules, `docs/DECISIONS.md`). So the bar here is: **unknown sites 0,
+// idiom is an accepted limit (`src/ui/README.md` Rules and Decisions). So the bar here is: **unknown sites 0,
 // and the known-idiom file list never grows.**
 //
 // Checks:

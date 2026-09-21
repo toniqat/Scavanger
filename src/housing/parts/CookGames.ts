@@ -1,5 +1,5 @@
 /**
- * src/housing/parts/CookGames.ts — **the cooking minigame judgement** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」). Pure classes, no DOM, no ctx.
+ * src/housing/parts/CookGames.ts — **the cooking minigame judgement** (2026-09-13). Pure classes, no DOM, no ctx.
  *
  * Modelled exactly on `parts/GymGames.ts`: the screen (`ui/cook/*`) only draws this object, and the smoke test drives
  * it alone, with no screen, to check the judgement (`HousingSystem.cookDebug.makeGame`). It **holds its own time** —

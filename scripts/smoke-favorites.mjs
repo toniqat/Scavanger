@@ -1,4 +1,4 @@
-// Single-player smoke test for **item favourites** (E1, 2026-09-12 — docs/DECISIONS.md 「2026-09-12 — 전투 소모품」):
+// Single-player smoke test for **item favourites** (E1, 2026-09-12):
 // `InventoryRef.isFavorite / toggleFavorite / favoriteDefIds` + `inventory:favoritesChanged`, the right-click menu on
 // **every** item (「빠른 이동 (…)」 + 「즐겨찾기 켜기 / 끄기」, also equipment slot cards and wheel cells), double-click =
 // quick move, the blue corner ribbon (bag · 창고 · equipment slot · TradeGrids · `buildItemTile`; a needed-ammo favourite

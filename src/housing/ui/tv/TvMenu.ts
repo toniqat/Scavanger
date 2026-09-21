@@ -1,5 +1,5 @@
 /**
- * src/housing/ui/tv/TvMenu.ts — **the TV screen** (video games, 2026-09-13 · H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」).
+ * src/housing/ui/tv/TvMenu.ts — **the TV screen** (video games, 2026-09-13 · H2).
  *
  * hub's E on the TV opens it through `ctx.housing.openTvMenu(uid)` (from that day on the TV's E is not an on/off toggle). One screen holds:
  *   • the head — the TV's name · its on-state · a `켜기` / `끄기` button (`toggleFurniture`)

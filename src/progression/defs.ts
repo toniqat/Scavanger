@@ -24,7 +24,7 @@ export const DERIVED_PANEL_KEYS = [
   'skillGainMul', 'useSpeedMul', 'interactSpeedMul', 'gritChance', 'searchSpeedMul', 'healPowerMul',
   /* 2026-09-16 (user's decision): `craftSpeedMul` is left out — the crafting skill does not change speed, so it is a dead row that always reads ×1.0 (`derive.ts`). */
   'shipCallSpeedMul', 'implantCooldownMul', 'durabilityLossMul', 'gatherYieldMul', 'carryReliefFactor',
-  /* 2026-09-13 cooking / research skills (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+  /* 2026-09-13 cooking / research skills */
   'cookScoreBonus', 'researchTimeMul', 'researchRefundChance', 'researchRefundFrac',
   /* 2026-09-16 (user's decision): planet ore veins / the mining skill */
   'miningRarityBonus',

@@ -4,8 +4,8 @@ import type { CommandFactory } from './types';
 import { err } from './types';
 
 /**
- * `library [give <seriesId> [권|all]]` — the library series dev command (2026-09-13, docs/DECISIONS.md
- * 「2026-09-13 — 서재 시리즈 · 비디오게임」). Uses **public refs only**.
+ * `library [give <seriesId> [권|all]]` — the library series dev command (2026-09-13, `src/housing/README.md` Decisions).
+ * Uses **public refs only**.
  *
  *   - `library`                          the `HousingRef.getLibraryEffects()` summary (one line per target + the
  *                                        opened recipes + the revision).

@@ -2,7 +2,7 @@ import type { MapPreviewLayout, MapPreviewSpot } from '@/shared';
 import { MAP_SIZE } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * The intel broker — the planet map preview (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
+ * The intel broker — the planet map preview (2026-09-14).
  *
  * User's decision: **the real layout, blurred onto a grid.** It takes the layout run from the same seed (no mesh)
  * and draws only 「which grid cell holds what」, smeared — an exact coordinate is never readable. So it

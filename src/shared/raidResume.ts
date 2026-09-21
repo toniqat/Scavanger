@@ -1,7 +1,7 @@
 import type { PlanetId } from './planets';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * The title's `이어하기` · `레이드 포기` (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」).
+ * The title's `이어하기` · `레이드 포기` (2026-09-15, `src/game/README.md` Decisions).
  *
  * Starting the game with a raid left over begins **at the title**. The title puts a red `게임 시작` under the
  * highlighted `이어하기`, and that `게임 시작` only opens the abandon popup (switching to another character means

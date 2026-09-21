@@ -1,4 +1,4 @@
-// Single-player smoke test for **video games** (2026-09-13, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」,
+// Single-player smoke test for **video games** (2026-09-13, H2 — src/housing/README.md Decisions,
 // src/housing — parts/VideoGame · Rules.tvSeatFor · parts/GymGames tuning · ui/tv/TvMenu · ui/gym game mode +
 // progression applyGymSession intelligence · perception):
 //   1. The seat rule matrix (pure — the furniture list is swapped for a moment, `videoGameDebug.seatFor`) — no seat ·

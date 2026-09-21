@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * **Determinism · effect** checks for the intel broker's fixed gimmicks (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
+ * **Determinism · effect** checks for the intel broker's fixed gimmicks (2026-09-14, src/meta/README.md Decisions).
  *
  * No browser is needed — a headless Vite SSR-loads the very modules the game uses (`src/world/preview.ts` ·
  * `hazard/parts/Plan.ts`) and builds the layout with them. Three things are checked:

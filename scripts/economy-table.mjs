@@ -45,7 +45,7 @@ export async function buildEconomyTable(server) {
   }
   const contracts = shared.CONTRACT_DEFS.map((c) => [c.id, c.creditsReward]);
   // 2026-09-14: corp quests were dropped — `quest:<id>` is an NPC quest credit reward
-  //   (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」)
+  //   (src/meta/README.md Decisions)
   const quests = shared.NPC_QUEST_DEFS.filter((q) => (q.rewards.credits ?? 0) > 0).map((q) => [q.id, q.rewards.credits]);
 
   const table = {
@@ -75,7 +75,7 @@ export async function buildEconomyTable(server) {
         : { basePrice: d.basePrice, volatility: d.volatility }])),
     },
     /* 2026-09-14: the intel broker — the relay checks the `intel:<planet>:<code>` amount with **the same
-       `intelCost`** (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+       `intelCost`** */
     intel: {
       options: sortedObject(shared.INTEL_OPTION_DEFS.map((d) => [d.id, { baseCost: d.baseCost, maxTier: d.maxTier }])),
       tierMul: shared.INTEL_COST_TABLE.tierMul,

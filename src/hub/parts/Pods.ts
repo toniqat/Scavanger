@@ -13,7 +13,7 @@
  * as the prompt — refusing with `canInteract:false` would take the prompt away, and with it the reason.
  */
 import type { PlanetId } from '@/shared';
-/* 2026-09-14: the intel broker — the bought region · bought gimmicks ride along on launch (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* 2026-09-14: the intel broker — the bought region · bought gimmicks ride along on launch */
 import type { IntelPick } from '@/shared';
 import { resolveIntelEffects } from '@/shared';
 import type { HubLaunchSlot, LaunchWarning, PeerId } from '@/shared';

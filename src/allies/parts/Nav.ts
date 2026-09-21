@@ -180,7 +180,7 @@ function avoidObstacles(sys: AllySystem, a: Ally, dir: THREE.Vector3, dt: number
 
 /**
  * Squad bodies step aside so they **do not overlap**. The 2026-09-16 user's decision, kept on **one line** so the
- * three places that carry it grep as one (here · `data/constants.csv` `ALLY_SEPARATION_M` · `docs/DECISIONS.md`):
+ * three places that carry it grep as one (here · `data/constants.csv` `ALLY_SEPARATION_M` · `src/allies/README.md` Decisions):
  * 「2 m 이내에 겹치지 않도록 피해서 가기, 부득이 겹칠 경우 갈 수 있음」.
  * It is **the same shape of soft push** as `avoidObstacles` — it only adds to the
  * wanted direction and neither stops nor blocks: a hard block leaves two bodies tangled in a doorway forever.

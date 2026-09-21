@@ -1,5 +1,5 @@
 /**
- * src/shared/charBuffs.ts — **character buffs** (2026-09-12, user's decision). The decision: `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」.
+ * src/shared/charBuffs.ts — **character buffs** (2026-09-12, user's decision). The decision: `src/player/README.md` Decisions.
  *
  * Collects what is on one character right now — the meal eaten · the preparation loaded · the gym debuff · environment exposure ·
  * resting · exercising — into **one list**. The list is **for display and sync** (user's decision: a buff itself has no game
@@ -30,12 +30,12 @@ export type CharBuffKind =
   | 'gym_fatigue'   // debuff: `근육통` (sore muscles) · `심폐 피로` (cardio fatigue) (a real-time timer)
   | 'rest'          // resting — sitting in the rocking chair
   | 'exercise'      // exercising — a gym equipment session
-  /* appended (2026-09-12, the 3 consumables — docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) */
+  /* appended (2026-09-12, the 3 consumables) */
   | 'adrenaline'    // an adrenaline shot — timed inside the raid (sim time), item thumbnail + time gauge
   | 'stimulant'     // a stimulant — the same
-  /* appended (2026-09-13, the cooking minigame — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) */
+  /* appended (2026-09-13, the cooking minigame — `src/housing/README.md` Decisions) */
   | 'cooking'       // cooking — the pose in front of the cook bench (`defId` = the meal being made)
-  /* appended (2026-09-13, video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, user's decision 「visible to squadmates as a temporary buff, like the gym」) */
+  /* appended (2026-09-13, video games — `src/housing/README.md` Decisions, user's decision 「visible to squadmates as a temporary buff, like the gym」) */
   | 'gaming';       // gaming — a game session seated in front of the TV (`defId` = the game disc · `stat` · `minigame`)
 
 export const CHAR_BUFF_KINDS: readonly CharBuffKind[] = ['meal', 'prep', 'env_exposed', 'gym_fatigue', 'rest', 'exercise', 'adrenaline', 'stimulant', 'cooking', 'gaming'];

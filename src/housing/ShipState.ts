@@ -86,7 +86,7 @@ const SAVE_DELAY_MS = 350;
  *    those cells were `COCKPIT_BLOCKED_RECTS` until v9, so an old save always has them free. Once saved as v10, nothing is put back.
  */
 /*
- * Cooking material tiers (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」): state **version 11** — only new fields appear:
+ * Cooking material tiers (2026-09-13): state **version 11** — only new fields appear:
  * `grows[].soilDurability` · `sockets`, `cultures[].mediumDurability` · `sockets` · `scaffoldDefId`, `analyses[].family` · `resultDefId` ·
  * `resultQty`, `analysisXp` · `analysisFound`. There is no refund and no migration path — moving an old `soilUsesLeft` ·
  * `mediumUsesLeft` into a durability needs the item table, so the runtime sanitizing does it (`parts/Garden.grows()` ·
@@ -94,7 +94,7 @@ const SAVE_DELAY_MS = 350;
  * that is not written silently disappears). `soilUsesLeft` · `mediumUsesLeft` may now be 0 as well.
  */
 /*
- * Library series · video games (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): **the version was not raised** (still 12). The only new field
+ * Library series · video games (2026-09-13): **the version was not raised** (still 12). The only new field
  * is `tvConsoles` (absent → an empty array); the rest are idempotent rules **every load** runs whatever the version — the same place as `ensureCockpitFurniture`:
  *  · The old item ids in `books` · `media` · `bookDex` · `mediaDex` · `tvConsoles` are swapped by `resolveItemAlias` (`data/item_aliases.csv`) (user's decision: an old
  *    per-skill book · disc · record → volume 1 of the new series). With nothing but swaps, `out.aliasedLibrary` (a save is scheduled — not treated as an edit).
@@ -105,7 +105,7 @@ const SAVE_DELAY_MS = 350;
  * Several smokes (`smoke-housing` · `smoke-library`) read the version number as a literal — the reason a shape-preserving rule does not spend one.
  */
 /*
- * Generator power (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」): state **version 12** carried `powerAlloc` · `disabledFurniture` · `pausedAt`.
+ * Generator power (2026-09-13): state **version 12** carried `powerAlloc` · `disabledFurniture` · `pausedAt`.
  */
 /*
  * Generator = the build condition (2026-09-13, the same day, user's decision 「전력 할당 시스템 제거」): state **version 13**.

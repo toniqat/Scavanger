@@ -8,7 +8,7 @@
 // the coalesced refresh (one drop = one refresh · 0 tier rebuilds), the analyzer (a locked slot = an empty slot,
 // name above · time below, the button at the bottom right, the `분석 도감` tab on the left-hand rail, double-click
 // collects), the culture tank (`.cult-*`, right-click · double-click harvest) and 식탁 (no upgrade).
-// 2026-09-13 (cooking material tiers — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」): harvesting **does not empty**
+// 2026-09-13 (cooking material tiers): harvesting **does not empty**
 // the soil · medium but **wears their durability**, the soil card's durability · bonus · socket lines, the socket
 // dots inside the pot, socket drops (the wrong target = a refusal toast · full = a pick menu → a 1 s hold swap
 // popup, and a click · Enter · cancel never swap), emptying socketed soil = a hold warning, the analyzer's family

@@ -153,7 +153,7 @@ export interface ImplantsRef {
   readonly bashing: boolean;
 }
 
-/* ══ appended: 2026-09-12 — the stabiliser · the ready effect (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) ═══════
+/* ══ appended: 2026-09-12 — the stabiliser · the ready effect ═══════
  * The `안정제` (a consumable, owner: weapons/Healing · A1) calls it. It refills the equipped implant **completely**:
  * charges full · cooldown 0 · the barrier's collapse lockout released + durability full · overcharge energy full →
  * `implant:cooldownChanged` · `barrierChanged` · `energyChanged` are emitted again and `implant:ready {refill: true}`

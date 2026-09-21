@@ -6,7 +6,7 @@ import type { TipRow } from './StationTip';
 import { el } from './dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * **Shared screen parts for soil · medium sockets** (2026-09-13, cooking material tiers — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」).
+ * **Shared screen parts for soil · medium sockets** (2026-09-13, cooking material tiers).
  *
  * Pulled out so the grow station screen (`GrowStation`) and the culture screen (`CultureTank`) show the same rules the same way:
  *  - `socketEffectText` / `socketTipRows` — the socket rows of the hover card. `speed` · `yield` apply only as far as **the soil ·

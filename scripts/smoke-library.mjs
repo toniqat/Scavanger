@@ -1,5 +1,5 @@
 // Single-player smoke test for the 서재 (src/housing + src/items + src/hub).
-// 2026-09-13 — the library series · the game disc stand (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」),
+// 2026-09-13 — the library series · the game disc stand (src/housing/README.md Decisions),
 // rewritten from the Phase 9 / A-3e smoke:
 //   · the series share = SHELF_SERIES_VOLUME_SHARE per volume, a whole set = 100 % (distinct volumes · spread over
 //     several `보관함` · each def counted once)

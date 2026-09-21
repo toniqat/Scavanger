@@ -319,7 +319,7 @@ console.log('열쇠 (key_basement · keycard_lab) — 희귀 드롭');
 
 /* ── humanoid faction corpses (2026-09-13) ────────────────────────────────────────────────
  * data/loot_factions.csv · loot_faction_sites.csv.
- * The spec (docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」): android guns 95/5 · no 방탄복 · no 가방 / rogue
+ * The spec: android guns 95/5 · no 방탄복 · no 가방 / rogue
  * 85/14/1 · 방탄복 5 % · 가방 3 % at most 고급 / raider 50/45/4.5/0.5 · 방탄복 5 % (90/9.5/0.5) · 가방 3 % at
  * most 고급 · one heal roll. The planet maximum grade cap is unchanged.
  * Here it prints the **measured table** per planet and checks only what must not be broken — the cap, the
@@ -364,7 +364,7 @@ console.log('인간형 팩션 시체 (rollCorpseOn) — 총 등급 I/II/III/IV/V
 
 /* ── library media · video games (2026-09-13) ──────────────────────────────────────────
  * Planet-fixed drops · volume weights · record / game disc / console rates.
- * User's decision (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): all planet-fixed. Records · game
+ * User's decision: all planet-fixed. Records · game
  * discs (· consoles) only on planets of threat 2 and above, and the appearance rates are **percentages to two
  * decimals**. Book volume weights come from LIBRARY_VOLUME_DROP_WEIGHT (I common → V very rare).
  *   · every library media · game item a crate rolled belongs to that planet (lootPlanetsOf)

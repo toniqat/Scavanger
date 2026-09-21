@@ -416,7 +416,7 @@ export const STATS_CONFIRM_TEXT = '버튼을 길게 눌러 확정';
 export const blockedBy = (title: string): string => `튜토리얼 진행 중 — 먼저 '${title}'`;
 
 /* ════════════════════════════════════════════════════════════════════════════
- * The right-side control guide (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」)
+ * The right-side control guide (2026-09-14)
  *
  * A control that was learnt **stacks up one row at a time and never disappears.** The bottom-right key guide
  * (`ui/hud/KeyGuide`, `.key-guide`) is "the keys of the screen open right now" and changes every time; this one

@@ -544,7 +544,7 @@ try {
   ok(tips.carry.shown && JSON.stringify(tips.carry.derived) === '["carryReliefFactor"]', '운반 tooltip links 운반 부담 경감', JSON.stringify(tips.carry));
   ok(tips.gun.subHidden === false && JSON.stringify(tips.gun.heads) === '["현재 효과","관련 능력치 · 성장 속도"]', 'skill tooltip keeps its sub + section titles (empty 서재 section omitted)', JSON.stringify({ heads: tips.gun.heads, sub: tips.gun.subHidden }));
 
-  /* ── 2026-09-13 library · 요리/연구 skills (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ──── */
+  /* ── 2026-09-13 library · 요리/연구 skills ──── */
   console.log('캐릭터 시트 (2026-09-13): 숙련 줄 · 새 파생 줄 · 서재 시설 툴팁 · 서재 파생 접기 · 값 글자 맞춤');
   const hoverTip = (sel) => P((s) => {
     const n = document.querySelector(s); if (!n) return null;
@@ -1197,7 +1197,7 @@ try {
     'real clock: endurance debuff runs until ≈ now + 24 h', JSON.stringify({ r: e4.r, nowBefore }));
   const liveUntil = e4.r?.fatigueUntil ?? 0;
 
-  // 2026-09-13 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): the video games train intelligence · perception through the same applyGymSession rules
+  // 2026-09-13 (src/housing/README.md Decisions): the video games train intelligence · perception through the same applyGymSession rules
   const i1 = await gym('intelligence', 1, null);
   ok(i1.r && i1.r.stat === 'intelligence' && i1.r.xp === 560 && i1.r.wasFatigued === false && i1.r.trainedAfter === 0 && near(i1.sp, 560 / NEED, 1e-6)
     && i1.r.fatigueUntil >= nowBefore + 24 * H - 5000 && i1.fat === i1.r.fatigueUntil && i1.fLast?.id === 'intelligence',
@@ -1390,7 +1390,7 @@ try {
   ok(cf.both.str === 0 && cf.both.end === 0 && cf.both.map === '{}' && JSON.stringify(cf.both.stored) === '{}' && cf.both.fev.length === 1 && cf.both.fev[0].id === 'endurance' && cf.again === 0,
     'clearGymFatigue() clears the rest (one event per cleared stat, none when nothing is left)', JSON.stringify({ both: cf.both, again: cf.again }));
 
-  /* ── meal quality (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ──────────────────────────────────── */
+  /* ── meal quality (2026-09-13) ──────────────────────────────────── */
   console.log('요리 품질 (2026-09-13): 보너스 수치 · 교체 규칙 · 출격/종료 · 새로고침 · migrate · 서버 문서');
   const QB = [];
   for (const m of readFileSync(new URL('../data/tables.csv', import.meta.url), 'utf8').matchAll(/^MEAL_QUALITY_BONUS,(\d+),([\d.]+)/gm)) QB[Number(m[1])] = Number(m[2]);

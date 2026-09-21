@@ -11,7 +11,7 @@ const FADE_IN_S = 0.18;
 const SPIN_DEG_PER_S = 220;
 
 /**
- * **The raid-entry loading gauge** (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」).
+ * **The raid-entry loading gauge** (2026-09-15, `src/game/README.md` Decisions).
  *
  * User's decision: when the launch countdown ends the screen fades to black (`raid:loadBegin` → hub raises `ui:screenFade`),
  * and **a radial gauge turns at the bottom right over that black**. In multiplayer the gauge's fill is the summed progress

@@ -8,7 +8,7 @@
  * station speed are **fixed into `readyAt` the moment it is planted** — with one single exception, **an upgrade**: on the upgrade
  * a growing crop's timeline is compressed by the speed ratio (`rescaleGrowsForUpgrade`).
  *
- * **2026-09-13 (cooking material tiers — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」)**: poured soil carries **durability** (`soilDurability`) and **sockets** (`sockets`).
+ * **2026-09-13 (cooking material tiers)**: poured soil carries **durability** (`soilDurability`) and **sockets** (`sockets`).
  * It wears `SOIL_WEAR_PER_HARVEST` per harvest (a `wear` socket cuts that) and **the slot does not empty even at 0** — instead the match bonus and the sockets'
  * `speed` · `yield` shrink by the `durability / maximum` ratio and are gone at 0. `soilUsesLeft` stays because it is a contract field, but its meaning
  * changed to 「harvests left until durability 0」 (`Rules.harvestsUntilWorn`). An old save's slot moves its uses-left ratio into durability on the first read.

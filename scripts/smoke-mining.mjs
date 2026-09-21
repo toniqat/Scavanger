@@ -1,4 +1,4 @@
-// Single-player smoke test for **crypto mining — the housing rules · the wallet · the exchange · the data** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, agent ③).
+// Single-player smoke test for **crypto mining — the housing rules · the wallet · the exchange · the data** (2026-09-13, agent ③).
 // The screens (housing/ui/mining) are not this smoke's job — only the `ctx.housing` API · `state` · the save ·
 // `ctx.meta.creditsTx` · the data are checked here:
 // **2026-09-16 (user's decision — the compute core dropped)**: what mounts in a cluster is a **processor**

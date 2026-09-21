@@ -6,7 +6,7 @@
  * 2026-09-15 2nd pass, user's decision) and **slot numbers do not shift on an upgrade** — a running analysis must never
  * move to another slot.
  *
- * **2026-09-13 (cooking material tiers — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」)**: a sample is analysed by its **family**
+ * **2026-09-13 (cooking material tiers)**: a sample is analysed by its **family**
  * (`SampleDef.family` — cell · mineral · DNA). On insertion ① that family's **analysis level** (`ShipState.analysisXp` →
  * `analysisLevelForXp`) fixes the time (`Rules.analysisDurationMs`), ② the result table (`ANALYSIS_RESULTS`) is **rolled now**
  * at that level into the slot (`resultDefId` · `resultQty` — a failed collect never re-rolls; an empty table falls back to the
@@ -208,7 +208,7 @@ function speedupOf(sys: HousingSystem, def: ItemDef | null): number {
   return analysisSpeedup(getAnalysisDexByRarity(sys)[def.rarity] ?? 0, sampleLevelOf(sys, def.id));
 }
 
-/* ── 2026-09-13 (H3): the `연구` research skill — a shorter analysis time (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
+/* ── 2026-09-13 (H3): the `연구` research skill — a shorter analysis time ── */
 /** The research skill's analysis time multiplier (`derived.researchTimeMul`, 1 = unchanged). 1 with no progression, or a bad value. */
 export function researchTimeMul(sys: HousingSystem): number {
   const v = sys.ctx?.progression?.derived?.researchTimeMul;   // ctx may not exist yet when the analysis screen calls this from its constructor

@@ -25,7 +25,7 @@ interface Slot {
 }
 
 /**
- * The lock-on cutscene (2026-09-14, the intel broker — `docs/DECISIONS.md` 「2026-09-14 — 정보상」): the hologram
+ * The lock-on cutscene (2026-09-14, the intel broker): the hologram
  * spins and then **locks on to one coordinate**. All of it is procedural geometry and **it adds not one light**
  * (CLAUDE.md 「Never change the point-light count at runtime」 — this is its own scene, but it keeps the rule all the
  * same: the only thing turned on and off is opacity).

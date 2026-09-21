@@ -2,7 +2,7 @@
  * src/enemies/SiteGroups.ts — **site occupation** (2026-09-13, per-planet enemy factions).
  *
  * The question this file answers: *when a raid starts, which humanoids stand at which site, and in how many groups.*
- * Decision: docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」. It replaces the old crate guards (`placeRogueGuards`).
+ * It replaces the old crate guards (`placeRogueGuards`).
  *
  * ## Rules (planet threat = `planetThreat`, no planet = 1)
  *  - threat 1 — per lab · outpost, **androids** in 1 indoor + 1–2 outdoor groups (1–2 per group). Platforms · ruins are empty.

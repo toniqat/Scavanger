@@ -21,7 +21,7 @@ import { groupDigits } from './numberFormat';
  * The objective panel · the spotlight · the floor guide line are all drawn by `tutorial/` itself — no other folder knows them.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/* ── appended (2026-09-14, the tutorial rework — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ────────────────────────────
+/* ── appended (2026-09-14, the tutorial rework — `src/tutorial/README.md` Decisions) ────────────────────────────
  *
  * The guide split into **three tracks**, each skipped on its own (user's decision).
  *

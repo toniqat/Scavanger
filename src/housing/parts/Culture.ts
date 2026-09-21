@@ -11,7 +11,7 @@
  *
  * The pure judgements (culture time · progress · seconds left) are all in `../Rules.ts`; this file changes state.
  *
- * **2026-09-13 (cooking material tiers — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」)**: a medium follows **the same durability**
+ * **2026-09-13 (cooking material tiers)**: a medium follows **the same durability**
  * **rule as soil** — it wears `MEDIUM_WEAR_PER_HARVEST` per harvest, **the slot does not empty even at 0**, and the medium's speed bonus · the sockets' `speed` · `yield` apply by the durability ratio.
  * `mediumUsesLeft` is 「harvests left until 0」. A slot may hold a **culture scaffold**: medium → (scaffold) → strain. With a scaffold
  * in it the strain's `scaffoldOutputDefId` (meat of that species) is made over `scaffoldHours` and **the scaffold is consumed on**

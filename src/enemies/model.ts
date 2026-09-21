@@ -54,7 +54,7 @@ export const SHOCK_SPARK_TIME = 0.6;
 export const STATUS_REQUEST_INTERVAL = 0.25;
 /** Host clamps a client's requested status duration. */
 export const MAX_STATUS_DURATION = 10;
-/* ── appended 2026-09-11 (E-8 — docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」): the caps before a host trusts a request ──
+/* ── appended 2026-09-11 (E-8): the caps before a host trusts a request ──
  * The four csv numbers are named in `shared/constants.ts` like every other guard constant (right under
  * `HIT_KNOCKBACK_RANGE_SLACK` · `CRATE_OPEN_RANGE_SLACK`). All that happens here is folding them into the two reaches
  * the comparisons actually use — `parts/Damage.ts` is every consumer.
@@ -306,7 +306,7 @@ export function emitEnemyStep(e: Enemy, host: StepHost, gainMul = 1, pitchMul = 
   const now = ctx.time;
   if (now - e.stepAt < ENEMY_STEP_MIN_GAP) return false;
   const p = e.position;
-  // 2026-09-20 (`docs/DECISIONS.md` perf Phase C · B5): the ear is `EnemyHost.camPos`, read once at the top of
+  // 2026-09-20 (`docs/PERF.md` perf Phase C · B5): the ear is `EnemyHost.camPos`, read once at the top of
   // `EnemySystem.update`. This used to be a `getWorldPosition` per call — the camera's parent chain walked several
   // times a frame only for the result to be thrown away by the gate on the next line.
   // 2026-09-16: a bug is gated by its own footstep range — `stepAt` has to mean 「took a step within earshot」 for the crowd count to hold.

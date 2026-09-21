@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * Intel broker table loader (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
+ * Intel broker table loader (2026-09-14, `src/meta/README.md` Decisions).
  *
  * `shared/intel.ts` is **shared with the relay**, so it has no runtime import at all (not even the csv loader).
  * The csv-reading side was therefore split off into this file — **the same split** as `shared/credits.ts`

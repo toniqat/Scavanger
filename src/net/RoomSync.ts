@@ -37,7 +37,7 @@ function sameLine(a: RoomLine, b: RoomLine): boolean {
 }
 
 /**
- * `ctx.net.rooms` (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」): the client mirror of
+ * `ctx.net.rooms` (2026-09-14): the client mirror of
  * the relay's **group rooms**. Same shape as
  * `SocialSync`: NetSystem injects `bus` / `send` / `serverNow` / `me` (my card, from the social mirror) / `isBlocked` and feeds it
  * the socket frames:

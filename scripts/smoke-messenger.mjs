@@ -1,4 +1,4 @@
-// 2026-09-14 messenger UI smoke (src/ui/menus/messenger — docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+// 2026-09-14 messenger UI smoke (src/ui/menus/messenger).
 //
 // The P panel that replaced the 커뮤니티 panel: thumbnail unread badge, the three tabs (대화 · 친구 · 퀘스트), the 대화 tab's
 // mixed list (NPC · 개인 대화 · 단체방, recency, filters, room invites), an NPC conversation with quest cards (수락 / 생각해보지),

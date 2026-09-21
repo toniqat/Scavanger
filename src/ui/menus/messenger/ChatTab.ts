@@ -83,7 +83,7 @@ function splitKey(key: string | null): { kind: ConvKind; id: string } | null {
 }
 
 /**
- * The messenger's `대화` tab (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * The messenger's `대화` tab (2026-09-14).
  *
  * Left list = NPC contacts (`ctx.meta.npc`) · private chat partners (friends + `whisperPeers`) · group rooms (`ctx.net.rooms`) mixed
  * into one row list **ordered by the most recent last message** (the filter chips narrow it). Above them the received room
@@ -725,7 +725,7 @@ export class ChatTab {
         : pending.from === 'npc' ? pending.text : '';
       this.scheduleTyping(id, Math.min(TYPE_MAX_S, Math.max(TYPE_MIN_S, text.length * TYPE_S_PER_CHAR)));
     }
-    /* 2026-09-14 (the tutorial rework — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): the first contact's **line choices**.
+    /* 2026-09-14 (the tutorial rework): the first contact's **line choices**.
      * While the answer is still open a row of my-answer buttons stands under the bubbles — the same grammar (`ms-btn`)
      * as the quest card's [수락]. Choosing appends one `choice` event, two lines (my answer + the NPC's reply) enter the
      * conversation and `getPendingChoices` becomes an empty array, so the row disappears. Closing and leaving before

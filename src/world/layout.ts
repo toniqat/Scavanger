@@ -4,7 +4,7 @@ import {
   EXTRACTION_PADS_SPORES_MIN, MAP_SIZE, RAIL_CHANCE, Random, SPORE_SPAWN_CENTER_M, type RailKind, type StructureKind,
   /* 2026-09-13: the rover */
   ROVER_CHANCE, ROVER_ROUTE_CLEARANCE_M, ROVER_STATION_PAD_BLEND,
-  /* 2026-09-14: the intel broker — the resolved form of the bought gimmicks (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+  /* 2026-09-14: the intel broker — the resolved form of the bought gimmicks */
   type IntelEffects, numberList,
 } from '@/shared';
 import { RAIL_CLEARANCE_M, STRUCTURE_ROWS, structureRow } from './structures/model';

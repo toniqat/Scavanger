@@ -1,6 +1,5 @@
 /*
- * src/ui/styles/buffs.css — the character buff thumbnail strip (`hud/BuffStrip`, 2026-09-12,
- * `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」).
+ * src/ui/styles/buffs.css — the character buff thumbnail strip (`hud/BuffStrip`, 2026-09-12).
  *
  *   `.bfs(.has-items .is-mini)`   one row of thumbnails. Empty, it is `display:none` and takes up no room.
  *     `.bfs-cell(.is-pending .is-debuff .is-timed)[data-key][data-kind]`   a square thumbnail (`--bc` colour ·

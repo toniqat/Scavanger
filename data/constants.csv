@@ -808,7 +808,7 @@ SOLO_CLOCK_BACK_TOLERANCE_MS,120000,"E-5 솔로 레이드 복귀: 저장 시각�
 WHISPER_HISTORY_PER_PEER,50,"B-4 캐릭터 슬롯마다 대화 상대 한 명당 localStorage 에 남기는 귓속말 줄 수."
 WHISPER_HISTORY_PEERS,20,"B-4 대화 기록을 남기는 상대 수 (오래된 상대부터 지운다)."
 
-# ── 2026-09-11: 신뢰 경로의 남은 틈 (docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」 — E-8) ──
+# ── 2026-09-11: 신뢰 경로의 남은 틈 (E-8, src/net/README.md Decisions) ──
 EXPLODE_REQUEST_RANGE_SLACK,40,"E-8 호스트가 받는 explode 요청(수류탄 · 바주카 · AT · 가젯 · 함선 호출 낙하): 보낸 사람 스냅샷 위치와 폭심의 수평 거리가 STRAT_MAX_CALL_RANGE + 이 값(m) 안이어야 한다. 기준을 함선 호출 사거리로 잡는 이유는 폭발원 중 가장 먼 것이 호출 낙하물이기 때문이다 — 호출은 150 m 안에서만 승인되지만 낙하까지 eta 만큼 흐르는 동안 호출자가 더 멀어질 수 있고, 그 몫이 이 값이다 (궤도 폭격 eta 4.5 s × 질주 7 m/s ≈ 32). 수류탄 · 바주카 · AT 는 전부 이보다 훨씬 짧아 같은 상한에 덮인다."
 STATUS_REQUEST_RANGE_SLACK,8,"E-8 호스트가 받는 상태이상 요청(HitRequest.st): 보낸 사람 스냅샷 위치와 적의 수평 거리가 max(FLAME_RANGE, SHOCK_RANGE) + 이 값(m) 안이어야 한다. 상태이상을 거는 원본은 화염방사기 · 쇼크건 둘뿐이고 둘 다 짧은 사거리다 — 이 값은 플레이어 · 적 스냅샷 지연(질주 7 m/s × 약 0.3 s 양쪽)과 원뿔 가장자리 몫."
 STATUS_REQUEST_RATE_MAX,60,"E-8 호스트가 받는 상태이상 요청의 보낸 사람별 초당 건수 상한 (토큰 버킷). 화염방사기 · 쇼크건은 적마다 STATUS_REQUEST_INTERVAL(0.25 s) 스로틀이 걸려 있으므로 12 대상을 한꺼번에 훑어도 48/s 다."
@@ -843,7 +843,7 @@ MEAL_SERVE_RANGE,12,"(2026-09-16 은퇴 — 접시 모델에서는 읽는 곳이
 # ── 2026-09-12: 하이브리드 사격 판정 (owner: weapons/parts/AimLine) ──
 WEAPON_MUZZLE_BLOCK_RANGE,3,"총구 앞 이 거리(m) 안에서 총구 선이 벽 · 창틀 · 엄폐물에 걸리면 총알은 거기에 맞는다 (그 자리에 빨간 원 · 크로스헤어 경고색). 그보다 먼 장애물은 크로스헤어 선이 판정한다 — 3인칭 카메라가 어깨 뒤에 있어 총구 선이 크로스헤어 옆을 지나기 때문이다. 늘리면 사실적이지만 중거리 엄폐물 가장자리에서 원이 자주 뜨고, 줄이면 크로스헤어대로 나가는 경우가 늘어난다 (사용자 결정 3 m)."
 
-# ══ 2026-09-12: 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스 (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) ══
+# ══ 2026-09-12: 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스 ══
 # 병렬 에이전트마다 자기 블록 안에만 줄을 더한다 (기존 값 변경은 설계안 §9 에 적힌 줄만).
 # ── [A1] 소모품 3종 ──
 BOOST_ADRENALINE_DURATION_S,15,"아드레날린 주사의 효과 시간(초). 쓰는 순간 스태미나를 가득 채우고, 이 시간 동안 **지속 소모**(질주 · 사다리 빠르게 오르기 · 가방 부양)만 0 이다 — 점프 · 구르기 · 근접 · 실드 배쉬 같은 한 번 소모는 그대로 든다 (사용자 결정). 교전 한 번을 뛰어서 빠져나갈 만큼이다."
@@ -927,7 +927,7 @@ SHELL_INCOMING_FLOOR,0.35,"낙하음의 최소 비율 (RANGED_SOUNDS floor) — 
 SHELL_INCOMING_VOLUME,0.9,"낙하음의 밑 크기 — 거리 곡선을 먹기 전 값."
 SHELL_INCOMING_VOICE_CAP,3,"낙하음 동시 보이스 상한 — 포병 여럿이 쏘면 가장 가까운 착탄점 셋만 들린다."
 SHELL_LAUNCH_RANGE_M,150,"포병 발사의 둔한 쿵(shell_launch)이 들리는 거리(m). 표준 교전 거리 ARTILLERY_RANGE 63 m 의 두 배 남짓 — 멀리서 쏘는 것도 들린다."
-SANDWORM_WINDOW_START_S,150,"(2026-09-15 은퇴 — 읽는 코드 없음) 옛 시각 창의 시작(초). 누적 확률제로 바뀌어 시각 창이 없다 (docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」). 줄은 shared/constants 의 export 가 남아 있어 둔다."
+SANDWORM_WINDOW_START_S,150,"(2026-09-15 은퇴 — 읽는 코드 없음) 옛 시각 창의 시작(초). 누적 확률제로 바뀌어 시각 창이 없다 (src/enemies/README.md Decisions). 줄은 shared/constants 의 export 가 남아 있어 둔다."
 SANDWORM_WINDOW_END_S,420,"(2026-09-15 은퇴 — 읽는 코드 없음) 옛 시각 창의 끝(초)."
 SANDWORM_CHECK_S,2,"호스트가 땅굴벌레 등장 조건을 보고 누적 확률을 굴리는 간격(초). 레이드 내내 돈다 (시각 창 없음, 최대 1회)."
 SANDWORM_GROUP_RADIUS,40,"「같이 달린다」 로 보는 반경(m, 사용자 결정 40). 자격 인원(조금 무거움 이상 + 달리기)이 서로 이 안에 SANDWORM_MIN_MEMBERS 이상 모여야 자연 등장 굴림이 있다. 무리 한가운데 발밑이 분출 자리 후보다."
@@ -952,7 +952,7 @@ SANDWORM_ALIVE_CAP,48,"땅굴벌레가 버그를 뱉을 때의 전체 적 생존
 SANDWORM_ACID_RANGE,48,"독극물 단계: 이 거리(m) 안의 가장 가까운 살아 있는 플레이어에게 뱉는다."
 SANDWORM_ACID_INTERVAL_S,2.4,"독극물 한 번(연발)의 간격(초)."
 SANDWORM_ACID_VOLLEY,3,"독극물 한 번에 뱉는 산성 덩어리 수 (첫 발은 표적 예측 조준, 나머지는 주변에 흩뿌린다). 한 덩어리의 피해는 스퓨어 산성(SPEWER_SPIT)과 같다."
-# ── 2026-09-15 땅굴벌레 등장 판정 개편 — 누적 확률제 · 진동 장치 소환 · 위협 1 어린 개체 (docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」, owner: enemies/sandworm · world/BurrowGround) ──
+# ── 2026-09-15 땅굴벌레 등장 판정 개편 — 누적 확률제 · 진동 장치 소환 · 위협 1 어린 개체 (src/enemies/README.md Decisions, owner: enemies/sandworm · world/BurrowGround) ──
 # 검사 한 번의 확률 p = SANDWORM_BASE_CHANCE_BY_THREAT[threat] × min(1, Σ 인원 가중치) × 거리 계수 + 유인 가산 (표는 src/enemies/sandworm/Director.ts 머리 주석).
 SANDWORM_MIN_MEMBERS,2,"자연 등장에 필요한 자격 인원(조금 무거움 이상 + 달리기, 서로 SANDWORM_GROUP_RADIUS 안) 최소 수. 혼자(안드로이드 없는 솔로)는 0 % (사용자 결정). 안드로이드 분대원도 인원이다."
 SANDWORM_P_PER_LIGHT,0.12,"자격 인원 한 명의 가중치 — 조금 무거움(light)."
@@ -971,7 +971,7 @@ BURROW_GROUND_MAX_SLOPE,0.35,"표본 어느 하나의 지형 경사(Terrain.getS
 BURROW_GROUND_NEST_CLEAR_M,18,"둥지 구멍에서 이 거리(m) 안은 파고 나올 수 없다 (작은 둔덕이 구멍에서 최대 14.5 m + 3.6 m 까지 선다)."
 # ── end 2026-09-15 땅굴벌레 등장 판정 개편 ──
 # ── end 2026-09-13 굴착 스폰 · 땅굴벌레 ──
-# ── 2026-09-13 요리 미니게임 (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, 로더 = src/shared/cooking.ts) ──
+# ── 2026-09-13 요리 미니게임 (로더 = src/shared/cooking.ts) ──
 COOK_SCORE_PERFECT,1,"조리 판정 한 번이 단계 점수(판정들의 평균)에 넣는 값 — 완벽."
 COOK_SCORE_GOOD,0.6,"조리 판정 한 번이 넣는 값 — 좋음. 실패는 0."
 COOK_LEAD_BEATS,3,"박자 게임(썰기 · 볶기)의 예비 박자 수 — 첫 표식이 판정선까지 걸어오는 동안의 입력은 무시한다."
@@ -1097,7 +1097,7 @@ ROVER_AGGRO_GROUP_RADIUS,16,"차량에 맞은 적의 같은 팩션 무리 반경
 ROVER_NOTICE_STOPPED_M,14,"정류장에 **서 있는** 차량을 적이 알아채는 거리(m, 차체 가장자리까지 · 사선 필요). 달리는 차량은 평소 시야 · 청각 반경으로 알아챈다."
 # ── end [R4] ──
 # ── end 2026-09-13 탐사 차량 ──
-# ── 2026-09-13 서재 시리즈 · 비디오게임 · 요리/연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ──
+# ── 2026-09-13 서재 시리즈 · 비디오게임 · 요리/연구 숙련 (src/housing/README.md Decisions) ──
 SHELF_SERIES_VOLUME_SHARE,0.1,"서재 시리즈 몫 — 전권이 아니면 꽂힌 서로 다른 권마다 원래(전권) 보너스의 이만큼, 전권이면 100 % (사용자 결정: V 시리즈 4권 = 40 %)."
 GAME_DISC_SLOTS_PER_STAND,12,"게임 디스크 전시대 한 대의 칸 수 (2026-09-14: 6 → 12)."
 COOK_SKILL_SCORE_AT_MAX,0.15,"요리 숙련 최대치에서 조리 단계 점수에 더하는 값 (직접 하기 · 자동 모두, 단계 점수는 1 로 자른다)."
@@ -1110,7 +1110,7 @@ RESEARCH_XP_ANALYSIS,1.2,"분석 한 칸을 회수할 때 연구 숙련 경험�
 RESEARCH_XP_CRAFT,0.5,"추출기 · 조합대 · 3D 프린터 제작 1회(수량 1)당 연구 숙련 경험치 (CRAFT_XP 와 같은 값)."
 # ── end 2026-09-13 서재 시리즈 ──
 
-# ── 2026-09-14 튜토리얼 개편 · 낙하 피해 (docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) ──
+# ── 2026-09-14 튜토리얼 개편 · 낙하 피해 (src/tutorial/README.md Decisions) ──
 # 낙하 피해는 **전역**이다 (사용자 결정) — 실드 → 체력 순으로 평소 피해 경로를 그대로 탄다.
 FALL_DAMAGE_SAFE_M,5,"이 높이까지 떨어져도 피해가 없다 (m). 함선 데크 · 2층 바닥 · 낮은 바위에서 뛰어내리는 평소 동선은 전부 이 안이다."
 FALL_DAMAGE_PER_M,9,"안전 높이를 넘은 1 m 당 피해. 12 m 낙하 = (12-5)x9 = 63 — 실드 없는 맨몸이면 위험하고 방탄복 III(60)면 견딘다."

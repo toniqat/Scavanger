@@ -6,7 +6,7 @@ import { CAMERA_WALL_MARGIN, segmentHits, type FootBox, type StagedPiece } from 
 import { BEAKER_IDLE_LEVEL, COOK_TOOLS, cookToolTarget, liquidMat, poseCookKnife, restCookRig, type CookRig, type CookTool } from './FurnitureKitchen';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * The cooking staging (2026-09-13, the cooking minigame — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」). Modelled on `GymStaging`.
+ * The cooking staging (2026-09-13, the cooking minigame). Modelled on `GymStaging`.
  *
  *   housing:cookSession {active:true}  → the floor anchor in front of that cook bench · a yaw facing the bench · a fixed over-the-shoulder camera
  *                                         → setFurniturePose({kind:'cook'})

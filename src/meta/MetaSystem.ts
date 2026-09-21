@@ -21,11 +21,10 @@ import * as Contract from './parts/Contracts';
 import * as Credits from './parts/Credits';
 import * as Desk from './parts/ImplantDesk';
 import * as Cmd from './parts/Console';
-/* 2026-09-14: the messenger's NPC quests — `ctx.meta.npc`
-   (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) */
+/* 2026-09-14: the messenger's NPC quests — `ctx.meta.npc` */
 import type { NpcQuestRef } from '@/shared';
 import { NpcQuests } from './parts/NpcQuests';
-/* 2026-09-14: the intel broker — `ctx.meta.intel` (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* 2026-09-14: the intel broker — `ctx.meta.intel` */
 import type { IntelRef } from '@/shared';
 import { Intel } from './parts/Intel';
 
@@ -335,7 +334,7 @@ export class MetaSystem implements GameSystem, MetaRef {
 
   addRep(corp: CorpId, delta: number, reason: string): void { return Credits.addRep(this, corp, delta, reason); }
 
-  /* ── MetaRef: per-NPC trust (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」) ──
+  /* ── MetaRef: per-NPC trust (2026-09-14) ──
    * **Separate** from corp reputation (`getRep`) and on the same `REP_TABLE` (0–5). Saved in `MetaSave.npc.trust`. */
   npcTrust(npcId: string): number { return this.npcQuests.trustOf(npcId); }
   npcTrustLevel(npcId: string): number { return this.npcQuests.trustLevelOf(npcId); }

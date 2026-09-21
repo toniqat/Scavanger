@@ -106,7 +106,7 @@ export interface DronesRef {
   clear(): void;
 }
 
-/* ══ appended (2026-09-12): the ground-drone scan — docs/DECISIONS.md 「2026-09-12 — 전투 소모품」 ══════════════════
+/* ══ appended (2026-09-12): the ground-drone scan ══════════════════
  * While controlling a ground drone, put the lens-centre ray on a crate · container · corpse · supply box and hold the
  * left button for `DRONE_SCAN_HOLD_S`, and the **best rarity** inside stays as a world label over the target for the rest
  * of the raid (shared with the squad + one chat line). An air drone cannot do it.

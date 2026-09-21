@@ -1,5 +1,5 @@
 /*
- * src/shared/npc.ts — the messenger NPC · NPC quest contract (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * src/shared/npc.ts — the messenger NPC · NPC quest contract (2026-09-14, `src/meta/README.md` Decisions).
  *
  * Corp quests (`data/quests.csv`) are gone; a quest is now given **by an NPC through the messenger**. Corp contracts are unchanged.
  * The source of the numbers and the lines is `data/npcs.csv` · `data/npc_quests.csv` · `data/npc_objectives.csv`, and this file holds only
@@ -123,7 +123,7 @@ export interface NpcDef {
   /** File row order. */
   order: number;
 
-  /* ── appended (2026-09-14, the tutorial rework — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ── */
+  /* ── appended (2026-09-14, the tutorial rework — `src/tutorial/README.md` Decisions) ── */
   /**
    * **Dialogue choices** — the answer buttons that come up after the first-contact bubbles are done (`introChoices`
    * in `data/npcs.csv`, `|` separated). Empty = no choices (every NPC until now). Picking one leaves a single

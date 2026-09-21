@@ -1,5 +1,5 @@
 /**
- * src/inventory/parts/AutoQuick.ts — **consumables auto-seated on a quick slot** (2026-09-14, user's decision · `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
+ * src/inventory/parts/AutoQuick.ts — **consumables auto-seated on a quick slot** (2026-09-14, user's decision).
  *
  * One question answered: *does this stack that just reached my hands sit on a free wheel slot.*
  *

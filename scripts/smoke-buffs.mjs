@@ -1,4 +1,4 @@
-// Character-buff HUD smoke (src/ui, 2026-09-12 — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」). No relay: the relay socket is parked.
+// Character-buff HUD smoke (src/ui, 2026-09-12 — src/player/README.md Decisions). No relay: the relay socket is parked.
 //   ship   the PC vitals block (name · shield · hp) is in the **social** layer and visible in the hub, hp full, the
 //          raid-only stamina bar stays in the (hidden) gameplay layer, the chat / squad column sits above the vitals;
 //          the three retired badges (meal / env / gym fatigue) are gone from the DOM and from HudSystem.

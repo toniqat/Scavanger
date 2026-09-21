@@ -1,5 +1,4 @@
-/* ══ 2026-09-14: the messenger (menus/messenger — replaces the old community panel; docs/DECISIONS.md
-   「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) ═══════════════════════════════
+/* ══ 2026-09-14: the messenger (menus/messenger — replaces the old community panel) ═══════════════════════════════
    Imported by `menus/messenger/Messenger`. Prefix `ms-` (checked free). The panel shell (`.community-panel` · `.cp-frame` ·
    `.cp-head` · the thumbnail `.community`) keeps its base.css rules; this file widens the frame and draws the three tabs.
    Colours come from the base.css tokens; scrollbars inherit the dark `--sb-*` rule on `#ui-root`. */
@@ -199,7 +198,7 @@
 .ms-msg.cont.out .ms-bubble { border-top-right-radius: 12px; }
 .ms-bubble.sys { background: none; border: none; color: var(--c-text-faint); font-size: 11px; }
 .ms-state { font-size: 9px; letter-spacing: 0.04em; color: var(--c-text-faint); }
-/* The line choices (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) — the row of **my reply**
+/* The line choices (2026-09-14) — the row of **my reply**
    buttons standing under a first-contact bubble. They are **the same button** (`.ms-btn`) as the quest card's
    [`수락`] [`생각해보지`] and hug the right edge the way my own bubbles do.
    A reply can run longer than one row, so only `.ms-btn`'s fixed height and nowrap are released. */
@@ -240,7 +239,7 @@
 /* 2026-09-14 3rd pass: the hint under an NPC conversation (`NPC 에게는 퀘스트 카드로 답합니다`) is gone, and with
    it the border rule for that place */
 
-/* ── An NPC's personal trust (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」 — `menus/messenger/Trust`) ──
+/* ── An NPC's personal trust (2026-09-14 — `menus/messenger/Trust`) ──
    **The same family** as the corporation screen's reputation gauge (`.corp-rep` in `meta.css`): `Lv.n` + a one-row
    gauge + the running / next numbers. Only the colour differs — instead of the corporation colour (`--cc`) it
    takes that NPC's colour as `--qc`, which `.ms-bar i` then uses unchanged.

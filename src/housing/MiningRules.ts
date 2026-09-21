@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * src/housing/MiningRules.ts — **the pure rules of crypto mining** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, user's decision).
+ * src/housing/MiningRules.ts — **the pure rules of crypto mining** (2026-09-13, user's decision).
  *
  * No ctx · no DOM. Used by `parts/Mining.ts` (runtime) and `ShipState.sanitize` (save sanitizing) alike — `Rules.ts` holds
  * the placement · facility · station rules, so the mining rules live in their own file rather than growing it. The cycle · progress formulas themselves

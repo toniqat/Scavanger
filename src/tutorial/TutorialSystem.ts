@@ -766,7 +766,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     return true;
   }
 
-  /* ── tracks (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」; a 4th, `raid2`, split off on
+  /* ── tracks (2026-09-14; a 4th, `raid2`, split off on
    *    2026-09-18 — `TUTORIAL_TRACKS` is the list) ────────────
    * Each track has its own objective panel · its own skip, and **only the skipped track is released** — because there
    * is someone who knows the controls but has never built out a ship (user's decision). The state is the one

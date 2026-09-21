@@ -167,7 +167,7 @@ export function createRogueRig(type: RogueType): RogueRig {
   const chitin = a.chitin.clone();
   const eyeMat = a.eye.clone();
   /**
-   * 2026-09-20 (`docs/DECISIONS.md` perf Phase A, user's decision 「휴머노이드 적에게 병사 규칙 적용」): `shadow` is what
+   * 2026-09-20 (`docs/PERF.md` perf Phase A, user's decision 「휴머노이드 적에게 병사 규칙 적용」): `shadow` is what
    * the soldier's `core` / `shadowed` split says — the **trunk, the head and the limb segments** cast, and a glow
    * detail or a held item does not. Here that drops the visor (a 2 cm plate inside the helmet), the grenade (in the
    * hand, and only during the throw wind-up) and `gunArms`: the rifle is a held item, and the four arm segments

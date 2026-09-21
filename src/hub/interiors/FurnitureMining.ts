@@ -4,7 +4,7 @@ import { GeoBatch, HUB_MATS as M } from './GeoBatch';
 import type { Builder } from './Furniture';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Mining facility furniture (2026-09-13, crypto mining — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, agent ④).
+ * Mining facility furniture (2026-09-13, crypto mining, agent ④).
  *
  *   • `compute_cluster` — the compute cluster: a slim server rack, its footprint and height from `data/furniture.csv`
  *     (`furn_compute_cluster`, passed in as `w, d, h`). **Both wide faces (local ±Z) are access faces** (`access = sides`),

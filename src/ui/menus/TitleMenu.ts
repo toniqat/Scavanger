@@ -25,7 +25,7 @@ import { buildRaidResumeCard } from './raidResumeCard';
  * The two child screens **hold no blocker token of their own.** This menu (`MenuBase`) keeps holding the `'menu'`
  * token and the cursor ownership through phase `menu`, and both are screens laid on top of it (the `SettingsMenu` rule).
  *
- * **이어하기 · 레이드 포기** (2026-09-15, user's decision — docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」):
+ * **이어하기 · 레이드 포기** (2026-09-15, user's decision — `src/game/README.md` Decisions):
  * with a raid remaining (`ctx.raidResume.offer` — a solo save · tutorial · squad lobby) a filled-accent `이어하기` stands
  * **above** `게임 시작`, and `게임 시작` turns the red warning colour. That `게임 시작` opens only the **abandon popup**,
  * not character select — switching to another character also means not playing this raid any more. The popup

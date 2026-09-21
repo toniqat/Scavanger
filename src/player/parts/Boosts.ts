@@ -1,6 +1,6 @@
 /**
  * src/player/parts/Boosts.ts — **the timed effects of combat consumables**
- * (2026-09-12, `docs/DECISIONS.md` 「2026-09-12 — 전투 소모품」).
+ * (2026-09-12).
  *
  * `PlayerRef.applyBoost` / `boost` / `aimSwayMul` / `boostReloadSpeedMul` / `adsSpeedMul` / `staminaDrainMul` / `staminaCostMul`
  * are implemented here. The only caller is weapons' `parts/Healing.finishHeal` (after the hold ends and the item

@@ -9,7 +9,7 @@ import { GROW_SOCKET_EFFECTS, GROW_SOCKET_TARGETS, SAMPLE_FAMILIES } from '@/sha
 /* appended (2026-09-16, sample families): family glyphs — a sample tile's glyph is the family, its colour the rarity */
 import type { SampleFamily } from '@/shared';
 import { SAMPLE_FAMILY_ICON } from '@/shared';
-/* appended (2026-09-13, library series · video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+/* appended (2026-09-13, library series · video games) */
 import type { BookDef, GameStat, GymGameTuning, GymMinigame, LibraryMedium, PlanetId } from '@/shared';
 import { GAME_STATS, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_DEFS, PLANET_IDS, resolveItemAlias, stringMap } from '@/shared';
 
@@ -299,7 +299,7 @@ export const SOCKET_ITEM_DEFS: readonly ItemDef[] = csvRows('sockets.csv').map((
  * `ctx.loot.getItemDef('meal_*')` is undefined. A meal item in an old save resolves to an unknown def (the game
  * is in development — no migration, no refund, user's decision). */
 
-/* ── library media: books · videos · records (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ───
+/* ── library media: books · videos · records (2026-09-13) ───
  * The items are built from a **series** (`data/library_series.csv`; the effect · planet loader is
  * `LIBRARY_SERIES_DEFS` in `shared/library`) — one series row = as many items as it has volumes. The old
  * one-book-per-skill ids (`book_<skill>` · `disc_<skill>` · `record_<skill>`) are gone, and `data/item_aliases.csv`

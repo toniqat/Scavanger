@@ -1,4 +1,4 @@
-// 2026-09-14 messenger · NPC quest engine (`ctx.meta.npc`, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — single player, the relay socket is parked.
+// 2026-09-14 messenger · NPC quest engine (`ctx.meta.npc`, src/meta/README.md Decisions) — single player, the relay socket is parked.
 //   ① the ship: first contact (intro) · the first quest offer from an NPC with no requirement · the conversation bubbles · read marks
 //   ② deferring (생각해보지) → accepting from the 퀘스트 tab (brief) · a repeated accept / defer refused
 //   ③ split deliveries · an unfinished report refused · the completion report's rewards (credits · items · the system row) · the next offer (a prerequisite quest)

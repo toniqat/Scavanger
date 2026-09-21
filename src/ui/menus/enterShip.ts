@@ -18,7 +18,7 @@ import type { GameContext } from '@/shared';
  * leaves a notice and goes to the offline personal ship **from the next attempt on**.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/* ── appended (2026-09-14, the tutorial rework — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ────────────────────────
+/* ── appended (2026-09-14, the tutorial rework) ────────────────────────
  *
  * **A new character does not go through the ship.** While tutorial track ① (`raid`) is not done, this path goes to
  * the **tutorial raid** instead of `hub:enter` — waking on the hand-built tutorial planet, learning the controls and

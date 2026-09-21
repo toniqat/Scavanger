@@ -1,5 +1,5 @@
 /**
- * src/enemies/models/FactionLooks.ts — **the android · raider looks** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」).
+ * src/enemies/models/FactionLooks.ts — **the android · raider looks** (2026-09-13).
  *
  * Both use the rogue's humanoid rig (`RogueModel.createRogueRig`) as it is: the same groups · the same pivots · the same
  * muzzle (`gun` local (-0.1, -0.13, 1.1)) · the same leg lengths, so not one line of the AI animation or the hit capsule

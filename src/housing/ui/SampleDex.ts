@@ -47,7 +47,7 @@ const qtyText = (min: number, max: number): string => (max > min ? `×${min}–$
 const mulText = (m: number): string => `×${(Math.round(m * 100) / 100).toFixed(2).replace(/0$/, '')}`;
 
 /**
- * **The analysis catalogue** (A-12 2026-09-11 the old analysis catalogue → **rewritten 2026-09-13**, cooking material tiers — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」).
+ * **The analysis catalogue** (A-12 2026-09-11 the old analysis catalogue → **rewritten 2026-09-13**, cooking material tiers).
  *
  * Not a list of samples but **the families' result tables** (user's decision: 3 sample families · the analysis level = a shorter
  * time + unlocked results). One section per family (`SAMPLE_FAMILIES` order — cell · mineral · DNA):

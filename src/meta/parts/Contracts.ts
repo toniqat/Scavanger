@@ -235,7 +235,7 @@ export function settleMission(sys: MetaSystem, stats: MissionStats): ContractSet
   }
 
 /* ── MetaRef: quests ────────────────────────────────────────────────────────
- * 2026-09-14: corp quests dropped (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — quests come
+ * 2026-09-14: corp quests dropped (`src/meta/README.md` Decisions) — quests come
  * from an NPC through the messenger (`parts/NpcQuests.ts`, `ctx.meta.npc`). The old API stays because it is a
  * contract, but the corp quest table (`QUEST_DEFS`) is empty, so it answers with an empty list · false.
  * `getQuestState` is answered by `MetaSystem` out of the NPC quests. */

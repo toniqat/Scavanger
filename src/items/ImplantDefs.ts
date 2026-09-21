@@ -7,7 +7,7 @@ import { CATEGORY_COLOR, CATEGORY_ICON, PERK_DEFS, RARITY_COLORS, STAT_IDS, brok
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Implant items (Phase 12, 2026-09-08 — `docs/DECISIONS.md` Phase 12).
+ * Implant items (Phase 12, 2026-09-08).
  *
  * Distinct from the six tactical implants (Q key, `ImplantId`): these are **items** of category `'implant'` that
  * the character slots on the `캐릭터` tab (progression/ owns the rules — `IMPLANT_SLOTS_BASE` 4 + 1 per 5 levels,

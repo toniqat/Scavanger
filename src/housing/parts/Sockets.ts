@@ -1,5 +1,5 @@
 /**
- * src/housing/parts/Sockets.ts — **soil · medium sockets** (food material tiers, 2026-09-13 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」).
+ * src/housing/parts/Sockets.ts — **soil · medium sockets** (food material tiers, 2026-09-13).
  *
  * 「A permanent upgrade fitted into poured soil · medium.」 The grow station (`parts/Garden.ts`) and the culture tank
  * (`parts/Culture.ts`) use the **same rules**, so there is one set of them here. Sockets are held by the slot

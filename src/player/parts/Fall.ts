@@ -1,6 +1,6 @@
 /**
  * src/player/parts/Fall.ts — **fall damage**
- * (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」, user's decision).
+ * (2026-09-14, user's decision — `src/player/README.md` Decisions).
  *
  * The question this file answers: *how much a landing hurts.*
  *

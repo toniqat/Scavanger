@@ -1,6 +1,6 @@
 /**
  * src/meta/parts/NpcQuests.ts — **`ctx.meta.npc`**: NPC contact · conversation · quests
- * (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * (2026-09-14).
  *
  * It replaces corp quests. An NPC makes contact **in the ship only** (`evaluate` — ship entry · profile load ·
  * level · trust · a completed quest · every `NPC_OFFER_CHECK_S`); once the requirements (`npcs.csv`'s req*) are met
@@ -9,7 +9,7 @@
  *
  *   offered ─[수락]→ active ─(every objective)─[완료 보고]→ complete
  *
- * 2026-09-14 3rd pass (user's decision, docs/DECISIONS.md 「2026-09-14 — NPC 첫 연락 3단」):
+ * 2026-09-14 3rd pass (user's decision):
  *   • **First contact has three steps** — `intro` (the greeting) → the choices (`introChoices`) → `introAfter`
  *     (the main point). An NPC with `introAfter` **offers no quest before the choices are answered**
  *     (`evaluate`); once they are, `chooseIntro` calls the offer on the spot.
@@ -69,7 +69,7 @@ export class NpcQuests implements NpcQuestRef {
     return d.npc ?? (d.npc = freshNpcSave());
   }
 
-  /* ── Per-NPC trust (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」) ──────
+  /* ── Per-NPC trust (2026-09-14) ──────
    * **Separate** from corp reputation and uses the same `REP_TABLE` (user's decision — no need for a second table).
    * It only accrues and displays today, so nothing is locked by it; the `NpcRequirement.npcRep` contract is
    * already there. */
@@ -431,7 +431,7 @@ export class NpcQuests implements NpcQuestRef {
     return n;
   }
 
-  /* ── Dialogue choices (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ────
+  /* ── Dialogue choices (2026-09-14) ────
    * Since the 2026-09-14 3rd pass **all 10 NPCs** have choices. The conversation waits where it is until one is
    * picked (neither the main point `introAfter` nor a quest offer arrives), and picking leaves a single event
    * (`choice`) from which my answer · the NPC's reply · the main point are all resolved at once.

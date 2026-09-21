@@ -5,7 +5,7 @@ import { err, parseNumber } from './types';
 
 /**
  * `crypto [wallet <coin> <coins> | cores <uid|all> <n> | ff <hours>]` — the crypto mining dev command (2026-09-13,
- * docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」).
+ * `src/housing/README.md` Decisions).
  * Uses **only `HousingRef`'s public API** (it never touches `state.clusters` · `cryptoWallet` directly — the three
  * dev methods are optionals of the contract).
  *

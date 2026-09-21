@@ -90,7 +90,7 @@ export class Detection {
        * `game:newMission` handler and is registered before `ui`, so `world:ready` reaches us *first* — a build done
        * there would be torn down again a moment later by the `game:newMission` handler this replaces.
        *
-       * Building the pool **here** rather than on first use is `docs/DECISIONS.md` perf Phase B: `ensureScene` mints a
+       * Building the pool **here** rather than on first use is `docs/PERF.md` perf Phase B: `ensureScene` mints a
        * geometry, a material and `MAX_SHELLS` meshes, and its material's shader is linked the first time it is drawn.
        * On first use that lands on the frame a corpse comes into range, in the middle of a fight. `world:ready` is
        * inside the raid-entry hold (`core/Engine` calls `holdForScene()` on it), so the same work is free there —

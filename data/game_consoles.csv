@@ -1,4 +1,4 @@
-# 게임기 (2026-09-13 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」). 로더 = src/items/ItemDefs.ts → ItemDef.gameConsole (category console).
+# 게임기 (2026-09-13 비디오게임). 로더 = src/items/ItemDefs.ts → ItemDef.gameConsole (category console).
 # id 는 코드가 찾는 값이므로 바꾸지 않는다 (console_<이름>). console = 게임기 규격 — data/game_discs.csv 의 console 과 같아야 그 디스크가 돈다.
 # 서재 TV 에 한 대씩 장착한다 (housing/). 3D 프린터(recipes.csv 의 bench print) 제작 + threat 2 이상 행성 상자의 드문 드롭.
 # width × height = 격자 칸, weight = kg, value = 판매 기준가 (제작 재료 가치 합보다 조금 낮게 — 찍어서 팔아 남기지 않는다).

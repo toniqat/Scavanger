@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * The **pure formulas** of the crypto quote · trading · mining cycle (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, user's decision).
+ * The **pure formulas** of the crypto quote · trading · mining cycle (2026-09-13, `src/housing/README.md` Decisions, user's decision).
  *
  * Imported by the browser AND the Node relay — for the same reason as `shared/credits.ts` it has **no runtime import** (no csv loader, no three).
  * Every number is passed in: the client from `shared/crypto.ts` (← `data/crypto.csv` · `data/tuning.csv`),

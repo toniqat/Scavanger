@@ -15,7 +15,7 @@ import {
 } from './model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * The hand-built tutorial planet (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
+ * The hand-built tutorial planet (2026-09-14).
  *
  * On `game:newMission {mode:'tutorial'}` `WorldSystem` builds this instead of the procedural generator —
  * **exactly the same wiring** as `TrainingArena`, and there is no fog · hazard · crate · gather · nest · rail · tram ·

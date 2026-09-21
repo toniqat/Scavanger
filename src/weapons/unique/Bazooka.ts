@@ -121,7 +121,7 @@ export class Bazooka implements UniqueHandler {
         /*
          * 2026-09-15 (user's decision): throw distance ×`BAZOOKA_KNOCKBACK_DIST_MUL`, and once more
          * ×`BAZOOKA_GROUNDED_DIST_MUL` when grounded. Flight distance is proportional to the square of the speed,
-         * so the speeds are multiplied by the square root (`docs/DECISIONS.md`).
+         * so the speeds are multiplied by the square root.
          */
         const distSpeed = Math.sqrt(BAZOOKA_KNOCKBACK_DIST_MUL);
         const knock = BAZOOKA_KNOCKBACK * distSpeed * (wasGrounded ? Math.sqrt(BAZOOKA_GROUNDED_DIST_MUL) : 1);

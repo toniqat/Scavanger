@@ -5,7 +5,7 @@ import { GeoBatch, HUB_MATS as M } from './GeoBatch';
 import type { BuildExtra, Builder, FurnitureModel } from './Furniture';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Kitchen furniture (2026-09-13, the cooking minigame — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」).
+ * Kitchen furniture (2026-09-13, the cooking minigame).
  *
  *   • The procedural models of the four auto appliances, `KITCHEN_APPLIANCE_BUILDERS` — food processor · auto grill · auto stirrer · pour dispenser.
  *     They spread straight into `Furniture.ts`'s `BUILDERS` (the same `Builder` shape · centred · bottom at y 0 · front toward −Z · `GeoBatch`).

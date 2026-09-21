@@ -3,7 +3,7 @@ import type { FurnitureRig } from './FurnitureLeisure';
 import { RUN_STRIDE_LENGTH, UNRACK_S, poseBelt, poseBenchBar, poseCrank, poseRock, restRig, type StagedPiece } from './GymStaging';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Remote furniture staging (2026-09-12, character buffs · furniture pose sync — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」).
+ * Remote furniture staging (2026-09-12, character buffs · furniture pose sync).
  *
  * When a squadmate takes a furniture pose, net interpolates the snapshot `fp` · `fu` into `RemotePlayerRef.furniturePose`. Here,
  * while that person is on the **same ship** (`hubSite`) and `furnitureUid` points at a piece of the ship drawn right now, the

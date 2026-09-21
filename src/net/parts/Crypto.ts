@@ -1,6 +1,5 @@
 /**
- * src/net/parts/Crypto.ts — **`ctx.net.crypto`: the crypto quote desk** (2026-09-13, docs/DECISIONS.md
- * 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」).
+ * src/net/parts/Crypto.ts — **`ctx.net.crypto`: the crypto quote desk** (2026-09-13).
  *
  * Quotes originate at the relay (`server/CryptoMarket.ts` — the user's decision: the chart and trading need a server
  * connection). This file only holds what arrives and owns no rules:

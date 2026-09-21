@@ -1,6 +1,6 @@
 /**
- * server/Rooms.ts — the group room store (2026-09-14, docs/DECISIONS.md
- * 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * server/Rooms.ts — the group room store (2026-09-14, server/README.md
+ * Decisions).
  *
  * Rooms are **server-authoritative and persistent**. This file holds only the data and the rules (members · the room
  * owner · invites · lines · limits); it does not know who is a friend, who blocked whom or who is connected — the

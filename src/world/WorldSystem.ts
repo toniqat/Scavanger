@@ -408,7 +408,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * The tutorial planet (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): a hand-built linear map. It does
+   * The tutorial planet (2026-09-14): a hand-built linear map. It does
    * not go through the procedural generator at all and is wired **exactly like the training range** — no terrain ·
    * props · crates · nests · gather · rails · hazard · fog whatsoever, and every walkable surface is a box collider
    * (a deck), so a cliff is atrue vertical face. The detail is in `tutorial/model.ts`.
@@ -441,7 +441,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   /** `ctx.world.training` (Phase 9): the arena implements `TrainingRef` (modes / score / timed course); null outside a training world. */
   get training(): TrainingRef | null { return this.trainingArena; }
   /**
-   * `ctx.world.tutorial` (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): the tutorial world's checkpoints ·
+   * `ctx.world.tutorial` (2026-09-14): the tutorial world's checkpoints ·
    * fall rules · enemy spots. null when this is not a tutorial world, and the callers (`player/` · `game/` ·
    * `enemies/`) chain it with `?.` · `?? 'normal'`, so the main game's behaviour does not change by one letter.
    */
@@ -1155,7 +1155,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     return this.structures.crateLootOpts(containerId);
   }
 
-  /* ── 2026-09-15 (android squadmates, `docs/DECISIONS.md` 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ─────── */
+  /* ── 2026-09-15 (android squadmates) ─────── */
 
   /** The array `getLootContainers()` returns and its entry pool (0 allocations per call — androids ask often). */
   private readonly lootList: LootContainerEntry[] = [];

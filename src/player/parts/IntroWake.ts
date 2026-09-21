@@ -1,5 +1,5 @@
 /**
- * src/player/parts/IntroWake.ts — **the intro wake** (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
+ * src/player/parts/IntroWake.ts — **the intro wake** (2026-09-14).
  *
  * The question this file answers: *what the body and the camera do while waking up.*
  *

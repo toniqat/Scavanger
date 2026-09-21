@@ -46,7 +46,7 @@ const rowRank = (x: RecipeRow): number => (!x.block ? 0 : x.skill ? 2 : 1);
 const pct = (v: number): number => Math.round(Math.max(0, Math.min(1, v)) * 100);
 
 /**
- * **The cook bench screen** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」 — `openCookStation(uid)` ← E on a cook bench · an auto appliance).
+ * **The cook bench screen** (2026-09-13 — `openCookStation(uid)` ← E on a cook bench · an auto appliance).
  *
  * The frame is the common `StationShell`: [the cook bench card (upgrade at the top right = upgrading the bench)] [stash · bag].
  *

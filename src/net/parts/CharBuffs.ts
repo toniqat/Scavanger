@@ -1,6 +1,5 @@
 /**
- * src/net/parts/CharBuffs.ts — **how a squadmate's buff list travels** (character buffs, 2026-09-12). Decision:
- * `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」.
+ * src/net/parts/CharBuffs.ts — **how a squadmate's buff list travels** (character buffs, 2026-09-12).
  *
  *   my list changed ── `player:buffsChanged` ──▶ dirty ──(NetSystem.update, **before** the snapshot)──▶
  *                      `cbuf state {rev, buffs}` → others

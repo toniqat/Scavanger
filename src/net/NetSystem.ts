@@ -4,7 +4,7 @@ import type {
 } from '@/shared';
 import type { MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, RelayProbe, SocialRef } from '@/shared';
-/* 2026-09-14: the intel broker — the fixed gimmicks the lobby carries (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* 2026-09-14: the intel broker — the fixed gimmicks the lobby carries */
 import type { IntelWire } from '@/shared';
 import type { NetLinkInfo } from '@/shared';
 /* appended (2026-09-08): the shared ship's hangar */
@@ -196,7 +196,7 @@ export class NetSystem implements GameSystem, NetRef {
    * There is no travel message — each client starts the cutscene off its own copy of `lobby.planet`.
    */
   setLobbyPlanet(planet: PlanetId): void { return Lobby.setLobbyPlanet(this, planet); }
-  /* ── 2026-09-14: the intel broker (docs/DECISIONS.md 「2026-09-14 — 정보상」) ── */
+  /* ── 2026-09-14: the intel broker ── */
   /** Fixed gimmicks the leader bought (`lobby.intel`) — null with no lobby / nothing bought; squadmates read only. */
   get lobbyIntel(): IntelWire | null { return this._lobby?.intel ?? null; }
   /** Leader only, before the start: announces the intel bought (or dropped = null) — `setLobbyPlanet`'s contract. */

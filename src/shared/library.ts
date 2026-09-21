@@ -1,5 +1,5 @@
 /**
- * src/shared/library.ts — the **library series · media effects · video games** contract (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」).
+ * src/shared/library.ts — the **library series · media effects · video games** contract (2026-09-13, `src/housing/README.md` Decisions).
  *
  * Source of the numbers: `data/library_series.csv` (series · effect lines · the planets they appear on) · `data/item_aliases.csv` (old item id → new id).
  * The items themselves (volume number · value · weight · drops) are built by items/ from the media csv (`series` · `volume` of `ItemDef.book` / `disc` / `record`,

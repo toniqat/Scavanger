@@ -1,5 +1,5 @@
 /**
- * src/hub/parts/SquadDock.ts — **the squad docking flow** (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」).
+ * src/hub/parts/SquadDock.ts — **the squad docking flow** (2026-09-15).
  *
  * A squad (a lobby) is not the same thing as the shared ship. An invite creates an undocked squad and everyone stays in
  * their own personal ship. When the leader docks from the terminal's `매칭` tab (`lobby:dock`, `LobbyState.docked`):

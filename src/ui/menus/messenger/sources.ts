@@ -1,7 +1,7 @@
 import type { GameContext, NpcQuestRef, RoomsRef } from '@/shared';
 
 /**
- * The two sources the messenger reads (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — the same place as `menus/social/socialSource`.
+ * The two sources the messenger reads (2026-09-14) — the same place as `menus/social/socialSource`.
  *
  *   - `npcOf(ctx)`   = `ctx.meta.npc` (NPC contacts · conversations · quests, owner: meta/) — null with none.
  *   - `roomsOf(ctx)` = `ctx.net.rooms` (group rooms, owner: net/) — null with none.

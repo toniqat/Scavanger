@@ -567,7 +567,7 @@ try {
   const cab = await lastEv('meta:contractAbandoned');
   ok(cab && cab.id === 'helix_1' && (await P(() => window.__game.ctx.meta.activeContract)) === null, 'meta:contractAbandoned + no active contract', JSON.stringify(cab));
 
-  /* 2026-09-14: corp quests dropped (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — the old API returns an
+  /* 2026-09-14: corp quests dropped (src/meta/README.md Decisions) — the old API returns an
      empty list · false, and the NPC quests are what scripts/smoke-npc-quests.mjs looks at. The helix reputation the
      checks below expect (Lv.2 · 310) is made up by adding the old h1 reward of 150 directly. */
   console.log('corp quests are gone');

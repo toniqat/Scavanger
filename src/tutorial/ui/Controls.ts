@@ -3,8 +3,7 @@ import { Keys, paintKeycap, renderKeyText } from '@/shared';
 import { CONTROL_SECTIONS, CONTROLS_TITLE_KO, hintPairs, type ControlHint, type ControlSection } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * src/tutorial/ui/Controls.ts — **the right-side control guide** (2026-09-14,
- * `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
+ * src/tutorial/ui/Controls.ts — **the right-side control guide** (2026-09-14).
  *
  * Its owner and its place differ from the bottom-right key guide (`ui/hud/KeyGuide`, `.key-guide`) — that one is "the
  * keys of the **screen** open right now" and changes every time a screen opens or closes, while this one is "the

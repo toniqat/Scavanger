@@ -2881,7 +2881,7 @@ async function part12CreditEconomy(): Promise<void> {
   assert(!!keptRover && keptRover.roverAt?.length === 2 && keptRover.roverAt.every((at) => at <= NOW),
     'rover: sanitizeLedger keeps the rover stamps of the last hour (junk dropped, future clamped to now)', keptRover);
 
-  /* 2026-09-14 the intel broker (`intel:<planet>:<code>`, docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+  /* 2026-09-14 the intel broker (`intel:<planet>:<code>`) */
   const IX = T.intel;
   const IPLANET = IX ? Object.keys(IX.planetThreat)[0] : 'x';
   const IGIMMICK = IX ? Object.keys(IX.options)[0] : 'x';

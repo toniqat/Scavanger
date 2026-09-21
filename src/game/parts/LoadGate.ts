@@ -1,6 +1,6 @@
 /**
- * src/game/parts/LoadGate.ts — **the raid-entry loading gate** (2026-09-15,
- * docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」).
+ * src/game/parts/LoadGate.ts — **the raid-entry loading gate** (2026-09-15;
+ * `src/game/README.md` Decisions).
  *
  * The question this file answers: *once the launch countdown ends, what holds the screen until the squad is ready.*
  *

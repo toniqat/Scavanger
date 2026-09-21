@@ -11,7 +11,7 @@ import type {
 import type { ClientToServer, MissionMode, RaidSessionBlob } from '@/shared';
 import type { PlanetId } from '@/shared';
 import { isPlanetId } from '@/shared';
-/* 2026-09-14: the intel broker — the fixed gimmicks the lobby carries (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* 2026-09-14: the intel broker — the fixed gimmicks the lobby carries */
 import type { IntelWire } from '@/shared';
 import { resolveIntelEffects, sanitizeIntelPicks } from '@/shared';
 import { isDockedLobby } from '@/shared';

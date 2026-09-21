@@ -353,7 +353,7 @@ FOOTSTEP_MATERIAL_GAIN,organic,0.95
 FOOTSTEP_MATERIAL_GAIN,metal,1.2
 FOOTSTEP_MATERIAL_GAIN,concrete,1.1
 
-# ── 2026-09-13: 요리 재료 티어 (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」) — 읽는 곳은 src/shared/housing.ts ──
+# ── 2026-09-13: 요리 재료 티어 — 읽는 곳은 src/shared/housing.ts ──
 # ANALYSIS_LEVEL_XP — 분석 레벨(key)에 도달하는 계열 누적 경험치 (Lv.1 = 0). **줄 수가 곧 최대 레벨**이다.
 ANALYSIS_LEVEL_XP,1,0
 ANALYSIS_LEVEL_XP,2,4
@@ -455,7 +455,7 @@ WEAPON_GRADE_HANDLING_MUL,2,1.3
 WEAPON_GRADE_HANDLING_MUL,3,1.15
 WEAPON_GRADE_HANDLING_MUL,4,1
 # ── end 2026-09-14 총기 밸런스 ──
-# ── 2026-09-14 정보상 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ──
+# ── 2026-09-14 정보상 (src/meta/README.md Decisions) ──
 # INTEL_TIER_COST_MUL — 기믹 단계(key 0 = 1단계 … 2 = 3단계)별 비용 배수. 같은 줄을 더 올릴수록 비선형으로 비싸다.
 INTEL_TIER_COST_MUL,0,1
 INTEL_TIER_COST_MUL,1,2.6
@@ -472,7 +472,7 @@ NEST_COUNT_MAX,0,6
 # 평소 값은 constants.csv 의 ROVER_PLAN_ATTEMPTS(64) 다. 시도를 늘려도 실패할 수 있고, 그러면 그 레이드에는 차량이 없다 (콘솔 경고).
 ROVER_PLAN_ATTEMPTS_INTEL,0,1024
 # ── end 2026-09-14 정보상 ──
-# ── 2026-09-15 안드로이드 분대원 (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ── owner: allies/
+# ── 2026-09-15 안드로이드 분대원 (src/allies/README.md Decisions) ── owner: allies/
 # ALLY_STATE_WEIGHT — 상태별 행동의 무게 0..1. 상태가 바뀐 뒤 행동까지의 지연 = lerp(ALLY_REACT_MIN_S, ALLY_REACT_MAX_S, 무게 × (1 − JITTER) + 난수 × JITTER).
 #   사용자 결정 「무게가 무거울수록 딜레이 큼」. key = shared/allies.ts 의 AllyStateId. 빠진 상태(쓰러짐 · 사망처럼 즉시인 것)는 0.
 ALLY_STATE_WEIGHT,hubIdle,0.1

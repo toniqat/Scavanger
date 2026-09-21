@@ -199,7 +199,7 @@ export interface QuestDef {
 }
 
 /*
- * 2026-09-14: corp quests are gone (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」, user's decision 「delete them all」) — quests are given by
+ * 2026-09-14: corp quests are gone (`src/meta/README.md` Decisions, user's decision 「delete them all」) — quests are given by
  * NPCs through the messenger (`NPC_QUEST_DEFS` in `shared/npc.ts`). `data/quests.csv` was deleted; the types ·
  * names stay because they are a contract, and only the table is emptied.
  */
@@ -394,7 +394,7 @@ export function itemCreditValue(def: Pick<ItemDef, 'value'> | null | undefined, 
   return Math.max(0, Math.round(def.value * Math.max(1, Math.floor(qty))));
 }
 
-/* ══ appended: 2026-09-13 — crypto trading (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) ══ */
+/* ══ appended: 2026-09-13 — crypto trading (`src/housing/README.md` Decisions) ══ */
 export interface MetaRef {
   /**
    * **Waits a credit transaction out to the end** (for folders outside meta — housing's exchange). With a relay it
@@ -405,7 +405,7 @@ export interface MetaRef {
   creditsTx?(delta: number, reason: string): Promise<{ ok: boolean; reason?: string }>;
 }
 
-/* ══ appended: 2026-09-14 — the messenger · NPC quests (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 · the contract itself is `shared/npc.ts`) ══
+/* ══ appended: 2026-09-14 — the messenger · NPC quests (`src/meta/README.md` Decisions · the contract itself is `shared/npc.ts`) ══
  * Corp quests are gone. `getQuests(corp)` is an empty list, `acceptQuest` · `completeQuest` are false, and
  * `getQuestState(id)` answers with the **NPC quest** — complete → 'complete', active → 'accepted', offered/deferred → 'available', anything else → 'locked'
  * (housing's mining unlock gate leans on this one line). */
@@ -422,7 +422,7 @@ export interface MetaSave {
 }
 /* ══ end 2026-09-14 the messenger · NPC quests ══ */
 
-/* ══ appended: 2026-09-14 — the intel broker · per-NPC trust (docs/DECISIONS.md 「2026-09-14 — 정보상」, the contract itself is `shared/intel.ts`) ══ */
+/* ══ appended: 2026-09-14 — the intel broker · per-NPC trust (`src/meta/README.md` Decisions, the contract itself is `shared/intel.ts`) ══ */
 import type { IntelEffects, IntelGimmick, IntelPick, IntelSpec } from './intel';
 import type { PlanetId } from './planets';
 

@@ -117,7 +117,7 @@ const isSalvageable = (def: ItemDef): boolean => SALVAGEABLE.includes(def.catego
  * `checkSalvageEconomy` below use 「the craft inputs」 as their baseline, so that whole baseline would shake.
  * Materials · consumables · ammo · attachments · cooking cannot be turned back by salvage (or have only a
  * fixed salvage written by hand, which the economy check catches), so they take the refund as they are.
- * → docs/DECISIONS.md 「2026-09-16 — 제작과 숙련」
+ * → `src/items/README.md` Decisions
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** Are this recipe's inputs eligible for the **craft skill refund**? Salvage (`break_*`) and durable gear are not. */

@@ -86,7 +86,7 @@ export type ItemCategory =
   | 'meal'        // a meal (see `ItemDef.meal`): eaten at the ship's dining table it loads as **one charge for the next raid** (it raises one derived stat)
   | 'pouch'       // a pouch (see `ItemDef.pouch`): fitted into the one `pouch` equipment slot it opens its own grid under the quick slots
   | 'key'         // a key — a structure basement keycard and the like. Split off from `valuable` on 2026-09-11: a key pouch must not mix with valuables
-  /* appended: video games (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+  /* appended: video games (2026-09-13, `src/housing/README.md` Decisions) */
   | 'game_disc'   // a game disc (see `ItemDef.gameDisc`): slotted into the game-disc rack it is played on the TV (intelligence · perception training). Drop only
   | 'console'     // a games console (see `ItemDef.gameConsole`): mounted on the TV. 3D-printer craft + a rare drop
   /* appended: library media (A-3e, 2026-09-12) */
@@ -691,7 +691,7 @@ export interface HubRef {
    * Personal-ship room the player is standing in (0..SHIP_ROOM_COUNT−1), or null in the corridor / cockpit / shared ship.
    */
   readonly currentRoom: number | null;
-  /* ── appended (2026-09-14): launch slot readiness (docs/DECISIONS.md 「2026-09-14 — 정보상」) ── */
+  /* ── appended (2026-09-14): launch slot readiness (`src/meta/README.md` Decisions) ── */
   /**
    * Has the local player **confirmed readiness** in a launch slot (the 1 s space hold plus the launch warning accepted).
    * Merely **boarding** the pod is false — boarding and readiness split apart on 2026-09-14.
@@ -1447,7 +1447,7 @@ export interface TradeGridsView extends EmbeddedView {
  * (personal ship) or the shared-ship terminal, left through the arena's exit console (`training:exitRequested`).
  * Ammo / durability spent in a training are restored on exit (game/ captures + re-applies `captureRaidState`).
  *
- * appended (2026-09-14, tutorial rework — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): `'tutorial'` = the hand-built tutorial planet
+ * appended (2026-09-14, tutorial rework — `src/tutorial/README.md` Decisions): `'tutorial'` = the hand-built tutorial planet
  * (`world/tutorial/`). It never goes through the procedural generator and has no fog · hazards · crates · gathering · nests.
  * Enemies stand only in fixed spots as fixed kinds, and a death puts you back at a checkpoint (`ctx.world.tutorial` = `TutorialWorldRef`).
  * Unlike the training range it is a **real raid** — loot · XP carry into the profile and extraction takes the usual road.
@@ -1856,7 +1856,7 @@ export interface InventoryRef {
 }
 
 /* ══ appended: 2026-09-08 — implants (stat-granting equippables) · barrier collision · bullet tracking · scan silhouettes ═
- * Contract for the 2026-09-08 batch (see `docs/DECISIONS.md` 「Phase 12」).
+ * Contract for the 2026-09-08 batch (Phase 12).
  * Append-only, as always. Owners are named per member.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
@@ -2173,7 +2173,6 @@ export interface InventoryRef {
 
 /* ══ appended: 2026-09-09 — raid play improvements (structures · rails · hazards · rogue drops · communication) ═
  * The contract is **add-only**. The owning folder is named at the head of each section.
- * Related document: `2026-09-09 레이드 플레이 개선` in docs/DECISIONS.md.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 /* ── box colliders · platforms that carry you along (owner: world) ───────────────────────── */
@@ -2429,7 +2428,7 @@ export interface WorldRef {
 
 /* ══ appended (2026-09-13): enemy factions per planet — androids · rogues · raiders (owner: enemies · items · world) ═
  * Which faction appears is decided by the planet's threat (`planetThreat`): 1 = androids · 2 = rogues / raiders · 3 = raiders only.
- * Every pair of different factions is hostile. Decision: docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」
+ * Every pair of different factions is hostile (2026-09-13).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════ */
 /** The faction names in game. */
 export const ENEMY_FACTION_LABEL_KO: Readonly<Record<EnemyFaction, string>> = { bug: '벌레', rogue: '로그', android: '안드로이드', raider: '레이더' };
@@ -2685,7 +2684,7 @@ export interface PlayerRef {
   setDroneControl?(active: boolean): void;
 }
 
-/* ══ appended (2026-09-12): library media (A-3e) · the gym (A-3a) — docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」 ═══════════════════ */
+/* ══ appended (2026-09-12): library media (A-3e) · the gym (A-3a) — `src/housing/README.md` Decisions ═══════════════════ */
 
 export interface ItemDef {
   /* ── appended (A-3e, owner: items) ── */
@@ -2742,7 +2741,7 @@ export interface PlayerRef {
   setFurniturePoseDrive?(phase: number): void;
 }
 
-/* ══ appended (2026-09-12): character buffs · furniture pose sync — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」 ════════ */
+/* ══ appended (2026-09-12): character buffs · furniture pose sync — `src/player/README.md` Decisions ════════ */
 import type { CharBuff } from './charBuffs';
 
 export interface FurniturePose {
@@ -3006,7 +3005,7 @@ export interface InventoryRef {
   getPouchSize?(): { cols: number; rows: number };
 }
 
-/* ══ appended: 2026-09-12 — consumables · implants · keys · the drone scan · favourites · the gym. docs/DECISIONS.md 「2026-09-12 — 전투 소모품」 ══
+/* ══ appended: 2026-09-12 — consumables · implants · keys · the drone scan · favourites · the gym ══
  * Each parallel agent appends **inside its own block only** (interface merging — written inside `export interface PlayerRef { … }`).
  * Existing declarations are never renamed or deleted. The block order is never changed. */
 /* ── [A1] the 3 consumables (PlayerRef boost · ItemDef) ── */
@@ -3133,7 +3132,7 @@ export interface ItemInstance {
 }
 /* ══ end 2026-09-12 the item recovery mark ══ */
 
-/* ══ appended: 2026-09-13 — cooking material tiers (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, user's decision) ════════
+/* ══ appended: 2026-09-13 — cooking material tiers (user's decision) ════════
  *
  *   T1  planet seeds · soil ──grow station──▶ vegetables · mushrooms ──cook bench──▶ a vegetable dish (stat 1)
  *   T2  unidentified cells ──analyzer──▶ cow · pig · chicken · sheep cell lines ─┐
@@ -3242,7 +3241,7 @@ export interface ItemDef {
 }
 /* ══ end 2026-09-13 cooking material tiers ══ */
 
-/* ══ appended: 2026-09-13 — the cooking minigame · meal quality (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, rules in `shared/cooking.ts`) ═ */
+/* ══ appended: 2026-09-13 — the cooking minigame · meal quality (`src/housing/README.md` Decisions, rules in `shared/cooking.ts`) ═ */
 export interface ItemInstance {
   /**
    * The quality of a meal (`ItemDef.meal`) — a star count 0 … `MEAL_QUALITY_MAX`. The cook bench minigame's score decides it (`mealQualityForScore`).
@@ -3484,7 +3483,7 @@ export interface PlayerRef {
 }
 /* ══ end 2026-09-13 the exploration vehicle ══ */
 
-/* ══ appended (2026-09-13): library series · video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 (rules in `shared/library.ts`) ═ */
+/* ══ appended (2026-09-13): library series · video games — `src/housing/README.md` Decisions (rules in `shared/library.ts`) ═ */
 import type { GameConsoleDef, GameDiscDef } from './library';
 export interface BookDef {
   /**
@@ -3503,7 +3502,7 @@ export interface ItemDef {
 }
 /* ══ end 2026-09-13 library series ══ */
 
-/* ══ appended (2026-09-14): the intel broker's map preview — docs/DECISIONS.md 「2026-09-14 — 정보상」 ══════════
+/* ══ appended (2026-09-14): the intel broker's map preview — `src/meta/README.md` Decisions ══════════
  *
  * The intel broker screen shows **the real layout of the sector on sale** as a faint grid (user's decision). For that,
  * `hub/` must build no mesh at all and only receive the result of `generateLayout` — but `WorldLayout` is a `world/`
@@ -3667,7 +3666,7 @@ export interface EnemyManagerRef {
 }
 /* ══ end 2026-09-15 the result screen rework ══ */
 
-/* ══ appended (2026-09-15): android squadmates · raid entry loading — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 ═
+/* ══ appended (2026-09-15): android squadmates · raid entry loading — `src/allies/README.md` Decisions ═
  * The body of the contract is `shared/allies.ts` · the last section of `net.ts`. Here there are only **optional members** hung on existing
  * Refs — each owning folder implements one and callers call it with `?.` (missing, only that feature quietly drops out). 「Authority」 = single player or the lobby host (`ctx.isAuthority`).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */

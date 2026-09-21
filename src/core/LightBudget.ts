@@ -11,7 +11,7 @@ const _stack: THREE.Object3D[] = [];
  * Point lights three.js would collect under `root` (`projectObject` skips invisible subtrees, so does this).
  * `skip` drops one subtree from the walk — `LightBudget` passes its own padding group, whose count it already knows.
  *
- * 2026-09-20 (`docs/DECISIONS.md` perf Phase C · B3): this is an explicit stack rather than `traverseVisible`
+ * 2026-09-20 (`docs/PERF.md` perf Phase C · B3): this is an explicit stack rather than `traverseVisible`
  * because it runs **every frame, over the whole scene** — 3 978 nodes in a raid — and `traverseVisible` pays a
  * recursive method call plus a closure call per node. Counting is still exact, and it has to be: the count is part
  * of three.js's shader program key, so a frame that sees one light too many recompiles every lit material in the

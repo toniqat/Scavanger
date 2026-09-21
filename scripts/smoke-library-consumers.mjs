@@ -1,4 +1,4 @@
-// Single-player smoke test for the **서재 시리즈 consumers** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — agent C):
+// Single-player smoke test for the **서재 시리즈 consumers** (2026-09-13, agent C):
 //   1. the 「아직 꽂지 않은」 band on item tiles (`.is-shelf-wanted`, same blue ribbon as favourites; favourite + wanted = one band;
 //      favourites' own behaviour untouched) — `ctx.housing.isShelfItemWanted` is stubbed so this runs before / without housing's query,
 //   2. legacy item id conversion (`resolveItemAlias`) in `reviveItem`, the stash document (a converted stack re-merges), the loadout bag

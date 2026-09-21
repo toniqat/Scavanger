@@ -121,7 +121,7 @@ try {
   for (const row of shared.csvRows('planets.csv')) {
     for (const part of row.list('seeds')) ref(`data/planets.csv [seeds] — ${row.raw('id')}`, part.slice(0, part.lastIndexOf(':') > 0 ? part.lastIndexOf(':') : part.length).trim());
   }
-  /* 2026-09-14 (the messenger · NPC quests — docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」): in place of the
+  /* 2026-09-14 (the messenger · NPC quests): in place of the
    * old quests.csv. The loader (`shared/npc.ts`) sees only the column shapes; the references between tables — NPC ·
    * prerequisite quest · item · enemy · planet — and 「can that enemy appear on that planet」 are looked at here. */
   {
@@ -186,7 +186,7 @@ try {
   for (const row of shared.csvRows('planets.csv')) {
     for (const c of row.costList('samples')) ref(`data/planets.csv [samples] — ${row.raw('id')}`, c.defId);
   }
-  /* 2026-09-13 (library series · video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): series ↔ item 1:1,
+  /* 2026-09-13 (library series · video games): series ↔ item 1:1,
    * a book series per skill, a recipe book's target, the old-id aliases, the planet threat rule (records · game discs ·
    * consoles need threat 2 or more), and the volume count · effect-line count per medium. */
   {

@@ -339,7 +339,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    */
   get selfMovedMeters(): number { return this._selfMovedMeters; }
   get isMeleeing(): boolean { return this.meleeTimer > 0; }
-  /* ── Phase 7 (docs/DECISIONS.md Phase 7) ── */
+  /* ── Phase 7 ── */
   /** true while the `용검` heavy slash pose plays (`startMelee('heavy')`); net puts MELEE_HEAVY on the wire from it. */
   get isMeleeHeavy(): boolean { return this.meleeTimer > 0 && this.meleeKind === 'heavy'; }
   /* ── ladder (2026-09-11, appended contract `PlayerRef.climbingLadder`) ── */

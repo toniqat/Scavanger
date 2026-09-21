@@ -29,7 +29,7 @@ import { TileGrid, type TileSpec } from './TileGrid';
  *     • 거래     [판매 물품] [the 거래 테이블 (구매 · 판매 trays · credit change · 1 s hold)] [창고 · 가방]
  *     • 임플란트 [broken implants + the repair card] [창고 · 가방]
  *   **2026-09-14: the quest tab was deleted** — corp quests are gone. Quests come from NPCs through the messenger
- *   (`ctx.meta.npc`, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ *   (`ctx.meta.npc`).
  *     • 계약     only the corp list moved out; the rest (계약 목록 | 진행 중인 계약) stays one card.
  *   **2026-09-15 3rd pass (user's decision — 창고 + 가방 are one panel)**: the two are **one card** (`.cv-inv`), and
  *   inside it `TradeGrids` draws 창고 on the left and my 가방 on the right, **each pane with its own sort · own

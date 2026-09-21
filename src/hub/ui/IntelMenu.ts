@@ -9,7 +9,7 @@ import { createIntelMapView, type IntelMapLayout, type IntelMapView } from './In
 import type { PlanetHologram } from './PlanetHologram';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * The intel broker's screen (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 정보상」 — user's decision).
+ * The intel broker's screen (2026-09-14, user's decision — `src/meta/README.md` Decisions).
  *
  * The concept is 「buying a planet's intel」, but what it actually does is **pin down that raid's gimmicks**. The
  * screen has two phases:

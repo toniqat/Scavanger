@@ -1,5 +1,5 @@
 /**
- * src/housing/parts/Cooking.ts — **the cook bench · the cook session** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」).
+ * src/housing/parts/Cooking.ts — **the cook bench · the cook session** (2026-09-13).
  *
  * Modelled exactly on the structure of `parts/Gym.ts`:
  *   ① E on the cook bench → hub calls `openCookStation(uid)` — the cook bench screen (`ui/cook/CookStation`, recipe list · materials · steps · auto appliance · stash/bag).
@@ -118,7 +118,7 @@ export function cookSession(sys: HousingSystem): CookSessionInfo | null {
   return sys.cookState ? sys.cookState.info : null;
 }
 
-/* ── 2026-09-13 (H3): the cooking skill · library bonus · recipe books (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ───────
+/* ── 2026-09-13 (H3): the cooking skill · library bonus · recipe books ───────
  * Step score = min(1, the minigame · auto appliance score + `derived.cookScoreBonus` + library `cookScore[game]`) — **manual and auto alike** (user's decision ·
  * lead's decision). Only chopping · mincing · grilling · stir-frying (`LIBRARY_COOK_TARGETS`) take the library bonus. A recipe book (`CraftRecipe.unlockSeries`) is
  * locked while `HousingRef.isRecipeUnlocked` is false — until the library agent supplies that method, a recipe that needs a book stays locked. */

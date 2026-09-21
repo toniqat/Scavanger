@@ -1,4 +1,4 @@
-// 2026-09-12 aim sway (A2, docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) — the camera drifts in a figure of eight while aiming.
+// 2026-09-12 aim sway (A2, src/player/README.md Decisions) — the camera drifts in a figure of eight while aiming.
 //  · there is no sway in the ship (the hub) · the weapon class's sway (data/aim_sway.csv) reaches the rig · hip fire is 0
 //  · aiming: left / right · up / down swing and change sign over time, and the amplitude is the table's value · the rendered camera direction === getLookDir (the crosshair line)
 //  · a round fired in the middle of the sway (spread 0) lands on the **screen centre line** (and off the line with the sway taken out) · the recoil is unchanged

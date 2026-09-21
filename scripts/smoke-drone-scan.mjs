@@ -1,4 +1,4 @@
-// 2026-09-12 (agent D) — the ground-drone scan (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」).
+// 2026-09-12 (agent D) — the ground-drone scan.
 //   ① a ground drone is placed beside a map crate, then controlled · aimed → `ctx.drones.scanAim` + the `.dsc-hint` prompt
 //   ② LMB held: the gauge fills, taking the aim off it drops to 0, aiming again for 3 s → the result · the world label (the rarity) · one chat line
 //   ③ holding on past the fill does not count a second time · LMB does not leak into the gun (`weapon:fired` 0) · the crate was neither opened nor rolled

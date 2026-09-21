@@ -1,4 +1,4 @@
-// Smoke: the thumper (`진동 장치` — 2026-09-15, the sandworm; docs/DECISIONS.md 「2026-09-15 — 땅굴벌레 · 진동 장치」). Solo raid.
+// Smoke: the thumper (`진동 장치` — 2026-09-15, the sandworm; src/enemies/README.md · src/gadgets/README.md Decisions). Solo raid.
 //
 // - catalogue: `gad_thumper` → `GadgetId 'thumper'` (place · deployable `thumper` · no recover), listed in `getDefs`, quick-usable,
 //   **does not stack** (`stackMax` 1 — 2026-09-16, user's decision: drop-only, with no recipe)

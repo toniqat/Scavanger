@@ -1,6 +1,6 @@
 /**
  * src/player/parts/Buffs.ts — **what is on this character right now**
- * (2026-09-12, character buffs — `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」).
+ * (2026-09-12, character buffs).
  *
  * The implementation of `PlayerRef.buffs` / `buffsRevision` / `player:buffsChanged`. The list is **for display and
  * sync** and has no effect — each effect stays at its own source (the meal's `derived` · the prep's `hasEnvPrep` ·

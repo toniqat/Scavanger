@@ -1,5 +1,5 @@
 /**
- * src/shared/cooking.ts — the **cooking minigames · meal quality** contract (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」, user's decision).
+ * src/shared/cooking.ts — the **cooking minigames · meal quality** contract (2026-09-13, `src/housing/README.md` Decisions, user's decision).
  *
  * The cook bench (`workbench_cook`) no longer opens the inventory craft window — housing's **cook bench screen** opens instead. Pick one meal and
  * press 「조리 시작」 and its 1–3 minigames (`data/cook_steps.csv`) run in order. Each step gives a score (0 … 1),

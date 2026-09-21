@@ -63,26 +63,26 @@ export * from './ride';
 /* appended (2026-09-11): social · trust · the link — the receiver-side buff cap · the server credit-reason grammar / economy table */
 export * from './buffRules';
 export * from './credits';
-/* appended (2026-09-12): character buffs — meals · preparations · the workout debuff · environment exposure · resting / working out in one list (docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」) */
+/* appended (2026-09-12): character buffs — meals · preparations · the workout debuff · environment exposure · resting / working out in one list (`src/player/README.md` Decisions) */
 export * from './charBuffs';
 /* appended (2026-09-12): the loot roll seed formula — the opening code and the previews (world · the drone scan) use the same one */
 export * from './lootRolls';
-/* appended (2026-09-12): the 「found in this raid」 mark — the count for recovery contracts · splitting stacks · the diagonal band (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) */
+/* appended (2026-09-12): the 「found in this raid」 mark — the count for recovery contracts · splitting stacks · the diagonal band */
 export * from './raidFound';
 /* appended (2026-09-13): the extraction rework — `ctx.extraction` (the enemy no-entry zone · the departure grace state) */
 export * from './extraction';
-/* appended (2026-09-13): the cooking minigame · cooking quality — the cook-bench step table · auto-cooking furniture · quality stars (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) */
+/* appended (2026-09-13): the cooking minigame · cooking quality — the cook-bench step table · auto-cooking furniture · quality stars (`src/housing/README.md` Decisions) */
 export * from './cooking';
 /* appended (2026-09-13): crypto mining · the exchange — the coin table (csv) · the pure quote formula (shared with the relay) */
 export * from './crypto';
 export * from './cryptoMarket';
-/* appended (2026-09-13): library series · media effects · video games (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+/* appended (2026-09-13): library series · media effects · video games (`src/housing/README.md` Decisions) */
 export * from './library';
-/* appended (2026-09-14): messenger NPCs · NPC quests (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) */
+/* appended (2026-09-14): messenger NPCs · NPC quests (`src/meta/README.md` Decisions) */
 export * from './npc';
 /* appended (2026-09-14): the local gun damage source — the NPC quest 「그 계열 총기로 처치」 (weapons wraps it, enemies reads it) */
 export * from './damageSource';
-/* appended (2026-09-14): the intel broker — the fixed gimmick pick · the reading · the cost formula (shared with the relay, docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* appended (2026-09-14): the intel broker — the fixed gimmick pick · the reading · the cost formula (shared with the relay, `src/meta/README.md` Decisions) */
 export * from './intel';
 export * from './intelDefs';
 /* appended (2026-09-15): the shared keycap — the mouse-button drawing · the hold chevron · keycap tokens inside a sentence (`{FIRE:hold}`) */

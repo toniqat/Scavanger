@@ -1,6 +1,6 @@
 /**
  * src/meta/parts/NpcObjectives.ts — the **raid objectives** of NPC quests
- * (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * (2026-09-14).
  *
  * Only the raid objectives (recover · interact · kill · discover · search) of an `active` quest count, only in a
  * real raid (not the training range), and only when the planet requirement matches. **Confirmed the moment it

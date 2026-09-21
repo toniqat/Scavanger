@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import type { RaidSessionBlob, PlayerRestoreState } from '@/shared';
 import { RAID_SAVE_INTERVAL_S } from '@/shared';
-/* 2026-09-14: the intel broker — a solo resume restores fixed gimmicks (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* 2026-09-14: the intel broker — a solo resume restores fixed gimmicks */
 import { resolveIntelEffects } from '@/shared';
 import { saveSoloRaid, type SoloRaidSave } from '../SoloRaid';
 import { ALL_DEAD_CHECK_INTERVAL } from '../model';

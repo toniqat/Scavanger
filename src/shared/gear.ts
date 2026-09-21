@@ -128,7 +128,7 @@ export interface WeaponWear {
   perShot: number;
 }
 
-/* ── appended (2026-09-13, library series — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
+/* ── appended (2026-09-13, library series — `src/housing/README.md` Decisions) ── */
 export interface CraftRecipe {
   /**
    * The recipe book's series id — when it is present the recipe may be crafted **only while that book is on the library

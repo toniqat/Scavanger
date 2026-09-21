@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * Face portrait framing (2026-09-15, the terminal's matching tab — docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」).
+ * Face portrait framing (2026-09-15, the terminal's matching tab — `src/hub/README.md` Decisions).
  *
  * The same face is drawn in two places — the still image in the character-creation confirm popup
  * (`ui/menus/SoldierPreview.snapshotFace`) and the square portrait on the ship terminal's matching tab

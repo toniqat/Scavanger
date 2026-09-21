@@ -201,8 +201,7 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
     icon: '✈',
     color: '#7fc8ff',
   },
-  /* ── 2026-09-15 (the sandworm · the thumper, user's decision — docs/DECISIONS.md
-     「2026-09-15 — 땅굴벌레 · 진동 장치」) ── */
+  /* ── 2026-09-15 (the sandworm · the thumper, user's decision — `src/gadgets/README.md` Decisions) ── */
   {
     /**
      * A Dune-style thumper. It strikes the ground every `THUMPER_INTERVAL_S`, and on strike `THUMPER_STRIKES`

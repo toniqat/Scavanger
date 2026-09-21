@@ -2,7 +2,7 @@
  * src/meta/parts/Intel.ts — **the intel broker** (the 「행성 정보」 Raven sells = that raid's fixed gimmicks).
  *
  * The contract is `src/shared/intel.ts` (picks · resolving · the price formula) plus `IntelRef` in `shared/meta.ts`,
- * and the decision is `docs/DECISIONS.md` 「2026-09-14 — 정보상」. This file only **holds · buys · discards ·
+ * and the decision is in `src/meta/README.md` Decisions. This file only **holds · buys · discards ·
  * consumes** — the one road to the world is `ctx.missionIntel`, and the places that set it are the launch
  * (`hub/parts/Pods.launch`), the receiving side (`net/parts/Lobby.beginSession`) and the solo resume
  * (`game/parts/Session`).

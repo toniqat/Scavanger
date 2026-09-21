@@ -148,7 +148,7 @@ export type PlayBlock = 'self' | 'offline' | 'in_mission' | 'squad_full' | 'my_s
   | 'in_squad';
 
 /**
- * 2026-09-15 (squad · dock matchmaking, docs/DECISIONS.md): `같이 하기` is **invite only** now — the old branch "the target already
+ * 2026-09-15 (squad · dock matchmaking): `같이 하기` is **invite only** now — the old branch "the target already
  * has a squad → I move into it" is gone. So a target already in a squad of 2+ cannot be asked (`in_other_squad`; a
  * player alone in their own lobby — e.g. waiting on their own invite — still can), only the leader of my squad (or a
  * player with no squad) may invite (`iAmMember` = I am in a lobby I do not lead → `not_leader`), and my squad needs a
@@ -427,7 +427,7 @@ export interface SocialRef {
   playBlock(code: PlayerCode): PlayBlock | null;
 }
 
-/* ══ appended: 2026-09-14 — private chat (the old whispers) read state · group messenger rooms (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) ══
+/* ══ appended: 2026-09-14 — private chat (the old whispers) read state · group messenger rooms (`src/meta/README.md` Decisions) ══
  * Owners: server/ (the room store · permissions · fan-out), net/ (`ctx.net.rooms` · unread), ui/ (the messenger).
  * User's decision: owner-led — anyone may create one and invite **friends**, only the owner invites · kicks · renames,
  * when the owner leaves the member who joined first becomes the owner, the room is deleted when the last member leaves.

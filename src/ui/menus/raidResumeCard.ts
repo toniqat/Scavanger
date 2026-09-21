@@ -3,7 +3,7 @@ import { NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, planetLabel } from '@/shared';
 import { el, fmtTime } from '../dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * The body of the title's abandon-raid popup (2026-09-15, user's decision — docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」).
+ * The body of the title's abandon-raid popup (2026-09-15, user's decision — `src/game/README.md` Decisions).
  *
  * 「매칭 시 화면 구조」 as it is: a one-line summary → **four square portrait tiles** (me → squadmates by slot → empty
  * tiles; the same order · the same face source `PlayerRef.snapshotFace` as the terminal match tab `hub/ui/MatchTab`) →

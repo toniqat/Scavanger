@@ -46,7 +46,7 @@ export function messengerUnreadTotal(ctx: GameContext): number {
 }
 
 /**
- * The **messenger** panel body (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — it replaces the old community panel.
+ * The **messenger** panel body (2026-09-14) — it replaces the old community panel.
  * The window frame · blocker · cursor · Escape · P toggle · invite stack are still held by `hud/Community`; this class builds only the inside of the frame (`.cp-frame`):
  *
  *   head  `.cp-head.ms-head` — the title `메신저` · 3 tabs (대화 · 친구 · 퀘스트, with badges) · my 아이디 · `차단 목록 n` · `닫기 (P)`
@@ -124,7 +124,7 @@ export class Messenger {
     this.column.bind(ctx);
     this.quests.bind(ctx);
     /*
-     * The NPC personal trust level-up toast (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」) — the same grain as
+     * The NPC personal trust level-up toast (2026-09-14) — the same grain as
      * corporation reputation’s `meta:repChanged → <기업> 신뢰도 Lv.n` (`hud/MetaToasts`). It must appear with the panel
      * closed too, so it is raised once in `bind` (the messenger is built at HUD init) and released in `dispose`.
      */

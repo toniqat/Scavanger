@@ -1,4 +1,4 @@
-// 2026-09-14 단체 메신저방 · 개인 대화 읽지 않음 smoke (src/net — docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+// 2026-09-14 단체 메신저방 · 개인 대화 읽지 않음 smoke (src/net — server/README.md Decisions).
 //
 // No relay: the script builds fresh `RoomSync` / `SocialSync` instances from the running game's constructors, wires a
 // recording `send` and a recording bus, and feeds them relay frames by hand (same pattern as smoke-social's

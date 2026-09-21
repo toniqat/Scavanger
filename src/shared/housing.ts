@@ -54,7 +54,7 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
   greenhouse: '재배층을 설치하고 씨앗을 심어 현실 시간에 맞춰 약초를 재배합니다.',
   lab: '분석기로 미확인 표본을 해석하고, 추출기 · 조합대로 성분을 뽑아 준비물을 만듭니다. 온실이 먼저 필요합니다.',
   kitchen: '조리대로 작물과 배양 산물을 요리하고, 식탁에서 먹어 다음 레이드 버프를 얻습니다. 온실이 먼저 필요합니다.',
-  /* 2026-09-13: mining arrived (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) */
+  /* 2026-09-13: mining arrived (`src/housing/README.md` Decisions) */
   mining: '연산 클러스터에 연산 코어를 꽂아 암호화폐를 채굴합니다. 메인 컴퓨터에서 클러스터 현황 · 지갑 · 거래소를 확인합니다.',
   lounge: 'TV · 스피커로 비디오와 Vinyl 을 재생합니다. (서재에 합쳐졌습니다)',
   cockpit: '함선의 조종석입니다. 공용 가구를 놓을 수 있고, 용도를 바꾸거나 제거할 수 없습니다.',
@@ -200,9 +200,9 @@ export type FurnitureModelKind =
   | 'drawer'
   /* appended (2026-09-13, cooking minigames): the 주방's 4 auto-cook appliances — 푸드 프로세서 · 자동 그릴 · 자동 교반기 · 계량 디스펜서 (as many indicator lights as its `level`) */
   | 'food_processor' | 'auto_grill' | 'auto_stirrer' | 'pour_dispenser'
-  /* appended (2026-09-13, crypto mining — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」): 연산 클러스터 (9 core slots, one lit per core inserted) · 메인 컴퓨터 */
+  /* appended (2026-09-13, crypto mining — `src/housing/README.md` Decisions): 연산 클러스터 (9 core slots, one lit per core inserted) · 메인 컴퓨터 */
   | 'compute_cluster' | 'mining_computer'
-  /* appended (2026-09-13, library series · video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그 */
+  /* appended (2026-09-13, library series · video games — `src/housing/README.md` Decisions): 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그 */
   | 'game_stand' | 'sofa' | 'low_table' | 'rug';
 
 /** What E does on a placed piece. */
@@ -799,11 +799,11 @@ export const FURNITURE_DEFS: readonly FurnitureDef[] = csvRows('furniture.csv').
     color: r.str('color'),
     ...(r.has('stackLimit') ? { stackLimit: r.int('stackLimit', { min: 1 }) } : {}),
     ...(r.bool('retired') ? { retired: true } : {}),
-    /* appended (2026-09-13): placement access faces · required power · building several (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) */
+    /* appended (2026-09-13): placement access faces · required power · building several (`src/housing/README.md` Decisions) */
     ...(r.has('access') ? { access: accessCell(r.str('access'), (m) => r.report('access', m)) } : {}),
     ...(r.has('power') ? { power: r.num('power', { min: 0 }) } : {}),
     ...(r.bool('multi') ? { multi: true } : {}),
-    /* appended (2026-09-13): low furniture that does not block the view (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+    /* appended (2026-09-13): low furniture that does not block the view (`src/housing/README.md` Decisions) */
     ...(r.has('low') && r.bool('low') ? { low: true } : {}),
   };
 });
@@ -1230,7 +1230,7 @@ export interface HousingRef {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-12 — library media (A-3e) · the gym (A-3a). Design · user's decision: docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」
+ * appended: 2026-09-12 — library media (A-3e) · the gym (A-3a). Design · user's decision: `src/housing/README.md` Decisions
  *
  * 1. **Library media.** A disc stand (`disc_stand`) · a record rack (`record_rack`) stand beside the bookshelf (`bookshelf`). The three follow one rule —
  *    shelving a medium in a slot raises the gain multiplier of the skill that medium teaches, and what has been shelved stays in the catalogue. Each medium's share is clamped on its own and added:
@@ -1429,7 +1429,7 @@ export interface HousingRef {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-13 — cooking ingredient tiers (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, user's decision)
+ * appended: 2026-09-13 — cooking ingredient tiers (user's decision)
  *
  * 1. **The analyzer rolls a result table.** A sample is analysed by family (`SampleFamily`), and **the moment it goes in** the result is drawn
  *    from `data/analysis_results.csv`, weighted by that family's analysis level, and written into the slot (`AnalysisSlot.resultDefId` — a failed collection never re-rolls it).
@@ -1700,7 +1700,7 @@ export interface HousingRef {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-13 — cooking minigames (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, user's decision — the rules · tables are in `shared/cooking.ts`)
+ * appended: 2026-09-13 — cooking minigames (`src/housing/README.md` Decisions, user's decision — the rules · tables are in `shared/cooking.ts`)
  *
  * E on the cook bench → the **cook bench screen** (`openCookStation`) — the meal list · ingredients · minigame order · auto appliances · the ship stash / bag cards.
  * 「조리 시작」 (`startCook`) → the pose at the cook bench + a locked camera (hub, `housing:cookSession`) + the minigame overlay → per step
@@ -1729,7 +1729,7 @@ export interface HousingRef {
 /* ══ end 2026-09-13 cooking minigames ══ */
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-13 — furniture placement rules · generator power · crypto mining (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, user's decision)
+ * appended: 2026-09-13 — furniture placement rules · generator power · crypto mining (`src/housing/README.md` Decisions, user's decision)
  *
  * 1. **Placement rules** (`FurnitureDef.access`). A piece's front is local −Z — on the grid, yaw 0 = y decreasing · 1 = x increasing · 2 = y increasing · 3 = x decreasing.
  *    - `front` — the row in front (as wide as the piece, 1 cell deep) must hold no other furniture, and must not be outside the grid (a wall) either. Interaction only from the front.
@@ -2109,7 +2109,7 @@ export interface HousingRef {
 /* ══ end 2026-09-13 placement rules · power · crypto mining ══ */
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-13 — library series · video games (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — the source of the effect · series rules is `shared/library.ts`)
+ * appended: 2026-09-13 — library series · video games (`src/housing/README.md` Decisions — the source of the effect · series rules is `shared/library.ts`)
  *
  * 1. **Library series.** The bookshelf · disc stand · record rack · game disc stand may be built **several times** (`FurnitureDef.multi`). A shelved medium is
  *    counted **once per kind (def)**, and the sum is the series share (`librarySeriesFraction`) × the effect line (the full-series value) × the aux furniture multiplier → `getLibraryEffects()`.

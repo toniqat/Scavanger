@@ -5,7 +5,7 @@ import { androidNameOf, humanPlayersOf, isBotPlayer } from '@/shared';
 import { el, setText, toggleClass } from './dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * The terminal's matchmaking tab (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」 — user's decision).
+ * The terminal's matchmaking tab (2026-09-15, user's decision).
  *
  * It **replaces the old matchmaking popup outright** (`MatchPanel` — signal search · dock by code · invite link ·
  * public toggle · four crew rows). Codes, links and the public toggle are gone from the UI. What is left:

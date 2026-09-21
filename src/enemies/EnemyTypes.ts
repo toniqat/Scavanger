@@ -158,7 +158,7 @@ export const BEHEMOTH_AI = ability<'engageDist' | 'chargeCooldown' | 'overshoot'
 
 export const ALL_ENEMY_TYPES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth', 'rogue_sniper', 'rogue_hammer', 'rogue_heavy', 'rogue_scan_drone', 'android', 'raider', 'sandworm', 'tut_bug_loot', 'tut_bug', 'tut_android_loot', 'tut_android', 'sandworm_weak', 'scavenger_summon', 'bug_egg'];
 
-/* ── 2026-09-14 (3rd pass): the four tutorial-only types (`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ──────────
+/* ── 2026-09-14 (3rd pass): the four tutorial-only types ──────────
  *
  * The one thing these four types have of their own is a **fixed drop table** (`data/loot_corpses.csv` ·
  * `loot_corpse_rolls.csv`). The rig · look · AI · sounds are the **base type**'s, used as they are — so no row is added

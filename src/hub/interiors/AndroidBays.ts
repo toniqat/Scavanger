@@ -8,7 +8,7 @@ import { TextPlane } from '../Labels';
 
 /**
  * src/hub/interiors/AndroidBays.ts — **the cockpit's three android bays** (2026-09-15, user's decision
- * 「매칭 후, 공용 함선 조종실 내부 한켠에 안드로이드 슬롯이 3칸」 — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원」).
+ * 「매칭 후, 공용 함선 조종실 내부 한켠에 안드로이드 슬롯이 3칸」 — `src/allies/README.md` Decisions).
  *
  * Three capsules stand in the **port corner of the shared ship's bridge**, between the helm console (x ≈ −12.4) and
  * the aft armoury (z ≈ 6.3), one row along Z facing **+X (toward the deck)**. Why the spot is here:

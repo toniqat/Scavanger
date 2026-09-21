@@ -194,7 +194,7 @@ export class Enemy implements EnemyRef {
   /** cached nearby obstacles (refreshed every ~0.25 s) */
   nearObstacles: Obstacle[] = [];
   obstacleTimer = 0;
-  /* ── appended (2026-09-20, AI LOD — `docs/DECISIONS.md` perf Phase C · B4) ───────── */
+  /* ── appended (2026-09-20, AI LOD — `docs/PERF.md` perf Phase C · B4) ───────── */
   /**
    * Seconds of skipped AI ticks waiting to be spent. `EnemySystem` adds `dt` here on a frame this body's AI is
    * skipped and hands `dt + aiDebt` to `updateEnemyAI` on the frame it runs, so speed, cooldowns and every timer

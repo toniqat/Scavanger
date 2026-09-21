@@ -3,7 +3,7 @@
  *
  * The question this file answers: *does a sandworm appear this raid, when · where, and what does it do afterwards.*
  *
- * ## Appearance — a cumulative chance (user's decision 2026-09-15, docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」)
+ * ## Appearance — a cumulative chance (user's decision 2026-09-15, `src/enemies/README.md` Decisions)
  * No pre-roll and no time window. Every `SANDWORM_CHECK_S` the **host** reads the conditions and rolls that moment's `p` — at most once per raid.
  *   1. Candidates = living humans (local + `ctx.net.getRemotePlayers()` in the mission, not dead, not downed) + **android
  *      squadmates** (`ctx.allies.getCombatBodies()`). Weight state: local `ctx.inventory.getWeight().state`, remote

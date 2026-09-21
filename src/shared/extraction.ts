@@ -31,7 +31,7 @@ export interface ExtractionRef {
    */
   keepEnemyOut(position: THREE.Vector3, radius: number): boolean;
 
-  /* ── appended (2026-09-14, the tutorial rework — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ── */
+  /* ── appended (2026-09-14, the tutorial rework — `src/tutorial/README.md` Decisions) ── */
   /**
    * Stands an **already-landed extraction ship** on the spot — the console, the 20 s call and the landing shot are all
    * skipped and it goes straight to `landed`. The tutorial's 「버려진 함선」 is this: no separate ship mesh is built, the
@@ -71,7 +71,7 @@ export interface ExtractionRef {
    */
   skipToComplete?(): boolean;
 
-  /* ── appended (2026-09-15, android squadmates — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ── */
+  /* ── appended (2026-09-15, android squadmates — `src/allies/README.md` Decisions) ── */
   /** This map's extraction pads — the `id` and the standing spot in front of the console (where an android walks to press it). Reused array. */
   getPads?(): readonly { readonly id: string; readonly position: THREE.Vector3 }[];
   /** Authority: an android pressed the console of pad `padId` — the same flow as a person pressing it. False when not `idle`, or the pad is unknown. */

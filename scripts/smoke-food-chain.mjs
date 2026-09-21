@@ -1,4 +1,4 @@
-// Single-player smoke test for **the cooking material tiers — the housing rules** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, agent B).
+// Single-player smoke test for **the cooking material tiers — the housing rules** (2026-09-13, agent B).
 // The screens (housing/ui) are smoke-stations' job; only the `ctx.housing` API · `state` · the save are checked here:
 //   0. The pure functions of `Rules.ts` — the last two arguments default to **the same value** the old formula gave
 //      (`growDurationMs` · `cultureDurationMs`), only the soil-match bonus rides the ratio (the penalty does not),

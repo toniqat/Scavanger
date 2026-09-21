@@ -766,7 +766,7 @@ export function refundAfterCraft(
   return out;
 }
 
-/* ══ 2026-09-13 — cooking minigames: one cook (`InventoryRef.cookBlock` · `consumeCookInputs`, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ══
+/* ══ 2026-09-13 — cooking minigames: one cook (`InventoryRef.cookBlock` · `consumeCookInputs`) ══
  * Called by housing's cook bench screen once the minigame ends. The rules are the ship workbench's craft rules:
  *   Gate      — a cook bench recipe (its product is in the meal table `getMealDef`) · the ship · bench level · tutorial · materials (`craftCost`, workshop discount included).
  *               2026-09-16 (user's decision): **there is no skill gate** — the cooking skill only takes part in the material refund.

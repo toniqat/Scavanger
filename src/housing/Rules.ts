@@ -266,7 +266,7 @@ export function bookGainMulFor(skill: SkillId, books: readonly PlacedBook[], def
 /* ── library media (A-3e, 2026-09-12) ─────────────────────────────────────────
  * 책장 · 디스크 전시대 · 레코드랙 follow one rule — each medium's share is **capped on its own**, then multiplied by
  * `1 + SHELF_AUX_BONUS[m]` when that medium's auxiliary furniture stands anywhere on the ship, and the three are
- * added (docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」):
+ * added:
  *
  *     share[m]  = min(SHELF_GAIN_MAX[m] − 1, SHELF_XP_PER_ITEM[m] × Σ BOOK_RARITY_MUL[rarity]) × (aux ? 1 + SHELF_AUX_BONUS[m] : 1)
  *     library multiplier = 1 + share[book] + share[disc] + share[record]
@@ -335,7 +335,7 @@ export function shelfGainFor(
   return { total: 1 + parts.book + parts.disc + parts.record, parts, aux: { book: aux.book, disc: aux.disc, record: aux.record, game: false } };
 }
 
-/* ── library series (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — user's decision) ─────
+/* ── library series (2026-09-13, user's decision — `src/housing/README.md` Decisions) ─────
  * **The old formula is retired** — `bookWeightOf` · `bookGainMulFor` · `shelfItemWeightOf` · `shelfPartFor` ·
  * `shelfGainFor` above and the contract's `BOOK_RARITY_MUL` · `SHELF_XP_PER_ITEM` · `SHELF_GAIN_MAX` keep their names
  * only (no caller — the add-only convention). The new formula:
@@ -632,7 +632,7 @@ export function cultureDurationMs(cultureHours: number, mediumSpeedMul: number, 
   return Math.max(1000, Math.round(Math.max(0, cultureHours) * 3600e3 * medium * speed * socketTimeMul(socketSpeed, ratio)));
 }
 
-/* ── cooking material tiers (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」) ─────
+/* ── cooking material tiers (2026-09-13) ─────
  * Soil and medium durability with their sockets, plus the analyzer result table. All pure functions, every number
  * from the contract (`@/shared` = `data/*.csv`).
  * Randomness is **injected** (`rng01`) — callers pass `Math.random`, a smoke passes a fixed sequence.
@@ -981,7 +981,7 @@ export function topLayer(members: readonly PlacedFurniture[]): number {
   return top;
 }
 
-/* ── placement rules: access faces (2026-09-13, user's decision — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 · the contract's closing section in `shared/housing.ts`) ──────────
+/* ── placement rules: access faces (2026-09-13, user's decision — the contract's closing section in `shared/housing.ts`) ──────────
  * A piece's front is local −Z. A `front` piece needs its front row (body width × one cell deep) free of other bodies,
  * and that row must not be outside the grid (a wall) either.
  * `sides` is the two long faces (local ±Z); `all` needs one row on each of the four faces free of bodies, though a
@@ -1339,7 +1339,7 @@ export function purposeRequirementsFor(state: ShipState, purpose: RoomPurpose): 
   return generatorRequirement(state, purposeGeneratorLevel(purpose));
 }
 
-/* ── video games: the TV seat (2026-09-13, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ─────
+/* ── video games: the TV seat (2026-09-13, H2) ─────
  * The grid convention is **the same one** as the 「placement rules: access faces」 section above — a piece's front is
  * local −Z, and its grid direction is the contract's `furnitureFaceDir(yaw, 'front')` (yaw 0 → grid y falling · 1 → x
  * rising · 2 → y rising · 3 → x falling). A TV's access face is `front`, so its front row is always clear.

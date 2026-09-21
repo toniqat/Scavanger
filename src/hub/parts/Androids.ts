@@ -1,5 +1,5 @@
 /**
- * src/hub/parts/Androids.ts — **the cockpit android bays** (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원」).
+ * src/hub/parts/Androids.ts — **the cockpit android bays** (2026-09-15, `src/allies/README.md` Decisions).
  *
  * The three capsules along one side of the shared ship's cockpit (`interiors/AndroidBays.ts`): **the squad leader
  * holding one for `ALLY_BAY_HOLD_S`** makes that bay's android a squadmate (`lobby:android {recruit:true}`), and

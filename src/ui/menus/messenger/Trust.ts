@@ -3,7 +3,7 @@ import { REP_LEVEL_MAX, REP_TABLE, repLevelOf } from '@/shared';
 import { clamp01, el } from '../../dom';
 
 /**
- * Reading · drawing an **NPC's personal trust** (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
+ * Reading · drawing an **NPC's personal trust** (2026-09-14).
  *
  * **Separate** from corporation reputation (`ctx.meta.getRep`) while using the same `REP_TABLE` (0–5) — the value comes from
  * `ctx.meta.npcTrust(npcId)` alone and only the level · the band fraction are worked out here (meta/ is not imported — folders speak to each other through `ctx` refs only).

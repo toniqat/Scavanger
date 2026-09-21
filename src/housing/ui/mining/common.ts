@@ -5,7 +5,7 @@ import { el } from '../dom';
 import './mining.css';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * **Shared by the mining screen** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 · the 2026-09-14 combined window).
+ * **Shared by the mining screen** (2026-09-13 · the 2026-09-14 combined window).
  *
  * The formatting · calculation · input pieces the `채굴` tab (`ClusterPage`) · the coin dropdown (`CoinPicker`) · the main computer's three tabs (`ComputerPages`) share.
  * Not one rule lives here — the mining cycle · the quote · the lock reason all come back from `ctx.housing`. The

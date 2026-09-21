@@ -379,7 +379,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     },
   },
 
-  /* ══ 2026-09-14 the tutorial rework (docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) ══════════════════════════════════
+  /* ══ 2026-09-14 the tutorial rework ══════════════════════════════════
    * ① raid — a hand-built tutorial planet. What has to be guided is **the fingers, not the UI**, so there is almost
    *    no spotlight: the keys in use are drawn by the control guide on the right (`ui/Controls`,
    *    `TUTORIAL_CONTROL_HINTS`), and the objective panel says only "what is being done right now".

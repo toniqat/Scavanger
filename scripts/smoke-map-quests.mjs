@@ -1,4 +1,4 @@
-// Tactical-map quest panel · quest toast smoke (2026-09-14 — src/ui/map/QuestPanels · src/ui/hud/Notifications, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+// Tactical-map quest panel · quest toast smoke (2026-09-14 — src/ui/map/QuestPanels · src/ui/hud/Notifications).
 //
 // Why it exists: the map's left column became 「머리 → 퀘스트 패널 목록 → 범례(좌측 하단) → 발밑 줄」 and the panels draw
 // `ctx.meta.npc.getRaidTracks()`. More panels must not grow the frame (= the canvas height), and the column must not

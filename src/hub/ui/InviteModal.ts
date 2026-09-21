@@ -3,7 +3,7 @@ import { PLAY_BLOCK_LABELS, PRESENCE_LABELS, SOCIAL_ERROR_MESSAGE_KO, SQUAD_INVI
 import { el, setText, toggleClass } from './dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * The squad invite window (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」 — user's decision).
+ * The squad invite window (2026-09-15, user's decision).
  *
  * Opened by the `초대` on an empty portrait tile of the terminal's matchmaking tab. Friends first, then recently met
  * players, and one row = name · id (`formatPlayerCode`) · level · presence (`PRESENCE_LABELS`) · `초대` on the right.

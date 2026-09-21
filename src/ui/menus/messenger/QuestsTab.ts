@@ -14,7 +14,7 @@ export interface QuestsTabHost {
 }
 
 /**
- * The messenger's `퀘스트` tab (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * The messenger's `퀘스트` tab (2026-09-14).
  *
  * Left list = active (reportable on top) · complete (collapsed). Right detail = the NPC head (the avatar wearing the trust ring · name · job title · the **personal trust gauge**) +
  * the quest card (`detail`): progress · [납품] per objective, [완료 보고] (lit only once every objective is full — the reason is one line under the card). There is no abandon button (user's decision).

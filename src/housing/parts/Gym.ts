@@ -89,7 +89,7 @@ export function completeGymSession(sys: HousingSystem, score: number): GymSessio
   if (st.finished) return st.result;
   st.finished = true;
   st.score = Math.max(0, Math.min(1, Number.isFinite(score) ? score : 0));
-  /* ══ the library gym bonus (H3, 2026-09-13 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══
+  /* ══ the library gym bonus (H3, 2026-09-13) ══
    * For the four kinds of gym equipment (`LIBRARY_GYM_TARGETS`), `getLibraryEffects().gymScore[the equipment's interaction]` is added to the
    * session score and clamped to 1. A game (TV) session is `parts/VideoGame.ts`'s job and is not an equipment interaction, so it gains nothing
    * from passing through here. */

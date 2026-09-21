@@ -1,5 +1,5 @@
 /**
- * src/housing/parts/VideoGame.ts — **video games** (2026-09-13, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」).
+ * src/housing/parts/VideoGame.ts — **video games** (2026-09-13, H2).
  *
  * A console is attached to the TV (`ShipState.tvConsoles`), and of the discs shelved on a game disc stand (`game_stand`, library medium `game`) the ones
  * the console matches are played. With a seat facing the TV in front of it the player sits there, else plays **standing** (2026-09-17 user's decision — a seat is no condition).

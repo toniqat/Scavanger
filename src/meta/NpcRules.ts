@@ -1,6 +1,6 @@
 /**
  * src/meta/NpcRules.ts — the **pure rules** of NPC quests
- * (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * (2026-09-14).
  *
  * Without ctx or DOM: the requirement check (`requirementMet`), kill target · item matching (`enemyMatches` ·
  * `itemMatches`), the Korean objective label (`objectiveLabel`) · the reward summary (`rewardSummary`), tidying the
@@ -89,7 +89,7 @@ export interface NpcReqContext {
   repLevel(corp: CorpId): number;
   questDone(id: string): boolean;
   /**
-   * appended (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」): the **per-NPC** trust level (0–5, the same
+   * appended (2026-09-14): the **per-NPC** trust level (0–5, the same
    * `REP_TABLE` as a corporation). An unknown NPC is 0.
    */
   npcTrustLevel(npcId: string): number;

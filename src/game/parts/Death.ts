@@ -122,7 +122,7 @@ export function onLocalDied(sys: GameFlowSystem): void {
   }
   }
 
-/* ═══════════════ Tutorial checkpoint respawn (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ══════════════
+/* ═══════════════ Tutorial checkpoint respawn (2026-09-14) ══════════════
  *
  * 「A full death has no automatic revive」 (2026-09-09) still holds — this is not an exception that breaks that
  * rule but a **separate branch** living only inside `ctx.missionMode === 'tutorial'`, and the means of reviving is
@@ -455,7 +455,7 @@ export function gameOver(sys: GameFlowSystem): void {
   }
 
 /**
- * 2026-09-13 (library series, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): the library effect's raid
+ * 2026-09-13 (library series): the library effect's raid
  * XP multiplier `1 + raidXp`. 1 when `housing` does not know the sum (parallel work · a skeleton). A negative
  * value or NaN reads as 0.
  */

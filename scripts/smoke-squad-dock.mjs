@@ -1,4 +1,4 @@
-// 분대 · 도킹 매칭 smoke (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」) — three headless clients against
+// 분대 · 도킹 매칭 smoke (2026-09-15) — three headless clients against
 // a relay this script starts itself from the working tree's `server/index.ts` (port 9894, temp profile store), so the
 // shared relay (8787, possibly older code) is never touched:
 //   1. A invites B (`social.playWith`) → A leads an **undocked** lobby; B accepts (P-hold path = `acceptInvite`) → both stay in

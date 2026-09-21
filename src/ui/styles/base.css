@@ -3127,7 +3127,7 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .compass .etick.scanned { top: 22px; height: 11px; width: 2px; box-shadow: 0 0 8px rgba(255, 77, 77, 0.95); }
 .compass .etick[hidden] { display: none; }
 
-/* ═══ 2026-09-15 — android squadmates (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ═══
+/* ═══ 2026-09-15 — android squadmates ═══
  * **The same language as a human squadmate, a different shape**: the slot colour is kept, but the compass tick is
  * a diamond, and the squad row · nameplate · ping · chat each carry a mark of their own. A bot member has no
  * socket and therefore no `RemotePlayerRef`, so every value comes from its body in `ctx.allies`

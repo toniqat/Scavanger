@@ -1,6 +1,5 @@
 /**
- * Crypto price simulation · candle history · persistence (2026-09-13, docs/DECISIONS.md
- * 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — the contract is `src/shared/cryptoMarket.ts` ·
+ * Crypto price simulation · candle history · persistence (2026-09-13 — the contract is `src/shared/cryptoMarket.ts` ·
  * `EconomyTable.crypto` in `src/shared/credits.ts` · `crypto:*` in `src/shared/net.ts`).
  *
  * The relay is the **one source** of coin prices (user's decision — a chart and a trade need the server). The numbers
@@ -72,8 +71,7 @@ export function corruptCryptoFileName(now: Date = new Date()): string {
 export const CRYPTO_SAVE_DEBOUNCE_MS = 60_000;
 
 /*
- * The shape of the simulation (the lead's design — docs/DECISIONS.md
- * 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」). Per-coin balance (base price · volatility · tick) lives in
+ * The shape of the simulation (the lead's design). Per-coin balance (base price · volatility · tick) lives in
  * the csv; only the **shape of the model** is here: the half-life · the jump frequency · the jump size · the price
  * band. To lift these four into the csv, add fields to `EconomyTable.crypto` and have the generator carry them.
  */

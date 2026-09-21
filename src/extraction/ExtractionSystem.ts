@@ -299,7 +299,7 @@ export class ExtractionSystem implements GameSystem {
     return this.preLanded && this.ctx?.missionMode === 'tutorial';
   }
 
-  /* ── 2026-09-14 (tutorial rework, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): an already-landed ship ──────
+  /* ── 2026-09-14 (tutorial rework, `src/tutorial/README.md` Decisions): an already-landed ship ──────
    * The tutorial's 「abandoned ship」 is not a new mesh but the **real extraction ship**. Only the console, the 20 s
    * call, the flight in and the landing shot are skipped; it enters `landed` directly, so the interior switch → the
    * uncancellable 10 s grace → liftoff → result and settlement all run **down the usual road** (that this file grows

@@ -1,5 +1,4 @@
 // 2026-09-13 — the library series · video games: the hub side (src/hub — models · interaction · the game cutscene).
-// docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」.
 // The rules (the seat judgement · the session · the result) are housing's job, so housing methods are replaced with
 // **stubs** or events are pushed onto the bus here, and only hub is checked.
 //  0. Models: the game disc stand · sofa · low table · rug · chair · TV are built with 0 lights · the sitting

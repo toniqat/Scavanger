@@ -2,7 +2,7 @@ import type { GameContext } from '@/shared';
 import { el } from './dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * The training arena entry confirm (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」 — user's decision).
+ * The training arena entry confirm (2026-09-15, user's decision).
  *
  * The `시뮬레이션 훈련장` button at the bottom right of the terminal's planet tab raises this card instead of entering
  * straight away. Entering is **reversible**, so it is a tap confirm, not a 1 s hold (the other side of 「irreversible

@@ -5,7 +5,7 @@ import {
 } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * The tutorial planet — **the shape of the map itself** (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
+ * The tutorial planet — **the shape of the map itself** (2026-09-14).
  *
  * This file is `world/tutorial/`'s shared vocabulary (the `model.ts` + `parts/` convention in `CLAUDE.md`): coordinates ·
  * dimensions · types · small geometry helpers only, no state. **The numbers here never go out to csv** — they are not

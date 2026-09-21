@@ -6,7 +6,7 @@ import { CAMERA_WALL_MARGIN, restRig, segmentHits, sitPoseOf, type FootBox, type
 import { SIT_SEAT_TOP, TV_GAME_HUD, TV_GAME_SCREEN } from './FurnitureLeisure';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Video-game staging (2026-09-13, library series · video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」). Modelled on `GymStaging` · `CookStaging`.
+ * Video-game staging (2026-09-13, library series · video games). Modelled on `GymStaging` · `CookStaging`.
  *
  *   housing:gameSession {active:true}  → a `sit` pose on the seat (`seatUid`) spot closest to the TV · yaw toward the TV screen · an over-the-shoulder fixed camera
  *                                         → setFurniturePose (false → cancelGameSession **on the spot**) · the TV's game screen (`model.tv.overlay`) is turned on

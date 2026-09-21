@@ -1,4 +1,4 @@
-// Android squadmates — bot lobby member smoke (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」).
+// Android squadmates — bot lobby member smoke (2026-09-15, src/allies/README.md Decisions).
 // Two headless clients attach to a relay **this script starts itself** (9896, a temp profile store) — the shared relay
 // (8787, which may be running older code) is left alone. What is checked here is only the contract of `src/net` and
 // `server/` (the cockpit bay presentation · the bodies · the AI belong to hub/allies' own smokes).

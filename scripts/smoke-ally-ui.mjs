@@ -1,5 +1,5 @@
 // Android squadmate HUD + raid-entry loading gauge smoke (src/ui, 2026-09-15 —
-// docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」). The relay socket is parked (parkRelay), never used.
+// src/allies/README.md · src/game/README.md Decisions). The relay socket is parked (parkRelay), never used.
 //
 // The allies / hub / game folders are still being built, so this smoke runs on **bus events and a fake `ctx.allies`**
 // alone: `hud.debugAllies(ref)` (ui/hud/allySource) plants the roster · the bodies, everything else is a `ctx.bus.emit`.

@@ -53,7 +53,7 @@ interface Cell {
 }
 
 /**
- * **The character buff thumbnail strip (2026-09-12, user's decision — `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」).** It lays one character's
+ * **The character buff thumbnail strip (2026-09-12, user's decision — `src/player/README.md` Decisions).** It lays one character's
  * `CharBuff[]` out as small square thumbnails. Under the PC hp bar (`hud/Vitals`) and the squadmate rows of the bottom-left squad list
  * (`hud/Squad`) use **the same component** — only the size differs, through `mini`. The list is collected by player (mine) · net (a squadmate's),
  * and this file draws the list it is handed **as-is** (the owner already sorted it by `CHAR_BUFF_ORDER`).

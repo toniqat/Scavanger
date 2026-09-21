@@ -53,7 +53,7 @@ class Look implements GearLook {
     this.finish(mesh); this.group.add(mesh); return mesh;
   }
   private finish(mesh: THREE.Mesh): void {
-    // 2026-09-20 (`docs/DECISIONS.md` perf Phase 1): armour plates · held items sit **on** the soldier, so their shadow
+    // 2026-09-20 (`docs/PERF.md` perf Phase 1): armour plates · held items sit **on** the soldier, so their shadow
     // landed inside the body's. The body keeps casting (`SoldierModel`'s torso · head · limbs); these 9-14 meshes
     // were 9-14 extra shadow draws per body, and the render block is the frame.
     mesh.castShadow = false; mesh.receiveShadow = false;

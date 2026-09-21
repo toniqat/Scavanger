@@ -495,7 +495,7 @@ export function toggleFurniture(sys: HousingSystem, uid: string): boolean | null
   return on;
 }
 
-/* ══ Library series — the effect-sum cache · sources · the band · recipe unlocks (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ═
+/* ══ Library series — the effect-sum cache · sources · the band · recipe unlocks (2026-09-13) ═
  * The summing is `Rules.computeLibraryEffects` (pure); this file decides **what goes in** (working holders · aux furniture) and **when to count again**.
  *
  * - One cache per system (`WeakMap`) and every query passes through `ensureLibrary` — a dirty one is counted again on the spot.

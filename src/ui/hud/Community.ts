@@ -19,8 +19,8 @@ const STALE_KEY = '#';
 
 /**
  * The **messenger** icon + panel host + squad invite stack (`.community`, social layer — the layer that stays visible in the ship).
- * Phase 11's community panel became the **messenger** on 2026-09-14 (`menus/messenger/Messenger` — 대화 · 친구 · 퀘스트)
- * (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」). What this class holds is unchanged: the window frame, the blocker (`COMMUNITY_BLOCKER`), the software cursor,
+ * Phase 11's community panel became the **messenger** on 2026-09-14 (`menus/messenger/Messenger` — 대화 · 친구 · 퀘스트).
+ * What this class holds is unchanged: the window frame, the blocker (`COMMUNITY_BLOCKER`), the software cursor,
  * the Escape stack, the P tap toggle / P hold invite accept, the key guide. Inside the panel frame is built by `Messenger`.
  *
  * Ship only, exactly like `hud/ShipManageHint`: it self-gates on `ctx.isHubPhase()` every frame and never appears in

@@ -7,7 +7,7 @@ import {
   XP_BASE, XP_EXPONENT,
   GRAVITY, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, PLAYER_HEIGHT, THROW_RANGE_MUL_MAX, THROW_RANGE_MUL_MIN,
   mealQualityBonus,
-  /* 2026-09-13 cooking / research skills (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+  /* 2026-09-13 cooking / research skills */
   COOK_SKILL_SCORE_AT_MAX, RESEARCH_REFUND_CHANCE_AT_MAX, RESEARCH_REFUND_FRAC_MAX, RESEARCH_REFUND_FRAC_MIN, RESEARCH_TIME_AT_MAX,
 } from '@/shared';
 import { WEAPON_CLASS_SKILL } from './defs';
@@ -189,7 +189,7 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
      * in `data/meals.csv` or `library_series.csv` today.)
      */
     craftSpeedMul: 1,
-    /* 2026-09-13: cooking / research skills (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+    /* 2026-09-13: cooking / research skills */
     cookScoreBonus: COOK_SKILL_SCORE_AT_MAX * frac(profile, 'cooking'),
     researchTimeMul: 1 - RESEARCH_TIME_AT_MAX * frac(profile, 'research'),
     researchRefundChance: RESEARCH_REFUND_CHANCE_AT_MAX * frac(profile, 'research'),
@@ -220,7 +220,7 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
  * is read as `[{buff, amount}]` — same result as before. The per-row rule is unchanged: one addition + **0 as the
  * floor** (the same buff on two rows is added twice in turn).
  *
- * 2026-09-13 (cook quality, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」): `quality` (0 … 5 stars) scales each row by
+ * 2026-09-13 (cook quality): `quality` (0 … 5 stars) scales each row by
  * `amount × (1 + mealQualityBonus(quality))` **before** the rule above (addition + 0 floor) is applied — a negative row
  * (`durabilityLossMul`) is cut further and the floor is unchanged. Omitted = 0 = 100 % of the original number.
  *
@@ -240,7 +240,7 @@ export function applyMealBuff(d: DerivedStats, meal: MealDef, quality = 0): void
   }
 }
 
-/* ══ Library derived effects (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ═════════════
+/* ══ Library derived effects (2026-09-13) ═════════════
  * A library series' `derived` effect rows are not new fields but **the same `MealBuff` keys as meal buffs** — housing
  * sums them into `LibraryEffectsSummary.derived`, and `ProgressionSystem.deriveFor` folds that in through this
  * function **after** the meal buff. The rule is exactly one `applyMealBuff` row: one addition + **0 as the floor**.

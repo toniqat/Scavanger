@@ -1,6 +1,6 @@
 import type { MealBuff, MealDef, MealEffect } from '@/shared';
 import { MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT, MEAL_TIER_LABEL_KO } from '@/shared';
-/* 2026-09-13 (cooking minigame — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」): meal quality · cook steps */
+/* 2026-09-13 (cooking minigame): meal quality · cook steps */
 import { COOK_GAME_LABEL_KO, cookStepsOf, mealQualityBonus, mealQualityStars, normalizeMealQuality } from '@/shared';
 
 /**

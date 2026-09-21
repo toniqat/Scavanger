@@ -1,6 +1,6 @@
 /**
  * src/shared/allies.ts — **android squadmates** (`ctx.allies`). 2026-09-15 user's decision —
- * docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」.
+ * `src/allies/README.md` Decisions.
  *
  * The question this file answers: *who runs a squadmate that is not a person, and what do other folders read.*
  *

@@ -26,8 +26,7 @@ import { PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES } from '../src/shared/profil
 /* Phase 11 */
 import type { PlanetId } from '../src/shared/planets.ts';
 import { isPlanetId } from '../src/shared/planets.ts';
-/* 2026-09-14: the intel broker — the fixed gimmicks carried on the lobby (only the shape is sanitized,
-   docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* 2026-09-14: the intel broker — the fixed gimmicks carried on the lobby (only the shape is sanitized) */
 import type { IntelWire } from '../src/shared/net.ts';
 import { sanitizeIntelPicks } from '../src/shared/intel.ts';
 import type { PlayerCode, PresenceState, SocialErrorCode, SocialPlayer, SocialSnapshot } from '../src/shared/social.ts';
