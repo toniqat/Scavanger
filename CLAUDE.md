@@ -111,7 +111,7 @@ folder's responsibility changes.
 | Folder | System | Publishes on `ctx` | Responsibility |
 |---|---|---|---|
 | [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | Procedural terrain · biomes · props (convex-hull colliders) · collision/ray/surface queries · the raid's walkable graph (`ctx.world.nav`, A\* · ladders) · crates · gather nodes · fog of war · abandoned structures (floors · stairs · roof · locked doors · windows) · rails/trams · rover · hazards · site spawn points · intel layout preview · training range · tutorial planet |
-| [`src/enemies/`](src/enemies/README.md) | `EnemySystem` | `ctx.enemies` | Bugs · humanoid factions (android · rogue · raider) AI · spawns/site occupation/drops · named rogues · sandworm · artillery · corpse looting · status effects · enemy explosions · reactions to shots · host/replica sync + request guards · tutorial enemies |
+| [`src/enemies/`](src/enemies/README.md) | `EnemySystem` | `ctx.enemies` | Bugs · humanoid factions (android · rogue · raider) AI · spawns/site occupation/drops · named rogues · sandworm · artillery · corpse looting · status effects · enemy explosions · reactions to shots · pathfinding on the nav graph (flow fields · gate queues · wall climbs · window crawls) · host/replica sync + request guards · tutorial enemies |
 | [`src/extraction/`](src/extraction/README.md) | `ExtractionSystem` | `ctx.extraction` | Extraction console · call countdown · ship landing (hull colliders, enemy entry block) · boarding · non-cancellable grace · liftoff cinematic; host-authoritative |
 
 ### 3.4 Items · inventory · meta
@@ -247,6 +247,10 @@ Each rule is the short form; the reason lives in the comment at the pointed code
   `ctx.world.nav`, nothing is on the wire. A mover keeps its old steering whenever the straight line is `walkable` or the
   graph has no answer; a collider changed after generation must go through the hash (`insert` · `remove` · `move`) or the
   graph never re-measures it (`SpatialHash.onChange`). Link rules (step · slope · ramp side) live only in `nav/parts/Graph.linkOk`.
+  Phase 2 added **flow fields** (one time-sliced Dijkstra per chased body and `NAV_CAN` mask, `NAV_FLOW_BUDGET_MS` a frame),
+  **gates** (doors · stairs found at bake time; `setGateLoad` makes a crowded one cost more) and the special links `climb` ·
+  `window` — `nav/parts/Flow` · `Gates` · `Links`. Never hand the graph object to a serializer (a puppeteer predicate must return
+  a boolean): a built field points back at the graph and the page hangs serialising it (`nav/README.md`).
 - Airborne impulses keep horizontal momentum until landing (`PlayerController.airCarry`).
 - A dropped item takes a **free spot at spawn** — a spiral out from the landing guess (`PICKUP_SPOT_RINGS` × `PICKUP_SPOT_STEP_M`) keeping `PICKUP_SEPARATION_M` from every pickup's `restSpot`, never a per-frame separation pass, and never a lost item (all rings taken = the original spot). Compare against `restSpot`, not `position`: a bag swap drops many items in one frame and they are all still at the muzzle. Decided where the drop is decided, so the chosen spot rides the existing `item drop` message — `pickups/PickupSystem.freeSpotFor`.
 - Skill XP from movement reads `PlayerRef.selfMovedMeters` (self-propelled odometer), never a position delta — ship / vehicle / carried / grapple / dash / impulse movement never counts (`PlayerController.selfMoved`).
@@ -288,6 +292,13 @@ Each rule is the short form; the reason lives in the comment at the pointed code
   hit-zone owner is handed the **blast centre** — the rover pulls it onto its hull box first (`roverBlastPoint`) so a
   grenade under a wheel takes that wheel.
 - **They do not pass a window either, broken or not** — both go through `shared/explosion.lineClear` → `WorldRef.raycastBlast`, the same ray as `raycast` except that a **glass** collider blocks it. The test is the collider's `kind` (`GLASS_OBSTACLE_KIND`, `world/structures/parts/Glass.ts`), never `passRays`: the tutorial's ghost fence band is `passRays` too and must keep letting blasts through. Low cover is untouched (it was never `passRays`, and the head ray still reaches a peeker); bullets, enemy sight lines and thrown gadgets still use `raycast`.
+- **Enemy pathfinding only changes the point `integrate` seeks** (2026-09-21, TODO A-18 phase 2, user's decision): who uses the
+  graph is `enemies.csv` `nav` (`EnemyStats.navCan`) — scavenger climbs walls to the roof and crawls through windows (breaking a
+  whole pane first), scavenger · toxic · hunter + every humanoid come in through doors, **everything bigger is `0` and steers
+  exactly as before**. Chasing a person reads a flow field; a private goal (nest return · investigate · cover) uses a per-body
+  A\* capped at `ENEMY_NAV_PLANS_PER_FRAME` for the pool. A gate passes `NAV_GATE_CAPACITY` bodies at a time and the rest queue
+  (`enemies/ai/Gates`, tokens recounted from the living bodies). Graph off / no answer / stuck → old steering; authority only, the
+  wire carries only the climb pose hints 26–28 — `enemies/ai/NavMove` · `Traverse`.
 - Bug nest eggs are enemies (`bug_egg`), not scenery: `world/Nests` only publishes where they stand (`WorldRef.getNestEggSpots`; `NestEggSpot.nest` is the **nest pad** index, *not* a `getNestPositions()` index — that one is per hole), `enemies/` owns the body, the look and the drops. A nest gets no crate ring and no crate within `NEST_CRATE_CLEAR_M` of it — the eggs **are** its reward.
 - `ctx.enemies` answers two different questions and the answers differ: **`getEnemies()` returns everything** (an egg must stay shootable, blastable and lootable), while **`queryNear` drops props (`isEgg`) by default** because every caller of it is picking a target or asking 「is something dangerous here」 — a nest holds 8–30 eggs, so the safe answer has to be the default, not a filter each caller remembers. A site that **deals damage** (fire zone, C4) passes `includeProps: true`; a site that picks a target, triggers, warns, pings or scans does not. Bullets · melee · grenades · `applyAreaDamage` · `explode` never go through `queryNear`.
 - Bugs that came from a nest are leashed to it (`NEST_LEASH_M`, `enemies/ai/NestLeash.ts`); everything else (mid-raid patrols, waves, raider drops, sandworm spit) still chases without limit. A nest refills 1–3 times per raid (`NEST_REFILL_COUNT_CHANCE`, rolled from its own `Random.hash('nest@<seed>')` stream) when its living **mobile** bugs fall to `NEST_REFILL_TRIGGER_FRAC` of its starting garrison. Host-only, no wire — a host change releases the leash by design.

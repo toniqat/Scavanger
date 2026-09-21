@@ -44,6 +44,17 @@ Harness: `node scripts/perf-measure.mjs` (method in [scripts/README.md](../scrip
   animation often sits on a descendant), and a style flush is not cheaper than a layout flush here.
 - **Bloom** stays on by default; it measured free on vsync.
 
+## Measurements after the phases
+
+- **Enemy pathfinding (TODO A-18 phase 2, 2026-09-21) — S6 against S2.** `--only s2,s6`, headful, seed 7001, two runs a side,
+  with another agent's swiftshader jobs on the machine (so read the counters, not the `ms`). S6 is S2's 60-bug ring spawned
+  **already chasing** a player standing inside a building. Counters: 21 bodies in flow mode at once, 38–42 on private paths,
+  6–7 waiting at gates, 9 on a special link; gate tokens never above `NAV_GATE_CAPACITY` (2); private plans 31–34/s (cap 60/s);
+  15–16 flow builds in the window, 5.5–5.7 ms CPU each spread over 4 frames (worst `x:navUpdate` frame 1.6 ms). `u:enemies`
+  reads 0.9–1.05 (S2) vs 1.75–1.79 ms (S6), but **that gap is the scene, not the pathfinding**: toggling the enemies' graph off in
+  the same S6 scene measured `EnemySystem.update` 0.76 / 0.77 ms on vs 0.62 / 1.00 ms off — nav's net cost is ≤ ~0.14 ms a frame,
+  inside the ±1.7 ms spread. Frame p50 16.7 ms on every run. No change was made from it.
+
 ## Open — needs different hardware, not work
 
 The flat DOM cut (`hud/ShipManage`'s hidden boxes + four faded `.menu` screens, ~120 of 1 085 laid-out boxes) and the AI LOD's near band

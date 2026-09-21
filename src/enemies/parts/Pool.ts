@@ -52,6 +52,7 @@ export function reset(sys: EnemySystem): void {
   sys.burrowShakeAt = -Infinity;
   sys.named.reset();          // 2026-09-11: the named roll · its announcement record, every raid too (a named and its escort are rogues, so `ensureCapacity` never recycles them)
   sys.nests.reset();          // 2026-09-18: the nest anchors · refill rolls · garrison record, every raid too
+  sys.nav.clear();            // 2026-09-21: the pathfinding's graph · flow scratch · gate counters, every raid too (`ai/NavMove`)
   sys.fx?.clear();
   sys.acid?.clear();
   sys.shells?.clear();

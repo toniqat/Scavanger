@@ -10,12 +10,13 @@
  * - The heuristic is the octile XZ distance, weighted a little (`H_WEIGHT`) — the path is smoothed afterwards anyway,
  *   and the weight is what keeps a long open-ground search from flooding.
  * - Smoothing (`smooth`): consecutive walk points collapse while the straight line between them stays walkable.
- *   A special link (a ladder) is never skipped over.
+ *   A special link (a ladder · a wall climb · a window) is never skipped over, and its waypoint carries the link's
+ *   `via` point and pane id from `NavGraph.specials`.
  */
 import { NAV_SEARCH_MAX_NODES, NAV_SNAP_M, type NavPath, type NavPathStatus } from '@/shared';
 import { ensurePoints, type NavGraph } from '../NavGraph';
 import { LINK_KINDS, L_WALK } from '../model';
-import { nbCost, nbId, nbKind, nbLadder, neighbours, nodePos, snap, walkLine } from './Graph';
+import { nbCost, nbId, nbKind, nbSpecial, neighbours, nodePos, snap, walkLine } from './Graph';
 
 /** Heuristic weight (> 1 trades a slightly longer raw path for far fewer expansions; smoothing takes the kinks out). */
 const H_WEIGHT = 1.2;
@@ -81,7 +82,7 @@ export function findPath(
   goalX = _b.x; goalZ = _b.z;
   const gen = ++g.gen;
   g.heapN = 0;
-  g.g[s] = 0; g.seen[s] = gen; g.parent[s] = -1; g.pkind[s] = L_WALK; g.pladder[s] = -1;
+  g.g[s] = 0; g.seen[s] = gen; g.parent[s] = -1; g.pkind[s] = L_WALK; g.pspecial[s] = -1;
   let best = s, bestH = heur(g, s);
   push(g, s, bestH);
   let expanded = 0;
@@ -101,7 +102,7 @@ export function findPath(
       if (g.closed[m] === gen) continue;
       const ng = gn + nbCost[e];
       if (g.seen[m] === gen && ng >= g.g[m]) continue;
-      g.seen[m] = gen; g.g[m] = ng; g.parent[m] = n; g.pkind[m] = nbKind[e]; g.pladder[m] = nbLadder[e];
+      g.seen[m] = gen; g.g[m] = ng; g.parent[m] = n; g.pkind[m] = nbKind[e]; g.pspecial[m] = nbSpecial[e];
       push(g, m, ng + heur(g, m));
     }
   }
@@ -142,8 +143,11 @@ function writePath(g: NavGraph, out: NavPath, trail: readonly number[], status: 
     nodePos(g, id, _b);
     w.position.set(_b.x, _b.y, _b.z);
     w.kind = LINK_KINDS[g.pkind[id]];
-    const li = g.pladder[id];
-    w.ladderId = w.kind === 'ladder' && li >= 0 ? g.ladders[li]?.id ?? null : null;
+    // A special link's row says what the body passes on the way (`SpecialLink`); a walk leaves `via` stale by contract.
+    const sp = g.pkind[id] !== L_WALK && g.pspecial[id] >= 0 ? g.specials[g.pspecial[id]] : null;
+    w.ladderId = sp && sp.ladder >= 0 ? g.ladders[sp.ladder]?.id ?? null : null;
+    w.windowId = sp && sp.window >= 0 ? g.world?.windows[sp.window]?.id ?? null : null;
+    if (sp) w.via.set(sp.viaX, sp.viaY, sp.viaZ);
     anchor = next;
   }
   if (n === 1) {
@@ -152,6 +156,7 @@ function writePath(g: NavGraph, out: NavPath, trail: readonly number[], status: 
     w.position.set(_b.x, _b.y, _b.z);
     w.kind = 'walk';
     w.ladderId = null;
+    w.windowId = null;
   }
   out.count = count;
 }

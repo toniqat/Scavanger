@@ -360,13 +360,20 @@ export interface BugAnim {
   flip: number;
   /** 2026-09-17 artillery brace pose 0..1: the legs splay sideways to press the body flat on the ground (`braceTime` before the shot · `postFireLock` after). Replica = hint 25. */
   brace: number;
+  /* ── 2026-09-21 (TODO A-18 phase 2) ── */
+  /**
+   * The wall pose -1..1: +1 = on a wall nose up (climbing; backing down a ladder), -1 = on a wall nose down (going down a face
+   * head first). `Enemy.animate` blends it toward `Enemy.navClimbDir` — the authority sets that from `ai/Traverse`, a replica
+   * from wire hints 26 · 27.
+   */
+  climb: number;
 }
 
 export function createBugAnim(): BugAnim {
   return {
     gait: 0, speed: 0, headYaw: 0, headPitch: 0, mandible: 0, flinch: 0, flinchX: 0, flinchZ: 0, hitFlash: 0,
     abdomen: 0, shake: 0, crouch: 0, death: -1, deathDir: 0, deathFall: 0, slopePitch: 0, slopeRoll: 0, time: 0,
-    fade: 0, aim: 0, recoil: 0, writhe: 0, spark: 0, reload: 0, throwing: 0, flip: 0, brace: 0,
+    fade: 0, aim: 0, recoil: 0, writhe: 0, spark: 0, reload: 0, throwing: 0, flip: 0, brace: 0, climb: 0,
   };
 }
 
@@ -602,6 +609,9 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
     sink = sinkT * (p.thoraxY + p.thorax[1]) * 1.4;
     body.position.y -= sink - fall * p.thorax[1] * 0.2;
   }
+  // 2026-09-21 (A-18 phase 2): on a wall — the body lies along the face, belly to it (positive pitch = nose down, so nose up is
+  // negative). Not quite a right angle, so the back still reads from below. A drawing-only ratio, so it is not a csv number.
+  if (!dying && a.climb !== 0) pitch -= a.climb * 1.4;
   // 2026-09-17: hunter flip — the whole body rolls half a turn about the front-back axis onto its back and is lifted so the back touches the ground.
   // Lying there it rocks slowly side to side (so it reads apart from a corpse). The rocking backs x out, so the contact point on the back stays put.
   const fl = a.flip > 0.001 ? smooth(Math.min(1, a.flip)) : 0;

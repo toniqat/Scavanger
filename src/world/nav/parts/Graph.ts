@@ -13,9 +13,9 @@
  *    in at an angle (seed 2026: the path climbed onto a flight from the side and the walker stuck there);
  *  - a **diagonal** needs both orthogonal cells walkable too, or a path would cut a wall's corner the body cannot.
  */
-import { NAV_CAN, NAV_MAX_SLOPE_DEG, NAV_STRUCT_CELL_M, PROP_STEP_UP_MAX } from '@/shared';
+import { NAV_CAN, NAV_MAX_SLOPE_DEG, NAV_STRUCT_CELL_M, NAV_WINDOW_WHOLE_COST_M, PROP_STEP_UP_MAX } from '@/shared';
 import type { NavGraph } from '../NavGraph';
-import { F_OWNED, F_RAMP, F_TERRAIN, F_WALK, L_WALK, type Region, regionToWorld, worldToRegion } from '../model';
+import { F_OWNED, F_RAMP, F_TERRAIN, F_WALK, L_WALK, L_WINDOW, type Region, regionToWorld, worldToRegion } from '../model';
 
 const TAN_MAX = Math.tan((NAV_MAX_SLOPE_DEG * Math.PI) / 180);
 /** Slack on the slope rule — the terrain samples are bilinear, a cell exactly on the limit must still link. */
@@ -100,11 +100,11 @@ export function bestInColumn(r: Region, c: number, h: number, f: number, dist: n
 const DI = [1, -1, 0, 0, 1, 1, -1, -1];
 const DJ = [0, 0, 1, -1, 1, -1, 1, -1];
 
-/** Neighbour scratch filled by `neighbours` (ids, step costs, link kinds, ladder index or -1). */
+/** Neighbour scratch filled by `neighbours` (ids, step costs, link kinds, `NavGraph.specials` row or -1). */
 export const nbId = new Int32Array(64);
 export const nbCost = new Float32Array(64);
 export const nbKind = new Uint8Array(64);
-export const nbLadder = new Int32Array(64);
+export const nbSpecial = new Int32Array(64);
 
 /** Fills the neighbour scratch for node `id` and a body that can do `can`. Returns the count. */
 export function neighbours(g: NavGraph, id: number, can: number): number {
@@ -127,7 +127,7 @@ export function neighbours(g: NavGraph, id: number, can: number): number {
         if ((of[a] & F_WALK) === 0 || (of[a] & F_OWNED) !== 0 || !linkOk(h, f, oh[a], of[a], g.cell)) continue;
         if ((of[b] & F_WALK) === 0 || (of[b] & F_OWNED) !== 0 || !linkOk(h, f, oh[b], of[b], g.cell)) continue;
       }
-      nbId[n] = m; nbCost[n] = dist; nbKind[n] = L_WALK; nbLadder[n] = -1; n++;
+      nbId[n] = m; nbCost[n] = dist; nbKind[n] = L_WALK; nbSpecial[n] = -1; n++;
     }
   } else {
     if ((can & NAV_CAN.INDOOR) === 0) return 0;
@@ -148,7 +148,7 @@ export function neighbours(g: NavGraph, id: number, can: number): number {
         if (bestInColumn(r, b * r.nu + aa, h, f, cs) < 0) continue;
         if (bestInColumn(r, bb * r.nu + a, h, f, cs) < 0) continue;
       }
-      nbId[n] = r.base + m; nbCost[n] = dist; nbKind[n] = L_WALK; nbLadder[n] = -1; n++;
+      nbId[n] = r.base + m; nbCost[n] = dist; nbKind[n] = L_WALK; nbSpecial[n] = -1; n++;
     }
   }
   const extra = g.links.get(id);
@@ -158,7 +158,10 @@ export function neighbours(g: NavGraph, id: number, can: number): number {
       if (l.can !== 0 && (can & l.can) === 0) continue;
       if (l.to >= g.outdoorCount && (can & NAV_CAN.INDOOR) === 0) continue;
       if ((nodeF(g, l.to) & F_WALK) === 0) continue;
-      nbId[n] = l.to; nbCost[n] = l.cost; nbKind[n] = l.kind; nbLadder[n] = l.ladder; n++;
+      // A whole pane costs the time to break it — read here, not baked, so a window broken a moment ago is cheaper at once.
+      let cost = l.cost;
+      if (l.kind === L_WINDOW && g.windowWholeFlag[g.specials[l.special].window] === 1) cost += NAV_WINDOW_WHOLE_COST_M;
+      nbId[n] = l.to; nbCost[n] = cost; nbKind[n] = l.kind; nbSpecial[n] = l.special; n++;
     }
   }
   return n;
@@ -251,6 +254,12 @@ function gather(g: NavGraph, x: number, y: number, z: number, maxR: number, can:
   return snapN;
 }
 
+/** The region that holds node `id` when it is `hint`'s (the common case while expanding a neighbourhood), else by search. */
+export function regionOfHint(g: NavGraph, id: number, hint: Region | null): Region {
+  if (hint && id >= hint.base && id < hint.base + hint.h.length) return hint;
+  return regionOf(g, id);
+}
+
 /** How far (m) the line test looks for a walkable start when the body's own cell is not one. */
 const START_R = 1.2;
 /** Sample spacing of the line test (m) — half the finer cell, so a sample lands in every region column it crosses. */
@@ -322,4 +331,37 @@ function sampleAt(g: NavGraph, x: number, z: number, h: number, f: number, loose
   if (loose ? Math.abs(ho - h) > SNAP_DY : !linkOk(h, f, ho, fo, dist)) return -1;
   sH = ho; sF = fo;
   return 1;
+}
+
+/** The walkable node of the region column under `(x, z)` nearest height `y` (within `SNAP_DY`) — left in `colHitR` · `colHitK`. */
+let colHitR: Region | null = null;
+let colHitK = -1;
+function columnNodeAt(g: NavGraph, x: number, y: number, z: number): boolean {
+  const cs = NAV_STRUCT_CELL_M;
+  for (const r of g.regions) {
+    if (!inRegion(r, x, z, _q)) continue;
+    const c = Math.floor((_q.z - r.v0) / cs) * r.nu + Math.floor((_q.x - r.u0) / cs);
+    let best = -1, bestD = SNAP_DY;
+    for (let k = r.colStart[c], e = r.colStart[c + 1]; k < e; k++) {
+      if ((r.f[k] & F_WALK) === 0) continue;
+      const d = Math.abs(r.h[k] - y);
+      if (d <= bestD) { best = k; bestD = d; }
+    }
+    if (best >= 0) { colHitR = r; colHitK = best; return true; }
+  }
+  return false;
+}
+
+/** Debug: the gate the point stands in, -1 with none. */
+export function gateAt(g: NavGraph, x: number, y: number, z: number): number {
+  return columnNodeAt(g, x, y, z) && colHitR ? colHitR.gate[colHitK] ?? -1 : -1;
+}
+
+/** Debug: is there a walkable node under the point (a region column first, the outdoor cell otherwise)? */
+export function walkableAt(g: NavGraph, x: number, y: number, z: number): boolean {
+  if (columnNodeAt(g, x, y, z)) return true;
+  const i = Math.floor((x - g.origin) / g.cell), j = Math.floor((z - g.origin) / g.cell);
+  if (i < 0 || j < 0 || i >= g.W || j >= g.W) return false;
+  const f = g.of[j * g.W + i];
+  return (f & F_WALK) !== 0 && (f & F_OWNED) === 0 && Math.abs(g.oh[j * g.W + i] - y) <= SNAP_DY;
 }

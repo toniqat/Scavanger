@@ -197,8 +197,8 @@ const LIGHT_COOL = 0xd2ecff;
 const LIGHT_INTENSITY = 16;
 const LIGHT_DISTANCE = 12;
 
-/** Width · height (m) of the collapsed breach in the floor-1 outer wall. */
-const BREACH_W = 3.2;
+/** Width · height (m) of the collapsed breach in the floor-1 outer wall (the width is exported for the nav graph's climb spots). */
+export const BREACH_W = 3.2;
 const BREACH_H = 2.9;
 
 /** A local rectangle (building coordinates). */

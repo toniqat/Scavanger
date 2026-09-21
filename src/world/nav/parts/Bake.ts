@@ -8,22 +8,25 @@
  *  ④ region columns — every box / ramp / hull top over a column is a candidate floor; a candidate is a node when it
  *     really is the surface at that height (`getSurfaceY` finds nothing steppable just above it), and walkable when a
  *     body standing on it is not pushed (walls, a ceiling too low, the space under a stair flight);
- *  ⑤ links — each region's edge band to the outdoor cells beside it, and every ladder's foot to its exit.
+ *  ⑤ links — each region's edge band to the outdoor cells beside it, then the special links (`parts/Links`: ladders,
+ *     wall climbs, windows);
+ *  ⑥ gates — the narrow passages (`parts/Gates`), which read the links of ④ and so come last.
  * The node counts are only known after ④, so the search arrays are sized last.
  */
 import * as THREE from 'three';
-import {
-  NAV_CAN, NAV_LADDER_COST_MUL, NAV_STRUCT_CELL_M, PLAYER_RADIUS,
-} from '@/shared';
+import { NAV_STRUCT_CELL_M, PLAYER_RADIUS } from '@/shared';
 import type { NavGraph } from '../NavGraph';
 import {
-  F_OWNED, F_RAMP, F_TERRAIN, F_WALK, L_LADDER, L_WALK, type NavLink, type NavWorld, type Region, type RegionSpec,
+  F_OWNED, F_RAMP, F_TERRAIN, F_WALK, L_WALK, type NavLink, type NavWorld, type Region, type RegionSpec,
   regionToWorld, worldToRegion,
 } from '../model';
 import { boxContainsXZ, rampTopAt } from '../../obb';
 import { hullContainsXZ } from '../../hull';
 import type { ObstacleEntry } from '../../SpatialHash';
-import { inRegion, linkOk } from './Graph';
+import { linkOk } from './Graph';
+import * as Links from './Links';
+import * as Gates from './Gates';
+import * as Flow from './Flow';
 
 /** The body the graph is measured for — a person. A smaller body fits wherever this one does. */
 export const NAV_BODY_R = PLAYER_RADIUS;
@@ -44,10 +47,6 @@ const OWN_INSET = 1;
 const STITCH_BAND = OWN_INSET + 1;
 /** Farthest seam link (m). */
 const STITCH_R = 1.1;
-/** A ladder end is the walkable node within this XZ distance (m) of the ladder's foot · exit ... */
-const LADDER_SNAP_R = 1.2;
-/** ... and within this height (m) of it. */
-const LADDER_SNAP_DY = 0.6;
 
 const _probe = new THREE.Vector3();
 const _w = { x: 0, z: 0 };
@@ -59,6 +58,14 @@ export function clear(g: NavGraph): void {
   g.world = null;
   g.regions = [];
   g.links.clear();
+  g.specials.length = 0;
+  g.linkCounts.ladder = g.linkCounts.climb = g.linkCounts.window = 0;
+  g.windowIndex.clear();
+  g.windowWholeFlag = new Uint8Array(0);
+  g.gates.length = 0;
+  g.gateLoad = new Int32Array(0);
+  g.gateLoadStamp++;
+  Flow.reset(g);
   g.ladders = [];
   g.total = 0;
   g.oh.fill(0);
@@ -128,14 +135,14 @@ export function probeRegionNode(w: NavWorld, r: Region, k: number): boolean {
   return r.f[k] !== old;
 }
 
-function makeRegion(spec: RegionSpec): Region {
+function makeRegion(spec: RegionSpec, index: number): Region {
   const cs = NAV_STRUCT_CELL_M;
   return {
     spec, cos: Math.cos(spec.yaw), sin: Math.sin(spec.yaw),
     u0: -spec.halfU, v0: -spec.halfV,
     nu: Math.max(1, Math.ceil((2 * spec.halfU) / cs)), nv: Math.max(1, Math.ceil((2 * spec.halfV) / cs)),
-    base: 0,
-    colStart: new Int32Array(0), h: new Float32Array(0), f: new Uint8Array(0), col: new Int32Array(0),
+    index, base: 0,
+    colStart: new Int32Array(0), h: new Float32Array(0), f: new Uint8Array(0), col: new Int32Array(0), gate: new Int32Array(0),
   };
 }
 
@@ -144,7 +151,7 @@ function* bake(g: NavGraph, w: NavWorld): Generator<void, void, void> {
 
   /* ① regions + owned outdoor cells */
   for (const spec of w.regions) {
-    const r = makeRegion(spec);
+    const r = makeRegion(spec, g.regions.length);
     g.regions.push(r);
     const R = Math.hypot(spec.halfU, spec.halfV);
     const i0 = Math.max(0, Math.floor((spec.cx - R - g.origin) / g.cell)), i1 = Math.min(W - 1, Math.floor((spec.cx + R - g.origin) / g.cell));
@@ -190,12 +197,26 @@ function* bake(g: NavGraph, w: NavWorld): Generator<void, void, void> {
 
   /* ⑤ links */
   for (const r of g.regions) { stitch(g, r); yield; }
-  ladderLinks(g, w);
+  let t0 = performance.now();
+  Links.build(g, w);
+  g.linksMs = performance.now() - t0;
+  yield;
+
+  /* ⑥ gates — stepped by hand so its own share of the bake can be reported (`debugInfo`) */
+  g.gatesMs = 0;
+  const gates = Gates.build(g);
+  for (;;) {
+    t0 = performance.now();
+    const done = gates.next().done;
+    g.gatesMs += performance.now() - t0;
+    if (done) break;
+    yield;
+  }
 
   g.g = new Float32Array(g.total);
   g.parent = new Int32Array(g.total);
   g.pkind = new Uint8Array(g.total);
-  g.pladder = new Int32Array(g.total);
+  g.pspecial = new Int32Array(g.total);
   g.seen = new Uint32Array(g.total);
   g.closed = new Uint32Array(g.total);
   g.gen = 0;
@@ -325,45 +346,9 @@ function stitch(g: NavGraph, r: Region): void {
         const d = Math.hypot(dx, dz);
         if (d > STITCH_R || !linkOk(r.h[k], r.f[k], g.oh[m], g.of[m], Math.max(d, cs))) continue;
         const id = r.base + k;
-        addLink(g, id, { to: m, cost: d, kind: L_WALK, can: 0, ladder: -1 });
-        addLink(g, m, { to: id, cost: d, kind: L_WALK, can: 0, ladder: -1 });
+        addLink(g, id, { to: m, cost: d, kind: L_WALK, can: 0, special: -1 });
+        addLink(g, m, { to: id, cost: d, kind: L_WALK, can: 0, special: -1 });
       }
     }
   }
-}
-
-/** The region node nearest `(x, z)` at height `y` (walkable, within the ladder snap window), or -1. */
-function regionNodeNear(g: NavGraph, x: number, y: number, z: number): number {
-  const cs = NAV_STRUCT_CELL_M;
-  let best = -1, bestD = Infinity;
-  for (const r of g.regions) {
-    if (!inRegion(r, x, z, _l)) continue;
-    const a0 = Math.max(0, Math.floor((_l.x - LADDER_SNAP_R - r.u0) / cs)), a1 = Math.min(r.nu - 1, Math.floor((_l.x + LADDER_SNAP_R - r.u0) / cs));
-    const b0 = Math.max(0, Math.floor((_l.z - LADDER_SNAP_R - r.v0) / cs)), b1 = Math.min(r.nv - 1, Math.floor((_l.z + LADDER_SNAP_R - r.v0) / cs));
-    for (let b = b0; b <= b1; b++) {
-      for (let a = a0; a <= a1; a++) {
-        const du = r.u0 + (a + 0.5) * cs - _l.x, dv = r.v0 + (b + 0.5) * cs - _l.z;
-        const d2 = du * du + dv * dv;
-        if (d2 > LADDER_SNAP_R * LADDER_SNAP_R || d2 >= bestD) continue;
-        const c = b * r.nu + a;
-        for (let k = r.colStart[c], e = r.colStart[c + 1]; k < e; k++) {
-          if ((r.f[k] & F_WALK) === 0 || Math.abs(r.h[k] - y) > LADDER_SNAP_DY) continue;
-          best = r.base + k; bestD = d2;
-        }
-      }
-    }
-  }
-  return best;
-}
-
-/** One link each way per ladder, between the floor at its foot and the floor at its exit. */
-function ladderLinks(g: NavGraph, w: NavWorld): void {
-  w.ladders.forEach((L, li) => {
-    const bottom = regionNodeNear(g, L.base.x, L.base.y, L.base.z);
-    const top = regionNodeNear(g, L.exit.x, L.topY, L.exit.z);
-    if (bottom < 0 || top < 0) return;
-    const cost = Math.abs(L.topY - L.base.y) * NAV_LADDER_COST_MUL + Math.hypot(L.exit.x - L.base.x, L.exit.z - L.base.z);
-    addLink(g, bottom, { to: top, cost, kind: L_LADDER, can: NAV_CAN.LADDER, ladder: li });
-    addLink(g, top, { to: bottom, cost, kind: L_LADDER, can: NAV_CAN.LADDER, ladder: li });
-  });
 }

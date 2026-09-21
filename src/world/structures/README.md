@@ -53,9 +53,10 @@ public API are in [`../README.md`](../README.md) (sections `Structures` and `Rai
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world/structures`.
+- 2026-09-21 — A-18 phase 2: `GlassSet.isWhole(key)` · `refOf(key)` (the nav graph's `windowWhole` · `breakWindow` go through
+  `Structures`), `parts/Build.BREACH_W` exported (no wall-climb spot in front of the breach).
 - 2026-09-21 — `ContainerSet` gained `style: 3` (cube supply crate) and a map-wide set index so the rover wreck's
   containers, created mid-raid, resolve by id and are adopted into `collect` exactly once.
 - 2026-09-21 — `parts/Turret.ts` (`CeilingTurretSet`): the indestructible ceiling turret of the basement · lab locked room, plus `BuildingOut.turrets` (`TurretSpot` — a ceiling mount and the world OBB it watches) emitted by `parts/Build`.
 - 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels kept verbatim in backticks, no string literal touched.
 - 2026-09-16 — `ContainerSpec.lockedRoom` + `ContainerSet.lootOpts`; `rollCrateContents(…, opts)` (locked rooms skip the epic+ gate).
-- 2026-09-14 — Exclusion zones guarded by object bulk: `clearFor` in `parts/Build`, `CONTAINER_REACH` in `parts/Containers`.

@@ -23,6 +23,9 @@ import { updateBurrowGate } from './Burrow';
 import { updateHunterFlip } from './HunterFlip';
 /* appended (2026-09-18): the nest leash */
 import { nestLeashHold } from './NestLeash';
+/* appended (2026-09-21, TODO A-18 phase 2): pathfinding — the steering point (`NavMove`) and the special links (`Traverse`) */
+import { NAV_AIM, NAV_HOLD, NAV_OLD, NAV_TRAVERSE, navSteer } from './NavMove';
+import { updateTraverse } from './Traverse';
 
 export { lookAtTarget } from './Common';
 import { biteStructure, refreshStructureTarget } from './Structures';
@@ -33,6 +36,7 @@ const _dir = new THREE.Vector3();
 const _prev = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
+const _navAim = new THREE.Vector3();
 
 const TWO_PI = Math.PI * 2;
 
@@ -78,6 +82,8 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   if (updateBurrowGate(e, dt, host)) return;
   // 2026-09-17: a hunter flipped by damage mid-leap — no AI, movement or turning while it falls and lies there (`ai/HunterFlip`)
   if (updateHunterFlip(e, dt, host)) return;
+  // 2026-09-21 (A-18 phase 2): a body on a ladder · a wall · a window sill — off the colliders and the state machine until the link is done (`ai/Traverse`)
+  if (updateTraverse(e, dt, host)) return;
 
   if (e.state === 'flee') {
     e.fleeTimer += dt;
@@ -577,13 +583,26 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
 
   if (!charging) {
     if (e.hasMoveTarget && speed > 0) steerToVehicleSide(e);
-    if (e.hasMoveTarget && speed > 0) seek(pos, e.moveTarget, speed, e.state === 'wander' ? 1.5 : 0.6, _desired);
+    /*
+     * 2026-09-21 (TODO A-18 phase 2): the point `seek` aims at may come from the nav graph instead — round the wall, through the
+     * door (`ai/NavMove.navSteer`). A type without a mask (`navCan === 0`: warrior and larger) never gets here, so not one
+     * character of its steering changes. `NAV_HOLD` = refused at a full chokepoint: it stands and faces the gate.
+     * `NAV_TRAVERSE` = a ladder / wall / window link just started — `updateTraverse` owns the body from the next tick.
+     */
+    const navCode = e.stats.navCan !== 0 ? navSteer(e, dt, world, host, speed, _navAim) : NAV_OLD;
+    if (navCode === NAV_TRAVERSE) { a.speed = THREE.MathUtils.lerp(a.speed, 0, dt * 5); return; }
+    if (navCode === NAV_HOLD) { speed = 0; e.facePoint.copy(_navAim); e.hasFacePoint = true; }
+    if (e.hasMoveTarget && speed > 0) {
+      if (navCode === NAV_AIM) seek(pos, _navAim, speed, 0, _desired);
+      else seek(pos, e.moveTarget, speed, e.state === 'wander' ? 1.5 : 0.6, _desired);
+    }
     else _desired.set(0, 0, 0);
     _steer.set(0, 0, 0);
     const dl = _desired.lengthSq();
     if (dl > 0.01) {
       _dir.copy(_desired).multiplyScalar(1 / Math.sqrt(dl));
-      avoidObstacles(e, _dir, _steer);
+      // while a graph point steers the circle avoidance is off: a wall reads as one huge circle and would push the body off the path
+      if (navCode !== NAV_AIM) avoidObstacles(e, _dir, _steer);
       _desired.addScaledVector(_steer, Math.max(1, speed) * 0.4);
       const max = Math.max(speed, 0.1) * 1.15;
       if (_desired.lengthSq() > max * max) _desired.setLength(max);

@@ -107,6 +107,18 @@ export class GlassSet {
     this.group.add(this.mesh);
   }
 
+  /** 2026-09-21 (A-18 phase 2): is the pane `key` (`GlassSet.key`) standing and whole? False for an unknown key. */
+  isWhole(key: string): boolean {
+    const p = this.byKey.get(key);
+    return !!p && !p.broken;
+  }
+
+  /** 2026-09-21 (A-18 phase 2): whose pane `key` is — null for an unknown key. */
+  refOf(key: string): { structureId: string; index: number } | null {
+    const p = this.byKey.get(key);
+    return p ? { structureId: p.structureId, index: p.index } : null;
+  }
+
   /** The middle of one pane (sound · shard spot). null with none. */
   centerOf(structureId: string, index: number, out: THREE.Vector3): THREE.Vector3 | null {
     const p = this.byKey.get(GlassSet.key(structureId, index));

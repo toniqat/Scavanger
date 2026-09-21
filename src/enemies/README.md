@@ -15,7 +15,7 @@ No asset files — every rig is built from primitives.
 | `Enemy.ts` | Entity (`EnemyRef`): gameplay state, timers, target, kill credit, rig selection (`baseTypeOf`), `takeDamage`, `kill`, `startEmerge`, `animate`, `muzzle`; `EnemyHost` interface |
 | `EnemyTypes.ts` | csv loaders: `ENEMY_STATS` (incl. per-kill `raidXp`, `raidXpOf`), ability blocks (`HUNTER_LEAP`, `SPEWER_SPIT`, `CHARGER_CHARGE`, `ROGUE_AI`, `ARTILLERY_AI`, `TOXIC_AI`, `BEHEMOTH_AI`, `NAMED_*`, `HUMANOID_*`, `ENEMY_INCENDIARY`), `isRogueType`, `isWormType`, `baseTypeOf` |
 | `factionTables.ts` | csv loaders for `SITE_*`, `RAIDER_DROP_*`, `NAMED_ROGUE_CHANCE_BY_THREAT`, bug-threat tables → `bugThreatTuning(threat)` |
-| `Targets.ts` | `CombatTarget` (player / enemy / drone / vehicle / android proxy) and `TargetList` (`all`, `alive`, `drones`, `vehicles`, `allies`, nearest queries, `damageVehicleAt`) |
+| `Targets.ts` | `CombatTarget` (player / enemy / drone / vehicle / android proxy; `navKey` = its flow-field name, empty for a non-person) and `TargetList` (`all`, `alive`, `drones`, `vehicles`, `allies`, nearest queries, `damageVehicleAt`) |
 | `Spawner.ts` | `AmbientSpawner` (initial population, patrols, artillery dig-in), group composition from planet ecosystem, spawn clearance (`spawnBlocked`), `threatEcosystem`, `ambientCap`, `findSpawnCenter` (+ `lastSpawnCenterNest`, optional nest-anchor list) |
 | `NestDirector.ts` | Bug nests (2026-09-18): one `bug_egg` per `WorldRef.getNestEggSpots()` spot, per-nest anchors (centroid of that pad's egg spots), garrison binding (`Enemy.nestOf`), seeded refill budget (`Random.hash('nest@<seed>')`) and the refill trigger; `applyEggSize` (per-spot radius on both authority and replica) |
 | `SiteGroups.ts` | `placeSiteGroups`: humanoid groups at labs / outposts / rail platforms / ruins by planet threat |
@@ -49,6 +49,9 @@ No asset files — every rig is built from primitives.
 | `ai/Lures.ts` | `LureField` noise beacons |
 | `ai/Ride.ts` | Enemy / corpse tram riding via `shared/ride.ts`; replica prediction |
 | `ai/Burrow.ts` | Emerge / spat-flight gate (no attack or move) |
+| `ai/NavMove.ts` | **Pathfinding, the steering point** (A-18 phase 2): `navSteer` — the one call in `integrate` that may replace the `seek` point with a nav-graph point (flow field for a chase goal, a rate-limited private `findPath` for everything else), hold the body at a full gate or start a special link; stuck detection; `EnemyNavState` (the host's shared scratch: graph identity, the one `NavFlowStep`, the per-frame A* budget, the gate counters); `describeNav` |
+| `ai/Gates.ts` | Chokepoint throttle: `NAV_GATE_CAPACITY` tokens per `NavRef.gates` entry (`gatePass` · `gateMiss` · `releaseGate`), the twice-a-second recount from the living bodies + token ageing + `NavRef.setGateLoad` (`sweepGates`) |
+| `ai/Traverse.ts` | Special links performed off the colliders (`updateTraverse`, an atomic gate like the hunter flip): ladder · wall climb · window crawl (breaks a whole pane first) as one six-leg machine; `beginTraverse` · `endTraverse` · `canTraverse` · `atLinkStart` · `linkBusy` |
 | `ai/HunterFlip.ts` | Hunter flip gate: a leap that took ≥ `HUNTER_LEAP.flipDamage` (`Enemy.noteLeapDamage`) drops straight down and lies on its back for `flipDuration` s — no move / turn / attack (`updateHunterFlip`) |
 | `ai/Steering.ts` · `ai/Common.ts` | Seek / separate / avoid; `lookAtTarget`, `startMelee`, `stumble`, `holdingFire` |
 | `ai/named/` | Named AI: `Sniper.ts` (Roden), `ScanDrone.ts`, `Hammer.ts` (Tagilla), `Heavy.ts`; `model.ts` data types, `remote.ts` replica hooks, `index.ts` dispatch |
@@ -115,13 +118,14 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
   - Client → host: `hit` (`HitRequest`: damage, `st` status bits, `kb`), `explode`, `intq` (shell interception), `shotq` (shot report), `ecorpseq emptied` (an enemy corpse emptied on that client).
 - Snapshot `a` hints: 1 charger windup · 2 rush · 3 spewer windup · 4 airborne/spat · 5 humanoid shooting · 6 cover/stagger ·
   7 rush · 8 artillery dug in · 9 toxic swell · 10/11 behemoth windup/charge · 12 reload · 13 throw · 14/15 sniper prone/glint ·
-  16/17 hammer windup/charge · 18/19 heavy spin/fire · 20 scan pulse · 21/22 worm spit/acid · 23/24 hunter flipped falling/lying · 25 artillery braced flat (`net/HostSync.animHint`).
+  16/17 hammer windup/charge · 18/19 heavy spin/fire · 20 scan pulse · 21/22 worm spit/acid · 23/24 hunter flipped falling/lying · 25 artillery braced flat ·
+  26/27/28 on a special link and off the floor — on a wall nose up / on a wall nose down / level (`ai/Traverse`; all three switch a replica's terrain snap, ride and slope off) (`net/HostSync.animHint`).
 - Debug on `getSystem('enemies')`: `debugSpawn`, `debugSpawnNamed`, `debugNamedRoll`, `debugSites`, `debugEcology`,
   `debugBugTuning`, `debugAmbientGroup`, `debugWaveGroup`, `debugSandworm`, `debugSandwormState`, `debugSandwormChance`,
   `debugSandwormClearOnce`, `debugSpawnBurrow`,
   `debugNests`, `debugTutorial`, `debugDroneTargets`, `debugSnapshot`, `debugApplySnapshot`, `debugHint`, `debugGrenade`, `debugShell`,
   `debugXray`, `debugSetDropSquad`, `debugDropWaves`, `debugAllyTargets` / `debugAllyTargetList` / `debugCoverSpot`,
-  `debugEmptyCorpse`, `hitGuardStats`, `isAuthority`, `isTrainingWorld`, `isTutorialWorld`.
+  `debugEmptyCorpse`, `debugNav` · `debugNavOf(id)` · `debugTraverse(id, link)` (pathfinding — see **Pathfinding**), `hitGuardStats`, `isAuthority`, `isTrainingWorld`, `isTutorialWorld`.
 
 ## Authority and replicas
 - Mode is decided per mission (`refreshMode` at `world:ready` / `game:newMission` / `game:abort`) and switched live only by
@@ -244,6 +248,7 @@ Applied at `world:ready` on every client: bug max hp in `Pool.acquire` (not sand
 - Nest leash (2026-09-18): `ai/NestLeash.nestLeashHold` runs right after `tutorialHold`, before the bug state machine. Only
   `nestOf >= 0` bodies are touched (see **Bug nests**); airborne / charging / staggered bodies finish what they started first.
 - Bugs: `idle → wander → alert → chase → attack → stagger`, `dead` / `flee`; artillery, toxic, behemoth in `GimmickAI`.
+- Pathfinding (2026-09-21): see **Pathfinding (A-18 phase 2)** below — it only ever changes the *point* `integrate` seeks.
 - Artillery (2026-09-17 · 2026-09-18, `ai/ArtilleryPack.ts` + `GimmickAI`): `maxArtillery` (+ `ARTILLERY_CAP_BONUS_BY_THREAT`) is a
   **live** cap — every not-dead artillery counts (`Pool.countAlive`), a killed one frees its slot. Dig-in brings
   `escortMin`–`escortMax` scavengers (`escortOf`) that wander around it and run back beyond `escortFollowDist` until they notice a
@@ -277,6 +282,65 @@ Applied at `world:ready` on every client: bug max hp in `Pool.acquire` (not sand
 - Barrier: `integrate` calls `resolveBarrier`; contact retargets the carrier; frontal melee is absorbed via implants.
 - Named: Roden shoots players only, always after a scope glint; scan drone pulses expose players; Heavy sends only
   `ee spray on/off` and replicas simulate tracers; Tagilla's charge borrows `chargePhase 2`. Details in each file header.
+
+### Pathfinding (A-18 phase 2, 2026-09-21 — `ai/NavMove.ts` · `ai/Gates.ts` · `ai/Traverse.ts`; contract `src/shared/nav.ts`)
+Enemies **use** the raid's nav graph (`ctx.world.nav`, baked by `world/nav`); they own none of it. Authority only, nothing on the
+wire but three pose hints; a host change starts every body from 「no pathfinding」.
+- **Who**: `EnemyStats.navCan` (csv `enemies.csv` `nav`). scavenger (+ `scavenger_summon`) = `indoor+ladder+climb+window`, hunter ·
+  toxic · Tagilla · Heavy = `indoor`, rogue · rogue_boss · android · raider = `indoor+ladder`. **Everything else is 0 and not one
+  character of its steering changed** — `integrate` does not even call `navSteer` for it, so a warrior still stands at the wall.
+- **The graph never takes the old behaviour away.** `navSteer` answers 「steer as before」 (circle avoidance on) when there is no graph
+  (null in the tutorial · training range · ship) or it is not baked, the body is charging / airborne / leaping / spat / digging out /
+  fleeing / riding a tram / a tutorial enemy (`homeLeash > 0`), its target is the rover or a drone in the air, the straight line is
+  walkable, the field or the search has no answer, or it got stuck following the graph.
+- **The check**: every `ENEMY_NAV_CHECK_S` (staggered by id at spawn; at once when the goal jumped 4 m or the goal's kind changed)
+  a *moving* body asks `nav.walkable(position, goal)`. Walkable → mode none. A `moveTarget` written as `set(x, 0, z)` has no height:
+  y exactly 0 is read as 「the surface there at my own height」 (`goalOf`).
+- **Flow mode** — a *chase goal*: a live **person** target (player or android proxy — `CombatTarget.navKey`, built once, never
+  concatenated per frame) with `moveTarget` within 8 m of it (the scavenger weave and the hunter flank offset count). Each tick
+  `nav.flowTo(key, target.position, navCan)` → `sample(position, step)` → steer at `step.aim`. One `NavFlowStep` per host
+  (`EnemyNavState.step`, re-made when the graph object changes). No answer → the old steering for that tick.
+- **Path mode** — a *private goal* (nest return, investigated shot, wander point, cover / pop-out, lure, an **enemy** target):
+  `findPath` into the body's own `NavPath` (lazy, kept across pool reuse, re-made for a new graph), planned again every
+  `ENEMY_NAV_REPLAN_S` (jittered by id), on a goal jump or a `revision` change, and **at most `ENEMY_NAV_PLANS_PER_FRAME` searches a
+  frame for the whole pool** (`EnemyNavState.takePlan`) — a body without a slot keeps its path, or the old steering. Waypoints are
+  passed within radius + 0.4 m on the same floor; past the last one the final stretch is straight. Path mode ignores gates.
+- **While a graph point steers** `integrate` skips `avoidObstacles` (a wall reads as one huge circle and pushes the body off the
+  path — phase 1's lesson) and keeps `separate`; surface → collision order, barrier, extraction keep-out, ride, gait and yaw are
+  untouched. The attack logic is untouched too: it keys off `distToTarget`, and the field stops answering within `NAV_FLOW_ARRIVE_M`.
+- **Stuck**: following the graph with a net displacement under a quarter of the asked travel over `ENEMY_NAV_STUCK_S` (not while
+  attacking, queueing at a gate or holding at a link mouth) → pathfinding off for `ENEMY_NAV_OFF_S`.
+- **Gates** (`ai/Gates`, user's decision 「2마리씩」): a flow step that reports `gate >= 0` needs that gate's token — held → go; free
+  slot (`NAV_GATE_CAPACITY`) → take it → go; else refused: it walks up to `NAV_GATE_HOLD_M` (field distance) and stands facing the
+  gate. **A body already inside a gate never waits.** A token goes back when the flow stops reporting the gate for 0.4 s, when the
+  body leaves flow mode / dies / is pooled (`Enemy.clearNav`), or after `NAV_GATE_TOKEN_S` (then it is banned for as long again so
+  the queue moves first). Twice a second `sweepGates` **recounts holders and queues from the living bodies** — no path that drops a
+  body can leak a token — and reports every changed queue with `nav.setGateLoad`. The queue counts **every refused body** the
+  flow still routes through that gate (within `NAV_GATE_LOOK_M`), not only the ones already standing at the hold line: the ones
+  behind them are blocked by the ones in front and would never be counted.
+- **Special links** (`ai/Traverse`): a flow step or a path waypoint of kind `ladder` / `climb` / `window`, when the mask has the bit
+  and the body really stands at the link's start (`atLinkStart` — the flow answers for the *nearest node*, which over a roof hatch
+  can be the ladder's foot one floor down), is **performed**: an atomic gate in `updateEnemyAI` right after the hunter flip. Off the
+  colliders and the state machine, the ride dropped, still damageable — `kill()` clears the link and decides `deathLanded` from the
+  height, so a bug shot on a wall falls; a stagger holds it where it hangs. Legs: 0 to the start · 1 window only, a whole pane →
+  one melee wind-up (`stats.attackWindup`, the bite's lunge and `bug_attack`) → `nav.breakWindow` · 2 straight up to `via.y` ·
+  3 across to `via` · 4 across to `to` · 5 down onto the floor (`getSurfaceY`). A wall link whose `to` is lower goes **down**: off
+  the edge first, then head first down the face. Bugs move at `ENEMY_CLIMB_SPEED` / `ENEMY_WINDOW_CRAWL_SPEED`, humanoids on a
+  ladder at `LADDER_CLIMB_SPEED` / their `wanderSpeed`. A link is not a gate, so **one body at a time enters its mouth**
+  (`linkBusy`: the next starts once the one ahead is two radii + 0.3 m from the start, 3D) — a column up the wall, a stream
+  through the sill. Unknown ladder / 14 s overrun → it ends where it is, seated on whatever is below.
+- **Pose + wire**: `Enemy.navAloft` / `navClimbDir` → hints 26 · 27 · 28; a replica writes the same two fields back from the hint,
+  and `Enemy.animate` blends `anim.climb` (`models/BugModel`: the body lies along the wall, belly to it) on both sides. A ladder
+  is backed down nose up; humanoids get no new pose. A body on a link is exempt from the AI LOD (`navTrav !== 0`), the animation
+  LOD (`navAloft` / `anim.climb`) and other bodies' separation push (the test is XZ only).
+- **Debug** (`getSystem('enemies')`): `debugNav()` → `{ ready, gates, flow, path, traversing, waiting, off, tokens[], queues[],
+  plansLastSecond }` (living bodies; arrays by `NavGate.id`); `debugNavOf(id)` → `{ mode: 'none'|'flow'|'path', traverse:
+  'none'|'ladder'|'climb'|'window', phase, aloft, climbDir, gate, waitGate, offT, pathStatus, pathCount, pathIdx, navCan }`;
+  `debugTraverse(id, { kind, from?, via?, to, ladderId?, windowId? })` starts a link by hand (no mask check).
+- **Known limits**: a window / wall link has no queue on the graph's side, so a crowd at one window is not spread to another
+  the way a gate's queue is; bodies walking up behind a body that holds at a link mouth can trip the stuck rule and steer the old
+  way for `ENEMY_NAV_OFF_S`; the pane-breaking wind-up has no wire hint (a replica sees the bug stand, then the glass break);
+  a bug pushed into an open roof hatch drops to the floor below (`getSurfaceY`) and climbs the ladder back up.
 
 ## Damage, statuses, corpses
 - Enemy explosion damage uses `shared/explosion.explosionFalloff` (distance to body surface, per-source floors).
@@ -320,7 +384,8 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
   passes `false` unless it is trunk, head or a leg segment. (2026-09-20 — same phase.) — `models/RogueModel.ts`
 - **Animation LOD**: past `ENEMY_ANIM_LOD_HALF_M` a living body re-solves its pose every other frame and past
   `ENEMY_ANIM_LOD_FREEZE_M` not at all (`EnemySystem.poseSkip` → `Enemy.animate(dt, poseSkip)`). Position, facing and
-  every timer still run each frame, and a body that is dead, flashing, burning, shocked or flipped is never skipped.
+  every timer still run each frame, and a body that is dead, flashing, burning, shocked, flipped or on a wall
+  (`navAloft` / `anim.climb`, 2026-09-21) is never skipped.
   Two things a change here has to keep (2026-09-20):
   - **A named rogue is never skipped** (`isNamedAiType`, the same exemption the AI LOD makes). The base bug / rogue
     pose is a function of `anim.time`, which runs every frame anyway, but a **named look file integrates `dt`**
@@ -353,8 +418,8 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
     band survives at 60 fps, only the half band at 30, and **nothing at the engine's `MAX_DT` of 50 ms**, which is
     where a headless smoke sits (so the smokes exercise the full-rate path and the perf harness exercises this one).
 
-  Never reduced wherever it stands: the tutorial, a corpse still falling, a body in the air (leap · spat · flip) and
-  a named rogue. — `EnemySystem.ts`, `Enemy.ts`
+  Never reduced wherever it stands: the tutorial, a corpse still falling, a body in the air (leap · spat · flip), a body
+  on a special link (`navTrav !== 0` — it moves by the tick) and a named rogue. — `EnemySystem.ts`, `Enemy.ts`
 - **One camera read per frame**: `EnemyHost.camPos` is stamped at the top of `EnemySystem.update` and is the ear and
   the eye for everything in the folder that needs one — the AI LOD, the animation LOD and the footstep range gate
   (`model.emitEnemyStep`, whose host type is `model.StepHost` so a replica satisfies it too). It is valid for the
@@ -444,14 +509,22 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 - **Nest leash 60 m.** Rejected: 40 m (one cover break would shake them).
 - **Sandworm: a cumulative chance checked every 2 s, at most once per raid, never solo; threat 1 gets a weak worm.** Rejected: a
   seeded pre-roll with a time window.
+- **Wall climbers and window crawlers = scavengers only** (A-18 phase 2, csv `nav`). Rejected: + toxic, + hunter.
+- **Indoor pathing = scavenger · toxic · hunter + every humanoid.** Rejected: warrior · spewer too (they wedge in a 1.7 m stair
+  flight, so they stand at the wall as before); a ground-floor-only rule.
+- **A chokepoint passes 2 bodies at a time** (`NAV_GATE_CAPACITY`). Rejected: 1, 3.
+- **Flow fields for chase goals + rate-limited private A-star for everything else.** Rejected: per-enemy A-star for all (sixty
+  searches for one player); flow fields only (a nest, a cover spot, a shot origin are not shared goals).
+- **`STRUCT_DAMAGE_MUL` and `NEST_LEASH_M` keep their values** now that bugs come in through doors. Rejected: raising the gnaw
+  multiplier; a path-length leash.
 - **Enemy AI LOD = distance to the nearest anchor, not the camera; animation LOD scaled by zoom, AI LOD not** (perf,
   `docs/PERF.md`). Rejected: time slicing; freezing the far band; 25 / 50 m animation bands.
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/enemies`.
+- 2026-09-21 — TODO A-18 phase 2: enemies **use** the nav graph. `ai/NavMove.navSteer` is one call in front of `integrate`'s `seek` — a chase goal (a person target) reads the target's shared flow field, a private goal (nest · shot origin · wander · cover · lure · enemy target) a private `findPath` capped at `ENEMY_NAV_PLANS_PER_FRAME` for the whole pool; circle avoidance is off while a graph point steers; stuck → off for `ENEMY_NAV_OFF_S`. `ai/Gates`: `NAV_GATE_CAPACITY` tokens per chokepoint, recounted from the living bodies twice a second, queues reported with `setGateLoad`. `ai/Traverse`: ladder · wall climb · window crawl (breaks the pane first) performed off the colliders as an atomic gate after the hunter flip, one body at a time into a link's mouth; hints 26 · 27 · 28 + `anim.climb` lay a bug along the wall on authority and replica. Types with `navCan === 0` (warrior and larger) never reach any of it. Debug: `debugNav` · `debugNavOf` · `debugTraverse`.
 - 2026-09-20 — Two side effects of the perf work, both confirmed in a running game before being touched (`scripts/smoke-named.mjs`): the animation LOD **never skips a named rogue** (`poseSkip` → `isNamedAiType`, the exemption `aiSkip` already made) — `animateNamedRig` is only called from `animateRig`, and a named look file integrates `dt`, so past 80 m the sniper's scope glint (the 1.4 s telegraph of a 150-damage shot it takes out to 320 m) was never drawn at all and a replica's `ee glint` hold was never spent; and both LOD distances are **screen size, not metres** — they are scaled by the camera zoom (`shared/viewZoom.viewZoomK`, one `tan` per frame, clamped to ≤ 1), because a scope narrows `camera.fov` and an 8× scope draws a body at 100 m the size it has at ~12 m. `SniperLook` reads the same helper instead of its own copy of 70°. The AI LOD is deliberately left in metres.
 - 2026-09-20 — `docs/PERF.md` perf Phase C (finding B4 · B5): AI LOD — a body farther than `ENEMY_AI_LOD_HALF_M` (110 m) from every **anchor** (camera · players · androids · drones · rover, `collectAiAnchors`) ticks every other frame and past `ENEMY_AI_LOD_QUARTER_M` (140 m) every fourth, carrying the skipped `dt` in `Enemy.aiDebt` and spreading over the cycle by `Enemy.aiPhase`, and never building a tick longer than `ENEMY_AI_LOD_MAX_STEP_S` (0.08 s — under a rogue's 0.12 s `shotGap`, so the LOD fades out as frames lengthen and is fully off at the engine's 50 ms `MAX_DT`); never the tutorial, a falling corpse, a body in the air or a named rogue. S2 `u:enemies` 0.99–1.02 → 0.85–0.86 ms/frame, twice per side — and the census that explains the size of that: S2 is **60 bodies at full rate and 100 beyond 140 m**, so the LOD can only ever reach the far third of the cost. Footsteps read `EnemyHost.camPos` instead of a `getWorldPosition` per call (`model.StepHost`).
 - 2026-09-20 — `docs/PERF.md` perf Phase A (the first change in that plan to move the render block): every sphere of a bug body passes through `segBudget` → `BUG_MESH_SEGMENTS` (12), so a thorax is 12×8 instead of 18×13 and S2 carries 930k triangles instead of 997k; humanoid enemies cast shadows the soldier's way (trunk · head · legs — not the visor, the grenade or the merged `gunArms`), 9 shadow draws each → 7. S2 `x:rendererRender` 7.29–7.75 → 6.75–6.77 ms and js/frame p50 10.2–10.9 → 9.7–9.9, twice per side.
 - 2026-09-20 — A bug's 6 legs are two `InstancedMesh` (femur · tibia) whose matrices `animateBug` composes itself, so a bug is 7–8 draws instead of 17–18 and 30 scene nodes lighter (`models/BugModel.setLegMatrices`; `fx/Xray` clones an instanced source sharing its `instanceMatrix`). Animation LOD: past `ENEMY_ANIM_LOD_HALF_M` (40 m) a living body poses every other frame, past `ENEMY_ANIM_LOD_FREEZE_M` (80 m) not at all — never a dead, flashing, burning, shocked or flipped one (`EnemySystem.poseSkip`).
-- 2026-09-19 — Dead weight out of the folder: the retired crate-guard no-ops (`placeRogueGuards` · `guardCap` · `MAX_GUARDS` · `ECO_BOSS_CHANCE` · `GuardPlacement`) deleted with their six import lines and the barrel export — `RogueGuards.ts` is the `RogueSpawnHost` contract and nothing else; `parts/Damage` · `Attacks` · `Alerts` shed the copied `EnemySystem` import block (~50 unused specifiers, found with a `noUnusedLocals` pass); `Sniper.ts` reads `ScanDrone.scanDroneLeaving()` instead of its own copy of that file's phase number. Comments: csv values no longer hand-copied into the `named/Director` · `Sniper` · `Hammer` headers (the Hammer's 「10 × a rogue's hp」 had gone stale at the 2026-09-17 rebalance — it is ~5 × now, so the text names `hp` instead of a ratio), the artillery summon is no longer tagged 「one-time」, and `outwardYaw` describes the convention rather than the deleted `RogueGuards.placeAround`.

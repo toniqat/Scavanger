@@ -26,7 +26,8 @@ export function separate(e: Enemy, grid: SpatialGrid<Enemy>, players: readonly C
   const n = grid.query(pos.x, pos.z, r + 2.2, neighborBuf);
   for (let i = 0; i < n; i++) {
     const o = neighborBuf[i];
-    if (o === e || o.state === 'dead' || !o.active || o.state === 'flee') continue;
+    // 2026-09-21: a body up a wall · on a ladder · on a window sill (`ai/Traverse`) is not on this floor — the test is XZ only, so it would shove the bugs under it
+    if (o === e || o.state === 'dead' || !o.active || o.state === 'flee' || o.navAloft) continue;
     const dx = pos.x - o.position.x, dz = pos.z - o.position.z;
     const d2 = dx * dx + dz * dz;
     const minD = r + o.stats.radius + 0.15;

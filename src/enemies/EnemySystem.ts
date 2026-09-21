@@ -55,6 +55,10 @@ import { raySphere, rayCapsule, standingTopY } from './RayTests';
 import { bugThreatTuning, type BugThreatTuning } from './factionTables';
 import { ambientOptsOf, artilleryDigInChance, maxArtilleryOf, maxBehemothOf, threatEcosystem } from './Spawner';
 import { carryCorpse } from './ai/Ride';
+/* appended (2026-09-21, TODO A-18 phase 2): enemy pathfinding */
+import { EnemyNavState, describeNav } from './ai/NavMove';
+import { beginTraverse } from './ai/Traverse';
+import type { NavLinkKind } from '@/shared';
 import { BODY_RAY_VERTICAL, namedBodyNormal, namedBodyRay } from './models/named';
 
 import { BURN_TICK, FLEE_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, SHOCK_SPARK_TIME, EMPTY_GRENADES, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, queryBuf } from './model';
@@ -176,6 +180,12 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * top of the AI pass; see `collectAiAnchors`.
    */
   private aiFrame = 0;
+  /**
+   * 2026-09-21 (TODO A-18 phase 2): what the pathfinding shares between bodies — the graph it was built for, the one flow-step
+   * scratch, this frame's A* budget, the gate tokens (`ai/NavMove` · `ai/Gates`). Authority only; `beginFrame` runs at the top
+   * of the AI pass, `Pool.reset` clears it.
+   */
+  readonly nav = new EnemyNavState();
   private readonly aiAnchors: THREE.Vector3[] = [];
   nextId = 1;
   nextShellId = 1;
@@ -499,6 +509,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         // AI LOD (2026-09-20, `docs/PERF.md` perf Phase C · B4): a body far from everything it could act on ticks
         // every other / every fourth frame, spending the skipped frames' dt in one piece when it does.
         this.collectAiAnchors();
+        // 2026-09-21 (A-18 phase 2): the frame's private-search budget · the graph identity · the gate sweep (twice a second)
+        this.nav.beginFrame(world.nav ?? null, dt, this.active);
         const aiFrame = (this.aiFrame = (this.aiFrame + 1) & 3);
         const aiHalfD2 = ENEMY_AI_LOD_HALF_M * ENEMY_AI_LOD_HALF_M;
         const aiQuarterD2 = ENEMY_AI_LOD_QUARTER_M * ENEMY_AI_LOD_QUARTER_M;
@@ -615,6 +627,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     if (this.tutorial) return false;
     if (e.aiDebt + dt * 2 > ENEMY_AI_LOD_MAX_STEP_S) return false;   // the tick this skip would build, not the debt so far
     if (e.state === 'dead' ? !e.deathLanded : (e.airborne || e.leaping || e.flipFalling)) return false;
+    // 2026-09-21: a body on a ladder · a wall · a window sill moves by the tick — a coarser step would overshoot its legs (`ai/Traverse`)
+    if (e.navTrav !== 0) return false;
     if (isNamedAiType(e.type)) return false;
     const a = this.aiAnchors;
     const p = e.position;
@@ -648,6 +662,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   private poseSkip(e: Enemy, halfD2: number, freezeD2: number, lodK2: number, offFrame: boolean): boolean {
     const a = e.anim;
     if (e.state === 'dead' || a.hitFlash > 0.001 || a.writhe > 0.001 || a.spark > 0.001 || a.flip > 0.001) return false;
+    // 2026-09-21: a body on a wall (authority `ai/Traverse` · replica hints 26–28) — a frozen pose there is a bug lying flat in mid-air
+    if (e.navAloft || a.climb !== 0) return false;
     if (isNamedAiType(e.type)) return false;
     const dx = e.position.x - this.camPos.x, dy = e.position.y - this.camPos.y, dz = e.position.z - this.camPos.z;
     // `lodK2` is the camera zoom folded in (≤ 1) — the bands are screen size, not metres. See `update`.
@@ -1011,6 +1027,41 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   }
   /** Wire animation hint (`EnemyWire.a`) enemy `id` would be sent with right now (debug / smoke), −1 when unknown. */
   debugHint(id: number): number { const e = this.byId.get(id); return e ? animHint(e) : -1; }
+
+  /* ── appended: 2026-09-21 (TODO A-18 phase 2 — enemy pathfinding; for `scripts/smoke-enemy-nav.mjs`) ── */
+  /**
+   * The pool's pathfinding at a glance: how many living bodies steer by the flow field / a private path / are on a special link /
+   * were refused at a gate this tick, the token holders and queue per gate (index = `NavGate.id`), and the private searches run
+   * over the last full second (the ceiling is `ENEMY_NAV_PLANS_PER_FRAME` × fps).
+   */
+  debugNav(): { ready: boolean; gates: number; flow: number; path: number; traversing: number; waiting: number; off: number; tokens: number[]; queues: number[]; plansLastSecond: number } {
+    let flow = 0, path = 0, traversing = 0, waiting = 0, off = 0;
+    for (let i = 0; i < this.active.length; i++) {
+      const e = this.active[i];
+      if (e.state === 'dead') continue;
+      if (e.navTrav !== 0) traversing++;
+      else if (e.navMode === 1) flow++;
+      else if (e.navMode === 2) path++;
+      if (e.navWaitGate >= 0) waiting++;
+      if (e.navOffT > 0) off++;
+    }
+    const st = this.nav;
+    return { ready: st.graph !== null, gates: st.holders.length, flow, path, traversing, waiting, off, tokens: st.holders.slice(), queues: st.waiting.slice(), plansLastSecond: st.plansLastSecond };
+  }
+  /** One body's pathfinding state (`ai/NavMove.describeNav`), null for an unknown id. */
+  debugNavOf(id: number): ReturnType<typeof describeNav> | null { const e = this.byId.get(id); return e ? describeNav(e) : null; }
+  /**
+   * Puts a body on a special link by hand — the same `ai/Traverse.beginTraverse` the flow field and a path call, without the
+   * mask check. `ladder` needs `ladderId` (`WorldRef.getLadders`) and reads only `to.y` (above the body = up); `climb` · `window`
+   * need `from` / `via` / `to`. Authority only. False = refused (unknown id · dead · no world · unknown ladder).
+   */
+  debugTraverse(id: number, link: { kind: NavLinkKind; from?: { x: number; y: number; z: number }; via?: { x: number; y: number; z: number }; to: { x: number; y: number; z: number }; ladderId?: string; windowId?: string }): boolean {
+    const e = this.byId.get(id);
+    const world = this.ctx.world;
+    if (!e || e.state === 'dead' || !world || !this.authority) return false;
+    const from = link.from ?? e.position, via = link.via ?? link.to;
+    return beginTraverse(e, world, link.kind, _v.set(from.x, from.y, from.z), _v2.set(via.x, via.y, via.z), _to.set(link.to.x, link.to.y, link.to.z), link.ladderId ?? null, link.windowId ?? null);
+  }
   /** Position of live shell `sid` (debug), or null. */
   debugShell(sid: number): THREE.Vector3 | null { return this.shells?.find(sid)?.position ?? null; }
   /**

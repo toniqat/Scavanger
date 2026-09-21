@@ -36,7 +36,8 @@
  *     --out <path>        json path (default scripts/logs/perf/<label>.json)
  *
  * Scenarios: S1 idle · S2 60 bugs · S3a a burrow group in one frame · S3b the natural patrol
- * tick · S4 three androids in a fight.
+ * tick · S4 three androids in a fight · S6 (`--only s6`, TODO A-18 phase 2) S2's 60 bugs, spawned chasing, with the player inside a
+ * building, so the flow fields · gates · wall climbs are all in use — read it against S2.
  *
  * **S5 (Phase D) — two humans through the relay.** `--only s5a` (idle) · `s5b` (+ 60 bugs) · `s5` (both, one raid).
  * It needs a **relay**: run `npm run dev:all` instead of `npm run dev`. The host is the same headful page every other
@@ -189,6 +190,17 @@ function installProbe() {
   if (wrap(enemies, 'spawn', 'x:enemySpawn')) wrapped.push('x:enemySpawn');
   if (wrap(enemies, 'ensureCapacity', 'x:ensureCapacity')) wrapped.push('x:ensureCapacity');
   if (enemies && wrap(enemies.spawner, 'update', 'x:ambientSpawner')) wrapped.push('x:ambientSpawner');
+  // TODO A-18 phase 2: the nav graph's own frame work — the bake at raid start, the re-measure and the **flow-field
+  // builds** (`NAV_FLOW_BUDGET_MS` a frame while a field is due). A slice inside `u:world`. What the enemies spend
+  // reading it is inside `u:enemies` and shows as S6 against S2.
+  const navGraph = g.getSystem('world')?.navGraph;
+  if (navGraph && wrap(navGraph, 'update', 'x:navUpdate')) wrapped.push('x:navUpdate');
+  // …and the queries the movers make (enemies and androids — slices of `u:enemies` / `u:allies`): a private A*, the
+  // 「can I walk straight there」 test every body asks each `ENEMY_NAV_CHECK_S`, and the field lookup. Each call is
+  // microseconds against a 0.1 ms timer, so read them as totals over the window, never as a worst call.
+  for (const [k, label] of [['findPath', 'x:navFindPath'], ['walkable', 'x:navWalkable'], ['flowTo', 'x:navFlowTo']]) {
+    if (navGraph && wrap(navGraph, k, label)) wrapped.push(label);
+  }
   // The render block: every `renderer.render` of the frame (the direct draw, and one per composer / outline pass).
   // Its sum against the frame's draw-call count is what makes B1 (draw calls) measurable at all.
   if (wrap(g.ctx.renderer, 'render', 'x:rendererRender')) wrapped.push('x:rendererRender');
@@ -843,10 +855,88 @@ try {
     await record('S1', 'idle, ambient only');
   }
 
+  /*
+   * TODO A-18 phase 2: the pathfinding counters of one window, so S2 and S6 read side by side — flow-field builds in the
+   * window (count · avg · max ms, from the graph's cumulative stats diffed at both ends), and, sampled every frame, the
+   * most private searches in one second, the most tokens one gate held, the most bodies in flow / path mode at once.
+   * The max build ms is the raid's so far (the graph keeps no windowed max); the settle before a window has no bugs, so
+   * it is the window's in practice.
+   */
+  const navWatch = async () => P(() => {
+    const es = window.__game.getSystem('enemies'), ws = window.__game.getSystem('world');
+    const f0 = ws.debugNav?.debugInfo().flow ?? null;
+    const m = { plans: 0, tokens: 0, flow: 0, path: 0, waiting: 0, traversing: 0 };
+    window.__navWatch = { f0, m, on: true };
+    (function tick() {
+      const w = window.__navWatch;
+      if (!w || !w.on) return;
+      const n = es.debugNav();
+      w.m.plans = Math.max(w.m.plans, n.plansLastSecond); w.m.tokens = Math.max(w.m.tokens, 0, ...n.tokens);
+      w.m.flow = Math.max(w.m.flow, n.flow); w.m.path = Math.max(w.m.path, n.path);
+      w.m.waiting = Math.max(w.m.waiting, n.waiting); w.m.traversing = Math.max(w.m.traversing, n.traversing);
+      requestAnimationFrame(tick);
+    })();
+  });
+  const navRead = async (rep) => {
+    const nav = await P(() => {
+      const w = window.__navWatch; w.on = false;
+      const g = window.__game.getSystem('world').debugNav?.debugInfo() ?? null;
+      const f1 = g?.flow ?? null, f0 = w.f0;
+      const b = f1 && f0 ? f1.builds - f0.builds : 0;
+      const sum = f1 && f0 ? f1.avgMs * f1.builds - f0.avgMs * f0.builds : 0;
+      return {
+        builds: b, buildAvgMs: b > 0 ? sum / b : 0, buildMaxMs: f1?.maxMs ?? 0, lastNodes: f1?.lastNodes ?? 0, lastFrames: f1?.lastFrames ?? 0,
+        fieldsLive: f1?.live ?? 0, max: w.m, end: window.__game.getSystem('enemies').debugNav(), graph: g,
+      };
+    });
+    rep.nav = nav;
+    console.log(`  nav: flow builds ${nav.builds} (avg ${fmt(nav.buildAvgMs, 2)} ms · max ${fmt(nav.buildMaxMs, 2)} ms · last ${nav.lastNodes} nodes over ${nav.lastFrames} frames) · fields live ${nav.fieldsLive}`);
+    console.log(`       max at once: flow ${nav.max.flow} · path ${nav.max.path} · waiting ${nav.max.waiting} · traversing ${nav.max.traversing} · gate tokens ${nav.max.tokens} · private plans ${nav.max.plans}/s`);
+  };
+
   if (ONLY.includes('s2')) {
     console.log('\n=== S2 — solo + 60 bugs in a ring at 25-40 m ===');
     await toShip(); await launch();
-    await record('S2', '60 bugs alive', async () => { await inFrame('ring60', RING60); await waitSim(2); });
+    const rep = await record('S2', '60 bugs alive', async () => { await inFrame('ring60', RING60); await waitSim(2); await navWatch(); });
+    await navRead(rep);
+  }
+
+  /*
+   * S6 (TODO A-18 phase 2) — S2's 60 bugs, but the player stands **inside a building** (floor 2 when it has one), so
+   * no straight line to him is walkable: every body with a `nav` mask reads a flow field, the gates throttle the
+   * doors, scavengers take the walls and windows, and the warriors stand outside as they always did. The row to read
+   * it against is S2 — same bodies, same ring, same seed.
+   */
+  if (ONLY.includes('s6')) {
+    console.log('\n=== S6 — solo + 60 bugs, the player inside a building (flow fields · gates in use) ===');
+    await toShip(); await launch();
+    const stand = await P(() => {
+      const w = window.__game.ctx.world, ws = window.__game.getSystem('world');
+      const rows = ws.structures.debugNav().filter((q) => q.kind !== 'wreck');
+      const r = rows.find((q) => q.nav.stairTop) ?? rows[0];
+      if (!r) return null;
+      const nav = r.nav, c = Math.cos(nav.yaw), sn = Math.sin(nav.yaw);
+      const l = nav.stairTop ?? nav.doorIn, y = nav.stairTop ? nav.levels[1] : nav.levels[0];
+      const st = [nav.cx + l[0] * c - l[1] * sn, y, nav.cz + l[0] * sn + l[1] * c];
+      const pl = window.__game.ctx.player;
+      // The pin stops with the scenario (`__s6Hold = false` below) — a later scenario must not inherit it.
+      window.__s6Hold = true;
+      (function hold() { if (!window.__s6Hold) return; pl.position.set(st[0], st[1], st[2]); pl.velocity.set(0, 0, 0); requestAnimationFrame(hold); })();
+      return { id: r.id, floor2: !!nav.stairTop, gates: w.nav?.gates.length ?? 0 };
+    });
+    if (!stand) console.log('  !! this seed has no enterable building — S6 skipped');
+    else {
+      console.log(`  standing in ${stand.id}${stand.floor2 ? ' (floor 2)' : ''} · ${stand.gates} gates`);
+      await waitFor(() => window.__game.ctx.world.nav?.ready, 'nav ready', 60000);
+      // The pin moved the camera into the building just now: its first frames there are the teleport's (a first look
+      // indoors), not the scenario's — let them pass before the window opens.
+      await waitSim(2);
+      // Spawned already chasing: indoors no bug can see him, so S2's unaware ring would mostly wander and the window would
+      // measure strollers, not sixty bodies routing through the doors (measured 2026-09-21: 5 in flow mode at most).
+      const rep = await record('S6', '60 bugs chasing, player indoors', async () => { await inFrame('ring60chase', RING60.replace('}, false)', '}, true)')); await waitSim(2); await navWatch(); });
+      await navRead(rep);
+      await P(() => { window.__s6Hold = false; });
+    }
   }
 
   if (ONLY.includes('s3a')) {

@@ -228,6 +228,10 @@ const SMOKES = {
      floor 2 · the roof by its ladder · a locked room before and after it opens), `walkable` through a wall, the search
      cost, and an android told to go to floor 2 and to a roof getting there (the second one up the ladder). */
   'smoke-nav':          { file: 'scripts/smoke-nav.mjs',          folders: ['world', 'allies'] },
+  /* 2026-09-21 (TODO A-18 phase 2): real enemies on that graph — a pack chasing a player on floor 2 comes in through
+     the doors (a warrior never does), scavengers climb to a player on the roof and break a pane to cross a window,
+     and no gate ever holds more than `NAV_GATE_CAPACITY` tokens. */
+  'smoke-enemy-nav':    { file: 'scripts/smoke-enemy-nav.mjs',    folders: ['enemies', 'world'] },
   /* 2026-09-13 (per-planet enemy factions · world-sites): the site spawn spots — `getSiteSpawnPoints` indoors (on a
      building floor · inside the walls · outside a locked room · walkable from the front door) · outdoors (outside a footprint ·
      outside the rail corridor · no collision) · platforms · ruins · determinism · minGap · an empty answer on the training

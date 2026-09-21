@@ -25,9 +25,13 @@ export function tuple(v: THREE.Vector3, dp = 2): Vec3Tuple {
  * Phase 7: 12 rogue reloading, 13 rogue throwing a grenade.
  * 2026-09-11: 14..20 belong to the named rogues and are set directly by `ai/named/*` on `Enemy.namedHint`.
  * 2026-09-17: 23 hunter flipped and falling, 24 hunter lying flipped (`ai/HunterFlip`).
+ * 2026-09-21 (A-18 phase 2): a body on a special link and off the floor (`ai/Traverse`, legs 2–5) — 26 on a wall nose up ·
+ *   27 on a wall nose down · 28 level (crossing a sill, stepping onto the roof). All three switch a replica's terrain snap off.
  */
 export function animHint(e: Enemy): number {
   if (e.spatT > 0 && e.state !== 'dead') return 4;   // 2026-09-13: a body the sandworm spat is in flight (before the type branches — toxic and artillery too)
+  // 2026-09-21: on a ladder · a wall · a window sill (before the type branches — humanoids take ladders too). `navTrav` is authority memory.
+  if (e.navTrav !== 0 && e.navAloft && e.state !== 'dead') return e.navClimbDir > 0 ? 26 : e.navClimbDir < 0 ? 27 : 28;
   if (e.namedHint > 0 && e.state !== 'dead') return e.namedHint;   // a dead body does not carry its last hint (spray 19 and the like)
   if (e.isHumanoid) {
     if (e.incapTimer > 0) return 0;      // incinerated: the replica writhes from the status bit, not the cover pose

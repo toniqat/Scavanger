@@ -41,14 +41,15 @@ import { FxManager, ParticleBurst } from '@/core/fx';
 import { type BuildCtx, merge, paint, paintGradient, xform } from './build';
 import type { ObstacleEntry, SpatialHash } from './SpatialHash';
 import {
-  PALETTE, type BuildingPlan, type DoorSpot, type Spot, type StructureNav, buildBuilding, buildWreck, mergeOrNull,
+  BREACH_W, PALETTE, type BuildingPlan, type DoorSpot, type Spot, type StructureNav, buildBuilding, buildWreck, mergeOrNull,
 } from './structures/parts/Build';
 import { ContainerSet, type ContainerSpec } from './structures/parts/Containers';
 import { GlassSet, type WindowSpec } from './structures/parts/Glass';
 import { ScanWave } from './structures/parts/ScanWave';
 /* appended (2026-09-21): the ceiling turret inside a locked space */
 import { CeilingTurretSet, type TurretSpec } from './structures/parts/Turret';
-import { pickTier, structureRow } from './structures/model';
+import { DOOR_W, PARAPET_H, WALL_T, WINDOW_SILL, pickTier, structureRow } from './structures/model';
+import type { NavBuilding, NavWindow } from './nav/model';
 
 /* 2026-09-19: the `BASEMENT_KEY_DEF` constant is gone. Since 2026-09-12 the key id's source is the `key` column of
    `data/structures.csv`, nothing in this module read the constant, and the only thing left holding it up was
@@ -108,7 +109,13 @@ interface NavRow {
   basementDoor: { x: number; y: number; z: number } | null;
   /** 2026-09-12: the locked room door's interaction spot (null with none). */
   lockedDoor: { x: number; y: number; z: number } | null;
+  /** 2026-09-21 (A-18 phase 2): the roof floor height (NaN for an open-topped wreck) · the window panes, for the nav graph. */
+  roofY: number;
+  windows: readonly WindowSpec[];
 }
+
+/** A climb spot keeps this far (m) clear of the door's · the breach's edge (`navBuildings`). */
+const NAV_OPENING_CLEAR_M = 0.6;
 
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -197,6 +204,69 @@ export class Structures {
   navOf(id: string): StructureNav | null {
     return this.navs.find((n) => n.id === id)?.nav ?? null;
   }
+
+  /**
+   * 2026-09-21 (A-18 phase 2): every window pane as the nav graph needs it — its `GlassSet.key`, the normal pointing
+   * **into** the building (the pane's own normal has no fixed side, so it is turned toward the building's centre),
+   * the floor it belongs to and the ground level outside.
+   */
+  navWindows(): NavWindow[] {
+    const out: NavWindow[] = [];
+    for (const row of this.navs) {
+      row.windows.forEach((w, i) => {
+        let nx = -Math.sin(w.yaw), nz = Math.cos(w.yaw);
+        if ((row.nav.cx - w.x) * nx + (row.nav.cz - w.z) * nz < 0) { nx = -nx; nz = -nz; }
+        out.push({
+          id: GlassSet.key(row.id, i), building: row.id, x: w.x, z: w.z, sillY: w.y, halfW: w.halfW, height: w.height,
+          nx, nz, floorY: w.y - WINDOW_SILL, groundY: row.nav.levels[0],
+        });
+      });
+    }
+    return out;
+  }
+
+  /**
+   * 2026-09-21 (A-18 phase 2): the **roofed** buildings whose outer walls a small bug may climb (a wreck is open-topped
+   * and has no `roofY`). `avoid` = the front door and the collapsed breach, which no climb spot is put in front of.
+   */
+  navBuildings(): NavBuilding[] {
+    const out: NavBuilding[] = [];
+    for (const row of this.navs) {
+      if (!Number.isFinite(row.roofY)) continue;
+      const n = row.nav;
+      const c = Math.cos(n.yaw), s = Math.sin(n.yaw);
+      const at = (lx: number, lz: number, r: number) => ({ x: n.cx + lx * c - lz * s, z: n.cz + lx * s + lz * c, r });
+      const avoid = [at(n.doorOut[0], -n.halfD, DOOR_W / 2 + NAV_OPENING_CLEAR_M)];
+      if (n.breach) {
+        const r = BREACH_W / 2 + NAV_OPENING_CLEAR_M;
+        avoid.push(n.breach.side === 0 ? at(n.breach.c, n.halfD, r) : at(n.breach.side === 1 ? -n.halfW : n.halfW, n.breach.c, r));
+      }
+      out.push({
+        key: row.id, cx: n.cx, cz: n.cz, yaw: n.yaw, halfW: n.halfW, halfD: n.halfD, wallHalfT: WALL_T / 2,
+        groundY: n.levels[0], roofY: row.roofY, wallTopY: row.roofY + PARAPET_H, avoid,
+      });
+    }
+    return out;
+  }
+
+  /** 2026-09-21 (A-18 phase 2): `NavRef.windowWhole` — `key` is a `GlassSet.key`. */
+  windowWhole(key: string): boolean { return this.glass.isWhole(key); }
+
+  /**
+   * 2026-09-21 (A-18 phase 2): `NavRef.breakWindow` — a bug crawling in breaks the pane **the way a local bullet
+   * does** (`breakGlass(…, true)`: sound · shards · `structure:glassBroken` · `struct glass` on the wire). Only the
+   * authority moves enemies, so only the authority ever calls it.
+   */
+  breakWindow(key: string): void {
+    const ref = this.glass.refOf(key);
+    if (ref) this.breakGlass(ref.structureId, ref.index, true);
+  }
+
+  /**
+   * 2026-09-21 (A-18 phase 2): told the `GlassSet.key` of every pane that breaks, whoever broke it (bullet · bug ·
+   * wire · a late joiner's sync) — the nav graph makes that window's link cheaper and rebuilds its flow fields.
+   */
+  onGlassBroken: ((key: string) => void) | null = null;
 
   /** 2026-09-12 (C): the contents from the first opening of this set's container
    * (`WorldRef.previewContainerItems`), null with none. */
@@ -379,6 +449,7 @@ export class Structures {
         id, kind: site.kind, nav: out.nav,
         basementDoor: out.door ? { ...out.door.interact } : null,
         lockedDoor: out.lockedDoor ? { ...out.lockedDoor.interact } : null,
+        roofY: out.roofY, windows: out.windows,
       });
 
       this.insts.push(inst);
@@ -624,6 +695,7 @@ export class Structures {
   /** Breaks one pane. `byLocal` = this client's bullet · throwable broke it (announce it on the wire). */
   private breakGlass(structureId: string, index: number, byLocal: boolean, point?: THREE.Vector3): void {
     if (!this.glass.breakPane(structureId, index)) return;
+    this.onGlassBroken?.(GlassSet.key(structureId, index));
     const ctx = this.game;
     if (!ctx) return;
     const center = this.glass.centerOf(structureId, index, new THREE.Vector3());
@@ -796,6 +868,7 @@ export class Structures {
   private breakGlassQuiet(structureId: string, index: number): void {
     if (!Number.isFinite(index)) return;
     if (!this.glass.breakPane(structureId, index)) return;
+    this.onGlassBroken?.(GlassSet.key(structureId, index));
     const center = this.glass.centerOf(structureId, index, new THREE.Vector3());
     if (center) this.game?.bus.emit('structure:glassBroken', { structureId, index, position: center, byLocal: false });
   }

@@ -531,12 +531,18 @@ export class EnemyReplica {
   private drive(e: Enemy, latest: Sample, dt: number, world: NonNullable<GameContext['world']>, renderT: number): void {
     const a = e.anim;
     const s = e.stats;
-    const px = e.position.x, pz = e.position.z;
+    const px = e.position.x, py = e.position.y, pz = e.position.z;
     const hint = latest.a;
     const rogue = e.isHumanoid;
 
     // 2026-09-17: 23 = a flipped hunter falling (airborne, so the terrain snap is off) · 24 = a hunter lying flipped — `Enemy.animate` applies `anim.flip`
     e.airborne = hint === 4 || hint === 23;
+    // 2026-09-21 (A-18 phase 2): 26 · 27 · 28 = on a special link and off the floor (`ai/Traverse`) — `Enemy.animate` lays a bug along
+    // the wall from `navClimbDir`, and the terrain snap · ride · slope below are off so it is not pulled down to the floor mid-wall.
+    if (e.navTrav !== 0) e.clearNav();   // a body adopted mid-link on a demotion: the link was the old authority's
+    const aloft = hint >= 26 && hint <= 28;
+    e.navAloft = aloft;
+    e.navClimbDir = hint === 26 ? 1 : hint === 27 ? -1 : 0;
     e.leaping = hint === 4;
     e.flipFalling = hint === 23;
     e.flipTimer = hint === 24 ? STATUS_HOLD : 0;
@@ -556,13 +562,13 @@ export class EnemyReplica {
     // 2026-09-11 (C-18): an enemy riding the tram is advanced along with it by the interpolation delay (`ai/Ride.replicaRidePredict`). The
     // interpolated spot is the host's spot at renderT (extrapolated at most MAX_EXTRAPOLATE) while the tram is at its **current** spot — that gap is lag.
     let rideVel: THREE.Vector3 | null = null;
-    if (!e.airborne) {
+    if (!e.airborne && !aloft) {
       const lag = Math.max(0, this.host.ctx.time - Math.min(renderT, latest.t + MAX_EXTRAPOLATE));
       rideVel = replicaRidePredict(e, world, latest, this.host.ctx.time, lag, dt, e.position);
     } else e.carrier = null;
     // 2026-09-09: `getSurfaceY` with the host's own y as the foot height — a body standing on a rock keeps its
     // rock top instead of being yanked down to the terrain the moment the snapshot lands.
-    if (!e.airborne) e.position.y = world.getSurfaceY(e.position.x, e.position.z, _pose.y);   // hide small height mismatches
+    if (!e.airborne && !aloft) e.position.y = world.getSurfaceY(e.position.x, e.position.z, _pose.y);   // hide small height mismatches
     e.yaw = _pose.yaw;
     e.hp = latest.hp;
     e.state = latest.st;
@@ -574,7 +580,8 @@ export class EnemyReplica {
     let dx = e.position.x - px, dz = e.position.z - pz;
     if (dt > 0) e.velocity.set(dx / dt, 0, dz / dt);
     if (rideVel) { dx -= rideVel.x * dt; dz -= rideVel.z * dt; }
-    const moved = Math.hypot(dx, dz);
+    // 2026-09-21: on a wall the legs work from the height gained (the authority's `ai/Traverse` counts the same distance)
+    const moved = aloft ? Math.hypot(dx, dz, e.position.y - py) : Math.hypot(dx, dz);
     a.gait += (moved / e.rig.params.strideLength) * TWO_PI;
     if (a.gait > 1e6) a.gait -= 1e6;
     const spd = dt > 0 ? moved / dt : 0;
@@ -582,7 +589,7 @@ export class EnemyReplica {
     a.speed += (targetAnimSpeed - a.speed) * Math.min(1, dt * 8);
     // 2026-09-11 (C-23 · X-3): non-hosts hear enemy footsteps too — the same stride accumulation and emission as the authority, from the interpolated movement.
     // A jump of several metres in one frame (the first snapshot · a teleport) is not a step.
-    if (s.stepSound && !e.airborne && moved < 2) footfall(e, this.host, moved);
+    if (s.stepSound && !e.airborne && !aloft && moved < 2) footfall(e, this.host, moved);
 
     // animation targets from state + hint (mirrors what the host AI would be setting)
     let shakeT = 0, abdT = 0, crouchT = 0, mandT = e.aware ? 0.25 : 0, pitchT: number | null = null;
@@ -630,7 +637,8 @@ export class EnemyReplica {
     }
     if (pitchT !== null) a.headPitch = THREE.MathUtils.lerp(a.headPitch, pitchT, dt * 6);
 
-    if (!e.airborne) applySlope(e, world, dt);
+    if (aloft) { a.slopePitch += (0 - a.slopePitch) * Math.min(1, dt * 6); a.slopeRoll += (0 - a.slopeRoll) * Math.min(1, dt * 6); }
+    else if (!e.airborne) applySlope(e, world, dt);
   }
 
   /**

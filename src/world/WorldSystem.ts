@@ -385,6 +385,8 @@ export class WorldSystem implements GameSystem, WorldRef {
    * 2026-09-21 (TODO A-18): hands the finished raid to the nav graph. One region per structure (its `StructureNav`
    * rectangle) and per rail platform, each grown by `NAV_STRUCT_MARGIN_M` so its grid meets the outdoor one outside
    * the walls. The hash reports every later collider change to it (`SpatialHash.onChange`).
+   * Phase 2: the windows and the roofed buildings go along (window · wall-climb links for small bugs), and every pane
+   * that breaks — by anyone, the wire included — is reported to the graph (`Structures.onGlassBroken`).
    */
   private startNav(): void {
     const regions: RegionSpec[] = [];
@@ -392,10 +394,10 @@ export class WorldSystem implements GameSystem, WorldRef {
     for (const d of this.structures.getDefs()) {
       const n = this.structures.navOf(d.id);
       if (!n) continue;
-      regions.push({ key: d.id, cx: n.cx, cz: n.cz, yaw: n.yaw, halfU: n.halfW + m, halfV: n.halfD + m });
+      regions.push({ key: d.id, cx: n.cx, cz: n.cz, yaw: n.yaw, halfU: n.halfW + m, halfV: n.halfD + m, gates: true });
     }
     for (const p of this.rails.getLines()[0]?.platforms ?? []) {
-      regions.push({ key: p.id, cx: p.position.x, cz: p.position.z, yaw: p.yaw, halfU: p.radius + m, halfV: p.radius + m });
+      regions.push({ key: p.id, cx: p.position.x, cz: p.position.z, yaw: p.yaw, halfU: p.radius + m, halfV: p.radius + m, gates: false });
     }
     this.navGraph.start({
       heightAt: (x, z) => this.getHeightAt(x, z),
@@ -405,7 +407,12 @@ export class WorldSystem implements GameSystem, WorldRef {
       regions,
       ladders: this.structures.getLadders(),
       limit: SOFT_WALL - PLAYER_RADIUS,
+      windows: this.structures.navWindows(),
+      buildings: this.structures.navBuildings(),
+      windowWhole: (id) => this.structures.windowWhole(id),
+      breakWindow: (id) => this.structures.breakWindow(id),
     });
+    this.structures.onGlassBroken = (key) => this.navGraph.noteWindowBroken(key);
     this.hash.onChange = this.navGraph.onHashChange;
     this.navLive = true;
   }

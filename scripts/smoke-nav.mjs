@@ -16,6 +16,17 @@
 //      re-measure ran: `ok`, walked to the end — the hash change reached the graph.
 //   6. `walkable`: straight through a building's wall is false; a straight line inside one room is true.
 //   7. Cost: a long open-ground search and a search to an unreachable goal each stay under a frame budget.
+//   9. Phase 2 (2026-09-21, small bugs · flow fields · gates), per seed on its first roofed building:
+//      a. special links exist per kind (ladder · climb · window) and gates exist; every roofed building has a gate
+//         in its front doorway;
+//      b. `findPath` with a small bug's mask and no ladder reaches the roof by a `climb` waypoint whose `via` clears
+//         the roof, and crosses the wall by the `window` link asked for (with its `windowId`);
+//      c. `flowTo` a goal inside the building: the field gets `ready` within its frame budget; a person-mask walker
+//         that starts against the back wall follows `aim` after `aim` through a doorway and arrives (every aim on a
+//         walkable node, never pinned); a small-bug-mask walker to a roof goal performs a special link and arrives;
+//      d. `windowWhole` → `breakWindow` → not whole, `revision` bumped, the pane really broken in `GlassSet`;
+//      e. `setGateLoad` on the front-door gate makes the next build's distance through it larger.
+//      Build cost (ms · frames · nodes · bytes per buffer) is printed.
 //   8. An android (`/android 1`) told to go (`저쪽으로 가자`) to a floor-2 spot and to a roof from outside the front
 //      door gets there — the second one by climbing the ladder (`ALLY_FLAGS.CLIMB` seen on the way).
 //
@@ -31,6 +42,8 @@ const ONLY_ANDROID = process.argv.includes('--android');
 const SEEDS = [21, 7, 1234, 42, 99, 2026];
 /** A search may take at most this long (ms) — it runs on the authority's frame. */
 const SEARCH_MS_MAX = 25;
+/** One flow-field build may cost at most this much cpu in total (ms, spread over frames by `NAV_FLOW_BUDGET_MS`) — measured ~10. */
+const FLOW_BUILD_MS_MAX = 60;
 
 const CHROME = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -143,6 +156,148 @@ function probe({ phase }) {
   return { info: window.__game.getSystem('world').debugNav.debugInfo(), rows, long };
 }
 
+/**
+ * 9. Phase 2 in the page: links · gates · masks · flow fields · windows · gate load, on the seed's first roofed building.
+ * Async because a flow field is built over frames — the page's frame loop keeps running while this waits.
+ */
+async function probePhase2() {
+  const ctx = window.__game.ctx, w = ctx.world, ws = window.__game.getSystem('world');
+  const g = w.nav, dbg = ws.debugNav;
+  const V3 = ctx.camera.position.constructor;
+  const LADDER = 1, CLIMB = 2, WINDOW = 4, INDOOR = 8;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  // No enemy may call `flowTo` / `setGateLoad` while this measures.
+  const es = window.__game.getSystem('enemies');
+  es.training = true;
+  for (const e of [...es.active]) es.despawn(e);
+
+  const out = { info: dbg.debugInfo(), doors: [], building: null };
+  const rows = ws.structures.debugNav().filter((r) => Number.isFinite(r.roofY));
+  const frame = (nav) => { const c = Math.cos(nav.yaw), sn = Math.sin(nav.yaw); return (lx, lz, y) => new V3(nav.cx + lx * c - lz * sn, y, nav.cz + lx * sn + lz * c); };
+  for (const r of rows) {
+    const at = frame(r.nav);
+    const door = at(r.nav.doorOut[0], -r.nav.halfD, r.nav.levels[0]);
+    let near = Infinity;
+    for (const gt of g.gates) if (Math.abs(gt.position.y - door.y) < 1) near = Math.min(near, Math.hypot(gt.position.x - door.x, gt.position.z - door.z));
+    out.doors.push({ id: r.id, gate: dbg.debugGateAt(door.x, door.y, door.z), near: +near.toFixed(2) });
+  }
+  const row = rows[0];
+  if (!row) return out;
+  const nav = row.nav, at = frame(nav), y0 = nav.levels[0];
+  const B = out.building = { id: row.id };
+  const ground = (lx, lz) => { const p = at(lx, lz, 0); p.y = w.getSurfaceY(p.x, p.z, y0 + 0.5); return p; };
+  const specials = dbg.debugSpecials();
+  const path = g.createPath();
+  const kindsOf = () => { const k = []; for (let i = 0; i < path.count; i++) k.push(path.points[i].kind); return k; };
+
+  // b. masks: no ladder → the roof only by a climb; a window link taken when it is the short way
+  const ladder = w.getLadders().find((l) => l.id.startsWith(`ladder_${row.id}_`));
+  const roofGoal = ladder ? new V3(ladder.exit.x, ladder.topY, ladder.exit.z) : at(0, 0, row.roofY);
+  const behind = ground(0, nav.halfD + 2.5);
+  B.roofSt = g.findPath(behind, roofGoal, CLIMB | WINDOW | INDOOR, path);
+  B.roofKinds = kindsOf();
+  const climbWp = path.points.slice(0, path.count).find((p) => p.kind === 'climb');
+  B.climbViaOverRoof = climbWp ? climbWp.via.y > row.roofY : null;
+  B.roofEndY = path.count ? +(path.points[path.count - 1].position.y - row.roofY).toFixed(2) : null;
+  B.roofPersonSt = g.findPath(behind, roofGoal, INDOOR, path);          // no ladder, no climb: the roof is out of reach
+  B.roofPersonEndsOnRoof = path.count > 0 && Math.abs(path.points[path.count - 1].position.y - row.roofY) < 0.6;
+  // the ground-floor window farthest from the front door
+  const door = at(nav.doorOut[0], -nav.halfD, y0);
+  let win = null, winD = -1;
+  for (const sp of specials) {
+    if (sp.kind !== 'window' || !sp.windowId.startsWith(`${row.id}:`) || Math.abs(sp.to[1] - y0) > 0.6 || Math.abs(sp.from[1] - sp.to[1]) > 1.2) continue;
+    const d = Math.hypot(sp.from[0] - door.x, sp.from[2] - door.z);
+    if (d > winD) { winD = d; win = sp; }
+  }
+  B.window = win ? win.windowId : null;
+  if (win) {
+    const a = new V3(...win.from), b = new V3(...win.to);
+    B.winSt = g.findPath(a, b, WINDOW | INDOOR, path);
+    const wp = path.points.slice(0, path.count).find((p) => p.kind === 'window');
+    B.winTaken = !!wp && (wp.windowId === win.windowId);
+    B.winViaY = wp ? +(wp.via.y - y0).toFixed(2) : null;
+    B.winPersonKinds = (g.findPath(a, b, LADDER | INDOOR, path), kindsOf());
+  }
+
+  // c. flow fields
+  const step = g.createFlowStep();
+  const fieldFor = async (key, goal, can) => {
+    const t0 = performance.now();
+    for (;;) {
+      const f = g.flowTo(key, goal, can);
+      if (f?.ready) return { f, ms: performance.now() - t0 };
+      if (performance.now() - t0 > 15000) return { f: null, ms: performance.now() - t0 };
+      await wait(16);
+    }
+  };
+  /** Follows a field from `p` like a mover: 0.12 m steps, the floor first, then the push. */
+  const follow = (key, goal, can, p, radius) => {
+    const res = { arrived: false, its: 0, pinned: false, badAim: null, links: [], gates: [], left: null, dy: null };
+    let still = 0;
+    for (; res.its < 8000; res.its++) {
+      const f = g.flowTo(key, goal, can);
+      if (!f || !f.sample(p, step)) { res.arrived = true; break; }
+      if (step.gate >= 0 && !res.gates.includes(step.gate)) res.gates.push(step.gate);
+      if (step.kind !== 'walk') { res.links.push(step.kind); p.copy(step.to); continue; }
+      if (!dbg.debugWalkableAt(step.aim.x, step.aim.y, step.aim.z)) { res.badAim = [step.aim.x, step.aim.y, step.aim.z]; break; }
+      const dx = step.aim.x - p.x, dz = step.aim.z - p.z, d = Math.hypot(dx, dz);
+      if (d < 1e-3) { res.pinned = true; break; }
+      const st = Math.min(0.12, d), ox = p.x, oz = p.z;
+      p.x += (dx / d) * st; p.z += (dz / d) * st;
+      p.y = w.getSurfaceY(p.x, p.z, p.y);
+      w.resolveCollision(p, radius);
+      p.y = w.getSurfaceY(p.x, p.z, p.y);
+      still = Math.hypot(p.x - ox, p.z - oz) < 0.01 ? still + 1 : 0;
+      if (still > 40) { res.pinned = true; break; }
+    }
+    res.left = +Math.hypot(goal.x - p.x, goal.z - p.z).toFixed(2);
+    res.dy = +Math.abs(goal.y - p.y).toFixed(2);
+    return res;
+  };
+  const inside = at(nav.doorIn[0], nav.doorIn[1] + 2, y0);
+  const person = await fieldFor('smoke:in', inside, LADDER | INDOOR);
+  B.fieldMs = +person.ms.toFixed(0);
+  B.fieldReady = !!person.f;
+  B.flowFirst = { ...dbg.debugInfo().flow };
+  if (person.f) {
+    // pressed against the back wall, off the door's line
+    const start = ground(nav.doorOut[0] > 0 ? -2 : 2, nav.halfD + 0.9);
+    B.firstKind = person.f.sample(start, step) ? step.kind : 'none';
+    B.walk = follow('smoke:in', inside, LADDER | INDOOR, start, 0.45);
+    // e. gate load on the front door
+    const doorGate = dbg.debugGateAt(door.x, door.y, door.z);
+    const outside = ground(nav.doorOut[0], nav.doorOut[1]);
+    const distAt = () => (g.flowTo('smoke:in', inside, LADDER | INDOOR)?.sample(outside, step) ? step.dist : null);
+    B.loadGate = doorGate;
+    B.distFree = distAt();
+    const builds0 = dbg.debugInfo().flow.builds;
+    const t0 = performance.now();
+    while (performance.now() - t0 < 8000) {
+      g.setGateLoad(doorGate, 5);
+      g.flowTo('smoke:in', inside, LADDER | INDOOR);
+      if (dbg.debugInfo().flow.builds >= builds0 + 2) break;     // one may have been in flight with the old load
+      await wait(16);
+    }
+    B.distLoaded = distAt();
+    g.setGateLoad(doorGate, 0);
+  }
+  const bug = await fieldFor('smoke:roof', roofGoal, LADDER | CLIMB | WINDOW | INDOOR);
+  if (bug.f) B.bugWalk = follow('smoke:roof', roofGoal, LADDER | CLIMB | WINDOW | INDOOR, ground(nav.halfW + 6, 0), 0.3);
+
+  // d. windows
+  if (win) {
+    const rev = g.revision, broken = ws.structures.glassSet.brokenCount;
+    B.wholeBefore = g.windowWhole(win.windowId);
+    g.breakWindow(win.windowId);
+    B.wholeAfter = g.windowWhole(win.windowId);
+    B.revBumped = g.revision > rev;
+    B.paneBroken = ws.structures.glassSet.brokenCount === broken + 1;
+    B.unknownWhole = g.windowWhole('no_such:0');
+  }
+  B.flow = { ...dbg.debugInfo().flow };
+  return out;
+}
+
 /** Opens every locked door the way the relay's `struct unlocked` does (no key — the smoke is not testing keys). */
 function unlockAll() {
   const st = window.__game.getSystem('world').structures;
@@ -253,11 +408,15 @@ try {
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub');
 
-  const seen = { twoFloor: 0, roof: 0, locked: 0 };
+  const seen = { twoFloor: 0, roof: 0, locked: 0, flow: 0, climb: 0, window: 0 };
   for (const seed of ONLY_ANDROID ? [] : SEEDS) {
     await page.evaluate((s) => window.__game.ctx.bus.emit('game:newMission', { seed: s }), seed);
     await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing', 40000);
-    await waitFor(page, () => window.__game.ctx.world.ready && window.__game.ctx.world.nav, 'world ready', 30000);
+    // `!!`: a predicate's value comes back **by value**. Returning the graph itself made the inspector serialize the
+    // whole `NavGraph` — and once a flow field exists (`FlowField` → `graph` → `flow.fields` → …) that is a cycle it
+    // walks to its depth limit, re-serializing the 640 × 640 grids every lap: the page sat in that serialization for
+    // minutes on the second seed and every CDP call timed out (2026-09-21, the 「second-mission hang」).
+    await waitFor(page, () => !!(window.__game.ctx.world.ready && window.__game.ctx.world.nav), 'world ready', 30000);
     const t0 = Date.now();
     await waitFor(page, () => window.__game.ctx.world.nav.ready, 'nav baked', 60000);
     const before = await page.evaluate(probe, { phase: 'before' });
@@ -280,6 +439,46 @@ try {
     const lockedCost = before.rows.filter((r) => r.locked).map((r) => r.locked.ms);
     for (const ms of lockedCost) ok(ms <= SEARCH_MS_MAX, `seed ${seed} unreachable-goal search ${ms} ms`);
 
+    // 9. phase 2 — before the doors open, so the person-mask walker has the building as generated
+    const p2 = await page.evaluate(probePhase2);
+    {
+      const i2 = p2.info, B = p2.building;
+      console.log(`seed ${seed}: ${i2.gates} gates · links ladder ${i2.special.ladder} climb ${i2.special.climb} window ${i2.special.window} · bake share: links ${i2.linksMs.toFixed(1)} ms, gates ${i2.gatesMs.toFixed(1)} ms`);
+      if (p2.doors.length > 0) {
+        ok(i2.special.climb > 0 && i2.special.window > 0, `seed ${seed} climb and window links built`, JSON.stringify(i2.special));
+        ok(i2.special.ladder === before.rows.filter((r) => r.roof).length, `seed ${seed} one ladder link per ladder (${i2.special.ladder})`);
+        ok(i2.gates > 0, `seed ${seed} gates found (${i2.gates})`);
+        for (const d of p2.doors) ok(d.gate >= 0 && d.near <= 2, `seed ${seed} ${d.id} has a gate in its front doorway`, JSON.stringify(d));
+      }
+      if (B) {
+        const tag = `seed ${seed} ${B.id}`;
+        ok(B.roofSt === 'ok' && B.roofKinds.includes('climb') && B.climbViaOverRoof === true && Math.abs(B.roofEndY) < 0.6, `${tag} small-bug mask without a ladder reaches the roof by a climb`, JSON.stringify(B));
+        ok(!B.roofPersonEndsOnRoof, `${tag} a mask with no ladder and no climb does not reach the roof`, `${B.roofPersonSt}`);
+        if (B.roofKinds.includes('climb')) seen.climb++;
+        if (B.window) {
+          ok(B.winSt === 'ok' && B.winTaken && B.winViaY > 0.8 && B.winViaY < 1.6, `${tag} window link ${B.window} taken, via at the sill`, JSON.stringify({ st: B.winSt, taken: B.winTaken, via: B.winViaY }));
+          ok(!B.winPersonKinds.includes('window'), `${tag} a person's mask never takes a window`);
+          ok(B.wholeBefore === true && B.wholeAfter === false && B.revBumped && B.paneBroken && B.unknownWhole === false, `${tag} breakWindow breaks the pane and bumps revision`, JSON.stringify(B));
+          seen.window++;
+        }
+        ok(B.fieldReady, `${tag} flow field ready (${B.fieldMs} ms wall · build ${B.flowFirst?.lastMs.toFixed(1)} ms cpu over ${B.flowFirst?.lastFrames} frames · ${B.flowFirst?.lastNodes} nodes · ${((B.flowFirst?.lastBytes ?? 0) / 1024).toFixed(0)} KiB)`);
+        if (B.walk) {
+          seen.flow++;
+          ok(B.firstKind === 'walk', `${tag} first sample against the back wall is a walk step`, B.firstKind);
+          ok(B.walk.arrived && !B.walk.pinned && !B.walk.badAim && B.walk.left <= 3 && B.walk.dy < 0.6 && B.walk.gates.length > 0,
+            `${tag} person-mask walker follows the field through a doorway and arrives (${B.walk.its} steps, gates ${B.walk.gates.join(',')})`, JSON.stringify(B.walk));
+          ok(B.loadGate >= 0 && B.distFree !== null && B.distLoaded !== null && B.distLoaded > B.distFree + 1,
+            `${tag} gate load makes the way through the front door longer (${B.distFree?.toFixed(1)} → ${B.distLoaded?.toFixed(1)} m)`, JSON.stringify({ g: B.loadGate, a: B.distFree, b: B.distLoaded }));
+        }
+        if (B.bugWalk) {
+          ok(B.bugWalk.arrived && !B.bugWalk.pinned && !B.bugWalk.badAim && B.bugWalk.links.length > 0 && B.bugWalk.left <= 3 && B.bugWalk.dy < 0.6,
+            `${tag} small-bug walker reaches the roof by ${B.bugWalk.links.join(' + ') || '—'}`, JSON.stringify(B.bugWalk));
+        }
+        console.log(`seed ${seed}: flow builds ${B.flow.builds} · last ${B.flow.lastMs.toFixed(1)} ms · avg ${B.flow.avgMs.toFixed(1)} ms · max ${B.flow.maxMs.toFixed(1)} ms · ${B.flow.lastNodes} nodes · ${(B.flow.lastBytes / 1024).toFixed(0)} KiB a buffer`);
+        ok(B.flow.maxMs <= FLOW_BUILD_MS_MAX, `${tag} a field build stays under ${FLOW_BUILD_MS_MAX} ms cpu in total (max ${B.flow.maxMs.toFixed(1)})`);
+      }
+    }
+
     const opened = await page.evaluate(unlockAll);
     if (opened > 0) {
       await sleep(1200);   // a few re-measure passes (`NAV_REMEASURE_HZ`)
@@ -297,6 +496,7 @@ try {
     ok(seen.twoFloor >= 2, `two-floor buildings seen (${seen.twoFloor})`);
     ok(seen.roof >= 3, `roofs seen (${seen.roof})`);
     ok(seen.locked >= 1, `locked rooms seen (${seen.locked})`);
+    ok(seen.flow >= 3 && seen.climb >= 3 && seen.window >= 3, `phase 2 seen: flow walks ${seen.flow} · climbs ${seen.climb} · windows ${seen.window}`);
   }
   // The relay is not this smoke's business — a run without one logs WebSocket refusals that say nothing about nav.
   const real = errors.filter((e) => !e.includes('WebSocket'));

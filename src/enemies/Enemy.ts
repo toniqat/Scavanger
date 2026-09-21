@@ -23,6 +23,9 @@ import { nearestOnStandingCapsule } from './RayTests';
 import type { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, type TargetId, type TargetList } from './Targets';
 import type { ReplicaBuffer } from './net/Replica';
+/* appended (2026-09-21, TODO A-18 phase 2): pathfinding — the per-raid state lives on the host (`ai/NavMove.EnemyNavState`) */
+import { ENEMY_NAV_CHECK_S, type NavPath, type NavRef } from '@/shared';
+import type { EnemyNavState } from './ai/NavMove';
 
 /**
  * Over the last few seconds of a corpse's lifetime the body sinks into the ground (`anim.fade`). It is the value that
@@ -129,6 +132,9 @@ export interface EnemyHost {
   /* ── appended: 2026-09-17 (the artillery escort · summon) ── */
   /** Stands one bug up on the authority (the same function as `SpawnHost.spawn` — hp multiplier · `ee spawn` · the dig-in FX included). */
   spawn(type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean, emerge?: number): Enemy | null;
+  /* ── appended: 2026-09-21 (TODO A-18 phase 2 — enemy pathfinding) ── */
+  /** What the pathfinding shares between bodies: the flow-step scratch, the A* budget of this frame, the gate tokens (`ai/NavMove` · `ai/Gates`). Authority only. */
+  readonly nav: EnemyNavState;
 }
 
 const _v = new THREE.Vector3();
@@ -541,6 +547,54 @@ export class Enemy implements EnemyRef {
   /** raider flanker: seconds on the current arc (`flankMaxTime` → push anyway). */
   flankClock = 0;
 
+  /* ── appended: 2026-09-21 (TODO A-18 phase 2 — `ai/NavMove` · `ai/Traverse` · `ai/Gates`). Authority memory, nothing on the wire
+        except the pose hints 26–28 (`net/HostSync.animHint`); a host change starts every body from mode 0. ── */
+  /** What picks the steering point: 0 = the old steering (straight at `moveTarget`), 1 = the target's flow field, 2 = a private path. */
+  navMode: 0 | 1 | 2 = 0;
+  /** Seconds until this body asks `nav.walkable` again (`ENEMY_NAV_CHECK_S`, staggered by id at spawn). */
+  navCheckT = 0;
+  /** Seconds left of 「pathfinding off」 after a stuck (`ENEMY_NAV_OFF_S`). */
+  navOffT = 0;
+  /** The goal the last walkable check / plan was made for — a goal that jumped away from it is checked at once. */
+  readonly navGoal = new THREE.Vector3();
+  /** The private path buffer (`NavRef.createPath`), made lazily and **kept across pool reuse** (`navHas` false = empty); `navPathOf` is the graph it came from. */
+  navPath: NavPath | null = null;
+  navPathOf: NavRef | null = null;
+  navHas = false;
+  navIdx = 0;
+  /** Seconds until the private path is planned again (`ENEMY_NAV_REPLAN_S`) · the graph revision it was planned on. */
+  navPlanT = 0;
+  navRev = -1;
+  /** Stuck window: where it started, how long it has run, how far the steering asked the body to go within it. */
+  readonly navStuckFrom = new THREE.Vector3();
+  navStuckT = 0;
+  navStuckWant = 0;
+  /** The gate this body holds a token for (-1 = none) · how long it has held it · how long the flow has not reported that gate. */
+  navGate = -1;
+  navGateAge = 0;
+  navGateMiss = 0;
+  /** The gate this body was refused at this tick (-1 = none) — the queue `ai/Gates.sweepGates` counts and reports. */
+  navWaitGate = -1;
+  /** A special link being performed (`ai/Traverse`): 0 none, 1 ladder, 2 climb, 3 window. While it is not 0 the body is off the colliders and the state machine. */
+  navTrav: 0 | 1 | 2 | 3 = 0;
+  /** Its leg: 0 to the start · 1 breaking the pane · 2 straight up · 3 across to `via` · 4 across to `to` · 5 down onto the floor. */
+  navTravPhase = 0;
+  navTravT = 0;
+  /** Seconds this link has taken so far (a link that overruns is aborted) · the way the body faces while on it. */
+  navTravAge = 0;
+  navTravYaw = 0;
+  readonly navTravFrom = new THREE.Vector3();
+  readonly navTravVia = new THREE.Vector3();
+  readonly navTravTo = new THREE.Vector3();
+  navTravWindow: string | null = null;
+  /**
+   * The wall pose, on the authority (from `ai/Traverse`) and on a replica (from hints 26 · 27) alike: +1 = on a wall nose up,
+   * -1 = on a wall nose down, 0 = level. `animate` blends `anim.climb` toward it.
+   */
+  navClimbDir: -1 | 0 | 1 = 0;
+  /** Off the floor on a special link (legs 2–5; a replica: hints 26–28) — no terrain snap, no ride, no slope, no separation push. */
+  navAloft = false;
+
   constructor(type: EnemyType) {
     /* 2026-09-14 (3rd pass): a tutorial-only type has no rig of its own and uses the **base type**'s as it is
        (`baseTypeOf`) — the shared geometry caches (`assets` · `BUG_PARAMS`) are the same too, so the tutorial bakes no
@@ -645,6 +699,8 @@ export class Enemy implements EnemyRef {
     // Phase 10
     this.deathDir = undefined; this.lootable = undefined;
     this.deathVy = 0; this.deathLanded = false; this.corpsePending = false;
+    // 2026-09-21 (A-18 phase 2): pathfinding — the path buffer itself is kept (`navHas` false = empty); the first walkable check is staggered by id
+    this.clearNav(); this.navOffT = 0; this.navCheckT = ((id & 7) / 8) * ENEMY_NAV_CHECK_S;
     this.corpseEmptied = false; this.corpseReleased = false; this.corpseFadeS = CORPSE_FADE_S;   // 2026-09-16: removing an emptied corpse
     // Phase 12
     this.investigating = false; this.shotTimer = 0; this.shotPhase = 0; this.shotHold = 0; this.shotCheckAt = -Infinity;
@@ -662,11 +718,25 @@ export class Enemy implements EnemyRef {
     a.death = -1; a.deathDir = 0; a.deathFall = 0; a.slopePitch = 0; a.slopeRoll = 0; a.time = Math.random() * 10;
     a.fade = 0; a.aim = 0; a.recoil = 0; a.writhe = 0; a.spark = 0; a.reload = 0; a.throwing = 0; a.brace = 0;
     a.flip = 0;   // 2026-09-17
+    a.climb = 0;  // 2026-09-21
     this.rig.root.visible = true;
     this.rig.root.scale.setScalar(this.rig.baseScale);
     this.rig.root.position.copy(position);
     this.rig.root.rotation.set(0, yaw, 0);
     this.animateRig();
+  }
+
+  /**
+   * 2026-09-21 (A-18 phase 2): back to 「no pathfinding」 — the mode, the path, the stuck window, the gate token and any special
+   * link in progress. The gate counters themselves are recounted from the living bodies (`ai/Gates.sweepGates`), so dropping a
+   * token here can never leak one. `navOffT` and `navCheckT` are the caller's.
+   */
+  clearNav(): void {
+    this.navMode = 0; this.navHas = false; this.navIdx = 0; this.navPlanT = 0; this.navRev = -1;
+    this.navStuckT = 0; this.navStuckWant = 0;
+    this.navGate = -1; this.navGateAge = 0; this.navGateMiss = 0; this.navWaitGate = -1;
+    this.navTrav = 0; this.navTravPhase = 0; this.navTravT = 0; this.navTravAge = 0; this.navTravWindow = null;
+    this.navClimbDir = 0; this.navAloft = false;
   }
 
   /** Refresh the `asTarget` proxy the other faction hunts (called by the system once per frame). */
@@ -1029,6 +1099,8 @@ export class Enemy implements EnemyRef {
     this.airborne = false;
     this.leaping = false;
     this.flipFalling = false; this.flipTimer = 0;   // 2026-09-17: a body that died flipped keeps its `anim.flip` and comes to rest on its back
+    // 2026-09-21: a body killed on a wall / a ladder / a window sill lets go — `deathLanded` below is decided from its height, so it falls
+    this.clearNav();
     this.spatT = 0;   // 2026-09-13: a body in mid-spit-flight is handed to the death fall from here (`deathVy` was taken above)
     this.deathDir = dir ?? this.rollDeathDir();
     this.anim.deathDir = Math.max(0, ENEMY_DEATH_DIRS.indexOf(this.deathDir));
@@ -1097,6 +1169,12 @@ export class Enemy implements EnemyRef {
       const flipT = this.flipFalling || this.flipTimer > 0 ? 1 : 0;
       a.flip += (flipT - a.flip) * Math.min(1, dt * (flipT > 0 ? 7 : 4));
       if (a.flip < 0.001 && flipT === 0) a.flip = 0;
+    }
+    // 2026-09-21 (A-18 phase 2): the wall pose — nose up / down along the wall while a special link is in a vertical leg (a replica: hints 26 · 27)
+    const climbT = this.state !== 'dead' ? this.navClimbDir : 0;
+    if (climbT !== 0 || a.climb !== 0) {
+      a.climb += (climbT - a.climb) * Math.min(1, dt * 9);
+      if (climbT === 0 && Math.abs(a.climb) < 0.001) a.climb = 0;
     }
     if (this.state !== 'dead' && this.shockTimer > 0) {
       const t = a.time;

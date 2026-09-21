@@ -96,8 +96,15 @@ export class CombatTarget {
   allyId: string | null = null;
   /** Whether `TargetList` saw this android in this refresh (the frame number). */
   allyStamp = 0;
+  /* ── appended (2026-09-21, TODO A-18 phase 2): the flow-field key ─────────── */
+  /**
+   * Names this target's flow field (`NavRef.flowTo`) — `p:<player id>` for a person, `a:<android id>` for an android proxy, and
+   * **empty for everything that is not a person** (an enemy, a drone, the rover), which is also how `ai/NavMove` tells a chase
+   * goal from a private one. Built once, when the proxy is made — never concatenated per frame.
+   */
+  navKey: string;
 
-  constructor(readonly id: TargetId) {}
+  constructor(readonly id: TargetId) { this.navKey = id === 'ai' ? '' : `p:${id}`; }
 
   get isLocal(): boolean { return this.id === 'local'; }
   get isEnemy(): boolean { return this.enemy !== null; }
@@ -472,6 +479,7 @@ export class TargetList {
         if (!t) {
           t = new CombatTarget('ai');
           t.allyId = b.id;
+          t.navKey = `a:${b.id}`;   // 2026-09-21: an android is chased along its own flow field, like a player
           this.allyById.set(b.id, t);
           this.allyAll.push(t);
         }
