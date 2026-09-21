@@ -51,7 +51,6 @@ export class ImplantWidget {
   private faceBase: HTMLElement;
   private faceLit: HTMLElement;
   private keyEl: HTMLElement;
-  private ringEl: HTMLElement;
   private refundEl: HTMLElement;
 
   private ctx!: GameContext;
@@ -95,7 +94,7 @@ export class ImplantWidget {
     this.keyEl = createKeycap(Keys.IMPLANT, { tag: 'kbd', cls: 'imp-key', parent: this.root });   // 2026-09-15: the shared keycap
     // 2026-09-12: the ring that bursts out of the thumb on a ready moment, and the green `−N초` of a refund —
     // both absolutely placed over / beside the thumb, outside its clip
-    this.ringEl = el('div', { cls: 'imp-ring', parent: this.root });
+    el('div', { cls: 'imp-ring', parent: this.root });
     this.refundEl = el('div', { cls: 'imp-refund ui-mono', text: '', parent: this.root });
   }
 

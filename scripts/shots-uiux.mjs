@@ -1,4 +1,4 @@
-// Screenshot-only helper for the 2026-09-07 UI/UX pass: the character screen's 3 columns + the implant picker,
+// Screenshot-only helper for the 2026-09-07 UI/UX pass: the character screen's 2 columns + the implant picker,
 // the craft column (ship / raid), the corporation screen (trade / contracts / quests). Writes PNGs to
 // scripts/shots/uiux-*.png — no assertions, no exit code.
 // Usage: node scripts/shots-uiux.mjs [http://localhost:5273/]   (needs `npm run dev`)

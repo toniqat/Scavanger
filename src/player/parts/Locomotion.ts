@@ -7,11 +7,10 @@
  */
 import * as THREE from 'three';
 import {
-  Keys, BOX_HEADROOM, ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, LADDER_SPRINT_DRAIN,
-  type PlayerRef, type Stance,
+  Keys, BOX_HEADROOM, ROLL_COOLDOWN, ROLL_DURATION, ROLL_STAMINA_COST, LADDER_SPRINT_DRAIN,
+  type Stance,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
-import { PlayerController } from '../PlayerController';
 import {
   EXHAUSTED_SLOW_TIME, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_REGEN_DELAY,
   STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, _dir, _up,

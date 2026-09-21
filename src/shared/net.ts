@@ -1726,6 +1726,18 @@ export type StructureMessage =
    * and puts it into `sync.glass`.
    */
   | { t: 'struct'; ev: 'glass'; id: string; w: number }
+  /**
+   * appended (2026-09-21, B-100): the **ceiling turret** `id` picked a body, or let one go. Host → everyone, on a
+   * change only (an idle turret says nothing). `tg` = the target: a PeerId (the host's own for the host's player)
+   * · an android id · `''` for none. `st` = 0 parked · 1 acquired (the alarm · the aiming laser · the warm-up) ·
+   * 2 armed (warm-up over, shooting every `CEIL_TURRET_INTERVAL_S`).
+   *
+   * Why a wire at all when no damage rides on it: switching **off** travels as `unlocked` and damage is the
+   * authority's alone, but before 2026-09-21 the turning, the laser and the alarm were each client's own guess from
+   * the door state plus 20 Hz positions — so a replica could paint a squadmate while the host was warming up on
+   * **you**, and the one person who needed the warning never got it. The choice of body is now one fact.
+   */
+  | { t: 'struct'; ev: 'turret'; id: string; tg: string; st: 0 | 1 | 2 }
   /** Every structure event that already happened (for a late join · a host transfer). `glass` (appended 2026-09-11) = the broken windows `<id>:<w>`. */
   | { t: 'struct'; ev: 'sync'; unlocked: string[]; scanned: string[]; rogued: string[]; glass?: string[] };
 export type StructureRequest =
@@ -2060,9 +2072,14 @@ export type RoverRequest =
   | { t: 'roverq'; ev: 'trip'; rid: number; to: number; fare: number }
   | { t: 'roverq'; ev: 'sync' }
   /**
-   * appended (2026-09-21, 부위 파괴): a non-host client's bullet landed on the car — `p` is the **impact point in
-   * world space** and `a` the damage. The host resolves which part was hit and whether it turns the car hostile, so
-   * the guard tests the point against the hull rather than the sender's distance (a sniper may legally be anywhere).
+   * appended (2026-09-21, 부위 파괴): a non-host client's player-side damage landed on the car — `p` is a point
+   * **on the body in world space** and `a` the damage. The host resolves which part was hit and whether it turns the
+   * car hostile, so the guard tests the point against the hull rather than the sender's distance (a sniper may
+   * legally be anywhere).
+   *
+   * Two things ride on that 「on the body」: an **explosion** (B-98) reports the point of the body nearest its centre,
+   * not the centre, so one message shape covers bullets and blasts alike; and the sender sums a whole frame **per
+   * hit zone** before sending (B-99), so `a` is a frame's worth of one zone rather than a single bullet.
    */
   | { t: 'roverq'; ev: 'hit'; p: Vec3Tuple; a: number };
 /* ══ end 2026-09-13 the rover ══ */
@@ -2225,8 +2242,9 @@ export interface LobbyPlayer {
    * plain string here because `net.ts` must stay free of three.js — the relay imports this file). The shared ship's
    * **hangar** parks each member's own ship with it. Absent (anonymous · older client · nothing bought) = the
    * default drop-ship, and an id the reader does not know resolves to the default too (`resolveShipModelId`).
-   * **When the ship shop lands this must come from the relay's profile store instead of the client**, the way
-   * `code` · `level` already do — a purchase is not the client's word to give.
+   * **Filled by the relay from that member's own `progression` document** (B-101, 2026-09-21), the way `code` ·
+   * `level` already are — it used to be echoed from whatever the client put in `lobby:look`, and a purchase is not
+   * the client's word to give. A relay that has no document for a member sends nothing and the reader defaults.
    */
   shipModel?: string;
 }
@@ -2251,7 +2269,13 @@ export type ClientToServerAppended2026_09_15dock =
   /** Update my `LobbyPlayer.accent` (the relay keeps it for later lobbies too; invalid per `sanitizeAccent` → ignored). */
   /**
    * 2026-09-21: `shipModel` rides the same message, and both fields are optional — a sender pushes whichever of the
-   * two actually changed. The relay only sanitises the shape and re-broadcasts; the reader decides what an id means.
+   * two actually changed.
+   *
+   * The two are **not** read the same way (B-101, the same day). `accent` is taste and the relay takes it as sent;
+   * `shipModel` is property, so the relay reads only its shape and then throws the value away — the one the squad
+   * receives in `LobbyPlayer.shipModel` is read out of the sender's own `progression` document in the profile store.
+   * Sending it is therefore a **nudge** meaning 「my ship changed, re-read it」, kept because that re-read has to be
+   * triggered by something. A client that stops sending it loses nothing but the promptness.
    */
   | { t: 'lobby:look'; accent?: string; shipModel?: string };
 

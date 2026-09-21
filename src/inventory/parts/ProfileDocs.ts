@@ -10,7 +10,6 @@ import type {
 } from '@/shared';
 import { starterGrantState } from '../Stash';
 import { isEmptyLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
-import { reviveItem } from '../Serialize';
 import {
   sameProfileDoc, type RaidInventoryState,
 } from '../model';

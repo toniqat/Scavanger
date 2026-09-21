@@ -7,7 +7,6 @@
  */
 import type { EmbeddedView, ItemDef, ItemInstance } from '@/shared';
 import { anyCorpAccessible } from '@/shared';
-import { type InventorySystem } from '../../InventorySystem';
 import { TEXT, tileSize } from '../labels';
 import { BAG_LOC, CATALOG_DBL_MS, type DragState, SCREEN_TABS, type ScreenTab } from '../model';
 import type { InventoryUI } from '../InventoryUI';

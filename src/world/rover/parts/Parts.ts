@@ -22,7 +22,7 @@
  */
 import * as THREE from 'three';
 import {
-  ROVER_AGGRO_DAMAGE, ROVER_HALF_WIDTH, ROVER_PART_HULL_MUL, ROVER_TURRET_HP, ROVER_WHEEL_HP,
+  ROVER_AGGRO_DAMAGE, ROVER_HALF_LENGTH, ROVER_HALF_WIDTH, ROVER_HULL_H, ROVER_PART_HULL_MUL, ROVER_TURRET_HP, ROVER_WHEEL_HP,
 } from '@/shared';
 import {
   ROVER_PART_ORDER, ROVER_TURRET_FRONT_PART, ROVER_TURRET_REAR_PART, ROVER_WHEEL_ZONES, roverSpeedMulFor, roverWheelZoneOf,
@@ -108,6 +108,29 @@ export function resolveRoverPart(body: RoverBody, point: THREE.Vector3): number 
   }
   return ROVER_PART_HULL;
 }
+
+/**
+ * The world point a player-side hit at `center` should be **resolved and reported** from (2026-09-21, B-98,
+ * user's decision 「부위 판정 + 적대 누적」): the point itself when it already falls in a zone, else the nearest
+ * point on the hull box.
+ *
+ * A bullet stops *on* the body, so it comes back untouched — including a hit on a swung-out turret barrel, which
+ * `resolveRoverPart` claims before any clamping could push it down onto the hull. A **blast centre** almost never
+ * is: a grenade that rolled under the front-left wheel sits in the dirt beside it, and the raw point would read as
+ * plain hull every time — 「수류탄으로 바퀴를 날린다」 would be impossible. Clamped, it is the spot the blast
+ * actually washed over, and a non-host client that sends this point has the host read the same zone and
+ * `pointOnHull` accept it (`Rover.hitAllowed`).
+ */
+export function roverBlastPoint(body: RoverBody, center: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  if (resolveRoverPart(body, center) !== ROVER_PART_HULL) return out.copy(center);
+  const p = body.tilt.worldToLocal(out.copy(center));
+  p.x = clamp(p.x, -ROVER_HALF_LENGTH, ROVER_HALF_LENGTH);
+  p.y = clamp(p.y, 0, ROVER_HULL_H);
+  p.z = clamp(p.z, -ROVER_HALF_WIDTH, ROVER_HALF_WIDTH);
+  return body.tilt.localToWorld(p);
+}
+
+function clamp(v: number, lo: number, hi: number): number { return v < lo ? lo : v > hi ? hi : v; }
 
 /**
  * Authority: puts `amount` into hit zone `part` (`ROVER_PART_HULL` = plain hull) and answers **what the hull loses**.

@@ -1,5 +1,6 @@
 // Two-client smoke test for the 공용 함선 격납고 (hub folder, 2026-09-08):
-// the shared ship's aft 자동문, the hangar deck behind it (walkable union, 4 bay markings, parked 개인 함선),
+// the shared ship's aft doorway (the 자동문 were removed 2026-09-16 — the smoke now asserts the passage stands open),
+// the hangar deck behind it (walkable union, 4 bay markings, parked 개인 함선),
 // boarding a bay (own ship = full functionality, a squadmate's = 둘러보기 전용), the `ship state` / `shipq state`
 // wire that carries a member's layout, the way back out through the airlock, and the `hs` co-presence rule
 // (avatars are only drawn for peers standing in the same ship interior).

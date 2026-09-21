@@ -153,3 +153,48 @@ function bodyPointsVisible(world: WorldRef, target: THREE.Vector3, x: number, fe
   if (lineClear(world, _losFrom.set(x, feetY + height * BLAST_LOS_HEAD_FRAC, z), target, slack)) return true;
   return lineClear(world, _losFrom.set(x, feetY + Math.min(BLAST_LOS_FEET_M, height * 0.5), z), target, slack);
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Blast → destructible world objects (2026-09-21, B-98, user's decision
+ * 「공용 경로로 전부」)
+ *
+ * Until now only the bazooka walked the obstacle list: every other explosive —
+ * grenade, mine, remote mine, ship call, fire zone — damaged enemies, players and
+ * drones and left `Obstacle.destructible` alone. That is why the 탐사 차량, which
+ * became shootable on 2026-09-21 through exactly that hook, could not be blown up:
+ * a bullet reached it and a grenade did not.
+ *
+ * So the bazooka's loop moved here and every player-side blast calls it. One place
+ * decides what an explosion breaks, so dropped cover, window glass and the vehicle
+ * all answer the same explosion the same way.
+ *
+ * **Player-side only.** The vehicle counts what comes through `destructible` toward
+ * its hostility (`ROVER_AGGRO_DAMAGE`), so an enemy blast must not arrive here —
+ * enemies keep their own `Targets.damageVehicleAt`, which never touches `aggro`.
+ *
+ * **No occlusion test.** `blastReachesBody` is for bodies *behind* a collider; the
+ * thing being damaged here **is** a collider, and a ray from a body inside its own
+ * box sees nothing. A wall takes the blast that hits it — that is the point.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Hands `damage`, faded by the shared two-step stair, to every `Obstacle.destructible` whose surface is inside
+ * `radius` of `center`. `minFalloff` is the per-site floor laid on top (cover 0.3, a fire zone 1 = the whole zone
+ * burns evenly). The point handed to `onDamage` is the **blast centre**, so an owner with hit zones (the 탐사 차량)
+ * resolves which part the blast sat next to.
+ */
+export function blastDestructibles(
+  world: WorldRef | null | undefined, center: THREE.Vector3, radius: number, damage: number, minFalloff = 0,
+): void {
+  if (!world || !world.ready || !(radius > 0) || !(damage > 0)) return;
+  if (typeof world.getObstaclesNear !== 'function') return;
+  const near = world.getObstaclesNear(center.x, center.z, radius + 1.5);
+  for (let i = 0; i < near.length; i++) {
+    const o = near[i];
+    if (!o.destructible) continue;
+    const d = Math.max(0, o.position.distanceTo(center) - o.radius);
+    if (d > radius) continue;
+    const amount = damage * Math.max(minFalloff, explosionFalloff(d, radius));
+    if (amount > 0) o.destructible.onDamage(amount, center);
+  }
+}

@@ -9,31 +9,17 @@
  */
 import * as THREE from 'three';
 import {
-  IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
-  IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_REGEN,
-  IMPLANT_BARRIER_CARRY_REGEN_DELAY, IMPLANT_BARRIER_CARRY_SPEED_MUL, IMPLANT_BARRIER_CARRY_WIDTH,
-  IMPLANT_BARRIER_HP, IMPLANT_BARRIER_REGEN,
   IMPLANT_DASH_DISTANCE, IMPLANT_DASH_MAX_SLOPE_DEG, IMPLANT_DASH_SLIDE_MIN, IMPLANT_DASH_SWEEP_STEP, IMPLANT_GRAPPLE_RANGE,
   IMPLANT_GRAPPLE_CANCEL_MIN_S, IMPLANT_GRAPPLE_CANCEL_REFUND, IMPLANT_GRAPPLE_REFUND_DIST, IMPLANT_GRAPPLE_REFUND_MAX,
-  IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC, IMPLANT_OVERCHARGE_BUFF_HP_RATIO, IMPLANT_OVERCHARGE_ENERGY,
-  IMPLANT_OVERCHARGE_RANGE, IMPLANT_OVERCHARGE_REGEN_TIME, IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC, IMPLANT_OVERCHARGE_SPEED_MUL,
+  IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC, IMPLANT_OVERCHARGE_BUFF_HP_RATIO, IMPLANT_OVERCHARGE_RANGE, IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC, IMPLANT_OVERCHARGE_SPEED_MUL,
   IMPLANT_SCAN_RADIUS, IMPLANT_SCAN_REVEAL_TIME_V2,
-  IMPLANT_SHIELD_BASH_COOLDOWN, IMPLANT_SHIELD_BASH_DAMAGE, IMPLANT_SHIELD_BASH_KNOCKBACK, IMPLANT_SHIELD_BASH_RANGE, IMPLANT_SHIELD_BASH_STAMINA,
-  IMPLANT_SHIELD_BASH_SWING_S,
-  Keys, MouseButtons, PLAYER_RADIUS, PROP_STEP_UP_MAX,
-  type BuffMessage, type EnemyRef, type GameContext, type GameSystem, type ImplantDef, type ImplantId,
-  type ImplantMessage, type ImplantsRef, type PeerId, type PlayerRef, type PlayerWeaponHost, type RelayTarget,
-  type Vec3Tuple, type DroneRef,
+  PLAYER_RADIUS, PROP_STEP_UP_MAX,
+  type PeerId, type DroneRef,
 } from '@/shared';
-import { IMPLANT_DEFS, getImplantDef, implantHex, isImplantId } from '../ImplantDefs';
-import { ImplantDevice } from '../devices/ImplantDevice';
-import { BarrierField } from '../effects/Barrier';
-import { GrappleWire } from '../effects/Grapple';
-import { OverchargeBeam, allyPoint, findAlly } from '../effects/Overcharge';
+import { implantHex } from '../ImplantDefs';
+import { allyPoint, findAlly } from '../effects/Overcharge';
 import { revealScan } from '../effects/Scan';
-import { ImplantFx } from '../fx/ImplantFx';
-import { RemoteImplants } from '../RemoteImplants';
-import { ABSORB_RANGE, BARRIER_SEND_EVERY_HITS, BASH_FX_Y, BEAM_SEND_INTERVAL, BOOST_LINGER, BOOST_SEND_INTERVAL, BUMP_FX_INTERVAL, GRAPPLE_ARRIVE_DIST, GRAPPLE_FLY_SPEED, GRAPPLE_MAX_TIME, GRAPPLE_SEND_INTERVAL, HEAL_SEND_INTERVAL, HUD_EMIT_INTERVAL, type Host, OVERCHARGE_MIN_START, SCAN_PULSE_FX_S, SHIELD_SPEED_KEY, _bp, _d, _from, _hitPt, _hp, _muzzle, _n, _o, _p, _r, _t, _tmp, tuple } from '../model';
+import { BEAM_SEND_INTERVAL, BOOST_LINGER, BOOST_SEND_INTERVAL, GRAPPLE_ARRIVE_DIST, GRAPPLE_FLY_SPEED, GRAPPLE_MAX_TIME, GRAPPLE_SEND_INTERVAL, HEAL_SEND_INTERVAL, HUD_EMIT_INTERVAL, OVERCHARGE_MIN_START, SCAN_PULSE_FX_S, _bp, _d, _from, _hitPt, _hp, _muzzle, _n, _o, _p, _r, _t, _tmp, tuple } from '../model';
 import type { ImplantSystem } from '../ImplantSystem';
 
 /* ═══════════════════════════ 대시 ═══════════════════════════ */

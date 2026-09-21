@@ -10,7 +10,6 @@ export class ScopeOverlay {
   readonly root: HTMLElement;
   private zoomLabel: HTMLElement;
   private scope = false;
-  private zoom = 1;
   private aiming = false;
   private shown = false;
   private unsubs: Array<() => void> = [];
@@ -40,7 +39,7 @@ export class ScopeOverlay {
   bind(ctx: GameContext): void {
     this.unsubs.push(
       ctx.bus.on('weapon:scopeChanged', ({ zoom, scope }) => {
-        this.scope = scope; this.zoom = zoom;
+        this.scope = scope;
         const z = Math.round(zoom * 10) / 10;
         setText(this.zoomLabel, `${Number.isInteger(z) ? z.toFixed(0) : z.toFixed(1)}×`);
       }),

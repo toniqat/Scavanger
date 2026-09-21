@@ -1,11 +1,10 @@
 import * as THREE from 'three';
 import type { RogueShotOpts } from './Enemy';
 import {
-  BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
-  NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
-  ENEMY_AI_LOD_HALF_M, ENEMY_AI_LOD_MAX_STEP_S, ENEMY_AI_LOD_QUARTER_M, ENEMY_ANIM_LOD_FREEZE_M, ENEMY_ANIM_LOD_HALF_M, viewZoomK, SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet, planetThreat,
-  type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
-  type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
+  CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, FLAME_AFTERBURN_DPS, MAP_SIZE,
+  NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, ROGUE_MAG_ROUNDS, ENEMY_AI_LOD_HALF_M, ENEMY_AI_LOD_MAX_STEP_S, ENEMY_AI_LOD_QUARTER_M, ENEMY_ANIM_LOD_FREEZE_M, ENEMY_ANIM_LOD_HALF_M, viewZoomK, SHOCK_SLOW_FACTOR, getPlanet, planetThreat,
+  type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
+  type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type WorldRef,
   /* appended (2026-09-09): the rogue drop contract */
   type RogueDropView,
   /* appended (2026-09-10): enemy grenades, read by the HUD danger indicators */
@@ -17,15 +16,12 @@ import {
   /* appended (2026-09-15, B-16): enemy fire zones, read by the HUD */
   type FireZoneInfo,
 } from '@/shared';
-import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
-import { HUMANOID_WEAPONS, ROGUE_AI, SPEWER_SPIT } from './EnemyTypes';
+import { HUMANOID_WEAPONS, ROGUE_AI } from './EnemyTypes';
 import { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from './Targets';
-import { SUSPICION_TIME, updateEnemyAI } from './ai/EnemyAI';
+import { updateEnemyAI } from './ai/EnemyAI';
 import { LureField } from './ai/Lures';
-import { becomeAlert, canPerceive } from './ai/Perception';
-import { beginInvestigation, endInvestigation } from './ai/Investigate';
 import { BloodFX } from './fx/BloodFX';
 import { EnemyXray } from './fx/Xray';
 import { AcidProjectiles, type AcidHost, type AcidSlow } from './fx/AcidProjectile';
@@ -35,11 +31,9 @@ import { AmbientSpawner, ambientGroup, waveGroup, type SpawnHost } from './Spawn
 import { WaveDirector } from './WaveDirector';
 /* appended (2026-09-18): bug nests — eggs · anchors · the garrison · refill */
 import { NestDirector } from './NestDirector';
-import { disposeBugAssets } from './models/BugModel';
-import { disposeRogueAssets } from './models/RogueModel';
 import { EnemyReplica, type ReplicaHost } from './net/Replica';
-import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from './net/HostSync';
-import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from './Corpses';
+import { animHint, encodeSnapshot, SnapshotCache } from './net/HostSync';
+import { CorpseManager, type CorpseWireOpts } from './Corpses';
 import type { RogueSpawnHost } from './RogueGuards';
 import { placeSiteGroups, type SitePlacement } from './SiteGroups';
 /* appended (2026-09-15, B-16): the empty fire zone list used when there is no pool */
@@ -56,14 +50,14 @@ import { BURROW_EMERGE_S } from '@/shared';
 import { SandwormDirector } from './sandworm/Director';
 import { BurrowFx } from './fx/BurrowFx';
 import * as Burrow from './parts/Burrow';
-import { raySphere, rayCapsule, rayStandingCapsule, standingTopY } from './RayTests';
+import { raySphere, rayCapsule, standingTopY } from './RayTests';
 /* appended (2026-09-14): bug difficulty (planet threat) */
 import { bugThreatTuning, type BugThreatTuning } from './factionTables';
 import { ambientOptsOf, artilleryDigInChance, maxArtilleryOf, maxBehemothOf, threatEcosystem } from './Spawner';
 import { carryCorpse } from './ai/Ride';
 import { BODY_RAY_VERTICAL, namedBodyNormal, namedBodyRay } from './models/named';
 
-import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, EMPTY_GRENADES, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from './model';
+import { BURN_TICK, FLEE_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, SHOCK_SPARK_TIME, EMPTY_GRENADES, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, queryBuf } from './model';
 /** The folder's shared vocabulary (constants · types · scratch) lives in `model.ts` — re-exported here for the existing import paths. */
 export * from './model';
 import * as Dmg from './parts/Damage';

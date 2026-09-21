@@ -1,24 +1,20 @@
-import * as THREE from 'three';
 import type {
-  ChatKind, GameContext, GameSystem, GameMessage, GameMessageOf, GameMessageType, GhostWire, LobbyPlayer, LobbyState,
-  NetRef, NetStatus, PeerId, PingKind, RelayTarget, RemotePlayerRef, ServerToClient, Vec3Tuple,
+  GameContext, GameSystem, GameMessage, GameMessageOf, GameMessageType, GhostWire, LobbyPlayer, LobbyState,
+  NetRef, NetStatus, PeerId, RelayTarget, RemotePlayerRef, ServerToClient,
 } from '@/shared';
-import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
+import type { MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, RelayProbe, SocialRef } from '@/shared';
 /* 2026-09-14: the intel broker — the fixed gimmicks the lobby carries (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelWire } from '@/shared';
 import type { NetLinkInfo } from '@/shared';
 /* appended (2026-09-08): the shared ship's hangar */
 import type { ShipVisitWire } from '@/shared';
-import { isPlanetId } from '@/shared';
 /* 2026-09-15: squads · dock matching — the shared-ship test · the accent colour in the connect URL (`?a=`) */
 import { NET_ACCENT_PARAM, activeSlot, isDockedLobby, readSlotCard, sanitizeAccent } from '@/shared';
 /* 2026-09-15: android squadmates — tells a bot member from a person (`src/shared/net.ts`, last section) */
 import { humanPlayersOf } from '@/shared';
 import {
-  NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
-  NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
-  isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName, slotKey,
+  NET_INVITE_PARAM, isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName, slotKey,
 } from '@/shared';
 import { NetClient } from './NetClient';
 import { ProfileSync } from './ProfileSync';
@@ -28,10 +24,9 @@ import { RoomSync } from './RoomSync';
 import type { RoomsRef } from '@/shared';
 import { RemotePlayer } from './RemotePlayer';
 import { Snapshotter } from './Snapshotter';
-import type { CrewCardWire, ImplantId } from '@/shared';
-import { IMPLANT_IDS } from '@/shared';
+import type { CrewCardWire } from '@/shared';
 
-import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_STORAGE_KEY, PEER_LINGER, PING_KINDS, SNAPSHOT_INTERVAL, TOKEN_ALPHABET, TOKEN_RE, defIdOrNull, isGhostWire, isNum, isVec3, loadOrCreateSessionToken, sameCard, sanitizeCrewCard, vec } from './model';
+import { type Handler, NAME_STORAGE_KEY, SNAPSHOT_INTERVAL, loadOrCreateSessionToken } from './model';
 /** `model.ts` owns the folder vocabulary (constants · types · scratch) — re-exported for the old import paths. */
 export * from './model';
 import * as Sock from './parts/Socket';
@@ -68,6 +63,13 @@ export class NetSystem implements GameSystem, NetRef {
   pendingQuickMatch = false;
   /** 2026-09-15 (squads · dock matching): `requestDock` sent, no docked lobby / error yet — `NetRef.dockPending`. */
   _dockPending = false;
+  /**
+   * 2026-09-21 (B-101): the ship model id last sent in `lobby:look`, so the nudge is sent **once per value**.
+   * It cannot be judged from my own lobby row any more: the relay fills that row from the profile store, so a
+   * profile that has uploaded no `progression` document leaves it empty for good and comparing against it sent a
+   * nudge on every `lobby:state` — which broadcast another state, which nudged again. Cleared on disconnect.
+   */
+  _pushedShipModel: string | null = null;
 
   /* ── reconnect state machine ── */
   private lastStatus: NetStatus = 'offline';

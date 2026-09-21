@@ -5,7 +5,7 @@ import { PERK_DEFS, SOCKET_LABEL_KO, itemCreditValue, renderItemCost } from '@/s
  * card reads are made by `shared/weaponTip` alone — this card paints them as gauge bars, the chip card
  * (`ui/hud/ItemTip`) as table rows. Computing them again here would split the two cards apart.
  */
-import { weaponGaugeTexts, weaponGaugeValues, weaponTipRows, type WeaponGaugeValues } from '@/shared';
+import { weaponGaugeTexts, weaponGaugeValues, weaponTipRows } from '@/shared';
 /* 2026-09-13 (meal quality · cook steps): the same meal rows as `ui/hud/ItemTip` — that folder's `hud/mealText` cannot be imported, so a small copy sits below */
 import {
   COOK_GAME_LABEL_KO, MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT, MEAL_TIER_LABEL_KO, cookStepsOf, mealQualityBonus, mealQualityStars, normalizeMealQuality,
@@ -70,9 +70,6 @@ export interface TooltipLookups {
 
 /** Catalog maxima the weapon gauges are normalised against (computed lazily, once per Tooltip). */
 interface GaugeMaxima { damage: number; fireRate: number; recoil: number; range: number }
-
-/** The four gauge stats of one weapon (`damage` already × pellets, `recoil` in radians, `range` in metres). */
-type GaugeValues = WeaponGaugeValues;
 
 /**
  * Hover card: name, category · rarity, description, value, size and — for weapons — the effective stats

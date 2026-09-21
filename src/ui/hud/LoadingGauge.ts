@@ -30,7 +30,6 @@ export class LoadingGauge {
   readonly root: HTMLElement;
   private ring: HTMLElement;
   private spin: HTMLElement;
-  private label: HTMLElement;
   private waitEl: HTMLElement;
   private pctEl: HTMLElement;
   private unsubs: Array<() => void> = [];
@@ -59,7 +58,7 @@ export class LoadingGauge {
     this.ring = el('div', { cls: 'ldg-ring', parent: this.root });
     this.spin = el('div', { cls: 'ldg-spin', parent: this.ring });
     const body = el('div', { cls: 'ldg-body', parent: this.root });
-    this.label = el('div', { cls: 'ldg-label', text: '로딩 중', parent: body });
+    el('div', { cls: 'ldg-label', text: '로딩 중', parent: body });
     this.pctEl = el('div', { cls: 'ldg-pct ui-mono', text: '0 %', parent: body });
     this.waitEl = el('div', { cls: 'ldg-wait', text: '', parent: body });
     this.waitEl.hidden = true;

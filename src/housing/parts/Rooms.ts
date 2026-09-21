@@ -8,28 +8,21 @@
  * The rules themselves live in `Rules.ts`; here they are followed to consume materials and write state.
  */
 import type {
-  BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FacilityRequirement, FurnitureDef, GameContext, GameSystem, GrowPlot, GrowPlotInfo,
-  HousingRef, ItemDef, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
-  StoredFurniture, WorkbenchKind,
+  CraftIngredient, FacilityId, FacilityInfo, FacilityRequirement, RoomPurpose, RoomState, SkillId,
+  WorkbenchKind,
 } from '@/shared';
 import {
-  BOOKS_PER_SHELF, COCKPIT_ROOM_INDEX, FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_IDS, SKILL_LEVEL_MAX,
-  benchKindOf,
+  COCKPIT_ROOM_INDEX, FURNITURE_DEF_MAP, benchKindOf,
 } from '@/shared';
 import {
   NEEDS_GREENHOUSE,
-  bookGainMulFor, bookWeightOf, canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
-  facilityPurposeOf, purposeBuildBlockReason, purposeBuildCost, purposeRequirementsFor, roomRefundCost,
-  furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
-  nextFurnitureCost, presetCountFor, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
-  stashSizeFor,
+  craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
+  purposeBuildBlockReason, purposeBuildCost, purposeRequirementsFor, roomRefundCost,
+  isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, stashSizeFor,
 } from '../Rules';
-import { ShipStore, freshRoom, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
-import { BookshelfMenu } from '../ui/BookshelfMenu';
-import { createShipView } from '../ui/ShipView';
-import { formatRemaining } from '../ui/dom';
-import type { HousingPanel } from '../ui/Panel';
-import { BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MAX } from '../model';
+import { freshRoom } from '../ShipState';
+import type {  } from '../ui/Panel';
+import { FACILITY_IDS } from '../model';
 import type { HousingSystem } from '../HousingSystem';
 
 export function canAfford(sys: HousingSystem, cost: readonly CraftIngredient[]): boolean {

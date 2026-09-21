@@ -5,32 +5,23 @@
  * (does it fit the room purpose, does it overlap, can it stack) and ship-management mode's cursor state live here.
  */
 import type {
-  BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, GrowPlot, GrowPlotInfo,
-  HousingRef, ItemDef, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
-  StoredFurniture, WorkbenchKind,
+  CraftIngredient, FurnitureDef, PlacedFurniture, RoomPurpose, StoredFurniture,
 } from '@/shared';
 import {
-  BOOKS_PER_SHELF, FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_IDS, SKILL_LEVEL_MAX,
-  benchKindOf, isCockpitOnlyFurniture, isUtilityFurniture, slotKey,
+  FURNITURE_DEF_MAP, isCockpitOnlyFurniture, isUtilityFurniture, slotKey,
 } from '@/shared';
 import { COCKPIT_ONLY_RECOVER_REASON } from '@/shared';
 import type { FacilityRequirement } from '@/shared';
 import {
   autoPlaceSpot,
-  bookGainMulFor, bookWeightOf, canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
-  MISSING_MATERIALS_REASON, facilityPurposeOf, furnitureUpgradeRequirementsFor, isPlaceRoom, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
-  furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
-  nextFurnitureCost, presetCountFor, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
-  stashSizeFor,
+  canPlaceAt, MISSING_MATERIALS_REASON, furnitureUpgradeRequirementsFor, isPlaceRoom, furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, missingIngredients, nextFreeLayer,
+  nextFurnitureCost, recoverBlockReason, stackLimitOf, stackMembers,
 } from '../Rules';
 import type { FurniturePlacement } from '../Rules';
-import { ShipStore, freshRoom, isAnalyzerDefId, isBookshelfDefId, isGrowRackDefId, isGrowStationDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
+import { isAnalyzerDefId, isGrowStationDefId } from '../ShipState';
 import { rescaleGrowsForUpgrade } from './Garden';
-import { BookshelfMenu } from '../ui/BookshelfMenu';
-import { createShipView } from '../ui/ShipView';
-import { formatRemaining } from '../ui/dom';
-import type { HousingPanel } from '../ui/Panel';
-import { ACTIVE_FURNITURE_DEFS, BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MAX } from '../model';
+import type {  } from '../ui/Panel';
+import { ACTIVE_FURNITURE_DEFS, BOOKS_BLOCK_REASON } from '../model';
 import type { HousingSystem } from '../HousingSystem';
 import { SHELF_BLOCK_REASON } from '../model';   // A-3e (2026-09-12): the library media holders' recovery refusal
 import { clusterRecoverBlock } from './Mining';   // 2026-09-13: crypto mining — a cluster with a processor in it refuses recovery

@@ -5,7 +5,7 @@ import {
   TRAINING_MOVING_SPAN, TRAINING_MOVING_SPEED, TRAINING_MOVING_PAUSE_S,
   TRAINING_COURSE_TARGETS, TRAINING_COURSE_TIME_S, TRAINING_COURSE_COOLDOWN_S, TRAINING_BEST_STORAGE_KEY, slotKey,
   TRAINING_MODES, TRAINING_MODE_LABEL_KO,
-  type DestructibleRef, type GameContext, type Interactable, type TrainingMode, type TrainingRef,
+  type DestructibleRef, type GameContext, type TrainingMode, type TrainingRef,
 } from '@/shared';
 import type { ObstacleEntry, SpatialHash } from './SpatialHash';
 

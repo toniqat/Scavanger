@@ -7,29 +7,8 @@
  */
 import * as THREE from 'three';
 import {
-  IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
-  IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_REGEN,
-  IMPLANT_BARRIER_CARRY_REGEN_DELAY, IMPLANT_BARRIER_CARRY_SPEED_MUL, IMPLANT_BARRIER_CARRY_WIDTH,
-  IMPLANT_BARRIER_HP, IMPLANT_BARRIER_REGEN,
-  IMPLANT_DASH_DISTANCE, IMPLANT_GRAPPLE_RANGE,
-  IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC, IMPLANT_OVERCHARGE_BUFF_HP_RATIO, IMPLANT_OVERCHARGE_ENERGY,
-  IMPLANT_OVERCHARGE_RANGE, IMPLANT_OVERCHARGE_REGEN_TIME, IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC, IMPLANT_OVERCHARGE_SPEED_MUL,
-  IMPLANT_SCAN_RADIUS, IMPLANT_SCAN_REVEAL_TIME_V2,
-  IMPLANT_SHIELD_BASH_COOLDOWN, IMPLANT_SHIELD_BASH_DAMAGE, IMPLANT_SHIELD_BASH_KNOCKBACK, IMPLANT_SHIELD_BASH_RANGE, IMPLANT_SHIELD_BASH_STAMINA,
-  IMPLANT_SHIELD_BASH_SWING_S,
-  Keys, MouseButtons, PLAYER_RADIUS,
-  type BuffMessage, type EnemyRef, type GameContext, type GameSystem, type ImplantDef, type ImplantId,
-  type ImplantMessage, type ImplantsRef, type PeerId, type PlayerRef, type PlayerWeaponHost, type RelayTarget,
-  type Vec3Tuple,
+  type PlayerRef, type PlayerWeaponHost, type Vec3Tuple,
 } from '@/shared';
-import { IMPLANT_DEFS, getImplantDef, implantHex, isImplantId } from './ImplantDefs';
-import { ImplantDevice } from './devices/ImplantDevice';
-import { BarrierField } from './effects/Barrier';
-import { GrappleWire } from './effects/Grapple';
-import { OverchargeBeam, allyPoint, findAlly } from './effects/Overcharge';
-import { revealScan } from './effects/Scan';
-import { ImplantFx } from './fx/ImplantFx';
-import { RemoteImplants } from './RemoteImplants';
 
 export type Host = PlayerRef & Partial<PlayerWeaponHost>;
 

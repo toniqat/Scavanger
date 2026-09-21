@@ -9,14 +9,14 @@
 import type {
   ItemDef, ItemInstance, Loadout,
 } from '@/shared';
-import { ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, isWeaponItemDef } from '@/items';
+import { ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH } from '@/items';
 import { createQuickSlots, isQuickUsable, pickStarterQuick } from '../QuickSlots';
 import { setStarterGrantState, starterGrantState } from '../Stash';
-import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
+import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, type LoadoutSave } from '../Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
 import { resolveItemAlias } from '@/shared';   // 2026-09-13 (the library series): re-merges bag stacks saved under an old media id
 import {
-  LOADOUT_SLOTS, WEAPON_SLOT_IDS, slotAccepts,
+  LOADOUT_SLOTS, slotAccepts,
 } from '../model';
 import { pouchAcceptsDef } from '../model';
 import * as Pouch from './Pouch';
@@ -232,11 +232,6 @@ export function onAbort(sys: InventorySystem): void {
   sys.outcome = 'none';
   if (outcome === 'complete' || outcome === 'over') return;
   sys.loseKit();
-}
-
-export function hasAnyWeapon(sys: InventorySystem): boolean {
-  for (const s of WEAPON_SLOT_IDS) if (sys.loadout[s]) return true;
-  return sys.bag.items().some((p) => isWeaponItemDef(ITEM_DEF_MAP.get(p.item.defId)));
 }
 
 export function isCompletelyEmpty(sys: InventorySystem): boolean {

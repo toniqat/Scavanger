@@ -6,35 +6,13 @@
  */
 import * as THREE from 'three';
 import {
-  BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
-  NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
-  SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
-  type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
-  type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
+  ENEMY_DEATH_DIRS, TOXIC_RADIUS, type EnemyType,
 } from '@/shared';
-import { FxManager, ParticleBurst } from '@/core/fx';
-import { Enemy, type EnemyHost, type HitPart } from '../Enemy';
-import { ROGUE_AI, SPEWER_SPIT } from '../EnemyTypes';
-import { SpatialGrid } from '../SpatialGrid';
-import { CombatTarget, TargetList, type TargetId } from '../Targets';
-import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
-import { LureField } from '../ai/Lures';
-import { becomeAlert, canPerceive } from '../ai/Perception';
-import { beginInvestigation, endInvestigation } from '../ai/Investigate';
-import { BloodFX } from '../fx/BloodFX';
-import { EnemyXray } from '../fx/Xray';
-import { AcidProjectiles, type AcidHost, type AcidSlow } from '../fx/AcidProjectile';
-import { ShellProjectiles, type ShellHost } from '../fx/ShellProjectile';
-import { RogueGrenades, type GrenadeHost } from '../fx/RogueGrenade';
-import { AmbientSpawner, ambientGroup, waveGroup, type SpawnHost } from '../Spawner';
-import { WaveDirector } from '../WaveDirector';
-import { disposeBugAssets } from '../models/BugModel';
-import { disposeRogueAssets } from '../models/RogueModel';
-import { EnemyReplica, type ReplicaHost } from '../net/Replica';
-import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from '../net/HostSync';
-import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from '../Corpses';
-import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
-import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
+import { Enemy } from '../Enemy';
+import { CombatTarget } from '../Targets';
+import { tuple } from '../net/HostSync';
+import { type CorpseWireOpts } from '../Corpses';
+import { _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero } from '../model';
 import type { EnemySystem } from '../EnemySystem';
 import type { EnemyGrenadeKind } from '@/shared';
 

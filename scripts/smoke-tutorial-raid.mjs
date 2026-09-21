@@ -34,7 +34,8 @@
 //                     (csv), level 2 → `함선으로 귀환` → personal ship, ship track at `stats`, raid track done, solo save cleared.
 //                     (2026-09-16) Every liftoff frame is recorded: the crosshair is never visible once the phase is `liftoff`, the
 //                     rest of the HUD (social layer included) fades by code (`cinematicHudOpacity` passes a middle value → 0).
-//   The recorded `tutorial:changed` trail must equal the raid track's 15 steps in order.
+//   The recorded `tutorial:changed` trail must equal the raid track's steps in order (`RAID_STEPS` is the one count —
+//   16 since the 2026-09-15 2nd pass below; the assertion prints `RAID_STEPS.length`, so this line never drifts again).
 //
 // Usage: node scripts/smoke-tutorial-raid.mjs [http://localhost:5273/]   (needs `npm run dev`; no relay needed)
 import puppeteer from 'puppeteer-core';

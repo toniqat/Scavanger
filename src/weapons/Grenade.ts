@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   GRAVITY, GRENADE_FUSE as SHARED_GRENADE_FUSE, GRENADE_INCENDIARY_BLAST_DAMAGE, GRENADE_INCENDIARY_BLAST_RADIUS, PROP_STEP_UP_MAX, PROP_TOP_MARGIN,
   GRENADE_DAMAGE as SHARED_GRENADE_DAMAGE, GRENADE_PLAYER_DAMAGE_MUL, GRENADE_RADIUS as SHARED_GRENADE_RADIUS,
-  PLAYER_HEIGHT, blastReachesBody, breakFragileAlong, explosionDamage, type GameContext, type GrenadeView,
+  PLAYER_HEIGHT, blastDestructibles, blastReachesBody, breakFragileAlong, explosionDamage, type GameContext, type GrenadeView,
 } from '@/shared';
 import type { WeaponFx } from './fx/WeaponFx';
 import type { PlayerDamageSource } from '@/shared';
@@ -261,6 +261,10 @@ export class GrenadeManager {
     // that through the host. Phase 7: they DO hurt the local player — same radius / falloff / friendly-fire
     // rule as our own grenades (a squadmate's frag lands on you exactly like your own).
     const kills = !visualOnly && ctx.enemies ? ctx.enemies.applyExplosion(pos, radius, damage) : 0;
+    // 2026-09-21 (B-98, user's decision): destructible world objects — dropped cover · window glass · the 탐사 차량.
+    //   Behind the same `!visualOnly` gate as the enemy damage: a replica of a squadmate's grenade must not break
+    //   the same wall twice, and the vehicle's hostility counter is the thrower's to move.
+    if (!visualOnly) blastDestructibles(ctx.world, pos, radius, damage);
     if (ctx.player && !ctx.player.isDead) {
       _tmp.copy(ctx.player.position); _tmp.y += 0.9;
       const d = _tmp.distanceTo(pos);

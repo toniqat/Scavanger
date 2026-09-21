@@ -8,8 +8,10 @@
 // Checks:
 //   1. At least one structure stands per seed, and `structureAt` tells inside from outside
 //   2. Every `box` collider sits **inside the bounding box its own structure draws** (slack SLACK_M)
-//   3. The interior is walkable: the middle of a room does not push back, the middle of a wall does
-//   4. Walls stop bullets (`raycast` stops inside the wall thickness)
+//   3. The interior is walkable: **most** of a ground floor does not push a body out (a 1 m grid ratio, `centreMove`
+//      — since 2026-09-11 it is a grid, not the single centre point, because a stairwell or a prop can stand there)
+//   4. Walls stop bullets fired **from inside**: of 8 rays out from the structure's centre, at least 6 stop within
+//      the outer wall (`raycast`)
 //   5. The basement (2026-09-11 rework): the **standing door** at the end of the stair corridor blocks it while
 //      locked, and the basement floor is a standing plate
 //   6. Rails: platform deck top = the tram floor height (one steps across with no gap), and each stair step stays

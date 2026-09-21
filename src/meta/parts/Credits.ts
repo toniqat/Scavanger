@@ -5,22 +5,16 @@
  * is. The rule for adopting the server's figure on `net:profileLoaded` (`adoptServerCredits`) lives here too.
  */
 import type {
-  ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
-  GameContext, GameMessageOf, GameSystem, ItemDef, ItemInstance, MetaRef, MetaRequest, MissionStats, PeerId, ProfileRef, QuestInfo,
-  QuestState, RepInfo, ShopItem, SquadContractInfo,
+  ContractGoalKind, CorpId, CreditsTxResult, GameMessageOf, MetaRequest, PeerId, ProfileRef, RepInfo,
 } from '@/shared';
 import {
-  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, formatCredits,
-  repLevelOf, sellPriceOf,
+  CORP_IDS, CREDITS_MAX, META_HIT_MAX, repLevelOf,
 } from '@/shared';
 import { META_HIT_RATE } from '@/shared';
-import { MAX_PROGRESS, MetaStorage } from '../Storage';
 import {
-  REASON, buildShop, canRepairImplant, contractBlockReason, contractHitDelta, corpSells, implantRepairCost, implantRepairFee,
-  implantRepairMaterialIds, isRepairableImplantDef, killGoalOf, questBlockReason, questStateOf, repInfoOf, settleContract,
+  REASON, repInfoOf,
 } from '../Rules';
-import { CorpView } from '../ui/CorpView';
-import { CORP_ALIASES, GOAL_IDS, INVENTORY_GOALS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
+import { INVENTORY_GOALS, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
 /* 2026-09-11 (E-4 ⑦): credit reasons are built with the contract grammar (`shared/credits.ts`). */
 import { formatCreditReason } from '@/shared';

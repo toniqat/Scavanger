@@ -157,11 +157,6 @@ try {
   const step = () => P(() => window.__game.ctx.tutorial.step);
   const waitStep = (s) => waitFor(page, (want) => window.__game.ctx.tutorial.step === want, `step ${s}`, 30000, s);
   /* 2026-09-09: the spotlight lights only after counting `TUTORIAL_STEP_DELAY_S` (0.5 s) from its target appearing
-     — the new screen shows first and the plates · ring · callout follow (`parts/Spotlight.wait`). So this smoke never
-     reads "is it up right now" straight away; it **waits until it lights**: `.tut-spot` shown · the fade started
-     (`.tut-spot.is-lit`) · the callout belonging to this step. The timeout stays short, so a regression where it
-     really never lights still fails. */
-  /* 2026-09-09: the spotlight lights only after counting `TUTORIAL_STEP_DELAY_S` (0.5 s) from its target appearing
      — the new screen shows first and the plates · ring · callout follow (`parts/Spotlight.wait`). So this smoke
      never reads "is it up right now" straight away; it **waits until it lights**: `.tut-spot` shown · the fade
      started (`.tut-spot.is-lit`) · the callout belonging to this step. The timeout is kept short, about thirty times
@@ -513,7 +508,7 @@ try {
     };
   });
   ok(closeStep.step === 'bench' && closeStep.index === 3 && closeStep.count === 5 && closeStep.manage === true,
-    '배치 뒤에는 같은 단계의 하우징 모드 닫기 줄 (3/7) — 관리 모드는 아직 열려 있다', JSON.stringify(closeStep));
+    '배치 뒤에는 같은 단계의 하우징 모드 닫기 줄 (3/5) — 관리 모드는 아직 열려 있다', JSON.stringify(closeStep));
   // The objective row is `{INVENTORY} 하우징 모드 닫기` — the keycap token is drawn in front, so the textContent is
   // `Tab 하우징 모드 닫기` (only the tail is checked)
   ok(closeStep.objs.length === 4 && closeStep.objs[0] === '총기 작업대 제작' && closeStep.objs[1] === '가구 창고 탭으로 이동'

@@ -32,7 +32,7 @@ export class RemotePods {
   private readonly slots: Entry[] = [];
   private readonly byPeer = new Map<PeerId, Entry>();
 
-  constructor(private readonly scene: THREE.Object3D) {
+  constructor(scene: THREE.Object3D) {
     for (let i = 0; i < MAX_REMOTE_PODS; i++) {
       const pod = new Hellpod();   // born at light intensity 0 with `body` hidden
       scene.add(pod.group);

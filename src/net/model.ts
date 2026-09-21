@@ -7,22 +7,12 @@
  */
 import * as THREE from 'three';
 import type {
-  ChatKind, GameContext, GameSystem, GameMessage, GameMessageOf, GameMessageType, GhostWire, LobbyPlayer, LobbyState,
-  NetRef, NetStatus, PeerId, PingKind, RelayTarget, RemotePlayerRef, ServerToClient, Vec3Tuple,
+  ChatKind, GameMessage, GhostWire, PeerId, PingKind, Vec3Tuple,
 } from '@/shared';
-import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
-import type { PlanetId, SocialRef } from '@/shared';
-import { isPlanetId } from '@/shared';
 import {
-  NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
-  NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
-  isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName, slotKey,
+  NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
+  NET_TOKEN_LENGTH, NET_TOKEN_STORAGE_KEY, slotKey,
 } from '@/shared';
-import { NetClient } from './NetClient';
-import { ProfileSync } from './ProfileSync';
-import { SocialSync } from './SocialSync';
-import { RemotePlayer } from './RemotePlayer';
-import { Snapshotter } from './Snapshotter';
 import type { CrewCardWire, ImplantId } from '@/shared';
 /* appended (2026-09-08): the shared ship's hangar — a visited member's ship layout */
 import type { PlacedBook, PlacedFurniture, RoomPurpose, ShipVisitWire } from '@/shared';

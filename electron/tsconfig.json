@@ -6,6 +6,7 @@
     "lib": ["ES2022", "DOM"],
     "types": ["node"],
     "strict": true,
+    "noUnusedLocals": true,
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,

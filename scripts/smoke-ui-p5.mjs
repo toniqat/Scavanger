@@ -9,7 +9,10 @@
 // training chat + notification lines, the training objective. Phase 9: ghost bleed bar / 사망 tag on a suspended member's
 // nameplate + squad row from `ref.ghostState / ghostDownHp`. Phase 10: the crosshair reload ring (`weapon:reloadStarted` /
 // `Cancelled` / `Finished`), the 회복약 2 s hold gauge (`heal:holdChanged`), the map's middle-click ping, the software
-// cursor sprite + cursor mode on the map (no `exitPointerLock`), and the item card's `100 C` credit bar. C-13 · C-19 (2026-09-11): the 회복 스프레이 ring never goes .ready at a full gauge, and the thin nameplate shield bar (ref.shield / maxShield; hidden when downed or suspended). C-36 follow-up: the item card's bag 내구도 row. 142 checks. Needs the relay on 8787 too (the hub's
+// cursor sprite + cursor mode on the map (no `exitPointerLock`), and the item card's `100 C` credit bar.
+// C-13 · C-19 (2026-09-11): the 회복 스프레이 ring never goes .ready at a full gauge, and the thin nameplate
+// shield bar (ref.shield / maxShield; hidden when downed or suspended). C-36 follow-up: the item card's
+// 가방 소모품 row. 142 checks. Needs the relay on 8787 too (the hub's
 // `ensureConnected` logs a console error otherwise), e.g. `npm run dev:all` or `npm run server` + a private vite.
 // Usage: node scripts/smoke-ui-p5.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';

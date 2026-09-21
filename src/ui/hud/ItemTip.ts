@@ -44,7 +44,7 @@ const MEAL_QUALITY_STAR_COLOR = '#ffd24a';
 
 /* 2026-09-13 (library series · video games): series names · effect rows · the planets it appears on · equipment · corporations · cook step names */
 import type { LibraryEffect } from '@/shared';
-import { COOK_GAME_LABEL_KO, CORP_DEFS, FURNITURE_DEFS, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_MAP, PLANET_DEFS, gameMinigameLabel } from '@/shared';
+import { COOK_GAME_LABEL_KO, CORP_DEFS, FURNITURE_DEFS, LIBRARY_SERIES_MAP, PLANET_DEFS, gameMinigameLabel } from '@/shared';
 
 /** 2026-09-13: the text colour of `보관 — 아직 꽂지 않음` = the tile band's blue (`--c-favorite`, the same blue when it is missing). */
 const FAVORITE_BAND_COLOR = 'var(--c-favorite, #4a90ff)';

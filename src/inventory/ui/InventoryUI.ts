@@ -1,6 +1,6 @@
 import './../inventory.css';
 import type { EmbeddedView, GameContext, ItemDef, ItemInstance, KeyGuideEntry } from '@/shared';
-import { Keys, isQuickSlotActive, keyLabel } from '@/shared';
+import { Keys, keyLabel } from '@/shared';
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../Container';
 import { LOADOUT_SLOTS, isArmorDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
@@ -17,9 +17,9 @@ import { Tooltip } from './Tooltip';
 import { TipPin, inventoryTooltipLookups } from './TipPin';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
-import { CELL, SLOT_LABEL, STEP, TEXT, applyGridCellVar, capacityLabel, fmtCreditNumber, pouchAcceptsLabel, slotKeyLabel, syncGridCell, tierTitle, fmtKg, weightLabel } from './labels';
+import { CELL, SLOT_LABEL, TEXT, applyGridCellVar, capacityLabel, fmtCreditNumber, pouchAcceptsLabel, slotKeyLabel, syncGridCell, tierTitle, fmtKg, weightLabel } from './labels';
 
-import { CATALOG_DBL_MS, type DragState, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from './model';
+import { type DragState, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from './model';
 /** The folder's shared vocabulary (constants · types · scratch) lives in `model.ts` — re-exported for the existing import paths. */
 export * from './model';
 

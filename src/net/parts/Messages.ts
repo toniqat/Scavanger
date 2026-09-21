@@ -7,27 +7,16 @@
  */
 import * as THREE from 'three';
 import type {
-  ChatKind, GameContext, GameSystem, GameMessage, GameMessageOf, GameMessageType, GhostWire, LobbyPlayer, LobbyState,
-  NetRef, NetStatus, PeerId, PingKind, RelayTarget, RemotePlayerRef, ServerToClient, Vec3Tuple,
+  ChatKind, GameMessage, PeerId, PingKind, RelayTarget, ServerToClient,
 } from '@/shared';
-import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
-import type { PlanetId, SocialRef } from '@/shared';
+import type { MissionMode } from '@/shared';
 import { isPlanetId } from '@/shared';
 /* 2026-09-15: android squadmates — the bay range of `lobby:androidReturned` · the bot-member test */
 import { ANDROID_BAY_COUNT, humanPlayersOf } from '@/shared';
 import {
-  NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
-  NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
-  isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName,
+  PlayerFlags,
 } from '@/shared';
-import { NetClient } from '../NetClient';
-import { ProfileSync } from '../ProfileSync';
-import { SocialSync } from '../SocialSync';
-import { RemotePlayer } from '../RemotePlayer';
-import { Snapshotter } from '../Snapshotter';
-import type { CrewCardWire, ImplantId } from '@/shared';
-import { IMPLANT_IDS } from '@/shared';
-import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_STORAGE_KEY, PEER_LINGER, PING_KINDS, SNAPSHOT_INTERVAL, TOKEN_ALPHABET, TOKEN_RE, defIdOrNull, isGhostWire, isNum, isVec3, loadOrCreateSessionToken, sameCard, sanitizeCrewCard, sanitizeShipVisit, vec } from '../model';
+import { CHAT_KINDS, PEER_LINGER, PING_KINDS, isGhostWire, isNum, isVec3, sameCard, sanitizeCrewCard, sanitizeShipVisit, vec } from '../model';
 import type { NetSystem } from '../NetSystem';
 import type { DamageCauseKind, PlayerDamageSource } from '@/shared';
 

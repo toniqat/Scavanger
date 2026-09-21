@@ -4,13 +4,12 @@
  * Create / join / quick match / ready / start / leave, picking the target planet, and the two ends of a mission.
  * **The lobby survives a mission's end** — the only thing that leaves a lobby is `leaveLobby()` (undocking).
  */
-import * as THREE from 'three';
 import type {
-  ChatKind, GameContext, GameSystem, GameMessage, GameMessageOf, GameMessageType, GhostWire, LobbyPlayer, LobbyState,
-  NetRef, NetStatus, PeerId, PingKind, RelayTarget, RemotePlayerRef, ServerToClient, Vec3Tuple,
+  LobbyPlayer, LobbyState,
+  PeerId,
 } from '@/shared';
-import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
-import type { PlanetId, SocialRef } from '@/shared';
+import type { ClientToServer, MissionMode, RaidSessionBlob } from '@/shared';
+import type { PlanetId } from '@/shared';
 import { isPlanetId } from '@/shared';
 /* 2026-09-14: the intel broker — the fixed gimmicks the lobby carries (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelWire } from '@/shared';
@@ -21,18 +20,10 @@ import { ANDROID_BAY_COUNT, isBotPlayer } from '@/shared';
 /* 2026-09-21: the ship this character owns — the hangar parks each member's own (CLAUDE.md §4.8) */
 import { shipModelOf } from '@/shared';
 import {
-  NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
-  NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
-  isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName,
+  NET_INVITE_PARAM, RAID_BLOB_MAX_BYTES,
+  isValidLobbyCode, normalizeLobbyCode,
 } from '@/shared';
-import { NetClient } from '../NetClient';
-import { ProfileSync } from '../ProfileSync';
-import { SocialSync } from '../SocialSync';
-import { RemotePlayer } from '../RemotePlayer';
-import { Snapshotter } from '../Snapshotter';
-import type { CrewCardWire, ImplantId } from '@/shared';
-import { IMPLANT_IDS } from '@/shared';
-import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_STORAGE_KEY, PEER_LINGER, PING_KINDS, SNAPSHOT_INTERVAL, TOKEN_ALPHABET, TOKEN_RE, defIdOrNull, isGhostWire, isNum, isVec3, loadOrCreateSessionToken, sameCard, sanitizeCrewCard, vec } from '../model';
+import { PEER_LINGER } from '../model';
 import type { NetSystem } from '../NetSystem';
 
 /**
@@ -395,6 +386,8 @@ export function dropLobby(sys: NetSystem, reason: 'left' | 'disconnected' | 'kic
   // 2026-09-15: a dock request dies with the lobby — except `moved`: `공개 매칭` from alone in an undocked squad moves
   // me into an open public ship (`lobby:left {moved}` + its `lobby:state`), and that arrival is still **my** dock.
   if (reason !== 'moved') sys._dockPending = false;
+  /* 2026-09-21 (B-101): a new lobby · a new relay has not been told my ship, so the nudge is due again. */
+  sys._pushedShipModel = null;
   sys._tookOver = false;
   sys._raidBlob = null;
   sys.prevHostId = null;
@@ -444,21 +437,22 @@ export function endSession(sys: NetSystem): void {
   }
 
 /**
- * 2026-09-21 (함선 구매 훅) — tells the relay which ship to park in my hangar berth (`lobby:look.shipModel`).
+ * 2026-09-21 (함선 구매 훅) — the nudge that says 「my ship changed, re-read it」 (`lobby:look.shipModel`).
  *
- * It is driven off `lobby:state` rather than sent once on connect because the model can change **while connected**
- * (a purchase, a slot switch) and because a fresh lobby row starts without the field: comparing my row against the
- * profile makes the push happen exactly when the two disagree, and never again. The accent travels on the connect
- * URL instead (`?a=`) — that one cannot change mid-session, so it needs no such loop.
+ * It runs off `lobby:state` because the model can change **while connected** (a purchase, a slot switch), and it is
+ * de-duplicated against `NetSystem._pushedShipModel` — **not** against my own lobby row. That row is the relay's
+ * answer, and since B-101 the relay fills it from my `progression` document: a profile that has uploaded none
+ * leaves it empty for ever, so comparing against it sent a nudge on every state, which broadcast another state,
+ * which nudged again. One value, one nudge. The accent travels on the connect URL instead (`?a=`) — that one cannot
+ * change mid-session, so it needs no loop at all.
  *
- * **This is the client's word.** It is honest today because nothing can be bought yet; when the shop lands the relay
- * has to fill the field from its own profile store, the way `code` · `level` already are.
+ * **The value sent is not honoured.** The relay reads only its shape and then takes the id out of the profile store
+ * (`Store.shipModel`); a purchase is not the client's word to give.
  */
 export function pushShipModel(sys: NetSystem): void {
-  const me = sys.localId ? sys.getLobbyPlayer(sys.localId) : undefined;
-  if (!me || !sys.client.connected) return;
+  if (!sys.localId || !sys.getLobbyPlayer(sys.localId) || !sys.client.connected) return;
   const mine = shipModelOf(sys.ctx.progression?.profile);
-  if (me.shipModel === mine) return;
-  me.shipModel = mine;   // optimistic; the relay's next `lobby:state` confirms it
+  if (sys._pushedShipModel === mine) return;
+  sys._pushedShipModel = mine;
   sys.client.send({ t: 'lobby:look', shipModel: mine });
 }

@@ -20,7 +20,7 @@ import { GADGET_MOUNTED_MINE_TRIGGER_RADIUS, GADGET_REMOTE_MINE_ARM_TIME } from 
 /* 2026-09-15 (B-16): the fire zone — the crackle sound · drones */
 import { FIRE_ZONE_CRACKLE_S, FIRE_ZONE_DRONE_HEIGHT } from '@/shared';
 /* 2026-09-15 (user's decision): the two-step blast falloff — shared by every explosive */
-import { PLAYER_HEIGHT, blastReachesBody, explosionDamage } from '@/shared';
+import { PLAYER_HEIGHT, blastDestructibles, blastReachesBody, explosionDamage } from '@/shared';
 import * as Remote from './Remote';
 import * as Thumper from './Thumper';
 import type { DamageSourceWire, PlayerDamageSource } from '@/shared';
@@ -84,6 +84,9 @@ export function explodeMine(sys: GadgetSystem, d: Deployable, ctx: GameContext):
   sys.damageEnemies(d.position, radius, dmg, String(d.owner));
   // 2026-09-11: drones in the blast (a mine riding a drone sits at the centre, so its carrier is destroyed)
   ctx.drones?.applyExplosion(d.position, radius, dmg);
+  // 2026-09-21 (B-98, user's decision): destructible world objects too. Gadgets are host-authoritative, so this
+  //   runs on the authority and the 탐사 차량 applies the part damage on the spot.
+  blastDestructibles(ctx.world, d.position, radius, dmg);
   // players (no friend-or-foe check, the owner included)
   // 2026-09-15 (user's decision): the falloff is the shared two-step one (`shared/explosion`); the mine's
   // 0.85 anti-personnel share is unchanged
@@ -176,6 +179,10 @@ export function updateFireZone(sys: GadgetSystem, d: Deployable, dt: number, ctx
       drones.damageDrone(dr.id, GADGET_INCENDIARY_DPS * ZONE_TICK, d.position);
     }
   }
+  // 2026-09-21 (B-98, user's decision): destructible world objects burn too — the 탐사 차량 parked in a fire zone
+  //   has to cook. The floor is **1**: a zone burns evenly across its whole radius (a fire is not a blast wave), so
+  //   the shared stair is bypassed while the radius test and the one damage path are kept.
+  blastDestructibles(ctx.world, d.position, d.radius, GADGET_INCENDIARY_DPS * ZONE_TICK, 1);
   }
 
 export function updateLure(sys: GadgetSystem, d: Deployable, dt: number, ctx: GameContext): void {

@@ -133,7 +133,6 @@ try {
   console.log('② real damage paths with and without a wall');
   const setup = await page.evaluate(() => {
     const ctx = window.__game.ctx;
-    const V = ctx.player.position.constructor;
     const w = ctx.world;
     // Finds flat ground — the spot around the spawn with the smallest ±8 m height spread
     const p0 = ctx.player.position;
@@ -204,7 +203,6 @@ try {
     const ctx = window.__game.ctx;
     const V = ctx.player.position.constructor;
     const w = ctx.world;
-    const weapons = window.__game.getSystem('weapons');
     const { x, z } = window.__site;
     const e = window.__meleeBug;
     ctx.player.respawnAt(new V(x - 0.9, w.getHeightAt(x - 0.9, z), z), -Math.PI / 2);   // yaw −π/2 → faces +X

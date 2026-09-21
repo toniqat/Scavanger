@@ -7,21 +7,17 @@
  */
 import * as THREE from 'three';
 import {
-  Keys, MouseButtons, Random,
-  STRATAGEM_DEFS, STRATAGEM_ORDER, STRATAGEM_WHEEL_HOLD, STRATAGEM_CHARGE_TIME,
-  TOPVIEW_HEIGHT, TOPVIEW_RANGE, TOPVIEW_CURSOR_SPEED, GROUND_TARGET_RANGE,
+  Random,
   LASER_DURATION, LASER_RADIUS, LASER_DPS, AIRSTRIKE_RADIUS, AIRSTRIKE_DAMAGE,
   SUPPLY_FALL_TIME, SUPPLY_IMPACT_RADIUS, SUPPLY_IMPACT_DAMAGE, SUPPLY_CRATE_TIER,
   STRUCTURE_COUNT, STRUCTURE_HP, STRUCTURE_SCATTER, STRUCTURE_IMPACT_RADIUS, STRUCTURE_IMPACT_DAMAGE, STRUCTURE_FALL_TIME,
-  type GameContext, type GameSystem, type StratagemsRef, type StratagemId, type StratagemCall, type StratagemStage, type StratagemDef,
-  type PlayerRef, type PlayerWeaponHost, type Interactable, type Obstacle, type DestructibleRef, type WorldRef, type Vec3Tuple, type PeerId,
-  type StratagemCallWire,
-  PLAYER_HEIGHT, blastReachesBody, explosionDamage,
+  type StratagemId, type Obstacle, type PeerId,
+  PLAYER_HEIGHT, blastDestructibles, blastReachesBody, explosionDamage,
 } from '@/shared';
 import {
-  SharedGeo, TargetRing, CallMarker, Burst, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
+  CallMarker, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
 } from '../Visuals';
-import { AIRSTRIKE_FX_TIME, Call, GRENADE_STRUCTURE_DAMAGE, type Host, LASER_TICK, SHAKE_RANGE, STRUCTURE_DROP_HEIGHT, STRUCTURE_MIN_GAP, STRUCTURE_STAGGER, SUPPLY_DROP_HEIGHT, Structure, TARGET_EMIT_EPS, WHEEL_DRAG_PX, _a, _b, _dir, defOf, toTuple } from '../model';
+import { AIRSTRIKE_FX_TIME, Call, LASER_TICK, STRUCTURE_DROP_HEIGHT, STRUCTURE_MIN_GAP, STRUCTURE_STAGGER, SUPPLY_DROP_HEIGHT, Structure, _a, _b, _dir } from '../model';
 import * as Rescue from './Rescue';
 import type { StratagemSystem } from '../StratagemSystem';
 import type { PlayerDamageSource } from '@/shared';
@@ -72,10 +68,15 @@ export function ended(sys: StratagemSystem, call: Call): void {
  * 2026-09-15 (user's decision): the falloff is the shared two-step stair (`shared/explosion`) — it used to be the
  * linear `1 − d / radius`.
  */
-export function impactDamage(sys: StratagemSystem, call: Call, center: THREE.Vector3, radius: number, damage: number): void {
+export function impactDamage(sys: StratagemSystem, call: Call, center: THREE.Vector3, radius: number, damage: number, breakCover = true): void {
   const ctx = sys.ctx;
   if (sys.silent) return;   // fast-forwarded sync landing: the impact happened before we joined
   if (call.local && ctx.enemies) ctx.enemies.applyExplosion(center, radius, damage);
+  // 2026-09-21 (B-98, user's decision): destructible world objects — same `call.local` gate as the enemy damage,
+  //   so only the caller's client resolves it (the others replay the look). `breakCover` false for the structure
+  //   drop's own landing: five tripods scatter inside `STRUCTURE_SCATTER`, so each would chew the ones already
+  //   down and a call would arrive half broken — a regression, not the point of the rule.
+  if (call.local && breakCover) blastDestructibles(ctx.world, center, radius, damage);
   const p = ctx.player;
   if (p && !p.isDead) {
     _a.copy(p.position); _a.y += 0.9;
@@ -282,7 +283,7 @@ export function updateStructures(sys: StratagemSystem, c: Call, t: number): void
     s.landed = true;
     s.mesh.group.visible = true;
     s.mesh.group.position.copy(s.position);
-    sys.impactDamage(c, s.position, STRUCTURE_IMPACT_RADIUS, STRUCTURE_IMPACT_DAMAGE);
+    sys.impactDamage(c, s.position, STRUCTURE_IMPACT_RADIUS, STRUCTURE_IMPACT_DAMAGE, false);
     sys.burst(dustBurst(s.position, STRUCTURE_IMPACT_RADIUS));
     sys.shakeFrom(s.position, 0.45);
     sys.audio('explosion', s.position, 0.45);

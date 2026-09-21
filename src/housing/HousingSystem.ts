@@ -22,7 +22,6 @@ import type { HousingPanel } from './ui/Panel';
 import { StorageUpgrade, openBenchUpgrade, openStorageUpgrade } from './ui/StorageUpgrade';
 import './housing.css';
 
-import { BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MAX } from './model';
 /** The folder vocabulary (constants · types · scratch) lives in `model.ts` — re-exported for the existing import paths. */
 export * from './model';
 import * as Rooms from './parts/Rooms';

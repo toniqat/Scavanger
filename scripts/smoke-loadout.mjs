@@ -593,7 +593,7 @@ try {
   });
   ok(bareClick === '{"credits":1234}', '맨 클릭 한 번으로는 지워지지 않는다 (1초 홀드)', String(bareClick));
   await page.evaluate(() => {
-    // the hold gesture is covered by its own smoke; here we only need the *effect* of a confirmed delete
+    // the hold gesture is covered by its own smoke — only the *effect* of a confirmed delete is needed here
     for (const k of Object.keys(localStorage)) if (k.startsWith('scav.s1.')) localStorage.removeItem(k);
   });
   await reload();

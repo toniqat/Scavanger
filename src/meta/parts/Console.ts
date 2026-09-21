@@ -5,21 +5,15 @@
  * Registered on dev clients only (see `src/console`). It holds no game rule at all and calls the APIs above.
  */
 import type {
-  ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
-  GameContext, GameMessageOf, GameSystem, ItemDef, ItemInstance, MetaRef, MetaRequest, MissionStats, PeerId, ProfileRef, QuestInfo,
-  QuestState, RepInfo, ShopItem, SquadContractInfo,
+  ConsoleCommand, ContractGoalKind,
 } from '@/shared';
 import {
-  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, formatCredits,
-  repLevelOf, sellPriceOf,
+  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, formatCredits,
 } from '@/shared';
-import { MAX_PROGRESS, MetaStorage } from '../Storage';
 import {
-  REASON, buildShop, canRepairImplant, contractBlockReason, contractHitDelta, corpSells, implantRepairCost, implantRepairFee,
-  implantRepairMaterialIds, isRepairableImplantDef, killGoalOf, questBlockReason, questStateOf, repInfoOf, settleContract,
+  contractBlockReason,
 } from '../Rules';
-import { CorpView } from '../ui/CorpView';
-import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
+import { GOAL_IDS } from '../model';
 import type { MetaSystem } from '../MetaSystem';
 import { formatCreditReason } from '@/shared';
 import { NPC_DEFS, NPC_FLAGS, NPC_QUEST_DEFS } from '@/shared';

@@ -1,5 +1,5 @@
 /**
- * src/world/soil.ts — **per-planet soil** (greenhouse overhaul, 2026-09-11).
+ * src/world/soil.ts — **per-planet soil** (greenhouse rework, 2026-09-11).
  *
  * The greenhouse's grow station pours soil first and plants the seed on top of it (`GrowSlot.soilDefId` in `shared/housing`).
  * That soil is obtained **only by gathering in a raid**, and which tag appears differs per planet — which is what makes

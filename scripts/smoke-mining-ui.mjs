@@ -565,7 +565,7 @@ try {
   await sleep(60);
   await H(() => { const ctx = window.__game.ctx; ctx.net.crypto.available = false; ctx.bus.emit('net:cryptoPrices', { at: Date.now() }); });
   await sleep(80);
-  const off = await H(() => ({ msg: document.querySelector('.mining-screen .mn-chart-msg'), t: document.querySelector('.mining-screen .mn-trade-block').textContent }));
+  const off = await H(() => ({ t: document.querySelector('.mining-screen .mn-trade-block').textContent }));
   const offMsg = await H(() => { const m = document.querySelector('.mining-screen .mn-chart-msg'); return { shown: !m.hidden, text: m.textContent }; });
   ok(offMsg.shown && offMsg.text === '서버에 연결되어야 합니다', `오프라인 → 차트 자리 문구 (${offMsg.text})`);
   ok(off.t === '서버에 연결되어야 합니다', `오프라인 → 매매 사유 (${off.t})`);

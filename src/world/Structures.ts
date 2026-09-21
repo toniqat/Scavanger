@@ -697,7 +697,8 @@ export class Structures {
     inst.doorAnim = 0;
     /* 2026-09-21: opening the door with the right planet's key is the **only** off switch of that room's ceiling
      * turret, and it is permanent. This runs on every path `unlocked` arrives by — the opener, `struct unlocked`
-     * from the host, and a late joiner's `struct sync.unlocked` — so the turret needs no wire of its own. */
+     * from the host, and a late joiner's `struct sync.unlocked` — so **powering it down** needs no wire of its own.
+     * (What the turret does have a wire for, since 2026-09-21 / B-100, is which body it is on: `struct turret`.) */
     this.turrets.disableFor(inst.def.id);
     const at = this.doorPosOf(inst);
     if (consume) {
@@ -770,6 +771,9 @@ export class Structures {
       if (inst) this.applyScan(inst, false);
       return;
     }
+    /* 2026-09-21 (B-100): the ceiling turret's chosen body — the replica paints and warns from this, never from a
+       target it picked itself (`structures/parts/Turret.applyWire`). */
+    if (m.ev === 'turret') { this.turrets.applyWire(m.id, m.tg, m.st); return; }
     for (const id of m.unlocked) { const i = this.byId.get(id); if (i) this.applyUnlock(i, null, false); }
     for (const id of m.scanned) { const i = this.byId.get(id); if (i) this.applyScanQuiet(i); }
     for (const id of m.rogued) this.markRogued(id);
@@ -826,5 +830,8 @@ export class Structures {
       rogued: [...this.roguedZones],
       glass: this.glass.brokenKeys(),
     }, to);
+    /* 2026-09-21 (B-100): a turret only speaks on a change, so a client joining mid-lock is told once what every
+       armed turret is already on. */
+    for (const w of this.turrets.activeWire()) net.send({ t: 'struct', ev: 'turret', id: w.id, tg: w.tg, st: w.st }, to);
   }
 }

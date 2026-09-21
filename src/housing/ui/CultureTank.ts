@@ -1,4 +1,4 @@
-import type { CultureSlotInfo, EmbeddedView, GameContext, HarvestDestination, HoldAskHandle, ItemDef, ItemInstance, PlacedFurniture } from '@/shared';
+import type { CultureSlotInfo, GameContext, HarvestDestination, HoldAskHandle, ItemDef, ItemInstance, PlacedFurniture } from '@/shared';
 import { cultureSlotsForLevel, openHoldAsk } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 import { furnitureMaxLevel, nextFurnitureCost } from '../Rules';

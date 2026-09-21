@@ -12,7 +12,8 @@
 //     E on the game disc stand → `openShelf`. `housing:tvConsoleChanged` → that TV is rebuilt carrying the console.
 //  3. E on a seat: sofa · chair · sitting → the sit pose, the sofa taking the cushion nearest the player.
 //  4. The game cutscene: `housing:gameSession {active:true}` → sit on the cushion nearest the TV · a yaw facing the
-//     TV · the fixed camera behind the seat · the game screen on, `housing:gameBeat` → the flash · the progress bar,
+//     TV · the fixed camera behind the seat · the game screen on, `housing:gameBeat` → the marker `kick` · the
+//     progress bar · **no** screen flash (the 2026-09-14 decision at `:329` took `flash` out),
 //     `{active:false}` → released (cancel is not called), a refused pose → `cancelGameSession` on the spot, the pose
 //     released from outside → `cancelGameSession`.
 // Usage: node scripts/smoke-tv-games.mjs [http://localhost:5273]   (needs a running vite)

@@ -6,22 +6,15 @@
  * Offline the same checks run locally up front and that is the whole of it.
  */
 import type {
-  ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
-  GameContext, GameMessageOf, GameSystem, ItemDef, ItemInstance, MetaRef, MetaRequest, MissionStats, PeerId, ProfileRef, QuestInfo,
-  QuestState, RepInfo, ShopItem, SquadContractInfo,
+  CorpId, ItemInstance, ShopItem,
 } from '@/shared';
 import {
-  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, formatCredits,
-  repLevelOf, sellPriceOf,
+  CORP_DEFS, sellPriceOf,
 } from '@/shared';
-import { MAX_PROGRESS, MetaStorage } from '../Storage';
 import {
-  REASON, buildShop, canRepairImplant, contractBlockReason, contractHitDelta, corpSells, implantRepairCost, implantRepairFee,
-  implantRepairMaterialIds, isRepairableImplantDef, killGoalOf, questBlockReason, questStateOf, repInfoOf, settleContract,
-  shopQtyOf,
+  REASON, buildShop, corpSells, implantRepairMaterialIds, shopQtyOf,
 } from '../Rules';
-import { CorpView } from '../ui/CorpView';
-import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
+import { type PurchaseFailure } from '../model';
 import type { MetaSystem } from '../MetaSystem';
 /* 2026-09-11 (E-4 ⑦): a credit reason is only ever built with the contract grammar — the relay parses it and
    checks the amount (`shared/credits.ts`). */

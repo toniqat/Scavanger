@@ -228,7 +228,8 @@ try {
     && furnCounts.kitchen === FURN_ANY + 6 && furnCounts.cockpit === FURN_ANY + 2 && furnCounts.library === FURN_ANY + 9,
   `getFurnitureFor: any ${FURN_ANY} · workshop +5 벤치 · greenhouse +2 · kitchen +6 · cockpit +2 전용 · library +9 (2026-09-17 쇼파가 any 로) (${JSON.stringify(furnCounts)})`);
   /* The screen checks below **ask for** this number as they go — hand-fixing three places every time a bench was
-     added really did go red on the 2026-09-10 정제 작업대. Only the one line above is left as a canary. */
+     added really did go red on the 2026-09-10 `가공 작업대` (`data/furniture.csv` `furn_bench_refine`). Only the one
+     line above is left as a canary. */
   const workshopFurniture = await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length);
   // 2026-09-12: the furniture craft list splits into the 시설 가구 / 꾸밈용 가구 sub-tabs — the card count on the
   // default tab (시설 가구)

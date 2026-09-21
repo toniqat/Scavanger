@@ -43,7 +43,9 @@
  * again (a price history is data that can be remade). Coins missing from the table are dropped, new coins filled in.
  * `dataDir: null` = memory only.
  *
- * Erasable TypeScript only (Node's native type stripping) · no `import.meta` (the shipped exe's bundle was CJS).
+ * Erasable TypeScript only (Node's native type stripping) · no `import.meta` — a rule that came from the old
+ * standalone exe's CJS bundle (the exe was dropped 2026-09-15), and keeping it costs nothing (`Economy.ts` says
+ * the same).
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { mkdir, open, rename, rm } from 'node:fs/promises';

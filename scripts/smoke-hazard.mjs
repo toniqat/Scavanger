@@ -26,7 +26,7 @@ const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshad
 // The contract values (data/constants.csv · data/planets.csv) — a constant cannot be imported inside the browser,
 // so they are transcribed here
 const START_MIN = 360, START_MAX = 480, START_STEP = 30;
-const WARN_S = 30, DPS = 1, TICK_S = 1, FULL_S = 420, EDGE_M = 12;
+const WARN_S = 30, DPS = 1, TICK_S = 1, FULL_S = 420;
 // 2026-09-13: a hazard grows stronger over time — damage HAZARD_DPS → HAZARD_DPS_MAX, the sight multiplier
 // HAZARD_FOG_RAMP_START → END
 const DPS_MAX = 5, FOG_RAMP_END = 1.25;
@@ -38,7 +38,9 @@ const SPORE_CENTER_R = 170, SPORE_GROVE_SPAWN_GAP = 80, OUTER_MIN = 200;
 const FOG_MUL = { sandstorm: 7, blizzard: 7, storm_eye: 24, spores: 7 };
 // 2026-09-11 (C-15): the storm eye closes fully at the end too — STORM_EYE_RADIUS_END 60 → 0
 const EYE_START = 300, EYE_END = 0;
-const SPORE_START = 360, SPORE_INTERVAL = 50, SPORE_MIN = 3, SPORE_MAX = 6;
+// (`SPORE_SOURCES_MIN` is deliberately not transcribed: a grove that finds no room is dropped, so the floor this
+// smoke can assert is 1, not 3 — see the `발생지가 1~` line below.)
+const SPORE_START = 360, SPORE_INTERVAL = 50, SPORE_MAX = 6;
 const MAP = 640;
 // The per-planet candidates (data/planets.csv's hazards column)
 const AMBER = ['sandstorm', 'storm_eye'];       // the planet 아켈론 II
@@ -189,7 +191,7 @@ try {
 
   /* ── 4. The zone conventions ───────────────────────────────────────── */
   console.log('도형 규약');
-  const mid = await P((a) => { window.__seek(a.at + a.full * 0.5); return null; }, { at: h0.startsAt, full: FULL_S }) ?? await P(() => window.__zones());
+  await P((a) => { window.__seek(a.at + a.full * 0.5); }, { at: h0.startsAt, full: FULL_S });
   await waitSim(0.3);
   const zs = await P(() => window.__zones());
   if (h0.kind === 'storm_eye') {
@@ -219,7 +221,6 @@ try {
     const dot = z.dx * sp0.x + z.dz * sp0.z;
     ok(dot < 0, `전선이 강하 지점 쪽 가장자리에서 들어온다 (dir·spawn ${dot.toFixed(1)})`);
   }
-  void mid;
 
   /* ── 5. To the end = no safe zone left ───────────────────────── */
   console.log('끝까지 진행');
@@ -475,7 +476,6 @@ try {
 
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));
   ok(gameErrors.length === 0, `no console errors (${gameErrors.length}; ${errors.length - gameErrors.length} relay socket errors ignored)`, gameErrors.slice(0, 5).join(' | '));
-  void EDGE_M; void MAP; void SPORE_MIN;
 } catch (e) {
   fail++;
   console.log('  FAIL', e.message);

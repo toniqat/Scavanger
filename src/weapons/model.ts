@@ -7,28 +7,15 @@
  */
 import * as THREE from 'three';
 import {
-  GameContext, Keys, MouseButtons, WEAPON_DURABILITY_PER_SHOT, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY,
-  IMPLANT_OVERCHARGE_FIRERATE_MUL,
-  QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive, QUICK_WHEEL_HOLD, QUICK_WHEEL_DRAG_PX, GRENADE_FUSE, GRENADE_COOK_MAX, GRENADE_UNDERHAND_SPEED_MUL,
-  HEAL_HOLD_S, CONSUMABLE_SLOW_KEY, CONSUMABLE_SLOW_MUL, DEFIB_USE_TIME_S,
-  type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
-  type WeaponSlot, type EffectiveWeaponStats, type WeaponClass, type GadgetId, type WeaponRemoteState,
+  HEAL_HOLD_S, DEFIB_USE_TIME_S,
+  type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
+  type WeaponSlot, type EffectiveWeaponStats,
 } from '@/shared';
 import type { Obstacle as WorldObstacle, InterceptableRef, PeerId } from '@/shared';
-import { ARMOR_IMMUNE_AMMO } from '@/shared';
-import { FxManager } from '@/core/fx';
-import { randomInCone } from '@/core/util/MathUtil';
 import { boostItemOf, shieldChargeOf } from '@/items';
-import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY } from './WeaponDefaults';
-import { WeaponModel, type WeaponAttachmentVisuals } from './WeaponModel';
-import { attachmentVisualsFor, attachmentIdsOf, sameIds } from './Attachments';
-import { WeaponFx } from './fx/WeaponFx';
-import { GrenadeManager } from './Grenade';
-import { ProjectilePool, projectileOptsFor, type ProjectileHit } from './Projectile';
-import { RemoteWeapons } from './RemoteWeapons';
-import { MeleeController } from './Melee';
-import { raycastBlockers, damageBarrierAt, makeBlockInfo } from './Blocking';
-import { createUniqueHandler, UniqueFx, type UniqueHandler, type UniqueInput, type UniqueServices, type UniqueShot, type UniqueWeapon } from './unique';
+import { WeaponModel } from './WeaponModel';
+import { makeBlockInfo } from './Blocking';
+import { type UniqueHandler } from './unique';
 
 export type Host = PlayerRef & PlayerWeaponHost;
 

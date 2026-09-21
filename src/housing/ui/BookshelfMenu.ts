@@ -1,5 +1,5 @@
 import type {
-  EmbeddedView, GameContext, ItemDef, ItemInstance, LibraryCookTarget, LibraryEffect, LibraryEffectsSummary, LibraryGymTarget,
+  GameContext, ItemDef, ItemInstance, LibraryCookTarget, LibraryEffect, LibraryEffectsSummary, LibraryGymTarget,
   LibraryTrustTarget, MealBuff, PlacedFurniture, ShelfMedium, SkillId,
 } from '@/shared';
 import { LIBRARY_SERIES_MAP, SHELF_MEDIUM_LABEL_KO, SHELF_SLOTS, shelfMediumOfInteraction } from '@/shared';

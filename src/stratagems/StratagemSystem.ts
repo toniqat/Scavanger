@@ -1,13 +1,7 @@
 import * as THREE from 'three';
 import {
-  Keys, MouseButtons, Random,
-  STRATAGEM_DEFS, STRATAGEM_ORDER, STRATAGEM_WHEEL_HOLD, STRATAGEM_CHARGE_TIME,
-  TOPVIEW_HEIGHT, TOPVIEW_RANGE, TOPVIEW_CURSOR_SPEED, GROUND_TARGET_RANGE,
-  LASER_DURATION, LASER_RADIUS, LASER_DPS, AIRSTRIKE_RADIUS, AIRSTRIKE_DAMAGE,
-  SUPPLY_FALL_TIME, SUPPLY_IMPACT_RADIUS, SUPPLY_IMPACT_DAMAGE, SUPPLY_CRATE_TIER,
-  STRUCTURE_COUNT, STRUCTURE_HP, STRUCTURE_SCATTER, STRUCTURE_IMPACT_RADIUS, STRUCTURE_IMPACT_DAMAGE, STRUCTURE_FALL_TIME,
-  type GameContext, type GameSystem, type StratagemsRef, type StratagemId, type StratagemCall, type StratagemStage, type StratagemDef,
-  type PlayerRef, type PlayerWeaponHost, type Interactable, type Obstacle, type DestructibleRef, type WorldRef, type Vec3Tuple, type PeerId,
+  STRATAGEM_ORDER, type GameContext, type GameSystem, type StratagemsRef, type StratagemId, type StratagemCall, type StratagemDef,
+  type PlayerWeaponHost, type Obstacle, type WorldRef, type PeerId,
   type StratagemCallWire,
   /* 2026-09-09: the rescue drop */
   RESCUE_DROPS_PER_RAID, type RescueCandidate,
@@ -15,10 +9,10 @@ import {
   type StratagemDenyReason,
 } from '@/shared';
 import {
-  SharedGeo, TargetRing, CallMarker, Burst, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
+  SharedGeo, TargetRing, Burst,
 } from './Visuals';
 
-import { AIRSTRIKE_FX_TIME, Call, GRENADE_STRUCTURE_DAMAGE, type Host, LASER_TICK, SHAKE_RANGE, STRUCTURE_DROP_HEIGHT, STRUCTURE_MIN_GAP, STRUCTURE_STAGGER, SUPPLY_DROP_HEIGHT, Structure, TARGET_EMIT_EPS, WHEEL_DRAG_PX, _a, _b, _dir, defOf, toTuple } from './model';
+import { Call, GRENADE_STRUCTURE_DAMAGE, type Host, SHAKE_RANGE, Structure, _a, _b, _dir, defOf } from './model';
 /** The folder vocabulary (constants · types · scratch) lives in `model.ts`; re-exported for the old import paths. */
 export * from './model';
 import * as Aim from './parts/Targeting';
@@ -318,7 +312,7 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
    * Radial damage of an impact: enemies only on the caller's client, the local player everywhere
    * (the `shared/explosion` two-step falloff).
    */
-  impactDamage(call: Call, center: THREE.Vector3, radius: number, damage: number): void { return Calls.impactDamage(this, call, center, radius, damage); }
+  impactDamage(call: Call, center: THREE.Vector3, radius: number, damage: number, breakCover = true): void { return Calls.impactDamage(this, call, center, radius, damage, breakCover); }
 
   private updateCalls(dt: number): void { return Calls.updateCalls(this, dt); }
 

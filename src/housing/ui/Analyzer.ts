@@ -1,4 +1,4 @@
-import type { AnalysisSlotInfo, EmbeddedView, GameContext, HarvestDestination, ItemInstance, SampleFamily } from '@/shared';
+import type { AnalysisSlotInfo, GameContext, HarvestDestination, ItemInstance, SampleFamily } from '@/shared';
 import {
   RARITY_COLORS, RARITY_LABEL_KO, RARITY_ORDER, SAMPLE_FAMILY_COLOR, SAMPLE_FAMILY_ICON, SAMPLE_FAMILY_LABEL_KO,
   analyzerSlotsForLevel, buildItemChip,

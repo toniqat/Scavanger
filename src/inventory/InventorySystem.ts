@@ -5,7 +5,7 @@ import type {
   WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView, TradeGridsViewOptions,
 } from '@/shared';
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, isQuickSlotActive } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, isWeaponItemDef, itemWeight } from '@/items';
+import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, ammoItemIdFor, isWeaponItemDef, itemWeight } from '@/items';
 import { bagCapacityBonus, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from './Gear';
 import { Grid } from './Grid';
 import { Container, ContainerStore } from './Container';
@@ -33,7 +33,7 @@ import {
   AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED, LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT,
   SEARCH_EMIT_INTERVAL, SEARCH_START_DELAY, WEAPON_SLOT_IDS, type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow,
   type CraftJob, type DropPreview, type DropTarget, type GridId, type ItemLocation, type MissionOutcome, type OpResult, type PendingTake,
-  type RaidInventoryState, type RepairInfo, type SlotId, type UiSfx,
+  type RepairInfo, type SlotId, type UiSfx,
 } from './model';
 /** The folder's shared vocabulary lives in `model.ts` — re-exported verbatim so existing import paths keep working. */
 export * from './model';
@@ -414,8 +414,6 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * lobby lost, back to title) resets to the starter kit.
    */
   private onAbort(): void { return Life.onAbort(this); }
-
-  private hasAnyWeapon(): boolean { return Life.hasAnyWeapon(this); }
 
   isCompletelyEmpty(): boolean { return Life.isCompletelyEmpty(this); }
 

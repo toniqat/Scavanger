@@ -10,7 +10,7 @@
 import type { GamePhase, MissionMode, PlanetId } from '@/shared';
 import { GameContext as Ctx, RAID_SAVE_INTERVAL_S, NET_GHOST_RESTORE_TIMEOUT_S } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
-/* 2026-09-15: squads · docking matchmaking — only a docked squad has a shared ship */
+/* 2026-09-15: squads · dock matching — only a docked squad has a shared ship */
 import { isDockedLobby } from '@/shared';
 import { clearSoloRaid } from '../SoloRaid';
 import { bumpClockHigh } from '../SoloRaid';
@@ -281,7 +281,7 @@ export function onAbort(sys: GameFlowSystem): void {
   sys.wasMultiplayerHost = false;
   // Lobby mission ended by an abort → regroup in the shared ship. Deferred one microtask: if the abort came from
   // HubSystem's own `hub:enter` the ship is already being built (phase 'hub') and this is a no-op.
-  // 2026-09-15 (squads · docking matchmaking): only a **docked** squad has a shared ship to regroup in (an
+  // 2026-09-15 (squads · dock matching): only a **docked** squad has a shared ship to regroup in (an
   // undocked one never starts a mission).
   if (fromMission && isDockedLobby(ctx.net?.lobby)) {
     queueMicrotask(() => { if (ctx.phase === 'menu' && isDockedLobby(ctx.net?.lobby)) ctx.bus.emit('hub:enter', { ship: 'shared' }); });

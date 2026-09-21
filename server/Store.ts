@@ -42,7 +42,7 @@ import { PROFILE_CLOCK_SKEW_MS, PROFILE_DOC_KEYS, PROFILE_DOC_MAX_BYTES, PROFILE
 /* 2026-09-11 (E-6): document revisions · transactions */
 import { PROFILE_SETMANY_MAX_BYTES } from '../src/shared/profile.ts';
 import type { PeerId } from '../src/shared/net.ts';
-import { sanitizePlayerName } from '../src/shared/net.ts';
+import { sanitizePlayerName, sanitizeShipModel } from '../src/shared/net.ts';
 /* Phase 11 */
 import type { PlayerCode, SocialCard, SocialErrorCode, SocialRecord } from '../src/shared/social.ts';
 import {
@@ -630,6 +630,22 @@ export class ProfileStore {
   card(id: PeerId): SocialCard | null {
     const soc = this.profiles.get(id)?.social;
     return soc ? { code: soc.code, name: soc.name, level: soc.level } : null;
+  }
+
+  /**
+   * 2026-09-21 (B-101): the ship model this profile **owns**, out of its own `progression` document
+   * (`PlayerProfile.shipModel`), or null when the document is absent or carries nothing usable.
+   *
+   * The one place the relay looks **inside** a `docs` blob. It is worth the exception: a hangar berth and the
+   * dropship that lands at an extraction are drawn from this id, and until now the relay simply echoed whatever the
+   * client claimed in `lobby:look` — harmless while no ship can be bought, a free ship the day one can. What an id
+   * *means* is still not the relay's business (`shared/shipModel.ts` pulls three.js and must never load here), so
+   * only the shape is checked, exactly as `sanitizeShipModel` did on the wire.
+   */
+  shipModel(id: PeerId): string | null {
+    const doc = this.profiles.get(id)?.docs?.progression;
+    if (!doc || typeof doc !== 'object') return null;
+    return sanitizeShipModel((doc as { shipModel?: unknown }).shipModel);
   }
 
   private touchSocial(soc: SocialRecord): void {

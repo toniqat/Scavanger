@@ -87,7 +87,6 @@ export class Rails {
   private geos: THREE.BufferGeometry[] = [];
   private mats: THREE.Material[] = [];
   private hash: SpatialHash | null = null;
-  private mat: THREE.MeshStandardMaterial | null = null;
   private game: GameContext | null = null;
   private built = false;
   private netHooked = false;
@@ -184,7 +183,6 @@ export class Rails {
 
     const railMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.6 });
     this.mats.push(railMat);
-    this.mat = railMat;
     const out: RailBuild = { geos: this.geos, group: this.group, mat: railMat, glow: [] };
     buildTrack(ctx, rng, path, out);
 
@@ -259,7 +257,6 @@ export class Rails {
     for (const m of this.mats) m.dispose();
     this.mats = [];
     this.hash = null;
-    this.mat = null;
     this.group.clear();
     this.group.removeFromParent();
     this.built = false;

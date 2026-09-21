@@ -4,31 +4,15 @@
  * Creates and removes a `RemotePlayerRef` per inbound snapshot. Names · levels · crew cards · the shouldering
  * relation each arrive in a different message, and folding them onto one ref is this file's job.
  */
-import * as THREE from 'three';
 import type {
-  ChatKind, GameContext, GameSystem, GameMessage, GameMessageOf, GameMessageType, GhostWire, LobbyPlayer, LobbyState,
-  NetRef, NetStatus, PeerId, PingKind, RelayTarget, RemotePlayerRef, ServerToClient, Vec3Tuple,
+  GhostWire, PeerId, RemotePlayerRef,
 } from '@/shared';
-import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
-import type { PlanetId, SocialRef } from '@/shared';
 /* appended (2026-09-08): the shared ship's hangar */
 import type { ShipVisitWire } from '@/shared';
-import { isPlanetId } from '@/shared';
 /* 2026-09-15: android squadmates — a bot member is not a remote player */
 import { isBotPlayer } from '@/shared';
-import {
-  NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
-  NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
-  isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName,
-} from '@/shared';
-import { NetClient } from '../NetClient';
-import { ProfileSync } from '../ProfileSync';
-import { SocialSync } from '../SocialSync';
 import { RemotePlayer } from '../RemotePlayer';
-import { Snapshotter } from '../Snapshotter';
-import type { CrewCardWire, ImplantId } from '@/shared';
-import { IMPLANT_IDS } from '@/shared';
-import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_STORAGE_KEY, PEER_LINGER, PING_KINDS, SNAPSHOT_INTERVAL, TOKEN_ALPHABET, TOKEN_RE, defIdOrNull, isGhostWire, isNum, isVec3, loadOrCreateSessionToken, sameCard, sanitizeCrewCard, vec } from '../model';
+import type { CrewCardWire } from '@/shared';
 import type { NetSystem } from '../NetSystem';
 
 /** `social:me` with the current character level; a no-op without a progression system (headless tests / stubs). */

@@ -289,7 +289,6 @@ export function finishReturnToShip(sys: GameFlowSystem): void {
 export function tickRespawn(_sys: GameFlowSystem): void { /* no automatic respawn since 2026-09-09 */ }
 
 /** 2026-09-09: **inactive** — nobody emits `game:respawn`, and it is ignored even if something does. */
-export function onRespawnRequest(_sys: GameFlowSystem): void { /* rescue only since 2026-09-09 */ }
 
 /**
  * The rescue drop has landed (raised by `stratagems/parts/Rescue`). It reacts **only when I am the target** —

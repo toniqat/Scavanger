@@ -40,7 +40,7 @@ import { SQUAD_INVITE_MAX } from '../src/shared/social.ts';
 import { InviteTable, PushCoalescer, type OpenInvite } from './Invites.ts';
 import { Lobby, LobbyManager, LOBBY_ERROR_MESSAGE_KO } from './Lobby.ts';
 import {
-  PROFILE_GC_INTERVAL_MS, ProfileStore, SOCIAL_LEVEL_MAX, docBytes, isProfileDocKey,
+  PROFILE_GC_INTERVAL_MS, ProfileStore, docBytes, isProfileDocKey,
   type ProfileGcReport, type ProfileStoreOptions,
 } from './Store.ts';
 /* 2026-09-11 (E-6): document revisions · transactions */
@@ -576,6 +576,14 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       if (!card) continue;
       p.code = card.code;
       if (card.level > 0) p.level = card.level;
+    }
+    /* 2026-09-21 (B-101): and the ship model, out of that member's own `progression` document. It used to be
+       whatever the client said in `lobby:look` — fine while no ship can be bought, a free ship the day one can, so
+       it is filled here beside `code` · `level` instead. A profile that has not uploaded one simply has no field
+       and the client falls back to `DEFAULT_SHIP_MODEL`. */
+    for (const p of state.players) {
+      const ship = store.shipModel(p.id);
+      if (ship) p.shipModel = ship;
     }
     return state;
   };
@@ -1327,17 +1335,21 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
          ignored (never refused). */
       case 'lobby:look': {
         const accent = sanitizeAccent(m.accent);
-        /* 2026-09-21: the ship model comes through the same door. It stays an opaque shape-checked string — what an
-           id *means* lives in `shared/shipModel.ts`, which pulls three.js in and must never load here. Once ships
-           are bought this has to be filled from the profile store instead of taken from the client. */
-        const shipModel = sanitizeShipModel(m.shipModel);
-        if (accent === null && shipModel === null) return;
+        /* 2026-09-21 (B-101): `shipModel` is no longer **taken** from the client — it is only a nudge saying
+           「my ship changed, re-read it」. The value the squad receives comes from the sender's own `progression`
+           document (`lobbyState` → `Store.shipModel`), so a purchase can never be self-declared. The field is still
+           shape-checked so a malformed one is ignored rather than forcing a broadcast. */
+        const shipNudge = sanitizeShipModel(m.shipModel) !== null;
+        if (accent === null && !shipNudge) return;
         if (accent !== null) c.accent = accent;
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) return;
         let changed = false;
         if (accent !== null && lobby.setAccent(c.id, accent)) changed = true;
-        if (shipModel !== null && lobby.setShipModel(c.id, shipModel)) changed = true;
+        /* The value written is the **store's**, never the sender's, and only a real change broadcasts — a nudge that
+           moves nothing must stay silent, or the `lobby:state` it causes nudges the sender right back. */
+        const ship = shipNudge ? store.shipModel(c.id) : null;
+        if (ship !== null && lobby.setShipModel(c.id, ship)) changed = true;
         if (changed) broadcastState(lobby);
         return;
       }

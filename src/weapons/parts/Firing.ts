@@ -8,32 +8,19 @@
  */
 import * as THREE from 'three';
 import {
-  GameContext, Keys, MouseButtons, WEAPON_DURABILITY_PER_SHOT, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY,
-  IMPLANT_OVERCHARGE_FIRERATE_MUL,
-  QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive, QUICK_WHEEL_HOLD, QUICK_WHEEL_DRAG_PX, GRENADE_FUSE, GRENADE_COOK_MAX, GRENADE_UNDERHAND_SPEED_MUL,
-  HEAL_HOLD_S, CONSUMABLE_SLOW_KEY, CONSUMABLE_SLOW_MUL, DEFIB_USE_TIME_S,
-  type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
-  type WeaponSlot, type EffectiveWeaponStats, type WeaponClass, type GadgetId, type WeaponRemoteState,
-  /* appended 2026-09-21 [W]: the reload hold */
+  WEAPON_DURABILITY_PER_SHOT, IMPLANT_OVERCHARGE_FIRERATE_MUL,
+  type EffectiveWeaponStats, type WeaponClass, /* appended 2026-09-21 [W]: the reload hold */
   type ReloadPauseReason,
 } from '@/shared';
-import type { Obstacle as WorldObstacle, InterceptableRef, PeerId } from '@/shared';
 import { ARMOR_IMMUNE_AMMO } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
-import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY, adsTightensSpread } from '../WeaponDefaults';
-import { WeaponModel, type WeaponAttachmentVisuals } from '../WeaponModel';
-import { attachmentVisualsFor, attachmentIdsOf, sameIds } from '../Attachments';
-import { WeaponFx } from '../fx/WeaponFx';
+import { WEAPON_SLOTS, kindOf, shotSoundId, shotPitchFor, STANCE_ACCURACY, adsTightensSpread } from '../WeaponDefaults';
 import { aimSwayFor } from '../AimSway';
-import { GrenadeManager } from '../Grenade';
-import { ProjectilePool, projectileOptsFor, falloffAt, type ProjectileHit, type ProjectileOptions } from '../Projectile';
+import { type ProjectileHit, type ProjectileOptions } from '../Projectile';
 import { damageFalloffStats } from '@/items';
-import { RemoteWeapons } from '../RemoteWeapons';
-import { MeleeController } from '../Melee';
-import { raycastBlockers, damageBarrierAt, makeBlockInfo } from '../Blocking';
-import { createUniqueHandler, UniqueFx, type UniqueHandler, type UniqueInput, type UniqueServices, type UniqueShot, type UniqueWeapon } from '../unique';
-import { BLOOM_DECAY, BLOOM_PER_SHOT, BOLT_SOUND_DELAY, BROKEN_NOTIFY_INTERVAL, CHANNEL_EMIT_HZ, FIRING_POSE_HOLD, GRENADE_MIN_FUSE, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, GRENADE_UNDERHAND_LIFT, type HitInfo, type Host, LOADOUT_FALLBACK_DELAY, MOVING_SPREAD_MUL, QUICK_HOLSTER_TIME, QUICK_USE_COOLDOWN, type QuickHand, type QuickKind, SPRAY_SEND_INTERVAL, SPRINT_SPREAD_MUL, type WeaponInstance, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _tA, _tB, _target, _tmp, gaugeOf, makeHit, toTuple, useTimeOf } from '../model';
+import { raycastBlockers, damageBarrierAt } from '../Blocking';
+import { BLOOM_PER_SHOT, BOLT_SOUND_DELAY, BROKEN_NOTIFY_INTERVAL, FIRING_POSE_HOLD, type HitInfo, type Host, MOVING_SPREAD_MUL, SPRINT_SPREAD_MUL, type WeaponInstance, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _tA, _tB, _target, _tmp, toTuple } from '../model';
 import type { WeaponSystem } from '../WeaponSystem';
 
 /** 2026-09-14: launch options for gun rounds, rewritten per trigger pull (the pool copies every field at launch). */

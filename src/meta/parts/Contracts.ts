@@ -6,21 +6,17 @@
  * `outcome`. A quest is a chain delivered from the bag + stash. **The training range counts nothing.**
  */
 import type {
-  ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
-  GameContext, GameMessageOf, GameSystem, ItemDef, ItemInstance, MetaRef, MetaRequest, MissionStats, PeerId, ProfileRef, QuestInfo,
-  QuestState, RepInfo, ShopItem, SquadContractInfo,
+  ContractGoalKind, ContractInfo, ContractSettlement, CorpId, MissionStats, PeerId, QuestInfo,
+  SquadContractInfo,
 } from '@/shared';
 import {
-  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, formatCredits,
-  repLevelOf, sellPriceOf,
+  CONTRACT_DEFS, META_HIT_MAX, QUEST_DEFS,
 } from '@/shared';
-import { MAX_PROGRESS, MetaStorage } from '../Storage';
+import { MAX_PROGRESS } from '../Storage';
 import {
-  REASON, buildShop, canRepairImplant, contractBlockReason, contractHitDelta, corpSells, implantRepairCost, implantRepairFee,
-  implantRepairMaterialIds, isRepairableImplantDef, killGoalOf, questBlockReason, questStateOf, repInfoOf, settleContract,
+  REASON, contractBlockReason, contractHitDelta, settleContract,
 } from '../Rules';
-import { CorpView } from '../ui/CorpView';
-import { CORP_ALIASES, GOAL_IDS, INVENTORY_GOALS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
+import { INVENTORY_GOALS } from '../model';
 import type { MetaSystem } from '../MetaSystem';
 /* 2026-09-11 (E-4 ⑦): credit reasons are built with the contract grammar (`shared/credits.ts`). */
 import { formatCreditReason } from '@/shared';

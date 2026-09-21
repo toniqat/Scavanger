@@ -13,7 +13,7 @@ export class SpatialGrid<T extends GridItem> {
   private readonly half: number;
   private readonly inv: number;
 
-  constructor(worldSize: number, private readonly cellSize: number) {
+  constructor(worldSize: number, cellSize: number) {
     this.dim = Math.ceil(worldSize / cellSize) + 2;
     this.half = worldSize / 2 + cellSize;
     this.inv = 1 / cellSize;

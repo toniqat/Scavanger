@@ -343,9 +343,6 @@ export class GameFlowSystem implements GameSystem {
   /** Emits `game:respawnAvailable` once per whole second while the respawn timer runs (and once at 0). */
   tickRespawn(): void { return Death.tickRespawn(this); }
 
-  /** `game:respawn` (UI): honoured only while dead, after the delay and while the raid is still running (never on 레이드 실패). */
-  private onRespawnRequest(): void { return Death.onRespawnRequest(this); }
-
   /** Downed (tactical kit hook): the mission keeps running — a squadmate or a defibrillator can still bring the player back. */
   private onLocalDowned(): void { return Death.onLocalDowned(this); }
 

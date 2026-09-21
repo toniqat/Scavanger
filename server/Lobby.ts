@@ -270,10 +270,11 @@ export class Lobby {
   }
 
   /**
-   * 2026-09-21: `lobby:look.shipModel` — which ship the hangar parks in this member's berth. true when it actually
-   * changed (→ broadcast). The relay keeps it as an opaque, shape-checked string: what the id means is the client's
-   * business (`shared/shipModel.ts`), and the relay must not load that module. Once ships are **bought**, this has
-   * to be filled from the profile store like `code` · `level` rather than taken from the client.
+   * Records which ship this member owns. **The caller passes the profile store's value, never the client's**
+   * (2026-09-21, B-101) — `RelayServer.lobbyState` fills the outgoing `LobbyPlayer.shipModel` from the same source,
+   * and this exists so `lobby:look` can tell a real change (→ broadcast) from a nudge that moves nothing. Returns
+   * true when it changed. The relay keeps the id as an opaque, shape-checked string: what it means is the client's
+   * business (`shared/shipModel.ts`), and the relay must not load that module.
    */
   setShipModel(id: PeerId, shipModel: string): boolean {
     const p = this.players.get(id);

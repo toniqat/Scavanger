@@ -2,17 +2,17 @@
 // 2026-09-13 — the library series · the game disc stand (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」),
 // rewritten from the Phase 9 / A-3e smoke:
 //   · the series share = SHELF_SERIES_VOLUME_SHARE per volume, a whole set = 100 % (distinct volumes · spread over
-//     several holders · each def counted once)
+//     several `보관함` · each def counted once)
 //   · the folded effects `getLibraryEffects` · `getLibrarySources` · `getSeriesProgress` · `getBookBonus` /
 //     `getSkillGainMul` / `getShelfBonus`
-//   · the support-furniture multiplier · every placed holder counts (2026-09-13 power allocation dropped — no
+//   · the support-furniture multiplier · every placed `보관함` counts (2026-09-13 power allocation dropped — no
 //     disabling, no operation reason) · the `housing:libraryChanged` emission rule
-//   · the band query `isShelfItemWanted` (owning a holder = placed or in furniture storage) · the recipe unlock
+//   · the band query `isShelfItemWanted` (owning a `보관함` = placed or in furniture storage) · the recipe unlock
 //     `isRecipeUnlocked` (only while shelved)
 //   · a duplicate shelving refused (`이미 꽂혀 있는 책입니다`) · shelving / taking a game disc medium · collecting
 //   · the legacy-id save conversion (`resolveItemAlias` — substitution · a duplicate refunded · tvConsoles
 //     sanitized · writing again = no second refund)
-//   · the holder panel (the drawn shelf · volume number badges · series progress · the series catalogue · drag /
+//   · the `보관함` panel (the drawn shelf · volume number badges · series progress · the series catalogue · drag /
 //     double-click / swap / duplicate refused · the game disc stand)
 // Expected numbers are derived from the loaded series table (data/library_series.csv) — a retune of a value does not break this script,
 // the rules do. Usage: node scripts/smoke-library.mjs [http://localhost:5273]   (needs `npm run dev`)
@@ -180,7 +180,7 @@ try {
   const mSkill = M.effects[0].target, mFull = M.effects[0].value, shSkill = SH.effects[0].target, shFull = SH.effects[0].value;
   const recipeId = RC.effects.find((e) => e.kind === 'recipe').target;
 
-  /* ══ 1. ship · the library · owning a holder = the band ════════════ */
+  /* ══ 1. ship · the `서재` · owning a `보관함` = the band ═══════════ */
   console.log('hub / 서재 / wanted band');
   await H(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
@@ -218,9 +218,9 @@ try {
     `getBookBonus = getSkillGainMul = getShelfBonus.total (${g1.book})`);
   const wanted1 = await H((ids) => ids.map((id) => window.__game.ctx.housing.isShelfItemWanted(id)), M.items);
   ok(wanted1[0] === false && wanted1[1] === true, `band: shelved vol I not wanted, vol II wanted (${wanted1.join(',')})`);
-  ok(await place(shelfB, 0, M.items[1]) === null, `${M.items[1]} → 책장 B (another holder)`);
+  ok(await place(shelfB, 0, M.items[1]) === null, `${M.items[1]} → 책장 B (another 보관함)`);
   const e2 = await effects();
-  ok(near(e2.skillGain[mSkill], mFull * 2 * VOLUME_SHARE), `2 volumes across two holders → 20 % (${e2.skillGain[mSkill]})`);
+  ok(near(e2.skillGain[mSkill], mFull * 2 * VOLUME_SHARE), `2 volumes across two 보관함 → 20 % (${e2.skillGain[mSkill]})`);
   const src = await H(({ s }) => JSON.parse(JSON.stringify(window.__game.ctx.housing.getLibrarySources('skillGain', s))), { s: mSkill });
   const srcM = src.find((x) => x.seriesId === M.id);
   ok(srcM && srcM.have === 2 && srcM.total === M.volumes && near(srcM.fraction, 0.2) && near(srcM.value, mFull * 0.2) && near(srcM.fullValue, mFull) && srcM.auxApplied === false
@@ -242,11 +242,11 @@ try {
   }
   const eFull = await effects();
   ok(near(eFull.skillGain[mSkill], mFull), `all ${M.volumes} volumes → 100 % (${eFull.skillGain[mSkill]})`);
-  // the one-shot
+  // the `단편` (a one-volume series)
   await giveStash(SH.items[0], 1);
   ok(await place(shelfB, 1, SH.items[0]) === null && near((await effects()).skillGain[shSkill], shFull), `단편 ${SH.id} → 100 % at once (${shSkill} ${shFull})`);
 
-  /* ══ 3. Support furniture · taking out (2026-09-13: power allocation dropped — every placed holder counts) ══ */
+  /* ══ 3. Support furniture · taking out (2026-09-13: power allocation dropped — every placed `보관함` counts) ═ */
   console.log('aux · take');
   const chair = await placeDef('furn_rocking_chair');
   const eAux = await effects();
@@ -341,9 +341,9 @@ try {
   ok((await countStash(SH.items[0])) === stash0 + 1 && !eRec.skillGain[shSkill] && (await lastEv('housing:shelfChanged'))?.count === 0, 'its items went to the 창고, their effects are gone');
   ok(await H((id) => window.__game.ctx.housing.isShelfItemWanted(id), SH.items[0]) === true, 'the recovered 단편 is wanted again (책장 A still owned)');
 
-  /* ══ 8. The holder panel ═════════════════════════════════════════════ */
+  /* ══ 8. The `보관함` panel ═══════════════════════════════════════════ */
   console.log('보관함 panel');
-  // shelf A holds III…N; vol I is in the bag and vol II came back to the 창고 with 책장 B → put both back so the panel shows a complete set
+  // 책장 A holds III…N; vol I is in the `가방` and vol II came back to the `창고` with 책장 B → put both back so the panel shows a complete set
   ok(await place(shelfA, 0, M.items[0]) === null && await place(shelfA, 1, M.items[1]) === null, 'vol I + II back on 책장 A (set complete)');
   await H((u) => window.__game.ctx.housing.openShelf(u), shelfA);
   await sleep(160);
@@ -407,7 +407,7 @@ try {
   await sleep(160);
 
   const shelfState = () => H((u) => ({ slots: window.__game.ctx.housing.getShelfSlots(u).map((s) => s.defId), msg: document.querySelector('.menu.bookshelf-menu .hs-msg')?.textContent ?? '' }), shelfA);
-  /** The 창고 tile of `defId`, else its 가방 tile (a taken-out book goes to the bag first). */
+  /** The `창고` tile of `defId`, else its `가방` tile (a taken-out book goes to the `가방` first). */
   const stashTile = async (defId) => {
     const where = await H((d) => {
       const inv = window.__game.ctx.inventory;

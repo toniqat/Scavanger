@@ -1,5 +1,5 @@
 import type {
-  EmbeddedView, GameContext, GrowSlotInfo, GrowTier, HarvestDestination, ItemDef, ItemInstance, PlacedFurniture,
+  GameContext, GrowSlotInfo, GrowTier, HarvestDestination, ItemDef, ItemInstance, PlacedFurniture,
 } from '@/shared';
 import {
   GROW_TIER_DRAW_ORDER, SOIL_MATCH_SPEEDUP, SOIL_MISMATCH_PENALTY, SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO,

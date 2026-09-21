@@ -3,7 +3,7 @@ import {
   BAZOOKA_DAMAGE, BAZOOKA_RADIUS, BAZOOKA_SPEED, BAZOOKA_ALT_FUSE, BAZOOKA_ALT_DAMAGE, BAZOOKA_ALT_RADIUS,
   BAZOOKA_KNOCKBACK, BAZOOKA_SUPER_JUMP, BAZOOKA_JUMP_FORWARD, BAZOOKA_FIRE_RATE, PLAYER_WALK_SPEED,
   BAZOOKA_KNOCKBACK_DIST_MUL, BAZOOKA_GROUNDED_DIST_MUL,
-  explosionFalloff,
+  blastDestructibles,
 } from '@/shared';
 import type { ProjectileHit } from '../Projectile';
 import type { UniqueHandler, UniqueInput, UniquePose, UniqueServices, UniqueWeapon } from './UniqueHandler';
@@ -93,19 +93,10 @@ export class Bazooka implements UniqueHandler {
     const s = this.s;
     const ctx = s.ctx;
     const kills = ctx.enemies ? ctx.enemies.applyExplosion(pos, radius, damage) : 0;
-    // destructible cover (dropped structures) inside the blast
-    const world = ctx.world;
-    if (world && world.ready && typeof world.getObstaclesNear === 'function') {
-      const near = world.getObstaclesNear(pos.x, pos.z, radius + 1.5);
-      for (let i = 0; i < near.length; i++) {
-        const o = near[i];
-        if (!o.destructible) continue;
-        const d = Math.max(0, o.position.distanceTo(pos) - o.radius);
-        if (d > radius) continue;
-        // 2026-09-15 (user's decision): the existing floor is laid on top of the shared two-step stair unchanged
-        o.destructible.onDamage(damage * Math.max(COVER_MIN, explosionFalloff(d, radius)), o.position);
-      }
-    }
+    // destructible world objects (dropped cover · window glass · the 탐사 차량) inside the blast
+    // 2026-09-21 (B-98): this loop was the only one of its kind — it moved to `shared/explosion.blastDestructibles`
+    // and every other explosive now calls the same one. The 0.3 floor is unchanged, laid on top of the shared stair.
+    blastDestructibles(ctx.world, pos, radius, damage, COVER_MIN);
     // knockback / rocket jump (no self damage)
     const host = s.host();
     if (host && !host.isDead) {

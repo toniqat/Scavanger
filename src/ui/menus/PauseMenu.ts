@@ -93,7 +93,6 @@ interface Ask {
 export class PauseMenu extends MenuBase {
   private returnBtn: HTMLButtonElement;
   private leaveBtn: HTMLButtonElement;
-  private resumeBtn: HTMLButtonElement;
   /** True while the pause was opened from the ship (no mission to abandon). */
   private inHub = false;
   /** 2026-09-14: the tutorial track running the moment the menu opened (null = no tutorial → the red slot is `함선으로 귀환`). */
@@ -120,7 +119,7 @@ export class PauseMenu extends MenuBase {
   constructor(parent: HTMLElement, private readonly onSettings: () => void) {
     super(parent, 'pause');
     const actions = el('div', { cls: 'actions', parent: this.frame });
-    this.resumeBtn = this.button(actions, '게임으로 돌아가기 (Tab)', () => this.resume(), 'primary');
+    this.button(actions, '게임으로 돌아가기 (Tab)', () => this.resume(), 'primary');
     this.button(actions, '설정', () => this.onSettings());
     // 2026-09-14: one slot, two meanings — `튜토리얼 건너뛰기` during a tutorial, else `함선으로 귀환` (`refreshReturnButton`).
     this.returnBtn = this.button(actions, '함선으로 귀환', () => this.confirm(this.track ? this.skipAsk(this.track) : this.returnAsk()), 'danger');

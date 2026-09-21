@@ -1,30 +1,27 @@
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
-import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
-import type { CrewCardWire, GameContext, GameSystem, HubAndroidBay, HubLaunchSlot, HubRef, HubShipBay, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RemotePlayerRef, RoomPurpose, ShipVisitWire } from '@/shared';
-import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, MENU_BLOCKER, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
+import { getPlanet, planetLabel, PLANET_NONE_LABEL } from '@/shared';
+import type { CrewCardWire, GameContext, GameSystem, HubAndroidBay, HubLaunchSlot, HubRef, HubShipBay, HubShipKind, Interactable, InteriorCollider, LobbyState, PeerId, RemotePlayerRef, RoomPurpose, ShipVisitWire } from '@/shared';
+import { HUB_READY_BLOCKER, Keys, MENU_BLOCKER } from '@/shared';
 import { PersonalShip } from './interiors/PersonalShip';
-import { SharedShip } from './interiors/SharedShip';
 import type { StationDef } from './interiors/stations';
 import type { ShipInterior } from './interiors/types';
 import { FurnitureLayer } from './interiors/Furniture';
 import type { TablePlates } from './interiors/TablePlates';
-import { roomAtWorld } from './interiors/RoomLayout';
 import { HousingMode } from './HousingMode';
 import { LaunchPod } from './LaunchPod';
 import { Terminal } from './Terminal';
 import { Computer } from './Computer';
-import { DockingCutscene, type DockDirection } from './DockingCutscene';
+import { DockingCutscene } from './DockingCutscene';
 import { HubMenu } from './ui/HubMenu';
 import { LaunchWarnPanel } from './ui/LaunchWarnPanel';
 import { HubStatus } from './ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from './ui/ReadyPanel';
-import { randomSeed } from './ui/dom';
 import './hub.css';
 /* 2026-09-14 the intel broker: match popup (`.hm-`) · intel panel (`.hi-`) · intel screen (`.his-`), wired beside `hub.css`. */
 import './intel.css';
 
-import { type AndroidPending, type DockTransition, type RaidLaunchState, type SquadDockState, type WarpState, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from './model';
+import { type AndroidPending, type DockTransition, type RaidLaunchState, type SquadDockState, type WarpState, LOCK_REQUEST_GRACE_MS, UNBOARD_GRACE, _camLook, _camPos, _front } from './model';
 /* 2026-09-15: squads · dock matchmaking — undocked squads · the leader's dock countdown · the fade */
 import { isDockedLobby } from '@/shared';
 /* 2026-09-15: android bot members do not count towards the crew */

@@ -4,30 +4,18 @@
  * A dropped socket reattaches on a backoff and, with the same token, the server keeps the slot for 5 minutes (until
  * the raid ends while one runs) → `net:reconnecting` → `net:resumed {seamless}`. The relay address is decided here.
  */
-import * as THREE from 'three';
 import type {
-  ChatKind, GameContext, GameSystem, GameMessage, GameMessageOf, GameMessageType, GhostWire, LobbyPlayer, LobbyState,
-  NetRef, NetStatus, PeerId, PingKind, RelayTarget, RemotePlayerRef, ServerToClient, Vec3Tuple,
+  ServerToClient,
 } from '@/shared';
-import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
-import type { PlanetId, RelayProbe, SocialRef } from '@/shared';
-import { isPlanetId } from '@/shared';
+import type { RelayProbe } from '@/shared';
 /* B-1 (2026-09-11): the link state · the background probe */
 import type { GamePhase, NetLinkInfo, NetLinkState } from '@/shared';
 import { NET_PROBE_BACKOFF_MS } from '@/shared';
 import {
-  NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
-  NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
-  RELAY_STORAGE_KEY, isValidLobbyCode, normalizeLobbyCode, relayUrlFrom, sanitizePlayerName,
+  NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_RECONNECT_BACKOFF_MS,
+  NET_TOKEN_PARAM, NET_WS_PATH, RELAY_STORAGE_KEY, relayUrlFrom,
 } from '@/shared';
-import { NetClient } from '../NetClient';
-import { ProfileSync } from '../ProfileSync';
-import { SocialSync } from '../SocialSync';
-import { RemotePlayer } from '../RemotePlayer';
-import { Snapshotter } from '../Snapshotter';
-import type { CrewCardWire, ImplantId } from '@/shared';
-import { IMPLANT_IDS } from '@/shared';
-import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_STORAGE_KEY, RELAY_PROBE_TIMEOUT_MS, PEER_LINGER, PING_KINDS, SNAPSHOT_INTERVAL, TOKEN_ALPHABET, TOKEN_RE, defIdOrNull, isGhostWire, isNum, isVec3, loadOrCreateSessionToken, sameCard, sanitizeCrewCard, vec } from '../model';
+import { MAX_LOBBYLESS_ATTEMPTS, RELAY_PROBE_TIMEOUT_MS } from '../model';
 import type { NetSystem } from '../NetSystem';
 
 /* ── Phase 8 ── */

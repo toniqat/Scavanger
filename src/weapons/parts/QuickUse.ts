@@ -7,33 +7,13 @@
  * 2026-09-11: RMB detonation of a remote mine (C4) in hand · the **detonator hand** once the slot is empty · the
  * drone controller hand.
  */
-import * as THREE from 'three';
 import {
-  GameContext, Keys, MouseButtons, WEAPON_DURABILITY_PER_SHOT, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY,
-  IMPLANT_OVERCHARGE_FIRERATE_MUL,
-  QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive, QUICK_WHEEL_HOLD, QUICK_WHEEL_DRAG_PX, GRENADE_FUSE, GRENADE_COOK_MAX, GRENADE_UNDERHAND_SPEED_MUL,
-  HEAL_HOLD_S, CONSUMABLE_SLOW_KEY, CONSUMABLE_SLOW_MUL, DEFIB_USE_TIME_S,
-  /* appended 2026-09-21 [W]: the right-button ally use of a healing consumable */
+  Keys, MouseButtons, QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive, QUICK_WHEEL_HOLD, QUICK_WHEEL_DRAG_PX, /* appended 2026-09-21 [W]: the right-button ally use of a healing consumable */
   HEAL_ALLY_RANGE_START,
   droneKindOfGadget,
-  type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
-  type WeaponSlot, type EffectiveWeaponStats, type WeaponClass, type GadgetId, type WeaponRemoteState,
+  type ItemInstance, type ItemDef, type PlayerRef, type GadgetId,
 } from '@/shared';
-import type { Obstacle as WorldObstacle, InterceptableRef, PeerId } from '@/shared';
-import { ARMOR_IMMUNE_AMMO } from '@/shared';
-import { FxManager } from '@/core/fx';
-import { randomInCone } from '@/core/util/MathUtil';
-import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY } from '../WeaponDefaults';
-import { WeaponModel, type WeaponAttachmentVisuals } from '../WeaponModel';
-import { attachmentVisualsFor, attachmentIdsOf, sameIds } from '../Attachments';
-import { WeaponFx } from '../fx/WeaponFx';
-import { GrenadeManager } from '../Grenade';
-import { ProjectilePool, projectileOptsFor, type ProjectileHit } from '../Projectile';
-import { RemoteWeapons } from '../RemoteWeapons';
-import { MeleeController } from '../Melee';
-import { raycastBlockers, damageBarrierAt, makeBlockInfo } from '../Blocking';
-import { createUniqueHandler, UniqueFx, type UniqueHandler, type UniqueInput, type UniqueServices, type UniqueShot, type UniqueWeapon } from '../unique';
-import { BLOOM_DECAY, BLOOM_PER_SHOT, BOLT_SOUND_DELAY, BROKEN_NOTIFY_INTERVAL, CHANNEL_EMIT_HZ, DETONATOR_CONFIRM_GRACE_S, DETONATOR_UID_PREFIX, FIRING_POSE_HOLD, GRENADE_MIN_FUSE, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, GRENADE_UNDERHAND_LIFT, type HitInfo, type Host, LOADOUT_FALLBACK_DELAY, MOVING_SPREAD_MUL, QUICK_HOLSTER_TIME, QUICK_USE_COOLDOWN, type QuickHand, type QuickKind, SPRAY_SEND_INTERVAL, SPRINT_SPREAD_MUL, type WeaponInstance, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _tA, _tB, _target, _tmp, gaugeOf, makeHit, quickKindOf, toTuple, useTimeOf } from '../model';
+import { BROKEN_NOTIFY_INTERVAL, DETONATOR_CONFIRM_GRACE_S, DETONATOR_UID_PREFIX, FIRING_POSE_HOLD, type Host, QUICK_HOLSTER_TIME, QUICK_USE_COOLDOWN, type QuickHand, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _tA, _tB, _target, _tmp, quickKindOf, useTimeOf } from '../model';
 import type { WeaponSystem } from '../WeaponSystem';
 
 /** 2026-09-11: the remote-mine (C4) gadget id. */

@@ -1,5 +1,5 @@
 import type { CraftIngredient } from './gear';
-import { costLevels, csvRows, keyTable, numberList } from './data/tables';
+import { costLevels, csvRows, keyTable } from './data/tables';
 
 /* Source of the ship decoration numbers: furniture is `data/furniture.csv` + `data/furniture_upgrades.csv`,
  * the room purpose build cost is `data/room_purposes.csv`, and the required generator level is `data/tuning.csv`. */
@@ -779,7 +779,6 @@ export interface HousingRef {
  * items/ prices it — all three must agree from the first commit. Costs are bag + stash materials (`mat_*` item ids;
  * `mat_cable` 전력 케이블 and `mat_circuit` 회로 기판 are new items owned by items/).
  * ──────────────────────────────────────────────────────────────────────────── */
-const c = (defId: string, qty: number): CraftIngredient => ({ defId, qty });
 
 export const FURNITURE_DEFS: readonly FurnitureDef[] = csvRows('furniture.csv').map((r) => {
   const craft = r.costList('craft');

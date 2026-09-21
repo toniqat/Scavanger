@@ -229,7 +229,7 @@ export class CorpView {
     private readonly ctx: GameContext,
     private readonly meta: MetaSystem,
     private readonly host: HTMLElement,
-    private readonly opts: CorpViewOptions = {},
+    opts: CorpViewOptions = {},
   ) {
     host.classList.add('corp-view');
     if (opts.embedded) host.classList.add('is-embedded');

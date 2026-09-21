@@ -60,7 +60,6 @@ export class Vitals {
   private hpBar: Bar;
   private shBar: Bar;
   private labelEl: HTMLElement;
-  private downSub: HTMLElement;
   private reviveEl: HTMLElement;
   private reviveTxt: HTMLElement;
   private reviveFill: HTMLElement;
@@ -90,7 +89,6 @@ export class Vitals {
   private downed = false;
   private downHp = PLAYER_DOWN_HP;
   private lastReviveT = -1;
-  private lastGiveUpT = -1;
   private unsubs: Array<() => void> = [];
   /** Smoke override for the buff strip; `undefined` = read `ctx.player.buffs`. */
   private debugBuffs: readonly CharBuff[] | undefined = undefined;
@@ -112,7 +110,7 @@ export class Vitals {
     // 2026-09-10: the `.hp-num` / `.hp-max` numbers and the `생명력` label are gone. The label element stays, for the downed caption only
     // (`styles/raidHud.css` keeps it `display:none` the rest of the time).
     this.labelEl = el('div', { cls: 'ui-label', text: '', parent: this.root });
-    this.downSub = el('div', { cls: 'down-sub', text: 'Space 길게: 포기', parent: this.root });
+    el('div', { cls: 'down-sub', text: 'Space 길게: 포기', parent: this.root });
     this.reviveEl = el('div', { cls: 'revive', parent: this.root });
     this.reviveTxt = el('div', { cls: 'txt', text: '', parent: this.reviveEl });
     const reviveBar = el('div', { cls: 'bar', parent: this.reviveEl });
@@ -310,7 +308,6 @@ export class Vitals {
   private setGiveUp(t: number): void {
     const on = t >= 0 && this.downed;
     toggleClass(this.giveUpEl, 'show', on);
-    this.lastGiveUpT = on ? t : -1;
   }
 
   private setRevive(t: number, byName: string | null): void {

@@ -18,7 +18,6 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _dir = new THREE.Vecto
 
 export class TracerPool {
   readonly mesh: THREE.Mesh;
-  private readonly capacity: number;
   private readonly tracers: Tracer[] = [];
   private readonly free: Tracer[] = [];
   private readonly pos: Float32Array;
@@ -27,7 +26,6 @@ export class TracerPool {
   private readonly material: THREE.MeshBasicMaterial;
 
   constructor(capacity = 96) {
-    this.capacity = capacity;
     this.pos = new Float32Array(capacity * 4 * 3);
     this.col = new Float32Array(capacity * 4 * 3);
     const idx = new Uint16Array(capacity * 6);

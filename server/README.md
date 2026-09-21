@@ -239,8 +239,8 @@ explicitly.
 ## Recent changes
 
 Last 5 only — older: `git log -- server`.
+- 2026-09-21 — The ship model stops being the client's word (B-101, user's decision): `Store.shipModel(id)` reads `PlayerProfile.shipModel` out of that profile's own `progression` document (shape-checked with `sanitizeShipModel`, the one place the relay looks inside a `docs` blob) and `lobbyState` fills `LobbyPlayer.shipModel` with it beside `code` · `level`. `Lobby.setShipModel` is gone; `lobby:look.shipModel` survives only as the nudge that asks for the re-read.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched. The operator console's Korean output strings stay — they are program output, not comments.
 - 2026-09-15 — Title resume / abandon: `lobby:mission {false, keep}` keeps the raid blob (and a replaced socket no longer drops it), `lobby:abandon` → `LobbyPlayer.drifted` (`Lobby.setDrifted`, `drifted` error, cleared by start / reset), selftest cases in the raid-session part.
 - 2026-09-15 — A relay whose console pipe lost its reader (a `--keep-relay` runner exiting) no longer spins: `index.ts` swallows stdout / stderr stream errors and the `uncaughtException` reporter cannot re-enter.
 - 2026-09-15 — Android squadmates: `LobbyPlayer.bot` members (`lobby:android`, `lobby:androidReturned`), humans-only caps with latest-bot eviction, bots excluded from host / relay / presence / grace, console `lobbies` marks them, selftest part 15.
-- 2026-09-15 — Builds ship no server: `tool.ts` / exe tooling deleted; console moved to `Console.ts` in `index.ts` (+ `--port` / `--host` / `--max`).

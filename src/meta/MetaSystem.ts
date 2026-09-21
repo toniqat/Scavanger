@@ -1,21 +1,19 @@
 import type {
-  ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
+  ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
   GameContext, GameMessageOf, GameSystem, ItemDef, ItemInstance, MetaRef, MetaRequest, MissionStats, PeerId, ProfileRef, QuestInfo,
   QuestState, RepInfo, ShopItem, SquadContractInfo,
 } from '@/shared';
 import {
-  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, anyCorpAccessible, formatCredits,
-  repLevelOf, sellPriceOf,
+  CONTRACT_DEFS, CORP_DEFS, CORP_IDS, QUEST_DEFS, anyCorpAccessible, repLevelOf, sellPriceOf,
 } from '@/shared';
-import { MAX_PROGRESS, MetaStorage } from './Storage';
+import { MetaStorage } from './Storage';
 import {
-  REASON, buildShop, canRepairImplant, contractBlockReason, contractHitDelta, corpSells, implantRepairCost, implantRepairFee,
-  implantRepairMaterialIds, isRepairableImplantDef, killGoalOf, questBlockReason, questStateOf, repInfoOf, settleContract,
+  REASON, killGoalOf,
 } from './Rules';
 import { CorpView } from './ui/CorpView';
 import './meta.css';
 
-import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from './model';
+import { CORP_ALIASES, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure } from './model';
 /** The folder's shared vocabulary (constants · types · scratch) is `model.ts` — re-exported for the old paths. */
 export * from './model';
 import * as Trade from './parts/Trade';

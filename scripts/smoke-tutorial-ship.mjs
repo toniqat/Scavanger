@@ -460,7 +460,7 @@ try {
   ok(!s5.active && s5.ids.join(',') === 'npc_raven' && s5.log === s5.introLines && s5.unread > 0 && s5.choices === 2 && s5.quest === null,
     `튜토리얼이 끝나면 레이븐이 첫 연락을 보낸다 (${s5.ms} ms) — 연락은 레이븐 하나, 인사 ${s5.log}줄 · 선택지 ${s5.choices} · 퀘스트 없음`, JSON.stringify(s5));
   ok(s5.badge > 0 && s5.shown === true, `메신저 버튼이 돌아오고 썸네일 배지에 읽지 않음 ${s5.badge}`, JSON.stringify(s5));
-  ok(s5.raid2 === true, '증축 안내를 건너뛰면 출격 안내도 이어지지 않는다 — 그래서 어느 트랙도 돌지 않고 레이뺈이 온다', JSON.stringify({ raid2: s5.raid2, active: s5.active }));
+  ok(s5.raid2 === true, '증축 안내를 건너뛰면 출격 안내도 이어지지 않는다 — 그래서 어느 트랙도 돌지 않고 레이븐이 온다', JSON.stringify({ raid2: s5.raid2, active: s5.active }));
 
   ok(errors.length === 0, `no console errors (${errors.length})`, errors.slice(0, 3).join(' | '));
 } catch (e) {

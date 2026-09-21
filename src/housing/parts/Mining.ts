@@ -21,8 +21,7 @@
  * wallet grows **only on success** (a sale is taken off first and restored on a refusal — it closes the route to selling the same units twice).
  */
 import type {
-  ComputeClusterInfo, ComputeClusterSlot, CryptoCoinDef, CryptoCoinInfo, CryptoQuote, CryptoTradeSide, HarvestDestination, HousingRef,
-  PlacedFurniture,
+  ComputeClusterInfo, ComputeClusterSlot, CryptoCoinDef, CryptoCoinInfo, CryptoQuote, CryptoTradeSide, HarvestDestination, PlacedFurniture,
 } from '@/shared';
 import {
   COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, CORP_DEFS, CRYPTO_COIN_DEFS,

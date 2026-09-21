@@ -10,7 +10,6 @@ import * as THREE from 'three';
 import type { PlayerDamageOptions, PlayerDamageSource } from '@/shared';
 import {
   Keys, PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD, ROLL_DAMAGE_MUL,
-  type PlayerRef,
 } from '@/shared';
 /* appended (2026-09-15): android squadmates — bots are not counted as people (`onLethal`'s solo test) */
 import { humanPlayersOf } from '@/shared';

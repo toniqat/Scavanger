@@ -14,7 +14,6 @@ import { copyRaidFoundMark, mergeRaidFoundMark } from '@/shared';
 import { copyMealQuality } from './MealQuality';
 import { ITEM_DEF_MAP, isWeaponItemDef } from '@/items';
 import { Grid, OOB, canStackTogether, type Placement, type PriorityPlacement } from '../Grid';
-import { Container } from '../Container';
 import { setSocket } from '../Sockets';
 import { isQuickIndex, isQuickUsable, lockedQuickItems } from '../QuickSlots';
 /* appended (2026-09-10): the wheel swap rule — `previewDrop` and `setQuickSlot` read the same plan */

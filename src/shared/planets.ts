@@ -1,4 +1,4 @@
-import type { EnemyType } from './types';
+import type {  } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Planets (Phase 11, 2026-09-07).

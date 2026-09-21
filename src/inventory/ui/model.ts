@@ -6,7 +6,7 @@
  * `InventoryUI.ts` re-exports it as is, so every existing import path still works.
  */
 import './../inventory.css';
-import type { EmbeddedView, ItemDef, ItemInstance } from '@/shared';
+import type { ItemDef, ItemInstance } from '@/shared';
 import { type DropTarget, type ItemLocation, type SlotId } from '../InventorySystem';
 import { TEXT } from './labels';
 

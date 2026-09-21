@@ -5,27 +5,12 @@
  * So what the ready panel needs (name · level · equipped implant · armor) travels as its own `crew`
  * message. On request that member's loadout document goes with it.
  */
-import * as THREE from 'three';
-import type { PlanetId } from '@/shared';
-import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
-import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
-import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, LEADER_DEVICE_RANGE, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
-import { PersonalShip } from '../interiors/PersonalShip';
-import { SharedShip } from '../interiors/SharedShip';
-import type { StationDef } from '../interiors/stations';
-import type { ShipInterior } from '../interiors/types';
-import { FurnitureLayer } from '../interiors/Furniture';
-import { roomAtWorld } from '../interiors/RoomLayout';
-import { HousingMode } from '../HousingMode';
-import { LaunchPod } from '../LaunchPod';
-import { Terminal } from '../Terminal';
-import { Computer } from '../Computer';
-import { DockingCutscene, type DockDirection } from '../DockingCutscene';
-import { HubMenu } from '../ui/HubMenu';
-import { HubStatus } from '../ui/HubStatus';
-import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
-import { randomSeed } from '../ui/dom';
-import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
+import type {  } from '@/shared';
+import type { CrewCardWire, Interactable, LoadoutSlot, PeerId } from '@/shared';
+import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, LEADER_DEVICE_RANGE } from '@/shared';
+import type {  } from '../interiors/stations';
+import type {  } from '../interiors/types';
+import { _camLook, _camPos, _front } from '../model';
 /* 2026-09-15: squads · dock matchmaking — an undocked squad locks the training arena */
 import { squadLockReason } from './SquadDock';
 /* 2026-09-15: an android bot member is not a person — it is left out of the training head count and the leader handoff */

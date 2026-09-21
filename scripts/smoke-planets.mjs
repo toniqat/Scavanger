@@ -168,7 +168,7 @@ try {
       full: root.classList.contains('fullscreen'),
       w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight,
       sw: f.scrollWidth, cw: f.clientWidth, sh: f.scrollHeight, ch: f.clientHeight,
-      // 2026-09-15 (squad · docking matchmaking): the top tabs 행성 / 매칭 — the same `.scr-tabs > .scr-tab`
+      // 2026-09-15 (squad · dock matching): the top tabs 행성 / 매칭 — the same `.scr-tabs > .scr-tab`
       // as the inventory Tab screen
       tabs: [...root.querySelectorAll('nav.scr-tabs.hub-tabs > button.scr-tab')].map((b) => `${b.textContent}${b.classList.contains('is-on') ? '*' : ''}${b.hidden ? '(hidden)' : ''}`),
       activeTab: window.__game.getSystem('hub').menu.activeTab,
@@ -196,7 +196,7 @@ try {
   ok(term.full, 'root carries .fullscreen');
   ok(term.w >= term.vw - 2 && term.h >= term.vh - 2, `the frame fills the viewport (${term.w}×${term.h} of ${term.vw}×${term.vh})`);
   ok(term.sw <= term.cw && term.sh <= term.ch, `the frame still has no scroll overflow (${term.sw}/${term.cw} × ${term.sh}/${term.ch})`);
-  // 2026-09-15 (squad · docking matchmaking, user's decision): the top tabs · the planet in the centre · the
+  // 2026-09-15 (squad · dock matching, user's decision): the top tabs · the planet in the centre · the
   // training button bottom-right, and no header `📡 매칭` button or matchmaking popup
   ok(term.tabs.join(',') === '행성*,매칭', `top tabs 행성 / 매칭 with 행성 on (${term.tabs.join(',')})`);
   ok(term.activeTab === 'planet' && term.matchPaneHidden === true, `the terminal opens on the 행성 tab (${term.activeTab})`);

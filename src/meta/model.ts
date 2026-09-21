@@ -6,20 +6,8 @@
  * `MetaSystem.ts` re-exports it with `export *`, so every existing import path still resolves.
  */
 import type {
-  ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
-  GameContext, GameMessageOf, GameSystem, ItemDef, ItemInstance, MetaRef, MetaRequest, MissionStats, PeerId, ProfileRef, QuestInfo,
-  QuestState, RepInfo, ShopItem, SquadContractInfo,
+  ContractGoalKind, CorpId, ItemDef, ItemInstance,
 } from '@/shared';
-import {
-  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, formatCredits,
-  repLevelOf, sellPriceOf,
-} from '@/shared';
-import { MAX_PROGRESS, MetaStorage } from './Storage';
-import {
-  REASON, buildShop, canRepairImplant, contractBlockReason, contractHitDelta, corpSells, implantRepairCost, implantRepairFee,
-  implantRepairMaterialIds, isRepairableImplantDef, killGoalOf, questBlockReason, questStateOf, repInfoOf, settleContract,
-} from './Rules';
-import { CorpView } from './ui/CorpView';
 import './meta.css';
 
 /* ────────────────────────────────────────────────────────────────────────────

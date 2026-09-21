@@ -21,10 +21,15 @@
  * - **Damage is applied by the authority only** (`GameContext.isAuthority`): the local player through
  *   `PlayerRef.takeDamage` with a `PlayerDamageSource`, a squadmate through the existing `dmg` message (「host → one
  *   client: you took damage」), an android through `AlliesRef.damage`. A client never damages anyone.
- * - The **look** (turning, the laser, the alarm, the tracer) is stepped on every client from state everyone already
- *   has — the room's unlocked flag plus the player · squadmate · android positions that flow at 20 Hz anyway. That
- *   is what makes the warning appear for the victim on their own screen at the moment it is aimed at them; the
- *   worst a disagreement can do is draw the beam at the wrong body for a frame.
+ * - **The body it is on is the authority's** (2026-09-21, B-100, user's decision 「표적 + 상태를 권한자가 보낸다」):
+ *   `struct turret {id, tg, st}` goes out on every change of body or state, and a replica turns, paints and fires
+ *   the look from that alone (`applyWire` · `replicaUpdate`). Until then each client ran the same target search off
+ *   its own 20 Hz positions and could settle on a **different** body — so the alarm and the aiming laser warned a
+ *   squadmate while the host was warming up on you, and the one person who needed the warning never saw it.
+ *   Damage never depended on that and still does not.
+ * - The **cadence** of the shot is not on the wire: `st` 2 means 「warm-up over」 and a replica repeats the tracer
+ *   every `CEIL_TURRET_INTERVAL_S` itself. A flash a fraction of an interval out of step costs nothing.
+ * - An **idle turret says nothing**, so a map full of them is silent on the wire until someone walks in.
  *
  * ## Budgets (CLAUDE.md §4.5)
  * - **No point light.** Adding one would recompile every material and the raid budget has zero spare slots
@@ -101,6 +106,20 @@ interface Turret {
   lock: string | null;
   warm: number;
   cool: number;
+  /**
+   * 2026-09-21 (B-100). Authority: the `tg` · `st` last put on the wire, so only a change is sent.
+   * Replica: the `tg` · `st` last received — what it turns, paints and (at `st` 2) fires the look from.
+   */
+  wireTg: string;
+  wireSt: 0 | 1 | 2;
+}
+
+/**
+ * 2026-09-21 (B-100): the wire name of a body — a PeerId, or an android id. The host's own player is its own
+ * PeerId, so every receiver reads one id space; in single player nothing is sent and this is never called.
+ */
+function wireIdOf(ctx: GameContext, target: Target): string {
+  return target.kind === 'local' ? (ctx.net?.localId ?? '') : target.id;
 }
 
 export class CeilingTurretSet {
@@ -114,6 +133,8 @@ export class CeilingTurretSet {
   private game: GameContext | null = null;
   /** Reused target record — the update loop allocates nothing. */
   private readonly target: Target = { kind: 'local', id: '', point: new THREE.Vector3() };
+  /** 2026-09-21 (B-100): the body a replica was told to paint — filled from `struct turret`, never picked locally. */
+  private readonly wireTarget = new THREE.Vector3();
 
   constructor(name = 'CeilingTurrets') { this.group.name = name; }
 
@@ -168,6 +189,7 @@ export class CeilingTurretSet {
       const t: Turret = {
         spec, pivot: new THREE.Vector3(x, y - PIVOT_DROP, z), head, led,
         aim: PARK.clone(), muzzle: new THREE.Vector3(), off: false, lock: null, warm: 0, cool: 0,
+        wireTg: '', wireSt: 0,
       };
       this.applyAim(t);
       this.turrets.push(t);
@@ -195,9 +217,29 @@ export class CeilingTurretSet {
       t.off = true;
       t.lock = null;
       t.warm = 0;
+      t.wireTg = '';
+      t.wireSt = 0;
       t.led.visible = false;
       t.aim.copy(PARK);
       this.applyAim(t);
+    }
+  }
+
+  /**
+   * 2026-09-21 (B-100): a replica takes the host's choice of body (`struct turret`). The alarm rings here, on
+   * acquisition, because that message **is** the acquisition — this is the moment the warning has to reach the
+   * person actually being aimed at.
+   */
+  applyWire(id: string, tg: string, st: 0 | 1 | 2): void {
+    const t = this.turrets.find((x) => x.spec.id === id);
+    if (!t || t.off) return;
+    const acquired = tg !== '' && tg !== t.wireTg;
+    t.wireTg = tg;
+    t.wireSt = tg === '' ? 0 : st;
+    if (tg === '') t.cool = 0;
+    if (acquired) {
+      t.cool = 0;
+      this.game?.bus.emit('audio:play', { id: 'c4_beep', position: t.pivot, volume: 0.9, pitch: 0.75 });
     }
   }
 
@@ -205,6 +247,15 @@ export class CeilingTurretSet {
     const ctx = this.game;
     if (!ctx || this.turrets.length === 0) return;
     if (this.ledMat) this.ledMat.emissiveIntensity = 1.1 + 0.5 * Math.sin(time * 6);
+    /* 2026-09-21 (B-100): only the authority chooses a body. A replica used to run this same loop off its own copy
+       of the positions and could settle on a different person — the head, the laser and the alarm then warned the
+       wrong player. It now replays `struct turret` instead. */
+    if (ctx.isAuthority) this.hostUpdate(ctx, dt);
+    else this.replicaUpdate(ctx, dt);
+  }
+
+  /** Authority: picks the body, runs the warm-up, fires, and puts every change of body · state on the wire. */
+  private hostUpdate(ctx: GameContext, dt: number): void {
     const live = ctx.isGameplayActive();
     for (const t of this.turrets) {
       if (t.off) continue;
@@ -217,20 +268,83 @@ export class CeilingTurretSet {
         /* The alarm is what says 「leave now」 — it fires on acquisition, not on the shot. */
         if (key) ctx.bus.emit('audio:play', { id: 'c4_beep', position: t.pivot, volume: 0.9, pitch: 0.75 });
       }
-      if (!found) { this.turn(t, PARK, dt); continue; }
+      if (!found) { this.turn(t, PARK, dt); this.publish(ctx, t, '', 0); continue; }
 
       _aim.copy(found.point).sub(t.pivot).normalize();
       this.turn(t, _aim, dt);
       /* The laser paints the target from the moment it is acquired — that, the alarm and the warm-up are the
        * one chance the intruder gets to walk back out. */
       this.drawBeam(t, found.point, LASER_COLOR, LASER_WIDTH, Math.max(dt, MIN_BEAM_LIFE_S));
-      if (t.warm < CEIL_TURRET_WARMUP_S) { t.warm += dt; continue; }
+      if (t.warm < CEIL_TURRET_WARMUP_S) { t.warm += dt; this.publish(ctx, t, wireIdOf(ctx, found), 1); continue; }
+      this.publish(ctx, t, wireIdOf(ctx, found), 2);
       t.cool -= dt;
       /* It also has to be **pointing** there — a turret that just swung round does not snipe through the turn. */
       if (t.cool > 0 || t.aim.angleTo(_aim) > AIM_TOLERANCE) continue;
       t.cool = CEIL_TURRET_INTERVAL_S;
       this.fire(t, found);
     }
+  }
+
+  /**
+   * Replica: turns, paints and (at `st` 2) fires the **look** at the body the host named. The shot cadence is run
+   * locally off `CEIL_TURRET_INTERVAL_S` rather than sent — a tracer that is a fraction of an interval out of step
+   * costs nothing, and no damage rides on it.
+   */
+  private replicaUpdate(ctx: GameContext, dt: number): void {
+    for (const t of this.turrets) {
+      if (t.off) continue;
+      const point = t.wireTg === '' ? null : this.resolveWireTarget(ctx, t.wireTg);
+      if (!point) { this.turn(t, PARK, dt); continue; }
+      _aim.copy(point).sub(t.pivot).normalize();
+      this.turn(t, _aim, dt);
+      this.drawBeam(t, point, LASER_COLOR, LASER_WIDTH, Math.max(dt, MIN_BEAM_LIFE_S));
+      if (t.wireSt < 2) continue;
+      t.cool -= dt;
+      if (t.cool > 0 || t.aim.angleTo(_aim) > AIM_TOLERANCE) continue;
+      t.cool = CEIL_TURRET_INTERVAL_S;
+      _hit.copy(point);
+      this.drawBeam(t, _hit, SHOT_COLOR, 0.03, 0.06);
+      ctx.bus.emit('audio:play', { id: 'turret_shot', position: t.muzzle, volume: 0.85, pitch: 1.15 });
+    }
+  }
+
+  /**
+   * Authority → one late joiner: the turrets that are **on a body right now**. A turret only speaks when something
+   * changes, so without this a client that joined mid-lock would see a parked head until the host's target moved.
+   */
+  activeWire(): readonly { id: string; tg: string; st: 0 | 1 | 2 }[] {
+    const out: { id: string; tg: string; st: 0 | 1 | 2 }[] = [];
+    for (const t of this.turrets) if (!t.off && t.wireTg !== '') out.push({ id: t.spec.id, tg: t.wireTg, st: t.wireSt });
+    return out;
+  }
+
+  /** Authority: sends `struct turret` when the body or the state actually moved. */
+  private publish(ctx: GameContext, t: Turret, tg: string, st: 0 | 1 | 2): void {
+    if (t.wireTg === tg && t.wireSt === st) return;
+    t.wireTg = tg;
+    t.wireSt = st;
+    const net = ctx.net;
+    if (!net || !ctx.isMultiplayer) return;
+    net.send({ t: 'struct', ev: 'turret', id: t.spec.id, tg, st }, 'others');
+  }
+
+  /** Replica: where the body the host named is standing right now (aim height), or null once it is gone. */
+  private resolveWireTarget(ctx: GameContext, id: string): THREE.Vector3 | null {
+    const net = ctx.net;
+    if (net && id === net.localId) {
+      const p = ctx.player;
+      if (!p || p.isDead || p.isDowned || p.isInShip) return null;
+      return this.wireTarget.set(p.position.x, p.position.y + AIM_HEIGHT, p.position.z);
+    }
+    for (const r of net?.getRemotePlayers() ?? []) {
+      if (r.id !== id) continue;
+      if (r.isDead || r.isDowned || !r.inMission || r.suspended) return null;
+      return this.wireTarget.set(r.position.x, r.position.y + AIM_HEIGHT, r.position.z);
+    }
+    for (const a of ctx.allies?.getCombatBodies() ?? []) {
+      if (a.id === id) return this.wireTarget.set(a.position.x, a.position.y + AIM_HEIGHT, a.position.z);
+    }
+    return null;
   }
 
   dispose(): void {

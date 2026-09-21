@@ -80,7 +80,7 @@ export class CatalogView {
 
   constructor(
     private readonly sys: InventorySystem,
-    private readonly getDef: (id: string) => ItemDef | undefined,
+    getDef: (id: string) => ItemDef | undefined,
     private readonly handlers: CatalogHandlers,
   ) {
     this.el = document.createElement('section');

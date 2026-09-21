@@ -444,7 +444,7 @@ try {
        into **one row** in the catalogue — the catalogue is a list of 「무엇이 나오는가」, not a list of csv rows. The
        folded row's count range spans all six. */
     const resMin = await H(() => ({ list: window.__game.ctx.housing.getAnalysisResults('mineral'),
-      rows: 0, lv: window.__game.ctx.housing.getAnalysisLevel('mineral').level }));
+      lv: window.__game.ctx.housing.getAnalysisLevel('mineral').level }));
     const quartzRows = await H(async () => (await import('/src/shared/index.ts')).ANALYSIS_RESULTS
       .filter((r) => r.family === 'mineral' && r.defId === 'gem_quartz').map((r) => [r.qtyMin, r.qtyMax]));
     const quartz = resMin.list.filter((r) => r.defId === 'gem_quartz');

@@ -5,27 +5,15 @@
  * whether a cutscene plays or the interior is swapped straight away (`swapDirect`), and whether a running raid is
  * rejoined automatically.
  */
-import * as THREE from 'three';
-import type { PlanetId } from '@/shared';
-import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
-import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
-import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
+import type {  } from '@/shared';
+import type { HubShipKind, LobbyState, PeerId } from '@/shared';
+import { HUB_DOCKING_DURATION } from '@/shared';
 import { PersonalShip } from '../interiors/PersonalShip';
 import { SharedShip } from '../interiors/SharedShip';
-import type { StationDef } from '../interiors/stations';
+import type {  } from '../interiors/stations';
 import type { ShipInterior } from '../interiors/types';
-import { FurnitureLayer } from '../interiors/Furniture';
-import { roomAtWorld } from '../interiors/RoomLayout';
-import { HousingMode } from '../HousingMode';
-import { LaunchPod } from '../LaunchPod';
-import { Terminal } from '../Terminal';
-import { Computer } from '../Computer';
-import { DockingCutscene, type DockDirection } from '../DockingCutscene';
-import { HubMenu } from '../ui/HubMenu';
-import { HubStatus } from '../ui/HubStatus';
-import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
-import { randomSeed } from '../ui/dom';
-import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
+import { DockingCutscene } from '../DockingCutscene';
+import { type DockTransition, _camLook, _camPos, _front } from '../model';
 /* The shared ship's hangar (2026-09-08) */
 import * as Hangar from './Hangar';
 /* 2026-09-15: squads · dock matchmaking */

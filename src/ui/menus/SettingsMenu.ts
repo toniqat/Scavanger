@@ -405,7 +405,7 @@ export class SettingsMenu {
       if (bloom && this.bloomAutoOff) { this.bloomAutoOff = false; this.syncDisplayRows(); }
     }));
     /*
-     * 2026-09-15 (squad · docking matchmaking, user's decision 「도킹 컷씬 직전에 모든 UI 메뉴가 닫힌다」): the settings
+     * 2026-09-15 (squad · dock matching, user's decision 「도킹 컷씬 직전에 모든 UI 메뉴가 닫힌다」): the settings
      * are a child screen **inside** the pause menu, yet they hold neither a blocker nor a `ctx.escape` entry, so they
      * stayed up alone when the pause menu closed (`game:paused {paused:false}`) and when the phase changed. Now they
      * close with both — a child screen whose menu behind it is gone has no reason to stay (the same when Tab lifts

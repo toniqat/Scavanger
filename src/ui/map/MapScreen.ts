@@ -8,7 +8,7 @@ import { el, fmtInt, setText, toggleClass } from '../dom';
 import type { PingView } from '../hud/Pings';
 import { PING_LABEL } from '../hud/Pings';
 import {
-  FONT_LABEL, MAP_COL, MARKER_SCALE, MapLabels, drawAllyArrow, drawAllyDown, drawDiamond, drawGatherCross, drawHazardSwatch, drawLabel,
+  MAP_COL, MARKER_SCALE, MapLabels, drawAllyArrow, drawAllyDown, drawDiamond, drawGatherCross, drawHazardSwatch, drawLabel,
   drawPad, drawPlatform, drawPlayerArrow, drawPlayerCone, drawRover, drawShip, drawSquadArrow, drawSquadDead, drawStation, drawTram,
   strokeRail, strokeRoute,
 } from './mapIcons';

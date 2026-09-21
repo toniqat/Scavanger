@@ -2,9 +2,7 @@ import * as THREE from 'three';
 import type { BoostKind, EnvKind, FurniturePose, FurniturePoseKind, PlayerRestoreState, Rarity, RoverRideBinding } from '@/shared';
 import type { PlayerDamageOptions, PlayerDamageSource } from '@/shared';
 import {
-  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_WALK_SPEED, PLAYER_DOWN_BLEED_PER_SEC,
-  PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD, ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME,
-  CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST, ROLL_COOLDOWN, ROLL_STAMINA_COST, SLASH_DURATION,
+  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_WALK_SPEED, PLAYER_DOWN_SPEED_MUL, ARMOR_DURABILITY_PER_DAMAGE, MELEE_COOLDOWN, MELEE_STAMINA_COST, SLASH_DURATION,
   type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -17,16 +15,16 @@ import type { LadderDef } from '@/shared';
 import { Hellpod, type HellpodEvents } from './Hellpod';
 import { PlayerGear } from './PlayerGear';
 import type { CarryEndReason, PortraitRef } from '@/shared';
-import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER_CARRY_RANGE, PLAYER_CARRY_SPEED_MUL } from '@/shared';
+import { PLAYER_CARRY_OFFSET, PLAYER_CARRY_SPEED_MUL } from '@/shared';
 import type { CarryHost } from './Carry';
 import { createPortraits } from './Portraits';
 import { snapshotAndroidFace as snapshotAndroidFaceImage, snapshotFace as snapshotFaceImage } from './FaceSnapshot';
 
 import { LADDER_STEP_VOLUME, LADDER_STEP_VOLUME_FAST, createFurniturePoseState, type FurniturePoseState } from './model';
 import {
-  AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, DEATH_ANIM, EXHAUSTED_SLOW, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND,
-  FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, STAMINA_JUMP_COST,
-  STAMINA_SPRINT_RECOVER, type SpeedMod, type WeaponState, _camLook, _camPos, _q, _up,
+  CLOAK_FADE, DEATH_ANIM, EXHAUSTED_SLOW, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND,
+  FADE_FAR, FADE_NEAR, MELEE_SWING_TIME, type MeleeKind, STAMINA_JUMP_COST,
+  type SpeedMod, type WeaponState, _camLook, _camPos, _q, _up,
 } from './model';
   /** The folder's shared vocabulary (constants · types · scratch) is in `model.ts` — re-exported for old imports. */
 export * from './model';

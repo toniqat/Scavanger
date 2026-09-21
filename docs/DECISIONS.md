@@ -1313,3 +1313,43 @@ raid drop-ship now build from **one** model, so the ship parked in the shared ha
 purchase hook is plumbed through (profile → lobby → the extraction wire) with **no shop and one model in the registry**
 — a second hull is content, not plumbing. Ship interiors were deliberately *not* drawn to scale on the exterior: only
 the airlock end is modelled, because a real interior would make the exterior enormous.
+
+## 2026-09-21 — 죽은 import 일소 · 폭발의 파괴 범위 · 터렛 와이어 · 함선 권한 · Dead imports · what a blast breaks · the turret wire · who owns a ship
+
+The TODO rows B-90 … B-101 in one pass. B-90 … B-96 were documentation defects and carry no decision; the five below do.
+
+**죽은 import (B-97).** 2,373 declarations nothing read, all from the same cause: splitting a system into `model.ts` +
+`parts/*` copied the whole import block into every part. Chosen: clear them **and turn `noUnusedLocals` on** in all three
+tsconfigs, with **no exemption for an intended contract stub** — a stub kept 「for later」 is deleted, not parked
+(`GameFlowSystem.onRespawnRequest` and `InventorySystem.hasAnyWeapon` went that way). Rejected: clearing without the flag
+(the same 2,300 lines grow back at the next split), and a separate `verify` smoke instead of the compiler (a build error
+the moment it happens beats a check at the end of a session).
+
+**폭발이 무엇을 부수는가 (B-98).** Only the bazooka ever walked `Obstacle.destructible`, so the 탐사 차량 — shootable since
+earlier the same day through exactly that hook — took bullets and ignored grenades. Chosen: **one shared loop**
+(`shared/explosion.blastDestructibles`) that grenade · bazooka · mine · ship call · fire zone all hand their blast to, so
+dropped cover, window glass and the vehicle answer the same explosion the same way. Rejected: teaching each blast path
+about the vehicle specifically (「what an explosion breaks」 splits in five again), and limiting it to instantaneous blasts
+(a car parked in a fire zone should cook). Damage that arrives this way **resolves a hit zone and counts toward hostility**
+like a bullet does — the blast centre is pulled onto the hull box first, so a grenade under a wheel takes that wheel;
+rejected: hull-only damage, which would have made 「blow the wheels off」 impossible. The path stays **player-side only**,
+because the hostility counter is the player’s to move and enemies keep their own `Targets.damageVehicleAt`.
+
+**피격 보고 (B-99).** A non-host client sent one message per bullet — 14 a second with an SMG. Chosen: sum a frame **per hit
+zone** and send one message per zone, so 「this burst chewed the front-left wheel」 survives; rejected: one summed message a
+frame (two zones hit in one frame collapse into one) and a fixed 0.1 s window (fewer messages, a late reaction).
+
+**천장형 터렛 (B-100).** Switching it off already travelled as `struct unlocked`, but each client picked its **own** target
+from 20 Hz positions — so a replica could warn a squadmate while the host was warming up on you. Chosen: the authority
+sends the body and the state (`struct turret {id, tg, st}`, on a change only, plus one catch-up for a late joiner), and a
+replica turns, paints and fires the look from that. Rejected: sending only the state change (the direction still drifts)
+and leaving it alone as a documented limit. The **shot cadence** is deliberately not sent — a tracer a fraction of an
+interval out of step costs nothing and no damage rides on it.
+
+**함선 모델 (B-101).** `lobby:look.shipModel` was echoed as the client sent it — harmless while no ship can be bought, a free
+ship the day one can. Chosen: do it **now**, before the shop exists — the relay fills `LobbyPlayer.shipModel` from that
+member’s own `progression` document (`Store.shipModel`) beside `code` · `level`, and the client’s field survives only as the
+nudge that asks for the re-read. Rejected: a profile-first / client-fallback blend (the fallback is the hole) and leaving a
+comment for later. The nudge has to be **de-duplicated on the sender**, not against its own lobby row: that row is now the
+relay's answer and stays empty for a profile that has uploaded no document, so comparing against it nudged on every
+`lobby:state` and every nudge broadcast another one (caught by `verify:all` — five two-client smokes timed out in the flood).

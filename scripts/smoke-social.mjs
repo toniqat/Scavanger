@@ -819,7 +819,8 @@ try {
   bd = await badge();
   ok(bd.a === null, 'social:inviteResult drops the badge at once (no waiting for the next snapshot)', JSON.stringify(bd));
   toasts = await P(() => window.__notifs());
-  // Merged into one line: the accepted toast overlapped `net:peerJoined`'s `<이름> 합류`, so it was taken out.
+  // 2026-09-11 (B-12) — 「합류 · 이탈 토스트는 한 줄」 (the block further down in this file spells the rule out):
+  // the accepted toast overlapped `net:peerJoined`'s `<이름> 합류`, so it was taken out.
   ok(!toasts.some((t) => t.includes('님이 분대에 합류했습니다')), '수락 → 따로 토스트 없음 (합류 토스트가 대신한다)', JSON.stringify(toasts));
 
   console.log('차단');

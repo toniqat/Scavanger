@@ -73,7 +73,6 @@ export class IntelMenu {
   private _open = false;
   private unsubs: Array<() => void> = [];
 
-  private titleEl: HTMLElement;
   private subEl: HTMLElement;
   private creditsEl: HTMLElement;
   private btnRelocate: HTMLButtonElement;
@@ -122,7 +121,7 @@ export class IntelMenu {
     // ── head ──
     const head = el('div', { cls: 'his-head', parent: f });
     const hl = el('div', { cls: 'hl', parent: head });
-    this.titleEl = el('div', { cls: 'title', text: '정보상 — 레이븐', parent: hl });
+    el('div', { cls: 'title', text: '정보상 — 레이븐', parent: hl });
     this.subEl = el('div', { cls: 'subtitle', text: '', parent: hl });
     const hr = el('div', { cls: 'his-head-right', parent: head });
     this.creditsEl = el('div', { cls: 'his-credits', text: '', parent: hr });

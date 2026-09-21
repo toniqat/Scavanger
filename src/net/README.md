@@ -206,8 +206,8 @@ connected and prices received on this connection. `requestHistory(coin, range)` 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/net`.
+- 2026-09-21 — `lobby:look.shipModel` became a **nudge** (B-101): the relay no longer stores what the client says — it fills `LobbyPlayer.shipModel` from that member's own `progression` document. `pushShipModel` therefore de-duplicates against the new `NetSystem._pushedShipModel` instead of against my own lobby row: that row is the relay's answer, and a profile with no uploaded document leaves it empty for good, so the old comparison nudged on **every** `lobby:state` and each nudge broadcast another one. The field is cleared in `dropLobby`.
 - 2026-09-21 — `docs/TODO.md` B-83: the never-read `NetSystem.embeddedCache` field removed (a 2026-09-15 「builds ship no server」 leftover — `NET_SHELL_RELAY_ROUTE` is asked for by `ui/menus/SettingsMenu` alone), and the JSDoc of the `meal serve` wire deleted on 2026-09-16 taken off `plateRelay`.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-17 — `sanitizeShipVisit` keeps `cultures` (placed uid · slot < `CULTURE_MAX_SLOTS` · medium id · `s: 1` strain flag, one per slot) for the visited culture tank model.
 - 2026-09-16 — `parts/Meal.ts` (host-relayed `meal req` / `serve`) replaced by `parts/Plates.ts`: each member's own `plate state` + `plateq sync` on hub-session entry → `net:squadPlate`.
-- 2026-09-15 — Title resume / abandon: the reload's `lobby:mission false` carries `keep`; `abandonRaid()` → `lobby:abandon` (optimistic `drifted`); `rejoinMission` refuses a drifted raid.

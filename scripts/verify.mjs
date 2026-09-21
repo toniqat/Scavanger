@@ -271,7 +271,7 @@ const SMOKES = {
   /* 2026-09-08: the shared ship hangar — it needs two clients (visiting a personal ship · the `hs` co-presence rule). It
      uses the relay, so it runs exclusive like e2e. */
   'smoke-hangar':       { file: 'scripts/smoke-hangar.mjs',       folders: ['hub', 'net', 'housing', 'player'], exclusive: true, freshRelay: true },
-  /* 2026-09-15 (squads · docking matchmaking): three clients — an invite → an undocked squad (each in their own personal
+  /* 2026-09-15 (squads · dock matching): three clients — an invite → an undocked squad (each in their own personal
      ship · no hub snapshots · the squad HUD reading `개인 함선`) · the launch pod / training lock · a member's requestDock
      refused · the leader docking = an immediate fade / the member's countdown on the right → every open screen closed →
      docking · joining a public match alone · undocking moves only me · accepting an invite into a docked squad = the

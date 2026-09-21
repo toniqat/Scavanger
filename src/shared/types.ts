@@ -2535,7 +2535,7 @@ export interface PlayerRef {
   chargeShield(amount: number): boolean;
 }
 
-/* ══ appended (2026-09-10): the craft overhaul — repair · salvage tied to durability ══
+/* ══ appended (2026-09-10): the craft rework — repair · salvage tied to durability ══
  *
  * The repair cost and the salvage yield now come from **the materials that item costs to craft fresh**. The remaining
  * durability is split into five 20 % buckets (`durabilityBucketOf`), and each bucket's fixed multiplier is applied to

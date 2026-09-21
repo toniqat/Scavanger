@@ -4,7 +4,7 @@ import {
   GATHER_HERB_QTY2_CHANCE, GATHER_INTERACT_TIME, GATHER_NODES_PER_MISSION, GATHER_SALVAGE_CORE_CHANCE,
   GATHER_SALVAGE_CORE_QTY, GATHER_SALVAGE_MINERAL_CHANCE, GATHER_SALVAGE_MINERAL_QTY, GATHER_SALVAGE_QTY2_CHANCE,
   IMPLANT_DASH_MAX_SLOPE_DEG, Layers,
-  MINING_HILL_MIN_SLOPE, MINING_NODE_HOLD_S, MINING_SKILL_XP, MINING_YIELD_MAX, MINING_YIELD_MIN,
+  MINING_HILL_MIN_SLOPE, MINING_NODE_HOLD_S, MINING_YIELD_MAX, MINING_YIELD_MIN,
   RARITY_ORDER, SALVAGE_INTERACT_TIME, SALVAGE_NODES_PER_MISSION, SOIL_TAG_COLOR, getPlanet,
   type GameContext, type GatherNodeDef, type GatherNodeKind, type GatherWire, type HarvestMessage, type HarvestRequest,
   type Interactable, type ItemCategory, type ItemInstance, type PeerId, type PlanetEcosystem, type Random, type SoilTag,
@@ -72,7 +72,7 @@ const SALVAGE_CORE_DEF_ID = 'mat_core';
 /** A bonus result: at harvest one gather node puts in **just one more item**. */
 interface NodeBonus { defId: string; qty: number }
 
-/* ── The soil pile (greenhouse overhaul, 2026-09-11) ────────────────────────────
+/* ── The soil pile (greenhouse rework, 2026-09-11) ────────────────────────────
  * The greenhouse's grow station pours soil first and plants the seed on top. That soil comes **only from raid
  * gathering** and its tag differs per biome (`soils` · `soilNodes` in `data/planets.csv`, read in `world/soil.ts`) —
  * "go to Verdant III if you need 부엽토" holds from this file.
@@ -293,7 +293,7 @@ export class Gather {
     const herbIds = this.resolveHerbIds(game);
     const weights = this.resolveHerbWeights(herbIds, eco);
     const target = this.nodeTarget(eco);
-    /* 2026-09-11 (greenhouse overhaul): soil rolls **only from its own fork** — if the soil mound's geometry · placement ·
+    /* 2026-09-11 (greenhouse rework): soil rolls **only from its own fork** — if the soil mound's geometry · placement ·
      * colour shifted the `gather` stream by one step, the same seed's herb · salvage layout would change wholesale (the `gather_core` trick). */
     const soil = planetSoil(planetId);
     const soilTarget = soil ? soil.nodes : 0;
@@ -453,7 +453,7 @@ export class Gather {
       spots.push(...groveSpots);
     }
 
-    /* ── Soil piles (greenhouse overhaul, 2026-09-11) ──────────────────────────
+    /* ── Soil piles (greenhouse rework, 2026-09-11) ──────────────────────────
      * Count · kind all come from `data/planets.csv` (`world/soil.ts`). Soil piles up in the **lowlands** where water
      * used to gather, so basins (`layout.basins`) are aimed at first and the open field takes the rest. Placement and
      * draw are all `soilRng`, so the `gather` stream of herbs · salvage · groves never shifts a step — the same seed's old gather placement is unchanged.
@@ -766,7 +766,6 @@ export class Gather {
   /* ── harvesting ────────────────────────────────────────────────────── */
 
   private makeInteractable(node: Node): Interactable {
-    const game = () => this.game;
     // 2026-09-08: a salvage pile takes longer and reads `해체` — every other rule is the herb's
     // 2026-09-11: a soil pile is `채취` — the three split by one word each (약초 채집 · 고철 해체 · 토양 채취)
     // 2026-09-11 (lab): a seed grove is `채취` like soil, a 미확인 표본 is `수습` (user's decision) —
@@ -1039,7 +1038,7 @@ export class Gather {
   }
 
   /**
-   * 2026-09-11 (greenhouse overhaul · lab placement): folds the planet's weight table (`soils` · `seeds` · `samples`
+   * 2026-09-11 (greenhouse rework · lab placement): folds the planet's weight table (`soils` · `seeds` · `samples`
    * in `planets.csv`) onto **the items this build actually knows**. An id `items/` does not know is dropped silently
    * (the herb contract) — a table that empties out entirely is null and not one node of that kind stands.
    *
@@ -1252,7 +1251,7 @@ export class Gather {
   }
 
   /**
-   * The soil pile (greenhouse overhaul, 2026-09-11): a **dug mound of soil**, as if someone stopped halfway through
+   * The soil pile (greenhouse rework, 2026-09-11): a **dug mound of soil**, as if someone stopped halfway through
    * shovelling — one lumpy dome with a few clods around it, and one thin rim band glowing faintly so it reads as a gather node from far off.
    *
    * The vertex colours are **only a shading ramp** (dark below, light above). The real soil colour comes from the

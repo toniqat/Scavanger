@@ -8,10 +8,10 @@
 import * as THREE from 'three';
 import type { FurniturePoseKind } from '@/shared';
 import {
-  CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, SLASH_DURATION, type PlayerRef, type PlayerWeaponHost, type Stance,
+  type Stance,
 } from '@/shared';
-import { damp, smoothstep } from '@/core/util/MathUtil';
-import { SoldierModel, type SoldierPose } from './SoldierModel';
+import { damp } from '@/core/util/MathUtil';
+import { type SoldierPose } from './SoldierModel';
 /* appended (Phase 10): shouldering a downed squadmate + ready-panel portraits */
 
 /** Phase 12 perk `auto_revive`: seconds between going down and the automatic stand-up. */

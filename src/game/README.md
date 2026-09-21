@@ -227,8 +227,9 @@ A remaining raid never drops the boot straight into it: the title shows `이어�
   For the same reason `LoadGate.bind()` subscribes before `onNewMission` — the hold has to exist before the phase moves.
   — `parts/LoadGate.ts`
 - `parts/` import only types from `GameFlowSystem.ts`; values go to `model.ts`.
-- `PLAYER_RESPAWN_DELAY`, `game:respawn`, `game:respawnAvailable`, `tickRespawn`, `onRespawnRequest` are kept contract
-  stubs; nothing emits or handles automatic respawn.
+- `PLAYER_RESPAWN_DELAY`, `game:respawn`, `game:respawnAvailable` and `tickRespawn` are kept contract stubs; nothing
+  emits or handles automatic respawn. (`onRespawnRequest` was one too and was deleted on 2026-09-21 with B-97 — an
+  empty body nobody subscribed to, and `noUnusedLocals` is on now.)
 
 ## Notes
 
@@ -252,8 +253,8 @@ A remaining raid never drops the boot straight into it: the title shows `이어�
 ## Recent changes
 
 Last 5 only — older: `git log -- src/game`.
+- 2026-09-21 — The `onRespawnRequest` contract stub is gone (B-97): both `GameFlowSystem.onRespawnRequest` and `Death.onRespawnRequest` were dead — nothing subscribed to `game:respawn` and the body was empty. `tickRespawn` · `game:respawnAvailable` · `PLAYER_RESPAWN_DELAY` still stand.
 - 2026-09-21 — `docs/TODO.md` B-68 · B-69 · B-70 · B-71 · B-72: 89 dead imports left by the `GameFlowSystem` split removed (`model.ts` now imports no sibling module as a value); `PlayerCorpseManager` keys its `pcorpse` subscription on the `NetRef` it belongs to and gains `dispose()`; the `pcorpse emptied` host guard no longer lets a message with no sender through; 14 comments realigned with the code and 5 csv numbers taken out of prose.
 - 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, `docs/DECISIONS.md` headings and verbatim user decisions kept in backticks / 「」, no string literal touched.
 - 2026-09-16 — Empty player/android corpses start their removal delay only after the last viewer closes the loot window (`PlayerCorpseManager.viewers`, `releaseEmptied`, host sends `pcorpse emptied` at release); 레이드 실패 auto return emits `ui:shipReturn`.
-- 2026-09-16 — Wipe check counts androids: `checkAllDead` fails the raid only when every human and every android is down or dead (`ctx.allies.getBodies()`); `isRemoteAlive` keeps its bot filter.

@@ -1,4 +1,4 @@
-import type { ComputeClusterInfo, CryptoCoinInfo, EmbeddedView, GameContext, HarvestDestination, ItemInstance, PlacedFurniture } from '@/shared';
+import type { ComputeClusterInfo, CryptoCoinInfo, GameContext, HarvestDestination, ItemInstance, PlacedFurniture } from '@/shared';
 import { COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, PROCESSOR_DEF_ID, formatCoinUnits, itemGridBox } from '@/shared';
 import { clusterCycleMs } from '../../MiningRules';
 import type { HousingSystem } from '../../HousingSystem';

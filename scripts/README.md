@@ -142,10 +142,20 @@ Things today's smokes deliberately do not measure. Each is here so the next read
   leaving still work from that state, which is the bug the immobile branch was written to avoid), the **hostility**
   transition (threshold → boarding refused → the turrets take a player-side body) or the **wreck crates** (2–3
   registered, spaced, openable, and rolling on the `lockedRoom` exemption). The last one also exercises the new
-  map-wide `ContainerSet` index, which is the part most likely to break something else.
+  map-wide `ContainerSet` index, which is the part most likely to break something else. Two more joined it the same
+  day: an **explosion** now reaches the car (B-98 — nothing asserts that a grenade beside a wheel takes *that* wheel
+  through `roverBlastPoint`, nor that an **enemy** blast still does not touch `aggro`), and a non-host client now sums
+  a frame **per hit zone** before sending `roverq hit` (B-99 — nothing counts the messages, so a regression back to
+  one-per-bullet would be silent).
 - **The ceiling turret is unmeasured.** Nothing asserts that the matching key switches it off for good, that the
   wrong planet's key does not, that it refuses to shoot through the closed door, or that entering by the crawl vent
   is what it is there to punish. `smoke-structure-reach` already walks every locked door, so it is the natural home.
+  Since 2026-09-21 (B-100) its **target is on the wire** (`struct turret`), and that is unmeasured too — the check
+  worth having is two clients in one locked room: the host's pick and the replica's painted body are the same one,
+  and a late joiner is caught up by `activeWire`. It needs a two-client smoke, which `smoke-structure-reach` is not.
+- **The ship model is no longer the client's word, and nothing checks it** (B-101, 2026-09-21). `net:selftest`
+  reaches the relay without a browser and is the natural home: set a `progression` document with a `shipModel`, send
+  `lobby:look` with a **different** one, and assert the broadcast `lobby:state` carries the document's value.
 - **A planet-bound key is only checked by shape.** `check-planet-loot` now counts the families rather than two fixed
   ids, so the drop *rate* is still guarded, but nothing checks the thing the feature is for: that the planet in a
   dropped key is **independent of the planet you are on** (roll on one planet, measure the spread of suffixes).
@@ -246,6 +256,10 @@ Things today's smokes deliberately do not measure. Each is here so the next read
 - **Wait for `net:profileLoaded`** before seeding state directly — a server profile arriving later replaces it.
 - Two-client smokes join a **private lobby by code**, never quick match (stale public lobbies hijack it). Counters that are never reset
   (e.g. `EnemySystem.hitGuardStats`) are read as before/after deltas.
+- **Line endings in a working tree mean nothing.** `core.autocrlf` is `true` here, so every committed blob is LF and a
+  checkout hands back CRLF — a file that reads as 「mixed」 (B-96 measured `smoke-phase3.mjs` at CRLF 290 · LF 27) is a
+  local artifact of a tool that wrote LF after checkout, and normalising it produces a **zero-byte diff**. Measure
+  `git cat-file blob` before filing one as a defect (2026-09-21).
 
 ### `import('/src/…')` returns a different module instance
 

@@ -66,7 +66,7 @@ export class MiningScreen extends HousingPanel {
   private readonly banner: HTMLElement;
   private timer = 0;
 
-  constructor(ctx: GameContext, private readonly housing: HousingSystem) {
+  constructor(ctx: GameContext, housing: HousingSystem) {
     // `HousingPage` is a contract, so no value is added to it — the combined window keeps the old `'cluster'` name
     super(ctx, 'cluster', 'mining-screen hs-station');
     this.coalesceRefresh = true;

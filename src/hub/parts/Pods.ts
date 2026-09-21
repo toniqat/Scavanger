@@ -12,33 +12,20 @@
  * While a mission runs the pod becomes a rejoin entrance. The reason boarding is refused (`podBlockReason`) is shown
  * as the prompt — refusing with `canInteract:false` would take the prompt away, and with it the reason.
  */
-import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
-import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
 /* 2026-09-14: the intel broker — the bought region · bought gimmicks ride along on launch (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelPick } from '@/shared';
 import { resolveIntelEffects } from '@/shared';
-import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LaunchWarning, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
-import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
+import type { HubLaunchSlot, LaunchWarning, PeerId } from '@/shared';
+import { HUB_LAUNCH_COUNTDOWN, HUB_READY_CELLS } from '@/shared';
 /* 2026-09-15: android bot members (launch slots) · the raid-entry loading fade to black */
 import { RAID_LOAD_FADE_OUT_S, RAID_LOAD_START_GRACE_S, androidNameOf, isBotPlayer } from '@/shared';
-import { PersonalShip } from '../interiors/PersonalShip';
-import { SharedShip } from '../interiors/SharedShip';
-import type { StationDef } from '../interiors/stations';
-import type { ShipInterior } from '../interiors/types';
-import { FurnitureLayer } from '../interiors/Furniture';
-import { roomAtWorld } from '../interiors/RoomLayout';
-import { HousingMode } from '../HousingMode';
-import { LaunchPod } from '../LaunchPod';
+import type {  } from '../interiors/stations';
+import type {  } from '../interiors/types';
 import { LaunchWarnPanel } from '../ui/LaunchWarnPanel';
-import { Terminal } from '../Terminal';
-import { Computer } from '../Computer';
-import { DockingCutscene, type DockDirection } from '../DockingCutscene';
-import { HubMenu } from '../ui/HubMenu';
-import { HubStatus } from '../ui/HubStatus';
-import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
+import { type ReadyCellInfo } from '../ui/ReadyPanel';
 import { randomSeed } from '../ui/dom';
-import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, REBOARD_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
+import { READY_ECHO_GRACE, REBOARD_GRACE, _camLook, _camPos, _front } from '../model';
 /* Hangar (2026-09-08): the visit status line lives with the rest of the hangar logic. */
 import * as Hangar from './Hangar';
 /* 2026-09-15: squads · dock matchmaking — the personal launch slot is locked in an undocked squad */

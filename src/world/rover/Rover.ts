@@ -49,7 +49,7 @@ import { RoverFx } from './parts/Fx';
 import { updateRoverImpacts } from './parts/Impact';
 import {
   ROVER_PART_HULL, addRoverAggro, applyRoverPartLooks, applyRoverPartsWire, damageRoverPart, makeRoverParts,
-  packRoverParts, resetRoverParts, resolveRoverPart, roverPartSpeedMul, roverTurretAlive, type RoverParts,
+  packRoverParts, resetRoverParts, resolveRoverPart, roverBlastPoint, roverPartSpeedMul, roverTurretAlive, type RoverParts,
 } from './parts/Parts';
 import {
   applyRemoteShot, makeTurretProfiles, makeTurretState, updateTurretLogic, updateTurretVisual,
@@ -155,6 +155,16 @@ export class Rover {
   private readonly tmp2 = new THREE.Vector3();
   /** The world-space hit point of the `roverq hit` being judged — kept apart from `tmp`, which the hull test folds into body space. */
   private readonly hitPt = new THREE.Vector3();
+  /** Where a player-side hit landed once it has been pulled onto the body (`roverBlastPoint`). */
+  private readonly blastPt = new THREE.Vector3();
+  /**
+   * Non-host only (2026-09-21, B-99, user's decision 「히트존별로 묶는다」): this frame's player-side hits, summed
+   * **per hit zone** (key = the `resolveRoverPart` answer). One SMG burst used to be one message per bullet — 14 a
+   * second — and the host's per-second budget only threw the surplus away, it never made it fewer. Grouping by zone
+   * rather than into one total keeps 「this burst chewed the front-left wheel」 exactly as it was: at worst 5 messages
+   * a frame, one per zone that was actually hit.
+   */
+  private readonly hitQueue = new Map<number, { sum: number; pt: THREE.Vector3 }>();
   private readonly fireFrom = new THREE.Vector3();
   private readonly fireTo = new THREE.Vector3();
 
@@ -235,6 +245,7 @@ export class Rover {
     this.speedMul = 1;
     this.hitUntil.clear();
     this.hitBudget.clear();
+    this.hitQueue.clear();
     resetRoverParts(this.parts);
     // Resolved on the first update, not here: the falloff comes out of `items/`, which may not have registered its
     // defs when the world builds. One lazy read per raid, then it never changes.
@@ -347,6 +358,7 @@ export class Rover {
       this.broadcastTick(dt, game);
     } else {
       this.reconcileLocal(game);
+      this.flushHits();
     }
   }
 
@@ -855,8 +867,13 @@ export class Rover {
    */
   private playerSideHit(amount: number, point?: THREE.Vector3): void {
     if (!this.built || this.def.state === 'destroyed' || !(amount > 0)) return;
-    if (this.isMpClient) { this.reportHit(amount, point); return; }
-    this.applyPlayerDamage(amount, point);
+    const body = this.body;
+    // 2026-09-21 (B-98): an explosion hands its **centre**, which is almost never on the body — pull it onto the
+    //   hull box first so the zone test reads the spot the blast washed over, and so the point a client reports
+    //   passes the host's own `pointOnHull`. A bullet's point already falls in a zone and comes back untouched.
+    const pt = body && point ? roverBlastPoint(body, point, this.blastPt) : undefined;
+    if (this.isMpClient) { this.queueHit(amount, pt); return; }
+    this.applyPlayerDamage(amount, pt);
   }
 
   /** Authority: the whole player-side hit — the part, the hull share and the aggro counter. */
@@ -870,12 +887,30 @@ export class Rover {
     this.applyDamage(hull, false);
   }
 
-  /** Client → host: 「my bullet hit the vehicle here」 (`RoverRequest` `hit` in `shared/net.ts`). */
-  private reportHit(amount: number, point?: THREE.Vector3): void {
-    const game = this.game;
-    if (!game?.net || !point) return;
-    const m: RoverHitRequest = { t: 'roverq', ev: 'hit', p: [point.x, point.y, point.z], a: amount };
-    game.net.send(m, 'host');
+  /** Client: adds one player-side hit to this frame's per-zone tally (`hitQueue`). */
+  private queueHit(amount: number, point?: THREE.Vector3): void {
+    const body = this.body;
+    if (!this.game?.net || !point || !body) return;
+    const part = resolveRoverPart(body, point);
+    const q = this.hitQueue.get(part);
+    if (q) q.sum += amount;
+    else this.hitQueue.set(part, { sum: amount, pt: point.clone() });
+  }
+
+  /**
+   * Client → host, once a frame: 「my shots took this much off this zone here」 (`RoverRequest` `hit`). The point is
+   * the first one that landed in that zone this frame, so the host resolves the very zone the client did.
+   */
+  private flushHits(): void {
+    if (this.hitQueue.size === 0) return;
+    const net = this.game?.net;
+    if (net) {
+      for (const q of this.hitQueue.values()) {
+        const m: RoverHitRequest = { t: 'roverq', ev: 'hit', p: [q.pt.x, q.pt.y, q.pt.z], a: q.sum };
+        net.send(m, 'host');
+      }
+    }
+    this.hitQueue.clear();
   }
 
   /**

@@ -93,7 +93,7 @@ try {
   const lastEv = async (n) => { const a = await ev(n); return a[a.length - 1]; };
   const P = (fn, arg) => page.evaluate(fn, arg);
 
-  /* ── 1. personal ship: the terminal's 시뮬레이션 훈련장 section ─────────────── */
+  /* ── 1. personal ship: the terminal's 시뮬레이션 훈련장 button ──────────────── */
   // 2026-09-12 (user's decision): the 시뮬레이션실 and its `furn_sim_hub` are retired — the arena is entered
   // from the ship terminal on **both** ships, solo included. Open the terminal and press 시작.
   console.log('personal ship · terminal training entry');
@@ -102,7 +102,7 @@ try {
   await waitSim(0.3);
   await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').interact());
   await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open');
-  // 2026-09-15 (squad · docking matchmaking, user's decision): not a section but a **bottom-right button** on
+  // 2026-09-15 (squad · dock matching, user's decision): not a section but a **bottom-right button** on
   // the 행성 tab (`.hub-train`, state line `.hub-train-state`), and there is no hint line
   // 2026-09-15, 2nd pass: not inside the footer but on its own row **above** it (`.hub-train-row`)
   const solo = await P(() => {
@@ -742,7 +742,7 @@ try {
     ok(m2.label === '임무 진행 중' && m2.disabled === true, `raid running → "${m2.label}" disabled`);
     const refused = await P(() => { const n0 = window.__ev['ui:notify'].length; const r = window.__game.getSystem('hub').startTraining(); return { r, notes: window.__ev['ui:notify'].slice(n0).map((n) => n.text) }; });
     ok(refused.r === false && refused.notes.some((t) => /임무 진행 중/.test(t)), `startTraining refused during a raid (${refused.notes.join(' | ')})`);
-    // 2026-09-15 (squad · docking matchmaking): a squad before docking — training locked as `분대 대기 중`, and a
+    // 2026-09-15 (squad · dock matching): a squad before docking — training locked as `분대 대기 중`, and a
     // member gets the match button locked and `분대 떠나기` shown.
     // Only the terminal is redrawn, with no bus event — firing `net:lobbyUpdated` makes hub's squad docking
     // rule (flow) change the ship.

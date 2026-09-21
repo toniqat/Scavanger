@@ -70,8 +70,6 @@ const CAM_GLIDE = 5.0;
 type Yaw = 0 | 1 | 2 | 3;
 interface Carry { uid: string; defId: string; yaw: Yaw; level: number }
 
-const _cam = new THREE.Vector3();
-const _look = new THREE.Vector3();
 const _pos = new THREE.Vector3();
 /** Ship-management cursor picking (free mouse → deck plane). */
 const _ndc = new THREE.Vector2();
