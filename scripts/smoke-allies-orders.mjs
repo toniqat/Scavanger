@@ -267,8 +267,10 @@ try {
       if (!item) return null;
       ctx.player.teleport(new V(at.x + 3, at.y, at.z));
       sys.request = null; sys.requestBlockedUntil = -Infinity; sys.watchUntil = -Infinity; sys.orderKind = null;
+      // counted by **this** def: the bag also holds whatever the crate step left in it, so a row count grows on its
+      // own and read green while the bandage was still on the ground (TODO E-14)
       const before = ctx.allies.getLoadout(id);
-      window.__itemsBefore = before ? before.items.length : 0;
+      window.__bandagesBefore = before ? before.items.filter((i) => i.defId === 'heal_bandage').reduce((n, i) => n + i.qty, 0) : 0;
       ctx.pickups.spawn(item, at);
       return { x: at.x, y: at.y, z: at.z };
     }, K.localId);
@@ -280,9 +282,18 @@ try {
       ok(became, 'state becomes pickup (the ping is a job, not a `건넬 만한 물건이 없다.` line)');
       const refused = await P(() => window.__ev['ally:chat'].some((c) => /건넬 만한/.test(c.text || '')));
       ok(!refused, 'it does not answer an item ping with the 「nothing to hand over」 line');
-      await waitSim(10);
+      // This seed drops the thing against a structure wall (174, −243), and there is no pathfinding: the android
+      // either finds its way round or gives up with one line after ALLY_JOB_GIVEUP_S — never shakes there holding
+      // the job (TODO E-14, 2026-09-21 user's decision 「지금 자리 유지」 · 「시한 후 포기 + 대사」).
+      await waitSim(12);
       const got = await info(K.localId);
-      ok(got.items.length > (await P(() => window.__itemsBefore)), `it picked the thing up (${JSON.stringify(got.items)})`);
+      const bandages = await P((id) => {
+        const l = window.__game.ctx.allies.getLoadout(id);
+        return l ? l.items.filter((i) => i.defId === 'heal_bandage').reduce((n, i) => n + i.qty, 0) : 0;
+      }, K.localId);
+      const picked = bandages > (await P(() => window.__bandagesBefore));
+      const gaveUp = await P(() => window.__ev['ally:chat'].some((c) => c.text === '거기까진 못 가겠다.'));
+      ok(picked || gaveUp, `it picked the thing up, or said it cannot reach it (picked ${picked}, gave up ${gaveUp})`, JSON.stringify(got.items));
       ok(got.task === null, 'the job is finished', JSON.stringify(got));
     }
   }

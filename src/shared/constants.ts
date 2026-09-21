@@ -2215,6 +2215,9 @@ export const ALLY_ENGAGE_DAMAGE_FRAC = K.num('ALLY_ENGAGE_DAMAGE_FRAC');
 export const ALLY_ENGAGE_MIN_M = K.num('ALLY_ENGAGE_MIN_M');
 /** Radius (m) of the crates picked up only while idle — a crate marked with a ping has no limit. */
 export const ALLY_IDLE_LOOT_M = K.num('ALLY_IDLE_LOOT_M');
+/** Giving up on a pinged crate · ground item that the distance to has stopped shrinking for (s), and the least closing (m) that counts. */
+export const ALLY_JOB_GIVEUP_S = K.num('ALLY_JOB_GIVEUP_S');
+export const ALLY_JOB_PROGRESS_M = K.num('ALLY_JOB_PROGRESS_M');
 /** Raid entry loading (owner: hub starts the fade to black · game `parts/LoadGate` · the ui ring gauge). */
 export const RAID_LOAD_FADE_OUT_S = K.num('RAID_LOAD_FADE_OUT_S');
 export const RAID_LOAD_FADE_IN_S = K.num('RAID_LOAD_FADE_IN_S');

@@ -96,9 +96,13 @@ export class Ally implements AllyBodyView {
    * search **walks** (`Roam.act` lowers it every frame).
    */
   running = false;
-  /** Stuck detection — after too long in the same spot it sidesteps. */
+  /**
+   * Stuck detection (`Nav.step`) — the time into the current window, the travel asked for inside it, and where the
+   * window started. Too little net travel against what was asked → it sidesteps.
+   */
   stuckT = 0;
-  readonly lastPos = new THREE.Vector3();
+  stuckWant = 0;
+  readonly stuckFrom = new THREE.Vector3();
   /** The sidestep direction (+1 right / −1 left) and the time left on it. */
   sideSign = 1;
   sideT = 0;
@@ -167,6 +171,14 @@ export class Ally implements AllyBodyView {
   lootTier = 1;
   lootTakeT = 0;
   pickupId: string | null = null;
+  /**
+   * Giving up on a crate · ground item it cannot reach (`parts/Loot.stalled`): the closest it has come to the target
+   * of this job, and how long since that last improved.
+   */
+  jobBestD = Infinity;
+  jobStallT = 0;
+  /** Containers it gave up on this raid — autonomous looting never picks one again (a fresh ping still may). */
+  readonly unreachable = new Set<string>();
 
   /* ── Load · extraction ── */
   /** It has already placed one extraction ping for 「조금 무거움」 (once per raid, never re-armed). */
@@ -218,6 +230,8 @@ export class Ally implements AllyBodyView {
     this.hasDest = false;
     this.running = false;
     this.stuckT = 0;
+    this.stuckWant = 0;
+    this.stuckFrom.copy(this.position);
     this.sideT = 0;
     this.hasRoamDest = false;
     this.hasRoamPoi = false;
@@ -248,6 +262,9 @@ export class Ally implements AllyBodyView {
     this.weightState = 'normal';
     this.weightT = 0;
     this.pickupId = null;
+    this.jobBestD = Infinity;
+    this.jobStallT = 0;
+    this.unreachable.clear();
     this.lightPingDone = false;
     this.heavyPingArmed = true;
     this.extractPadId = null;

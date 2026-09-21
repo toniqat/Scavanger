@@ -20,13 +20,13 @@ Design record: docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 
 | `parts/Spawn.ts` | Raid entry: reset, base kit, per-slot spawn offset, `ally:podDrop`, landing timer |
 | `parts/Fsm.ts` | One proposal per frame → reaction delay → transition; state dispatch; follow **or** roam (harness in/out); junk dropping |
 | `parts/Harness.ts` | Squad leader lookup and the harness radius (halves while the leader keeps one heading, ×`ALLY_LEAD_HARNESS_MUL` while 앞장서라 runs) |
-| `parts/Nav.ts` | Steering, obstacle avoidance, **2 m squad separation** (`separate`), **spread toward a person** (`spreadToward`), surface-before-collision movement, stuck sidestep, harness clamp |
+| `parts/Nav.ts` | Steering, obstacle avoidance, **2 m squad separation** (`separate`), **spread toward a person** (`spreadToward`), surface-before-collision movement, stuck sidestep (judged on net travel over a window, so shaking against a wall counts), harness clamp |
 | `parts/Roam.ts` | Free search inside the harness (`roam`): pick a structure / cover point of interest, give it up when another body already holds it, random patrol otherwise; walkable destination sampling and the look-around pause |
 | `parts/Combat.ts` | Sensing + line of sight (one query per frame), **per-weapon engage range** (`engageRangeOf`), the PC's enemy ping, cover via `pickCoverSpot` (skipped at contact range), bursts, friendly-fire guard, `applyAllyHit` |
 | `parts/Vitals.ts` | Shield → hp → downed → dead, hazard and planet-atmosphere ticks, revive, corpse call |
 | `parts/Commands.ts` | Pings / comms wheel / item requests → leader orders and the first-one-wins request, agreeing to a PC's enemy / extraction ping, 앞장서라 (`leadUntil`), requester queries |
 | `parts/Bag.ts` | Bound base kit (`ensureKit` in the ship · `clearKit` + `equipKit` per raid), weight, gear scoring and swapping, junk dropping, taking items |
-| `parts/Loot.ts` | Pinged crates first (no distance limit), autonomous looting only while idle and within `ALLY_IDLE_LOOT_M` (peek == take), ground pickups |
+| `parts/Loot.ts` | Pinged crates first (no distance limit), autonomous looting only while idle and within `ALLY_IDLE_LOOT_M` (peek == take), ground pickups, **giving up** on a target it stops closing on (`stalled`) |
 | `parts/Support.ts` | Handing an item over: ping, approach, wait for "stopped or looking", drop, ping again |
 | `parts/Extract.ts` | Pad search → ping → confirm → console press (or run to the **PC's extraction ping** after the 탈출 comms), boarding, the weight-driven extract ping, liftoff deposit |
 | `parts/Contract.ts` | Contract / NPC objective search inside the harness |
@@ -81,6 +81,11 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
   `보급 상자 (n등급)`. An `'item'` ping carries no id — a pickup is spawned and taken within seconds, so the **spot** is the
   target and one window (`parts/Loot` `PING_ITEM_MATCH_M`) answers both 「can anyone take this job」 (`Commands.canFulfil`) and
   「what is there now」 (`Loot.autoProposal`). A pinged job that cannot be done any more ends through `Commands.finishTask`.
+- **No pathfinding, so an unreachable loot target is given up** (2026-09-21, TODO E-14): when the distance to a crate · ground
+  item has not closed by `ALLY_JOB_PROGRESS_M` for `ALLY_JOB_GIVEUP_S` (`Loot.stalled`), a pinged job ends through
+  `Commands.finishTask` with `CHAT_KO.cantReach`, and an autonomous pick goes silently into `Ally.unreachable` for the raid (a
+  fresh ping may still send it there). A crate behind a wall whose door is far away is therefore out of reach by design until
+  shared pathfinding exists (TODO A-18).
 - Other folders' contract members are called with `?.`; a missing one degrades that behaviour only.
 - **Intended limits** (2026-09-16): solo (`/android` cheat, no relay) death still fails the raid at once even with an
   android standing (a real android is a relay bot member, so the wipe check takes the `isMultiplayer` branch); an
@@ -100,6 +105,9 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
 ## Recent changes
 
 Last 5 only — older: `git log -- src/allies`.
+- 2026-09-21 — TODO E-14: `Nav.step` judges 「stuck」 on net travel over the `STUCK_S` window (per-frame shaking against a wall
+  used to read as walking, so the sidestep never fired), and `Loot` gives up a crate · item it stops closing on
+  (`ALLY_JOB_GIVEUP_S` · `ALLY_JOB_PROGRESS_M`, line `거기까진 못 가겠다.`); the unused `Ally.lastPos` became `stuckFrom`.
 - 2026-09-19 — TODO B-59…B-62: comments matched to the code (instant-state count, `Extract` decision count, `running`, the corpse
   claim in `Loot`, `OBS_QUERY_M`, `Hub.place`, `Roster.refresh`); dead code removed (`Roster.isAlly` · `copyOf` · `snapshotItems` ·
   `myPeer`, `Spawn.localPeer`, `Sync.w2id`, two `void a` params, a false `void dt`); a **crate ping now carries the container id**
@@ -111,5 +119,3 @@ Last 5 only — older: `git log -- src/allies`.
 - 2026-09-16 — AI pass 2: `roam` free search · 2 m separation · spread · per-weapon engage range · contact-range firing fix ·
   move-ping oscillation fix · agreeing to a PC's enemy / extraction ping · 앞장서라 doubles the harness and expires ·
   pinged crates first · the base kit now exists in the ship.
-- 2026-09-15 — Full implementation: roster · ship poses · raid spawn · FSM · harness · nav · combat · vitals · commands ·
-  bag · loot · deliver · extract · contract · rescue · sync · `/android` cheat (replaces the contract stub).

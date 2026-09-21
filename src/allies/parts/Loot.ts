@@ -17,7 +17,8 @@
  */
 import type * as THREE from 'three';
 import {
-  ALLY_IDLE_LOOT_M, ALLY_LOOT_ITEM_S, ALLY_LOOT_REACH_M, ALLY_RUN_SPEED, ALLY_WALK_SPEED,
+  ALLY_IDLE_LOOT_M, ALLY_JOB_GIVEUP_S, ALLY_JOB_PROGRESS_M, ALLY_LOOT_ITEM_S, ALLY_LOOT_REACH_M, ALLY_RUN_SPEED,
+  ALLY_WALK_SPEED,
 } from '@/shared';
 import type { ItemInstance, LootContainerInfo } from '@/shared';
 import type { AllySystem } from '../AllySystem';
@@ -49,7 +50,7 @@ const PING_CRATE_MATCH_M = ALLY_LOOT_REACH_M * 4;
  */
 const PING_ITEM_MATCH_M = ALLY_LOOT_REACH_M * 3;
 
-export function onEnter(sys: AllySystem, a: Ally): void { a.lootTakeT = 0; void sys; }
+export function onEnter(sys: AllySystem, a: Ally): void { a.lootTakeT = 0; resetJob(a); void sys; }
 export function onExit(sys: AllySystem, a: Ally): void { a.lootTakeT = 0; void sys; }
 
 /**
@@ -67,7 +68,7 @@ export function autoProposal(sys: AllySystem, a: Ally): Proposal | null {
     const named = a.taskTargetId && containerOf(sys, a.taskTargetId) ? a.taskTargetId : null;
     const id = named ?? nearestContainerId(sys, a.taskAt);
     if (id) {
-      if (a.lootContainerId !== id) Ping.say(sys, a, CHAT_KO.agreeCrate);   // `Ping.say` blocks the repeat
+      if (a.lootContainerId !== id) { Ping.say(sys, a, CHAT_KO.agreeCrate); resetJob(a); }   // `Ping.say` blocks the repeat
       a.lootContainerId = id;
       return { state: 'loot', prio: PRIO.orderLoot };
     }
@@ -76,7 +77,11 @@ export function autoProposal(sys: AllySystem, a: Ally): Proposal | null {
   // An **item ping** (`taskDefId` null — `parts/Support` takes the hand-over kind, which always names a def).
   if (a.taskKind === 'item' && !a.taskDefId) {
     const p = sys.ctx.pickups?.findNear(a.taskAt, PING_ITEM_MATCH_M) ?? null;
-    if (p) { a.pickupId = p.id; return { state: 'pickup', prio: PRIO.orderLoot }; }
+    if (p) {
+      if (a.pickupId !== p.id) resetJob(a);
+      a.pickupId = p.id;
+      return { state: 'pickup', prio: PRIO.orderLoot };
+    }
     Commands.finishTask(sys, a);      // somebody else got there first
   }
   // ── autonomous looting — only while idle, only inside `ALLY_IDLE_LOOT_M` ──
@@ -88,6 +93,7 @@ export function autoProposal(sys: AllySystem, a: Ally): Proposal | null {
   a.lootScanT = LOOT_SCAN_S;
   const id = pickContainer(sys, a);
   if (!id) { a.lootContainerId = null; return null; }
+  if (a.lootContainerId !== id) resetJob(a);
   a.lootContainerId = id;
   return { state: 'loot', prio: PRIO.autoLoot };
 }
@@ -112,7 +118,17 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
   if (!info || sys.viewedContainers.has(info.id)) { a.lootContainerId = null; Nav.halt(a); return; }
   _v1.copy(info.position);
   const left = Nav.step(sys, a, _v1, ALLY_WALK_SPEED, dt);
-  if (left > ALLY_LOOT_REACH_M) return;
+  if (left > ALLY_LOOT_REACH_M) {
+    if (stalled(a, left, dt)) {
+      // An autonomous pick is dropped for the raid in silence; a pinged one is answered (`giveUp`).
+      a.unreachable.add(info.id);
+      a.lootContainerId = null;
+      if (a.taskKind === 'crate') giveUp(sys, a);
+      Nav.halt(a);
+    }
+    return;
+  }
+  resetJob(a);
   Nav.halt(a);
   a.lootTakeT -= dt;
   if (a.lootTakeT > 0) return;
@@ -128,12 +144,39 @@ function actPickup(sys: AllySystem, a: Ally, dt: number): void {
   if (!pk) { a.pickupId = null; a.taskKind = null; Nav.halt(a); return; }
   _v1.copy(pk.position);
   const left = Nav.step(sys, a, _v1, ALLY_RUN_SPEED, dt);
-  if (left > ALLY_LOOT_REACH_M) return;
+  if (left > ALLY_LOOT_REACH_M) {
+    if (stalled(a, left, dt)) { a.pickupId = null; giveUp(sys, a); Nav.halt(a); }
+    return;
+  }
   Nav.halt(a);
   const item = sys.ctx.pickups?.takeBy?.(pk.id, a.id) ?? null;
   if (item) Bag.take(sys, a, item);
   a.pickupId = null;
   a.taskKind = null;
+}
+
+/* ── giving up ───────────────────────────────────────────────────────────── */
+
+/**
+ * 「Can it still get there」 — true once the distance left has not closed by `ALLY_JOB_PROGRESS_M` for
+ * `ALLY_JOB_GIVEUP_S`. There is no pathfinding (`parts/Nav` header), so a crate · item behind a wall is simply out of
+ * reach; without this the body shook against that wall holding `taskKind` for the rest of the raid, and `isIdle`
+ * never came back true (2026-09-21 user's decision 「시한 후 포기 + 대사」, TODO E-14). Measured on the distance, not the
+ * movement: shaking in place moves a full step every frame and closes nothing.
+ */
+function stalled(a: Ally, left: number, dt: number): boolean {
+  if (left < a.jobBestD - ALLY_JOB_PROGRESS_M) { a.jobBestD = left; a.jobStallT = 0; return false; }
+  a.jobStallT += dt;
+  return a.jobStallT >= ALLY_JOB_GIVEUP_S;
+}
+
+function resetJob(a: Ally): void { a.jobBestD = Infinity; a.jobStallT = 0; }
+
+/** A pinged job it cannot reach: one line, and the job ends like any other (`Commands.finishTask`). */
+function giveUp(sys: AllySystem, a: Ally): void {
+  Ping.say(sys, a, CHAT_KO.cantReach);
+  Commands.finishTask(sys, a);
+  resetJob(a);
 }
 
 /* ── picking a crate ─────────────────────────────────────────────────────── */
@@ -160,6 +203,7 @@ function pickContainer(sys: AllySystem, a: Ally): string | null {
     // Already opened · already looked into — the same two gates `parts/Contract.find('container')` uses, so
     // 「is this container worth something」 reads the same in both places.
     if (c.opened || sys.viewedContainers.has(c.id)) continue;
+    if (a.unreachable.has(c.id)) continue;          // it already gave up walking to this one (`stalled`)
     if (dist2D(c.position, sys.leaderPos) > sys.harness) continue;
     const d = dist2D(a.position, c.position);
     if (d > ALLY_IDLE_LOOT_M) continue;

@@ -341,6 +341,8 @@ export function onHostChanged(sys: AllySystem, isLocalHost: boolean): void {
       a.pendingT = 0;
       a.statePrio = 0;
       a.stuckT = 0;
+      a.stuckWant = 0;
+      a.stuckFrom.copy(a.position);
       a.hasDest = false;
       a.targetEnemyId = null;
       if (!a.bag) {

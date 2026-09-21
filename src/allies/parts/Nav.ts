@@ -37,7 +37,7 @@ const OBS_REFRESH_S = 0.35;
  * (`OBS_REFRESH_S` at `ALLY_RUN_SPEED`).
  */
 const OBS_QUERY_M = 6;
-/** Staying in the same spot this long (s) counts as stuck, and it sidesteps. */
+/** The stuck window (s): covering under a quarter of the asked travel within it counts as stuck, and it sidesteps. */
 const STUCK_S = 0.8;
 /** How long a sidestep lasts (s). */
 const SIDE_S = 1.2;
@@ -110,19 +110,26 @@ export function step(
     _n2.set(nx, pos.y, nz);
   }
 
-  const moved = Math.hypot(_n2.x - pos.x, _n2.z - pos.z);
   a.velocity.set((_n2.x - pos.x) / dt, 0, (_n2.z - pos.z) / dt);
   pos.copy(_n2);
 
-  // stuck detection
-  if (moved < s * dt * 0.25) {
-    a.stuckT += dt;
-    if (a.stuckT > STUCK_S && a.sideT <= 0) {
+  // Stuck detection — judged on the **net** displacement over a `STUCK_S` window, never per frame. Pressed into a
+  // wall, avoidance and `resolveCollision` flip the step back and forth every frame: each frame moves a full step,
+  // so a per-frame test read it as walking and the sidestep never fired (TODO E-14 — the body shook 2.3 m from a
+  // pinged item for the rest of the raid). A body that slides along a wall still gets far from the anchor and is
+  // not stuck; one that arrives asks for less travel (`s` shrinks) and is not stuck either.
+  a.stuckT += dt;
+  a.stuckWant += s * dt;
+  if (a.stuckT >= STUCK_S) {
+    const net = Math.hypot(pos.x - a.stuckFrom.x, pos.z - a.stuckFrom.z);
+    if (net < a.stuckWant * 0.25 && a.sideT <= 0) {
       a.sideT = SIDE_S;
       a.sideSign = a.rand.next() < 0.5 ? -1 : 1;
-      a.stuckT = 0;
     }
-  } else a.stuckT = 0;
+    a.stuckFrom.copy(pos);
+    a.stuckT = 0;
+    a.stuckWant = 0;
+  }
 
   face(a, target, dt);
   const v = a.velocity.length();

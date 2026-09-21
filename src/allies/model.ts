@@ -80,6 +80,7 @@ export const CHAT_KO = {
   agreeEnemy: '적 확인. 요격한다.',
   agreeExtract: '그 탈출구로 간다.',
   agreeCrate: '그 상자를 확인한다.',
+  cantReach: '거기까진 못 가겠다.',
 } as const;
 
 /* ── Scratch (never reallocated per frame — CLAUDE.md §4.1) ──────────────────────────── */
