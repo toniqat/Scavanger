@@ -143,6 +143,21 @@ try {
     return added;
   }, { defId, qty });
   const costKey = (cost) => (cost ?? []).map((c) => `${c.defId}:${c.qty}`).join('|');
+  /* Feed a ship document through `net:profileLoaded` instead of writing it to localStorage and reloading (E-12):
+     `HousingSystem.onProfileLoaded` runs the same `ShipState.sanitize` a localStorage load runs (`loadState`), and a
+     retired-furniture refund lands in the same `pendingRefund` the next `update` pays out. The local-load path itself
+     stays covered by the persistence reload. Callers `save()` first: an edit still in the debounce wins over the
+     document (`editPending && isDirty` → flush, document ignored). A fake available profile stands in for
+     `ctx.net.profile` only for the emit (credits = the current balance, so meta keeps it); the real one is put back. */
+  const sanitizeViaServerDoc = (doc) => H((d) => {
+    const ctx = window.__game.ctx, net = ctx.net;
+    const credits = ctx.meta?.credits ?? 0;
+    const fake = { available: true, credits, docs: { ship: d }, sets: [], get(k) { return this.docs[k]; }, set(k, v) { this.sets.push(k); this.docs[k] = JSON.parse(JSON.stringify(v)); }, flush() {}, addCredits: async () => ({ ok: true, credits }) };
+    const desc = Object.getOwnPropertyDescriptor(net, 'profile') ?? null;
+    Object.defineProperty(net, 'profile', { value: fake, configurable: true, writable: true });
+    try { ctx.bus.emit('net:profileLoaded', { profile: { credits, docs: fake.docs, updatedAt: 0 }, migrated: false }); }
+    finally { if (desc) Object.defineProperty(net, 'profile', desc); else delete net.profile; }
+  }, doc);
 
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game, 'engine');
@@ -1206,11 +1221,10 @@ try {
     .reduce((m, f) => Math.max(m, Number(String(f.uid).split('-')[1]) || 0), 0));
   const next = await H(() => { const h = window.__game.ctx.housing; h.craftFurniture('furn_crate'); return h.place(6, 'furn_crate', 7, 7, 0); });
   ok(next && next.uid === `f-${topUid + 1}`, `uid counter continues after the highest persisted uid (${next?.uid}, 최고 f-${topUid})`);
-  // corrupt save → sanitised, not a crash (flush first so the unload flush does not overwrite the corrupt file)
+  // corrupt save → sanitised, not a crash (flush first so a pending edit does not win over the document).
+  // E-12: through `sanitizeViaServerDoc` (same `sanitize`) instead of a localStorage write + reload.
   await H(() => window.__game.ctx.housing.save());
-  await H(() => localStorage.setItem('scav.s1.ship', JSON.stringify({ version: 1, rooms: [{ purpose: 'lab', level: 9 }], generatorLevel: 99, furniture: [{ uid: 'x', defId: 'nope', room: 0 }, { uid: 'f-3', defId: 'furn_crate', room: 30, x: 99, y: -1, yaw: 7, level: 5 }, { uid: 'f-3', defId: 'furn_bench_gun', room: 1, x: 0, y: 0, yaw: 0, level: 1 }, { uid: 'f-3', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }, { uid: 'bad', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }], furnitureStorage: [{ defId: 'furn_locker', qty: 'a' }], presets: [{ name: 1, implant: 'bogus', implantItems: ['imp_strength_1', 7, null] }] })));
-  await page.reload({ waitUntil: 'load' });
-  await setup();
+  await sanitizeViaServerDoc({ version: 1, rooms: [{ purpose: 'lab', level: 9 }], generatorLevel: 99, furniture: [{ uid: 'x', defId: 'nope', room: 0 }, { uid: 'f-3', defId: 'furn_crate', room: 30, x: 99, y: -1, yaw: 7, level: 5 }, { uid: 'f-3', defId: 'furn_bench_gun', room: 1, x: 0, y: 0, yaw: 0, level: 1 }, { uid: 'f-3', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }, { uid: 'bad', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }], furnitureStorage: [{ defId: 'furn_locker', qty: 'a' }], presets: [{ name: 1, implant: 'bogus', implantItems: ['imp_strength_1', 7, null] }] });
   const san = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
   const sanStore = san.furnitureStorage.map((e) => e.defId).sort().join(',');
   /* 2026-09-07: no room-1 invariant any more. 2026-09-14 (user's decision — `NEEDS_GREENHOUSE` is empty):
@@ -1227,8 +1241,9 @@ try {
   /* ── The greenhouse rework (2026-09-11): a v3 save's old 재배층 **disappears and its materials come back** ──
      The `FurnitureDef.retired` contract: placed or in the furniture store alike, `ShipState.sanitize` sweeps that
      furniture out and refunds its `craft` materials into the stash. The v3 `plots` left beside it go with it (the
-     user's decision: the old is dropped). The debounce is flushed with `save()` before the save is seeded — a
-     pagehide flush overwriting the seeded file would make the check meaningless. */
+     user's decision: the old is dropped). The debounce is flushed with `save()` before the document is fed — a pending
+     edit would win over it and make the check meaningless. E-12: the seeded document goes through
+     `sanitizeViaServerDoc` (same `sanitize`, same `pendingRefund`) instead of a localStorage write + reload. */
   console.log('세이브 마이그레이션 (v3 옛 재배층 → 은퇴 + 환불)');
   const rackCraft = await H(() => (window.__game.ctx.housing.getFurnitureDef('furn_grow_rack')?.craft ?? []).map((c) => ({ defId: c.defId, qty: c.qty })));
   ok(rackCraft.length > 0, `옛 재배층의 제작 재료가 def 에 남아 있다 (환불의 근거) — ${JSON.stringify(rackCraft)}`);
@@ -1240,7 +1255,7 @@ try {
   const refundIds = rackCraft.map((c) => c.defId);
   const stashBeforeMig = await stashOf(refundIds);
   await H(() => window.__game.ctx.housing.save());
-  await H(() => {
+  await sanitizeViaServerDoc(await H(() => {
     const st = JSON.parse(localStorage.getItem('scav.s1.ship'));
     st.version = 3;                                   // v3 = before the greenhouse rework
     st.rooms[6] = { purpose: 'greenhouse', level: 1 };
@@ -1249,10 +1264,8 @@ try {
     st.furnitureStorage = [...(st.furnitureStorage ?? []), { defId: 'furn_grow_rack', level: 1, qty: 1 }];
     st.plots = [{ uid: 'f-700', slot: 0, seedDefId: 'seed_bloodroot', plantedAt: Date.now() - 1000, readyAt: Date.now() + 3600e3 }];
     delete st.grows;
-    localStorage.setItem('scav.s1.ship', JSON.stringify(st));
-  });
-  await page.reload({ waitUntil: 'load' });
-  await setup();
+    return st;
+  }));
   const mig = await H(() => {
     const h = window.__game.ctx.housing;
     return {
@@ -1263,8 +1276,7 @@ try {
       room6: h.getRoom(6).purpose,
     };
   });
-  // the refund lands on the **first frame** `ctx.inventory` exists (HousingSystem.update → flushRetiredRefund) —
-  // one frame is waited out
+  // the refund lands on the next `HousingSystem.update` (→ flushRetiredRefund) — one frame is waited out
   await waitFor(page, (want) => {
     const inv = window.__game.ctx.inventory;
     const items = typeof inv?.getStashItems === 'function' ? inv.getStashItems() : [];
@@ -1453,13 +1465,13 @@ try {
      each 용도 카드 carries its own 발전기 칩 (`buildFacilityChip`, `현재/필요`); the higher purposes print
      `발전기 레벨 N 필요 (현재 M)`. The 기본 지급품 covers the 작업실 **or** 발전기 Lv.2, so the 케이블 is topped up before Lv.2. */
   console.log('fresh ship → 작업실 → 발전기 Lv.2 from 시설 관리 (Phase 12 · 2026-09-13)');
-  // the run above left dirty ship / stash state that the debounced stores flush on pagehide — reload once so that
-  // flush lands, THEN clear the saves on the quiet page and reload again into a genuinely fresh profile
-  await page.reload({ waitUntil: 'load' });
-  await waitFor(page, () => !!window.__game && !!window.__game.ctx.housing, 'boot (flush)');
+  // the run above left dirty ship / stash state that the debounced stores flush on pagehide. E-12: one reboot — the
+  // old page's pagehide flush lands first, then a one-shot new-document script clears the saves before the game boots,
+  // so the new page starts from a genuinely fresh profile (the grant / empty-room checks below fail if the flush won).
   // `scav.s1.loadout` too: the `give()` calls above put materials in the **bag**, and `countDefAll` counts bag + stash
-  await page.evaluate(() => { for (const k of ['scav.s1.ship', 'scav.s1.stash', 'scav.s1.grant', 'scav.s1.loadout']) localStorage.removeItem(k); });
+  const wipe = await page.evaluateOnNewDocument(() => { for (const k of ['scav.s1.ship', 'scav.s1.stash', 'scav.s1.grant', 'scav.s1.loadout']) localStorage.removeItem(k); });
   await page.reload({ waitUntil: 'load' });
+  await page.removeScriptToEvaluateOnNewDocument(wipe.identifier);
   await setup();
   await H(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (fresh)');

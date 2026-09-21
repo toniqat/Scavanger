@@ -64,9 +64,9 @@ try {
   await quietViteHmr(page);   // another editor's save must not full-reload the page mid-run (scripts/quiet-hmr.mjs, C-65)
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  // fresh stash so the size checks start from the default grid
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); });
+  // fresh stash so the size checks start from the default grid.
+  // One boot (E-12): puppeteer starts every run on a throw-away profile dir, so localStorage is already empty here —
+  // the old goto → remove keys → goto only undid what that first boot had written itself.
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory, 'boot');
   const install = () => page.evaluate(() => {

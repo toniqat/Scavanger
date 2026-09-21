@@ -83,10 +83,11 @@ try {
   page.on('console', (m) => { if (m.type() === 'error' && !/WebSocket connection to .*\/ws/.test(m.text())) errors.push(m.text()); });
   const H = (fn, arg) => page.evaluate(fn, arg);
 
+  // One boot (E-12): puppeteer starts every run on a throw-away profile dir, so localStorage is already empty here.
+  // The old goto → remove ship / stash / grant → reload only undid what that first boot had written itself
+  // (measured 2026-09-21: the second boot then inherited just a session token · clockHigh · playerName · an unsent
+  // starter-stash queue entry, all content-identical to a first boot's).
   await page.goto(BASE, { waitUntil: 'load' });
-  await waitFor(page, () => !!window.__game, 'engine');
-  await page.evaluate(() => { for (const k of ['scav.s1.ship', 'scav.s1.stash', 'scav.s1.grant', 'scav.s1.meta']) localStorage.removeItem(k); });
-  await page.reload({ waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory && !!window.__game.ctx.housing && !!window.__game.ctx.loot && !!window.__game.ctx.meta, 'boot');
   await page.evaluate(() => {
     let lastRaf = performance.now();

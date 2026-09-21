@@ -64,6 +64,18 @@ try {
     // locks room purposes · crafting · the terminal · boarding in that order, so it is marked "already finished"
     // here (the tutorial itself is what scripts/smoke-tutorial.mjs checks).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step: null, done: true }, build: { step: null, done: true } } })); } catch { /* storage off */ }
+    // C-9 · X-8 (2026-09-11): seeds a versionless **old keybind blob** — `SWAP` (`이전 무기`) is an action that left
+    // the list, and `RELOAD=V` clashes with the new default `DIVE=V` (`구르기`). Boot has to collect the report, the
+    // title has to notify once, and the retired line then has to go. The clash stays in the blob, so section 2 sees
+    // it in the key-settings screen, sweeps it away with `초기화` and carries on with the original checks.
+    // E-12: planted before the **first** document only (a sessionStorage mark survives this tab's later navigations),
+    // so the section-3 reload still boots with whatever `초기화` left behind instead of the legacy blob again.
+    try {
+      if (!sessionStorage.getItem('smoke.kbSeeded')) {
+        sessionStorage.setItem('smoke.kbSeeded', '1');
+        localStorage.setItem('scav.keybinds', JSON.stringify({ SWAP: 'KeyX', RELOAD: 'KeyV' }));
+      }
+    } catch { /* storage off */ }
     window.__lockCalls = { req: 0, exit: 0 };
     window.__lockEl = null;
     Element.prototype.requestPointerLock = function () {
@@ -76,13 +88,9 @@ try {
   await quietViteHmr(page);   // another editor's save must not full-reload the page mid-run (scripts/quiet-hmr.mjs, C-65)
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));
-  // fresh profile / stash / bindings
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  // C-9 · X-8 (2026-09-11): seeds a versionless **old keybind blob** — `SWAP` (`이전 무기`) is an action that left
-  // the list, and `RELOAD=V` clashes with the new default `DIVE=V` (`구르기`). Boot has to collect the report, the
-  // title has to notify once, and the retired line then has to go. The clash stays in the blob, so section 2 sees
-  // it in the key-settings screen, sweeps it away with `초기화` and carries on with the original checks.
-  await page.evaluate(() => { localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); localStorage.setItem('scav.keybinds', JSON.stringify({ SWAP: 'KeyX', RELOAD: 'KeyV' })); });
+  // fresh profile / stash, the legacy bindings planted above. One boot (E-12): puppeteer starts every run on a
+  // throw-away profile dir, so localStorage is already empty — the old goto → remove keys → goto only undid what that
+  // first boot had written itself.
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await waitFor(page, () => !!window.__game?.ctx, 'engine boot');
 

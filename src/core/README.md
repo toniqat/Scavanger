@@ -34,7 +34,7 @@ settings reach the engine through `main.ts` (`ui:displayChanged`).
 - Called from `main.ts`: `setPostProcessing`, `setShadows`, `setResolutionScale` (on every `ui:displayChanged`).
 - Debug: `window.__game` is the Engine (`__game.lights`, `__game.shaders`, `__game.debugForcePerfGuard()`).
 
-Frame order (`Engine.frame`): dt clamp → `ctx.time` / `ctx.missionTime` → systems `update` → `lateUpdate` → FX pools →
+Frame order (`Engine.frame`): dt clamp (smoke clock: ≤ 4 sub-steps) → per step `ctx.time` / `ctx.missionTime` → systems `update` → `lateUpdate` → FX pools →
 indoor step → atmosphere → `shaders.update()` → `shaders.beforeRender()` → `outline.warm` → render (skipped while
 `shaders.holding`) → `input.endFrame()`.
 
@@ -51,6 +51,13 @@ indoor step → atmosphere → `shaders.update()` → `shaders.beforeRender()` �
   `player/Hellpod`, `game/parts/Leader`), and one frame with the count wrong is two recompiles — up and back. A
   cheaper exact recount would need a registry every light is created through, which is 11 call sites across seven
   folders and a check script; it has never been worth 0.14 ms. (2026-09-20 — `docs/PERF.md` perf Phase C · B3.)
+- **The smoke clock never runs for a player.** Under browser automation (`navigator.webdriver`, not the Electron UA, read
+  once at construction) a frame longer than `MAX_DT` is simulated as up to `SMOKE_MAX_SUBSTEPS` sub-steps of ≤ `MAX_DT`
+  and drawn once, so a smoke's game clock keeps pace with the wall clock below 20 fps (E-12 — that floor is what capped
+  the verify runner's lanes). No system ever sees a dt above `MAX_DT`; input edges are held for the **last**
+  sub-step (`Input.holdEdges`), so a press lands in exactly one — the one that is drawn; the perf guard judges the real frame. `__game.simWarp` (smoke
+  clock only) runs game time faster than wall time through the same sub-steps. In play one step, cut to `MAX_DT`, as
+  always. — `Engine.frame` / `simulate`
 - **Compile through `ctx.shaders`, never `renderer.compile` mid-update.** The program key's colour space / tone mapping
   comes from the bound render target; compiling while the canvas is bound builds variants that are never used. — `ShaderWarmup.warm`
 - A shader hold freezes simulation exactly like `game:paused {freeze}` (systems run with dt 0, `ctx.time` still flows);
@@ -94,8 +101,8 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 ## Recent changes
 
 Last 5 only — older: `git log -- src/core`.
+- 2026-09-21 — E-12 smoke clock: under `navigator.webdriver` a long frame is simulated in ≤ `MAX_DT` sub-steps (cap 4) and drawn once; `Engine.simulate` split out of `frame`, `simWarp` hook. Play is unchanged.
 - 2026-09-21 — Indoors is lifted locally: `Atmosphere.stepIndoor` scales the existing hemisphere fill and thins the fog over `INDOOR_LIGHT_FADE_S`, driven by `Engine`'s upward eye probe at a quarter of that fade. No light added, nothing on the wire.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-20 — `countVisiblePointLights` walks an explicit stack instead of `traverseVisible` and skips the padding group it already counts; `x:lightBudget` 0.156–0.157 → 0.132–0.142 ms/frame in S2. The count stays exact and per-frame — see the rule above for why a flag or an interval was rejected (`docs/PERF.md` perf Phase C · B3).
 - 2026-09-15 — `ShaderWarmup.holdFor(ready, timeoutS)` and `compileProgress` for the raid-entry loading gate.
-- 2026-09-12 — `outline.warm` runs even while a shader hold is active.

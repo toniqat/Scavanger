@@ -454,10 +454,51 @@ export class Input {
   /** Called by Engine at the end of every frame. */
   endFrame(): void {
     this.flushDeferredRelock();
+    this.clearEdges();
+  }
+
+  /**
+   * 2026-09-21 (E-12): forget this frame's edges (pressed / released) and accumulated deltas, keep what is held.
+   * `endFrame` = this + the deferred relock.
+   */
+  clearEdges(): void {
     this.pressed.clear(); this.released.clear();
     this.mousePressed.clear(); this.mouseReleased.clear();
     this.mouseDX = 0; this.mouseDY = 0; this.wheelDelta = 0;
   }
+
+  /**
+   * 2026-09-21 (E-12): hide this frame's edges and deltas until `releaseEdges`, keeping what is held. The engine
+   * wraps every sim sub-step but the **last** of one rendered frame in it (smoke clock only, `Engine.frame`), so a
+   * press, a click or a look delta is seen by exactly one sub-step — and by the one whose state is drawn: a shot
+   * fired in an earlier sub-step would leave the screen's crosshair (and aim sway) behind it. Handing the edges to
+   * the first sub-step instead failed `smoke-aim-sway`'s "shot lands on the rendered crosshair ray". Nested calls
+   * are not supported; input events cannot arrive in between (the frame is one synchronous task).
+   */
+  holdEdges(): void {
+    if (this.held) return;
+    this.held = {
+      pressed: this.pressed, released: this.released, mousePressed: this.mousePressed, mouseReleased: this.mouseReleased,
+      dx: this.mouseDX, dy: this.mouseDY, wheel: this.wheelDelta,
+    };
+    this.pressed = new Set(); this.released = new Set();
+    this.mousePressed = new Set(); this.mouseReleased = new Set();
+    this.mouseDX = 0; this.mouseDY = 0; this.wheelDelta = 0;
+  }
+
+  /** Puts back what `holdEdges` hid. */
+  releaseEdges(): void {
+    const h = this.held;
+    if (!h) return;
+    this.held = null;
+    this.pressed = h.pressed; this.released = h.released;
+    this.mousePressed = h.mousePressed; this.mouseReleased = h.mouseReleased;
+    this.mouseDX = h.dx; this.mouseDY = h.dy; this.wheelDelta = h.wheel;
+  }
+  private held: {
+    pressed: Set<string>; released: Set<string>; mousePressed: Set<number>; mouseReleased: Set<number>;
+    dx: number; dy: number; wheel: number;
+  } | null = null;
 
   /** Sends the deferred relock (the gate in `requestPointerLock` above) exactly once, on the first frame the conditions clear. */
   private flushDeferredRelock(): void {

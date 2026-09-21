@@ -13,7 +13,7 @@
  *   node scripts/verify.mjs --dry-run            # what the current change would run, and why — runs nothing
  *   node scripts/verify.mjs --help               # this text (an unknown option prints it too and runs nothing)
  *
- * Options: --jobs N (parallel Chrome instances, default 4 — 6 is faster but adds timing reds, see the note at `opts.jobs`;
+ * Options: --jobs N (parallel Chrome instances, default 4 — 6 is faster but adds load reds, see the note at `opts.jobs`;
  *          use 1–2 with SMOKE_GL=swiftshader, which is CPU-bound) · --serial · --base <git ref> (diff base for --changed,
  *          default = working tree vs HEAD, falling back to HEAD~1) · --build · --no-typecheck · --no-e2e ·
  *          --keep-relay (do not restart a relay already listening on 8787) · --url http://host:port/ · --timeout <min> ·
@@ -454,7 +454,16 @@ const opts = {
         **12 min 56 s**. But on 6 lanes the time under 20 fps grew from 210 s to 292 s, and three timing reds appeared that
         4 lanes never show (`smoke-ladder`'s climb speed · `smoke-tutorial-raid`'s HUD fade value · `smoke-rover`'s turret
         hit). So the default stays 4 — `--jobs 6` if you want it fast and are ready to re-check a red.
-     SMOKE_GL=swiftshader is CPU-bound, so give it `--jobs 1–2` by hand. */
+     SMOKE_GL=swiftshader is CPU-bound, so give it `--jobs 1–2` by hand.
+     2026-09-21 (E-12 ②) — the smoke clock (`src/core/Engine.ts` `SMOKE_MAX_SUBSTEPS`) keeps game time at wall time
+     below 20 fps, which is what the reds in ② were. Re-measured on the 28-thread i7-14700KF, full run: `--jobs 6`
+     **all green in 14 min 6 s**; `--jobs 8` 40 red in 15 min 21 s — mostly `page.goto` 30 s navigation timeouts (vite
+     serving eight module graphs of ~860 requests at once) plus `smoke-ladder` climb speed below 5 fps, where the
+     sub-step cap lets the clock fall behind again. Three more 6-lane full runs the same day (the machine shared with
+     other sessions' tests) went 14 · 5 · 6 red, each green on `--rerun-failed` or alone: wall-clock bars
+     (`smoke-nav` search ms), `smoke-raidflow`'s rider-on-deck gap (one `MAX_DT` of liftoff lag at ≤ 20 fps) and a
+     few one-frame UI reads. One green run in four is not a default — it stays 4; `--jobs 6` when you want the ~2 min
+     and are ready to re-run a red (TODO E-12). */
   jobs: has('--serial') ? 1 : Math.max(1, Number(val('--jobs', 4)) || 4),
   build: has('--build') || has('--all'),
   typecheck: !has('--no-typecheck'),

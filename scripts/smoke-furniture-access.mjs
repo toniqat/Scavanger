@@ -72,12 +72,13 @@ try {
   page.on('console', (m) => { if (m.type() === 'error' && !/WebSocket connection to .*\/ws/.test(m.text())) errors.push(m.text()); });
   const H = (fn, arg) => page.evaluate(fn, arg);
 
-  await page.goto(BASE, { waitUntil: 'load' });
-  await waitFor(page, () => !!window.__game, 'engine');
-
   /* ══ 0. An old layout → the furniture store ═══════════════════════════ */
   console.log('옛 배치 (v11 세이브) → 가구 창고');
-  await H(() => {
+  // One boot (E-12): the old save is planted before the **first** document instead of by a goto → write → reload — the
+  // run starts on a throw-away profile dir, so that first boot only existed to reach the origin's localStorage. The boot
+  // below is still the real load path under test. A sessionStorage mark keeps the plant to that one document.
+  await page.evaluateOnNewDocument(() => {
+    try { if (sessionStorage.getItem('smoke.v11Seeded')) return; sessionStorage.setItem('smoke.v11Seeded', '1'); } catch { return; }
     const now = Date.now();
     const rooms = ['workshop', 'greenhouse', 'gym', 'library', 'empty', 'empty', 'empty', 'empty'].map((p) => ({ purpose: p, level: p === 'empty' ? 0 : 1 }));
     const F = (uid, defId, room, x, y, yaw) => ({ uid, defId, room, x, y, yaw, level: 1 });
@@ -104,10 +105,8 @@ try {
       analyses: [], sampleDex: [], cultures: [], media: [], mediaDex: [], toggled: [], analysisXp: {}, analysisFound: [],
     };
     localStorage.setItem('scav.s1.ship', JSON.stringify(doc));
-    localStorage.removeItem('scav.s1.stash');
-    localStorage.removeItem('scav.s1.grant');
   });
-  await page.reload({ waitUntil: 'load' });
+  await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory && !!window.__game.ctx.housing && !!window.__game.ctx.loot, 'boot');
   await page.evaluate(() => {
     let lastRaf = performance.now();

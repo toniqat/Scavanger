@@ -17,7 +17,7 @@ runner options: `node scripts/verify.mjs --help`.
 | 4. Full | `npm run verify:all` | ~17 min | **Once at the end of a work session, and before a merge** — not per commit. An engine/bootstrap path or a wide `src/shared` change makes the runner go full by itself anyway (see below) |
 | 5. Release | Run `npm run app:dist` once → check by eye that `release/SCAVANGER/` holds **only** `app/` · `SCAVANGER.exe` · `server.txt` (three entries — builds ship no server) | ~3 min | When you touched `electron/` · `scripts/pack-release.mjs` (the shell and the deploy folder are checked automatically by `smoke-desktop`) |
 
-The runner starts vite and the relay itself (it restarts the relay before `e2e:mp`), runs smokes on 4 GPU lanes, and prints
+The runner starts vite and the relay itself (it restarts the relay before `e2e:mp`), runs smokes on 4 GPU lanes on the smoke clock (`src/core/README.md`), and prints
 one line per script plus the `FAIL` lines (full output in `scripts/logs/<name>.log`). On a machine without a GPU use
 `SMOKE_GL=swiftshader --jobs 1` (about 10× slower).
 
@@ -58,6 +58,8 @@ Read the log first when something fails — a check that fell out of a timing wi
 
 | Smoke | Symptom | Reason |
 |---|---|---|
+| `smoke-nav` | `seed N unreachable-goal search 28–54 ms` · `long open-ground search 30.8 ms` (213–214/215) | A **wall-clock** bar (`SEARCH_MS_MAX` 25 ms, `smoke-nav.mjs`) on one A\* search, measured with `performance.now()` inside a page that shares the CPU with five other lanes — the smoke clock does not touch it (it moves game time, not the search's own milliseconds). Red in two of three full 6-lane runs on 2026-09-21 and on each `--rerun-failed` that ran it beside other smokes; the graph answers themselves were right every time. A counter bar (nodes expanded) would settle it, but the search exposes none yet. Re-run alone — `--only smoke-nav` |
+| `smoke-phase4` | `a later shell landed (enemy:shellLanded radius undefined)` — `fired: 2, live: 1` (61/62) | The second artillery shell is still in the air when the smoke's `waitEv('enemy:shellLanded', 20)` runs out: cadence + flight time sit near the 20 game-second window, so it is on the edge whenever the page is loaded. Red in 3 of 5 full runs on 2026-09-21 (4 and 6 lanes, machine shared with other sessions' tests), green alone twice and in a 4-script A/B **with and without** the smoke clock. Re-run alone — `--only smoke-phase4` |
 | `smoke-phase3` | `FAIL laser ends after its duration  the raid ended first …` | While the orbital-laser window runs at `timeScale 4`, a bug that survived the clearing can kill the player; the raid ends and the call list is cleared, so `stratagem:ended` can never arrive. **Not a flake in the laser** — the payload names the real cause (`phase` · `dead` · the emptied `calls`), and a preceding check states whether the raid was still running when the section started. Until 2026-09-19 (B-31) this surfaced as a 60 s `timeout waiting for laser ended`, which said nothing; measured 2026-09-18 at `f23f444` it was red 3 / 3 with the logged state already `phase: "hub"` |
 | `smoke-rogue-v2` | grenade explosion timing · `no clear+flat spot found` | On rolls with no open, flat spot the rogue never sees the player — re-run alone (`--only`) |
 | `smoke-phase4` | bug↔rogue damage exchange | Faction-clash timing — the exchange does not always happen inside the watched window |

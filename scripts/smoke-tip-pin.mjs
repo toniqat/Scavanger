@@ -155,8 +155,8 @@ try {
 
   /* ── 0. fresh character + test items in the 창고 ─────────────────────────────────────────────────────────────── */
   console.log('setup');
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { for (const k of ['scav.s1.loadout', 'scav.s1.stash', 'scav.s1.grant', 'scav.s1.sessionToken']) localStorage.removeItem(k); });
+  // One boot (E-12): puppeteer starts every run on a throw-away profile dir, so localStorage is already empty here —
+  // the old goto → remove keys → goto only undid what that first boot had written itself. A first boot also mints a new relay identity.
   await page.goto(BASE, { waitUntil: 'load' });
   await boot();
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));

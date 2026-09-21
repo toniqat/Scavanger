@@ -122,8 +122,8 @@ try {
     };
   });
 
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.s1.loadout'); localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); localStorage.removeItem('scav.s1.profile'); });
+  // One boot (E-12): puppeteer starts every run on a throw-away profile dir, so localStorage is already empty here —
+  // the old goto → remove keys → goto only undid what that first boot had written itself.
   await page.goto(BASE, { waitUntil: 'load' });
   await boot();
   await enterHub();

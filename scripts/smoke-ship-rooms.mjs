@@ -58,10 +58,9 @@ try {
   await quietViteHmr(page);
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(BASE, { waitUntil: 'load' });
-  await waitFor(page, () => !!window.__game && !!window.__game.ctx.hub, 'boot');
-  // fresh ship state so room 0 starts empty
-  await page.evaluate(() => { try { localStorage.removeItem('scav.s1.ship'); } catch {} });
+  // fresh ship state so room 0 starts empty.
+  // One boot (E-12): puppeteer starts every run on a throw-away profile dir, so localStorage is already empty here —
+  // the old goto → remove keys → goto only undid what that first boot had written itself.
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.hub, 'boot (fresh ship state)');
   await page.evaluate(() => {

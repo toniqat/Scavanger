@@ -129,10 +129,11 @@ try {
     });
   };
 
+  // One boot (E-12): puppeteer starts every run on a throw-away profile dir, so localStorage is already empty here.
+  // The old goto → remove ship / stash / grant → reload only undid what that first boot had written itself
+  // (measured 2026-09-21: the second boot then inherited just a session token · clockHigh · playerName · an unsent
+  // starter-stash queue entry, all content-identical to a first boot's).
   await page.goto(BASE, { waitUntil: 'load' });
-  await waitFor(page, () => !!window.__game, 'engine');
-  await page.evaluate(() => { localStorage.removeItem('scav.s1.ship'); localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); });
-  await page.reload({ waitUntil: 'load' });
   await boot();
 
   /* ══ 1. The judges — with no screen ═════════════════════════════════ */

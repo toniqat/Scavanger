@@ -124,6 +124,10 @@ try {
   /* ── 1. 목표 미지정: state, terminal screen, launch-slot gate ─────────── */
   console.log('목표 미지정');
   await boot('fresh');
+  // E-12 (2026-09-21): this second boot is load-bearing — keep it. The first boot grants the starter stash (grant flag
+  // `pending`) and is never taken into the ship, so the second one starts as a player with a stash and an empty loadout:
+  // the first hub entry then hands out **no** starter kit (`InventorySystem` `firstRunGrant` stays false). A single boot
+  // gets the 기관단총 kit instead, and 4b's `noPrimary` warning finds a primary weapon.
   await page.evaluate(() => { try { localStorage.removeItem('scav.s1.planet'); } catch {} });
   await boot('no planet');
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));

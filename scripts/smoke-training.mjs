@@ -63,6 +63,10 @@ try {
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.hub, 'boot');
   // Phase 11: a launch slot refuses boarding while the ship has no target planet, so give this profile one up front
   // (the planet itself is `smoke-planets`' business; here it only has to be set so the READY-panel block can board).
+  // E-12 (2026-09-21): this second boot is load-bearing — keep it. The first boot grants the starter stash (grant flag
+  // `pending`) and is never taken into the ship, so the second one starts as a player with a stash and an empty loadout:
+  // the first hub entry then hands out **no** starter kit (`InventorySystem` `firstRunGrant` stays false). A single boot
+  // gets the 기관단총 kit instead, and section 3 never arms the 돌격소총 (measured: its check went red).
   await page.evaluate(() => { try { localStorage.removeItem('scav.s1.ship'); localStorage.removeItem('scav.s1.loadout'); localStorage.removeItem('scav.s1.training'); localStorage.setItem('scav.s1.planet', 'mossy'); } catch {} });
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.hub, 'boot (fresh ship state)');

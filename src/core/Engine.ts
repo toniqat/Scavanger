@@ -12,6 +12,38 @@ import { ShaderWarmup } from './ShaderWarmup';
 
 const MAX_DT = 0.05;
 
+/*
+ * 2026-09-21 (E-12) — the smoke clock. Every smoke waits on `ctx.time`, and in a real game a frame longer than
+ * `MAX_DT` is cut to it: below 20 fps the game clock falls behind the wall clock. That is right for a player (a
+ * hitch must not teleport bodies) but it is what capped the verify runner's lanes — at `--jobs 6` the pages dip
+ * under 20 fps and timing checks (`smoke-ladder` climb speed, `smoke-rover` turret hits) went red.
+ *
+ * Under the smoke clock a long frame is **not** cut: its time is simulated as several sub-steps of at most
+ * `MAX_DT` each (so no system ever sees a larger dt than it does in play), and the frame is still drawn once.
+ * `SMOKE_MAX_SUBSTEPS` caps the sub-steps so a frame that is slow *because* of the simulation cannot spiral —
+ * past it (under 5 fps) the clock falls behind again, exactly as in play.
+ *
+ * It is on **only** when the page runs under browser automation (`navigator.webdriver`, which puppeteer's Chrome
+ * sets and a player's browser never does) and never in the Electron shell (the user agent, read once — smokes that
+ * fake the shell with `window.__scavDesktop` keep the smoke clock). Read once at construction: the clock never
+ * changes mode mid-run.
+ */
+const SMOKE_MAX_SUBSTEPS = 4;
+/**
+ * E-12 ③ — smoke clock only: game seconds per wall second while a **solo** raid is in its `deploying` phase. Measured
+ * 2026-09-21: of one smoke boot's ~8 s, ~3.5 s is the hellpod falling (world generation is 0.3 s, the shader holds
+ * ~0.8 s), and 68 smokes start 112 raids. The drop is scenery to all but a handful of them, so it is fast-forwarded
+ * through the same ≤ `MAX_DT` sub-steps — 4× while frames stay ≤ `MAX_DT`, less below 20 fps where
+ * `SMOKE_MAX_SUBSTEPS` binds (the drop went 3.8 s → 2.0 s of wall time on one idle page). A squad (`ctx.net.lobby`)
+ * is left alone: its replicas are fed at wall-clock rate by the relay. A script that inspects the drop itself sets
+ * `__game.dropWarp = 1`.
+ */
+const SMOKE_DROP_WARP = 4;
+function smokeClockWanted(): boolean {
+  if (typeof navigator === 'undefined' || navigator.webdriver !== true) return false;
+  return !/\bElectron\//.test(navigator.userAgent);
+}
+
 /**
  * 2026-09-21 (indoor brightness): how often the roof probe is cast, derived from the crossfade rather than picked —
  * one probe per quarter of `INDOOR_LIGHT_FADE_S` means the state can never be more than a quarter of a fade late,
@@ -25,7 +57,8 @@ const _indoorEye = new THREE.Vector3();
 /**
  * Renderer / scene / camera owner and the main loop.
  *
- * Frame order: update(all systems) → lateUpdate(all) → FX pools → atmosphere → render → input.endFrame().
+ * Frame order: [update(all systems) → lateUpdate(all) → FX pools] × sub-steps (1 in play, see `SMOKE_MAX_SUBSTEPS`)
+ * → atmosphere → render → input.endFrame().
  * While `game:paused` is active systems still receive update/lateUpdate but with dt = 0.
  */
 export class Engine {
@@ -51,6 +84,15 @@ export class Engine {
   private started = false;
   private paused = false;
   private lastTime = 0;
+  /** E-12: the smoke clock (see `SMOKE_MAX_SUBSTEPS`) — fixed at construction. */
+  readonly smokeClock = smokeClockWanted();
+  /**
+   * E-12: smoke clock only — game seconds per wall second (a script opts in with `__game.simWarp = 2`). The warped
+   * frame is still cut into ≤ `MAX_DT` sub-steps, so a warp costs sub-steps, never a larger dt. Ignored (1) otherwise.
+   */
+  simWarp = 1;
+  /** E-12: smoke clock only — the warp during a solo drop (`SMOKE_DROP_WARP`); a script sets 1 to watch the drop at real speed. */
+  dropWarp = SMOKE_DROP_WARP;
   private rafId = 0;
   // perf guard
   private slowFrames = 0;
@@ -250,11 +292,59 @@ export class Engine {
 
   private frame(now: number): void {
     const ctx = this.ctx;
-    let dt = (now - this.lastTime) / 1000;
+    let real = (now - this.lastTime) / 1000;
     this.lastTime = now;
-    if (!(dt > 0)) dt = 0;
-    if (dt > MAX_DT) dt = MAX_DT;
+    if (!(real > 0)) real = 0;
+    // play: one step, cut to `MAX_DT`. Smoke clock: the whole (warped) frame, in ≤ `MAX_DT` sub-steps — see `SMOKE_MAX_SUBSTEPS`
+    let steps = 1;
+    let dt = Math.min(real, MAX_DT);
+    if (this.smokeClock) {
+      let warp = this.simWarp > 0 ? this.simWarp : 1;
+      if (ctx.phase === 'deploying' && !ctx.net?.lobby && this.dropWarp > 1) warp *= this.dropWarp;
+      const want = real * warp;
+      steps = Math.min(SMOKE_MAX_SUBSTEPS, Math.max(1, Math.ceil(want / MAX_DT - 1e-6)));
+      dt = Math.min(want, steps * MAX_DT) / steps;
+    }
 
+    // an edge belongs to the **last** sub-step only — the one that is drawn (`Input.holdEdges`); `endFrame` clears it below
+    if (steps > 1) ctx.input.holdEdges();
+    for (let i = 0; i < steps; i++) {
+      if (i === steps - 1) ctx.input.releaseEdges();
+      /* between sub-steps, do what the skipped render would have done: bring every `matrixWorld` up to date. Code that
+         reads `matrixWorld` / `localToWorld` without updating it (moving decks, attached riders) otherwise reads the
+         previous sub-step's transform (suspected in `smoke-raidflow`'s rider-on-deck gap, 0.35–0.38 m vs a 0.35 m bar). */
+      if (i > 0) this.scene.updateMatrixWorld();
+      this.simulate(dt);
+    }
+
+    this.stepIndoorLight(dt * steps);
+    this.atmosphere.update(ctx.time, this.camera, ctx.player ? ctx.player.position : null);
+
+    this.shaders.update();         // resolve warm-ups whose programs finished linking
+    this.shaders.beforeRender();   // light budget + a queued whole-scene warm-up (may start a hold)
+    // 2026-09-12: outlines — what each channel draws this frame (empty = pass off), programs linked for this scene state
+    this.outline.prepare();
+    const post = this.postEnabled && this.composer !== null;
+    // 2026-09-12: warm **before** the hold check — a bloom / shadow toggle starts a hold the same frame it changes the
+    // key, and warming only on drawn frames linked the new outline program right *after* the hold released
+    // (`smoke-lights` 블룸 토글: 133 → 134). `renderer.compile` only links (parallel), so it never blocks the hold.
+    this.outline.warm(this.renderer, this.camera, this.atmosphere.sun.castShadow, !post);
+    // while holding, the canvas keeps the last frame: drawing now would block on the very compile we are waiting for
+    if (!this.shaders.holding) {
+      if (post) this.composer!.render(dt * steps);
+      else {
+        this.renderer.render(this.scene, this.camera);
+        this.outline.renderDirect(this.renderer, dt * steps);   // bloom off: draw the outlines straight over the canvas
+      }
+    }
+
+    this.perfGuard(Math.min(real, MAX_DT));   // judged on the real frame time, sub-steps or not
+    ctx.input.endFrame();
+  }
+
+  /** One simulation step of `dt` game seconds: clocks → systems `update` → `lateUpdate` → FX pools. */
+  private simulate(dt: number): void {
+    const ctx = this.ctx;
     ctx.time += dt;
     // a shader hold freezes the simulation exactly like `game:paused {freeze}` (systems still run with dt 0)
     const frozen = this.paused || this.shaders.holding;
@@ -273,29 +363,6 @@ export class Engine {
     }
 
     this.fx.update(sdt, this.camera);
-    this.stepIndoorLight(dt);
-    this.atmosphere.update(ctx.time, this.camera, ctx.player ? ctx.player.position : null);
-
-    this.shaders.update();         // resolve warm-ups whose programs finished linking
-    this.shaders.beforeRender();   // light budget + a queued whole-scene warm-up (may start a hold)
-    // 2026-09-12: outlines — what each channel draws this frame (empty = pass off), programs linked for this scene state
-    this.outline.prepare();
-    const post = this.postEnabled && this.composer !== null;
-    // 2026-09-12: warm **before** the hold check — a bloom / shadow toggle starts a hold the same frame it changes the
-    // key, and warming only on drawn frames linked the new outline program right *after* the hold released
-    // (`smoke-lights` 블룸 토글: 133 → 134). `renderer.compile` only links (parallel), so it never blocks the hold.
-    this.outline.warm(this.renderer, this.camera, this.atmosphere.sun.castShadow, !post);
-    // while holding, the canvas keeps the last frame: drawing now would block on the very compile we are waiting for
-    if (!this.shaders.holding) {
-      if (post) this.composer!.render(dt);
-      else {
-        this.renderer.render(this.scene, this.camera);
-        this.outline.renderDirect(this.renderer, dt);   // bloom off: draw the outlines straight over the canvas
-      }
-    }
-
-    this.perfGuard(dt);
-    ctx.input.endFrame();
   }
 
   /* ── indoor brightness (2026-09-21, user's request 「레이드 실내가 어둡다」) ─────────────────────────────────

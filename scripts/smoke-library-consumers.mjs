@@ -116,8 +116,8 @@ try {
 
   /* ── 0. fresh character ─────────────────────────────────────────────────────────────────────────────────── */
   console.log('fresh profile');
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { for (const k of ['scav.s1.loadout', 'scav.s1.stash', 'scav.s1.grant', 'scav.s1.sessionToken']) localStorage.removeItem(k); });
+  // One boot (E-12): puppeteer starts every run on a throw-away profile dir, so localStorage is already empty here —
+  // the old goto → remove keys → goto only undid what that first boot had written itself. A first boot also mints a new relay identity.
   await reload();
   await enterHub();
   await sleep(1200);   // a relay welcome (if any) lands before we start editing

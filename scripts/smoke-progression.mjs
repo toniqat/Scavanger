@@ -112,6 +112,19 @@ try {
     const p = window.__game.ctx.progression;
     return { level: p.getSkill(s), progress: p.getSkillProgress(s), mul: p.getSkillGainMul(s) };
   }, id);
+  /* Feed an edited profile document through `net:profileLoaded` instead of writing it to localStorage and reloading
+     (E-12): `ProgressionSystem.onProfileLoaded` sanitises it with the same `Profile.migrate` a localStorage load runs
+     (`loadProfile`), so a migrate check reads the same result without paying a reboot. The local-load path itself stays
+     covered by the reloads this script keeps on purpose (pagehide flush, implant round-trip, gym, meal). A fake
+     available profile stands in for `ctx.net.profile` only for the emit; the real one is put back before returning. */
+  const migrateViaServerDoc = (doc) => page.evaluate((d) => {
+    const ctx = window.__game.ctx, net = ctx.net;
+    const fake = { available: true, credits: 0, docs: { progression: d }, sets: [], get(k) { return this.docs[k]; }, set(k, v) { this.sets.push(k); this.docs[k] = JSON.parse(JSON.stringify(v)); }, flush() {}, addCredits: async () => ({ ok: true, credits: 0 }) };
+    const desc = Object.getOwnPropertyDescriptor(net, 'profile') ?? null;
+    Object.defineProperty(net, 'profile', { value: fake, configurable: true, writable: true });
+    try { ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: fake.docs, updatedAt: 0 }, migrated: false }); }
+    finally { if (desc) Object.defineProperty(net, 'profile', desc); else delete net.profile; }
+  }, doc);
 
   await page.goto(BASE, { waitUntil: 'load' });
   await boot();
@@ -266,17 +279,16 @@ try {
   k = await skill('gun_AR');
   ok(k.level === 0, 'reload keeps the lowered skill level', JSON.stringify(k));
   // Legacy save: no statProgress, a stat below STAT_MIN and one progress out of range → migrated + clamped.
-  await page.evaluate((k) => {
+  // E-12: the edited saved blob goes through `migrateViaServerDoc` (same `migrate`) instead of a localStorage write + reload.
+  await migrateViaServerDoc(await page.evaluate((k) => {
     const raw = JSON.parse(localStorage.getItem(k));
     delete raw.statProgress;
     raw.stats.strength = 0;
     raw.stats.dexterity = 7;
     // 2026-09-13: a save from before 요리 · 연구 existed has neither skill
     delete raw.skills.cooking; delete raw.skills.research; delete raw.skillProgress.cooking; delete raw.skillProgress.research;
-    localStorage.setItem(k, JSON.stringify(raw));
-  }, key);
-  await page.reload({ waitUntil: 'load' });
-  await boot();
+    return raw;
+  }, key));
   const mig = await page.evaluate(() => {
     const p = window.__game.ctx.progression;
     return { str: p.getStat('strength'), dex: p.getStat('dexterity'), prog: p.profile.statProgress,
@@ -287,13 +299,11 @@ try {
   ok(mig.derived.cook === 0 && mig.derived.time === 1 && mig.derived.chance === 0 && near(mig.derived.frac, 0.2, 1e-9), 'derived at 요리 · 연구 0: cookScoreBonus 0, researchTimeMul 1, refund chance 0, refund share = RESEARCH_REFUND_FRAC_MIN', JSON.stringify(mig.derived));
   ok(mig.prog && Object.keys(mig.prog).length === 5 && Object.values(mig.prog).every((v) => v === 0), 'legacy save without statProgress migrates to zeros', JSON.stringify(mig));
   ok(mig.str === 1 && mig.dex === 7, 'migrate clamps stats to STAT_MIN..STAT_MAX (0 → 1, 7 kept)', JSON.stringify(mig));
-  await page.evaluate((k) => {
+  await migrateViaServerDoc(await page.evaluate((k) => {
     const raw = JSON.parse(localStorage.getItem(k));
     raw.statProgress = { strength: 5, dexterity: -2, perception: 0.4 };
-    localStorage.setItem(k, JSON.stringify(raw));
-  }, key);
-  await page.reload({ waitUntil: 'load' });
-  await boot();
+    return raw;
+  }, key));
   const mig2 = await page.evaluate(() => {
     const p = window.__game.ctx.progression;
     return { str: p.getStatProgress('strength'), dex: p.getStatProgress('dexterity'), per: p.getStatProgress('perception'), int: p.getStatProgress('intelligence') };
@@ -1018,18 +1028,25 @@ try {
   ok(await page.evaluate(() => window.__game.ctx.progression.implantSlotsUsed === 2), '가속 대사 재장착 (2 / 4칸)');
 
   console.log('임플란트 items: profile round-trip (reload)');
-  await page.evaluate(() => window.__game.ctx.progression.save());
+  // E-12: one reboot covers both the round-trip and the prune. The saved array's length is read right after save() (what
+  // `profile.implants saved` means), then unknown / malformed entries are appended to the stored blob so the same local
+  // load has to drop them. The save just ran, so the progression is clean and the pagehide flush does not overwrite them.
+  const savedImplants = await page.evaluate(() => {
+    window.__game.ctx.progression.save();
+    const raw = JSON.parse(localStorage.getItem('scav.s1.profile'));
+    const n = raw?.implants?.length;
+    // an unknown def id in the saved array is dropped silently
+    raw.implants.push({ uid: 'ghost-1', defId: 'imp_removed_99' }, { bogus: true }, { uid: '', defId: 'imp_strength_1' });
+    localStorage.setItem('scav.s1.profile', JSON.stringify(raw));
+    return n;
+  });
   await page.reload({ waitUntil: 'load' });
   await boot();
   const rt = await page.evaluate((uid) => {
     const p = window.__game.ctx.progression;
-    return { eq: p.getEquippedImplants().map((e) => e.defId), uid: p.getEquippedImplants()[0]?.uid, used: p.implantSlotsUsed, perk: p.derived.perks.quick_heal, dex: p.getImplantBonus('dexterity'), raw: JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null')?.implants?.length };
+    return { eq: p.getEquippedImplants().map((e) => e.defId), uid: p.getEquippedImplants()[0]?.uid, used: p.implantSlotsUsed, perk: p.derived.perks.quick_heal, dex: p.getImplantBonus('dexterity') };
   }, uQH);
-  ok(rt.eq.length === 1 && rt.eq[0] === 'imp_perk_quick_heal' && rt.uid === uQH && rt.used === 2 && rt.perk === true && rt.dex === 1 && rt.raw === 1, 'reload: 가속 대사 still equipped (same uid), perk + bonus re-derived, profile.implants saved', JSON.stringify(rt));
-  // an unknown def id in the saved array is dropped silently
-  await page.evaluate(() => { const raw = JSON.parse(localStorage.getItem('scav.s1.profile')); raw.implants.push({ uid: 'ghost-1', defId: 'imp_removed_99' }, { bogus: true }, { uid: '', defId: 'imp_strength_1' }); localStorage.setItem('scav.s1.profile', JSON.stringify(raw)); });
-  await page.reload({ waitUntil: 'load' });
-  await boot();
+  ok(rt.eq.length === 1 && rt.eq[0] === 'imp_perk_quick_heal' && rt.uid === uQH && rt.used === 2 && rt.perk === true && rt.dex === 1 && savedImplants === 1, 'reload: 가속 대사 still equipped (same uid), perk + bonus re-derived, profile.implants saved', JSON.stringify({ ...rt, savedImplants }));
   await sleep(100);
   const pruned = await page.evaluate(() => { const p = window.__game.ctx.progression; return { eq: p.getEquippedImplants().map((e) => e.defId), used: p.implantSlotsUsed }; });
   ok(pruned.eq.length === 1 && pruned.eq[0] === 'imp_perk_quick_heal' && pruned.used === 2, 'unknown / malformed entries in profile.implants are dropped on load', JSON.stringify(pruned));
@@ -1275,16 +1292,15 @@ try {
     'reload keeps 단련 (5 / 1), the stat bars and the live endurance debuff stamp', JSON.stringify({ rl, pre, liveUntil }));
   ok(near(rl.carry, g0.carry + 2.2 * 5, 1e-6) && near(rl.stam, g0.stam + 5, 1e-6), 'derived after reload includes 단련 (carry +11, stamina +5)', JSON.stringify(rl));
 
-  await page.evaluate(() => {
+  // E-12: the edited saved blob goes through `migrateViaServerDoc` (same `migrate`) instead of a localStorage write + reload.
+  await migrateViaServerDoc(await page.evaluate(() => {
     const raw = JSON.parse(localStorage.getItem('scav.s1.profile'));
     // 2026-09-13: perception · intelligence are gym stats now — dexterity / bogus are the keys migrate must drop
     raw.trained = { strength: 99.7, endurance: 2.6, perception: 4, dexterity: 3, bogus: 2 };
     raw.trainedProgress = { strength: 0.4, endurance: 7, perception: 0.5, dexterity: 0.3 };   // 2026-09-17: the retired map — dropped
     raw.gymFatigueUntil = { strength: 1000, endurance: 'x', perception: 1e12, dexterity: -5, intelligence: -1 };
-    localStorage.setItem('scav.s1.profile', JSON.stringify(raw));
-  });
-  await page.reload({ waitUntil: 'load' });
-  await boot();
+    return raw;
+  }));
   const mj = await page.evaluate(() => {
     const p = window.__game.ctx.progression;
     p.save();
@@ -1498,14 +1514,13 @@ try {
   ok(qc.active === null && qc.aq === 0 && Math.abs(qc.regen - qa.base.staminaRegenMul) < 1e-9 && Math.abs(qc.heal - qa.base.healPowerMul) < 1e-9
     && qc.ev?.activeQuality === 0 && qc.storedAq === 0 && qc.storedActive === null, 'clearActivePreps clears the active meal quality (derived back to base, saved)', JSON.stringify(qc));
 
-  await page.evaluate(() => {
+  // E-12: the edited saved blob goes through `migrateViaServerDoc` (same `migrate`) instead of a localStorage write + reload.
+  await migrateViaServerDoc(await page.evaluate(() => {
     const raw = JSON.parse(localStorage.getItem('scav.s1.profile'));
     raw.meal = null; raw.mealQuality = 3;
     raw.mealActive = 'meal_dumpling'; raw.mealActiveQuality = 9.6;
-    localStorage.setItem('scav.s1.profile', JSON.stringify(raw));
-  });
-  await page.reload({ waitUntil: 'load' });
-  await boot();
+    return raw;
+  }));
   const qg = await page.evaluate(() => {
     const p = window.__game.ctx.progression;
     return { mq: p.profile.mealQuality, aq: p.profile.mealActiveQuality, getQ: p.getMealQuality(), getAq: p.getActiveMealQuality() };

@@ -112,8 +112,8 @@ try {
 
   /* ── 0. fresh: no save → starter on the first hub entry ─────────────── */
   console.log('fresh save');
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.s1.loadout'); localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); });
+  // One boot (E-12): puppeteer starts every run on a throw-away profile dir, so localStorage is already empty here —
+  // the old goto → remove keys → goto only undid what that first boot had written itself.
   await reload();
   const beforeHub = await snapshot();
   ok(!beforeHub.slots.primary && beforeHub.bag.length === 0, 'no save: bag + slots empty before the first hub entry', JSON.stringify(beforeHub.slots));

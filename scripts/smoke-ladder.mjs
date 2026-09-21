@@ -51,7 +51,10 @@ const C = {
 };
 const k_GRAVITY = k('GRAVITY');
 const CLIMBING_BIT = 1 << 29;   // shared/net.ts PlayerFlags.CLIMBING
-const LADDER_H = 4;
+/* 2026-09-21 (E-12): 8 m, not 4. On the smoke clock a slow frame advances game time by up to 0.2 s, so every
+   `waitSim` can overshoot by that much; sections 3–4 climb ~3 m by plan and a 4 m ladder was reached before the
+   Shift+W window closed (speed 2.13 vs 4.6, and the top's null event fired early). Section 5 still climbs to the top. */
+const LADDER_H = 8;
 
 let pass = 0, fail = 0;
 const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok   ${label}`); } else { fail++; console.log(`  FAIL ${label} ${extra}`); } };

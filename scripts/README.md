@@ -321,7 +321,7 @@ after touching `damageSource.ts` is checked by restarting vite, not by debugging
 ### Runner options (`node scripts/verify.mjs --help`)
 
 - `--only a,b` · `--folders weapons,ui` · `--rerun-failed` (from `last-run.json`) · `--all` · `--list` · `--dry-run` (print the selection and why, run nothing).
-- `--jobs N` (default 4; 6 is faster but adds timing reds — see “Why the run takes as long as it does” below) · `--serial` · `--base <ref>` · `--build` · `--no-typecheck` · `--no-e2e` · `--url` · `--timeout <min>`.
+- `--jobs N` (default 4; 6 is faster but adds load reds — see “Why the run takes as long as it does” below) · `--serial` · `--base <ref>` · `--build` · `--no-typecheck` · `--no-e2e` · `--url` · `--timeout <min>`.
 - `--log-dir scripts/logs/<name>` gives each concurrent runner its own logs, `last-run.json` and `durations.json` (seeded from `scripts/logs/`); `--keep-relay` keeps a relay already on 8787.
 - A **red run copies the failing jobs' logs to `<log-dir>/failed/`** (with that run's `last-run.json`). `scripts/logs/<name>.log` is
   overwritten by the next run of that script, so re-running a failure by hand used to destroy the only evidence of it (E-13);
@@ -353,11 +353,30 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
   16-script · 4-lane set that ran 89·99·83·89 s → **141–157 s** → 59–64 s now runs 89·82·88·101 s → **64–84 s** → 56–60 s
   (5 min 6 s total, 16/16 green, no chrome process and no temp profile left behind).
 - The rest is **simulation time**. Smokes wait on `ctx.time`; pages run at ~55–60 fps on 4 lanes, so game time ≈ wall time.
-  `Engine.MAX_DT = 0.05` puts a **20 fps floor** under it: below 20 fps the game clock runs slower than the wall clock.
+  In play `Engine.MAX_DT = 0.05` puts a 20 fps floor under it (below it the game clock runs slower than the wall clock).
+  **Since 2026-09-21 (E-12) a smoke runs on the smoke clock** (`navigator.webdriver`, `src/core/README.md` Rules): a long
+  frame is simulated in up to 4 sub-steps of ≤ `MAX_DT` and drawn once, so the floor is ~5 fps, and a **solo hellpod drop
+  runs 4×** (`SMOKE_DROP_WARP`; a script that watches the drop sets `__game.dropWarp = 1`).
+- **Where one boot goes** (2026-09-21, one idle page, hub → raid → landed, ~8.4 s): Chrome launch 0.35 s · `page.goto` to
+  `load` 1.8 s (~860 module requests through vite) · hub 0.5 s · **`game:newMission` → `playing` 3.8 s, of which world
+  generation is 0.3 s and shader holds ~0.6 s — the rest is the hellpod falling** · landing to controls 0.9 s · close 0.5–0.8 s.
+  The drop warp takes the 3.8 s to 2.0 s. A profile copied from a warmed one (the GPU program cache) saved ~0.15 s of holds
+  and made `goto` 6× slower (10–12 s — the copied HTTP cache revalidating), so a template profile was **not** adopted.
+- **Reboots that only reset state were removed** (2026-09-21): no script passes `userDataDir`, so a run starts with empty
+  storage and the old “boot, delete keys, boot again” did nothing but cost a boot — gone from 18 scripts; `smoke-planets`
+  and `smoke-training` keep it because the second boot is a player with a stash and no loadout (no starter kit), which they
+  test. `smoke-progression` 10 → 5 loads and `smoke-housing` 7 → 4 read migrations through a fake server document +
+  `net:profileLoaded` (same `migrate` / `sanitize`), keeping one reload each on the local-load path. Every reload that is
+  itself under test (persistence, pagehide flush, resume, slot delete, retro grant) stays.
 - **The lane numbers are per machine.** The reds below are from the 8-core/16-thread box. Measured 2026-09-17 on the 28-thread
   i7-14700K: a 9-script pool at `--jobs 8` (`smoke-tutorial-raid` and `smoke-lights` included) passed with two `smoke-desktop`
   runs alongside it. Re-measure `--jobs` on the machine you run on instead of quoting a number from here.
-- **Lanes: 4 is the default, 6 is faster but less reliable.** `--jobs 6` = 12 min 56 s, with more time under 20 fps (292 s vs 210 s
+- **Lanes: 4 is still the default (2026-09-21).** With the smoke clock the full run on the 28-thread i7-14700KF was
+  all green once at `--jobs 6` in 14 min 6 s, then 14 · 5 · 6 red in three more 6-lane runs (the machine shared with
+  other sessions' tests) — each red green on `--rerun-failed` or alone: `smoke-nav`'s wall-clock search bar,
+  `smoke-raidflow`'s rider-on-deck gap (one `MAX_DT` of liftoff lag whenever frames drop to 20 fps), one-frame UI
+  reads. `--jobs 8` went 40 red, mostly `page.goto` 30 s navigation timeouts (vite serving eight module graphs at
+  once) — past 6 lanes the next limit is vite, not the frame rate. History, before the smoke clock: `--jobs 6` = 12 min 56 s, with more time under 20 fps (292 s vs 210 s
   over all pages) and three timing reds that 4 lanes do not show (`smoke-ladder` climb speed, `smoke-tutorial-raid` HUD fade value
   — that one was not a timing limit but a one-frame race in `ui`, fixed 2026-09-17 —,
   `smoke-rover` turret hit). The older "8 lanes is slower" result (18 min 30 s → 20 min 00 s) most likely included the close stall (its "groups finish in the same second" is that symptom),
@@ -369,8 +388,9 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
   this is worth ~65 s of a full run at 4 or 6 lanes, not more: the old pool was already within ~90 s of lane-seconds ÷ lanes.
   **What is left is the lane-seconds themselves** — only fewer simulated seconds or more lanes shorten the run now.
 - Before believing a slow run, re-run it; another app holding the fast cores slows the smoke Chromes for as long as it lasts.
-- To make the suite faster from here, cut the simulated seconds a smoke waits through (fewer full reboots — `smoke-raidflow` has 8 page
-  loads — and shorter scripted waits), or cut per-frame cost so more lanes stay above the 20 fps floor.
+- To make the suite faster from here: the per-boot cost left is `goto` (~1.8 s of module requests, which is also what stops
+  8 lanes) and the scripted waits. `smoke-raidflow`'s 8 loads are all under test; `smoke-tutorial`'s 4 old-save reloads
+  could go only through a new dev hook that re-runs `TutorialSystem.load` (not done — a `src` change for ~20 s).
 
 ## Decisions
 
