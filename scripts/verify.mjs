@@ -51,6 +51,9 @@ const isWin = process.platform === 'win32';
 // ─── Job catalogue ─────────────────────────────────────────────────────────────────────────────────────────────
 // `folders` = feature folders (src/<name>, or `server`) whose changes make this script relevant.
 // `standalone: true` = neither vite nor the relay is used, so the runner does not start them.
+// `lanes: N` = the script opens N browsers, so it runs in the pool holding N of the `--jobs` lanes (default 1).
+// `exclusive: true` = runs alone after the pool — kept only for what a pool would disturb (`freshRelay` quick-match
+//   lobbies) or what a pool disturbs (e2e-mp's 15 s waits).
 // When a smoke is added, also add its row to scripts/README.md.
 const SMOKES = {
   'smoke-weapons':      { file: 'scripts/smoke-weapons.mjs',      folders: ['weapons', 'items', 'inventory', 'hub', 'pickups', 'audio'] },
@@ -284,14 +287,14 @@ const SMOKES = {
      refused · the leader docking = an immediate fade / the member's countdown on the right → every open screen closed →
      docking · joining a public match alone · undocking moves only me · accepting an invite into a docked squad = the
      countdown · a private match alone. It starts its **own** relay on 8894 (the working tree's server/index.ts) — it does not
-     restart the shared 8787, so it is not freshRelay. Three browsers, so exclusive. */
-  'smoke-squad-dock':   { file: 'scripts/smoke-squad-dock.mjs',   folders: ['net', 'hub', 'server'], exclusive: true },
+     restart the shared 8787, so it is not freshRelay. Three browsers, so it takes three lanes of the pool (`lanes`). */
+  'smoke-squad-dock':   { file: 'scripts/smoke-squad-dock.mjs',   folders: ['net', 'hub', 'server'], lanes: 3 },
   /* 2026-09-15 (android squadmates): the bot lobby member's contract — `setAndroidBay` recruits three units (bot · bay ·
      ready · its own slot) · a bot is no person (`net:peerJoined` · no remote avatar) · a human joining sends the latest
      recruited unit back to its bay (`net:androidReturned` reaches the newcomer too) · a member gets not_host · a full squad
      gets full and the notice goes to the requester only · dismissal · a human leaving. It starts its **own** relay on 8896.
-     Two browsers, so exclusive. */
-  'smoke-android-lobby': { file: 'scripts/smoke-android-lobby.mjs', folders: ['net', 'server'], exclusive: true },
+     Two browsers, so it takes two lanes of the pool. */
+  'smoke-android-lobby': { file: 'scripts/smoke-android-lobby.mjs', folders: ['net', 'server'], lanes: 2 },
   /* 2026-09-15 (android squadmates — hub): the three cockpit bays (their places · the yaw facing the deck · `exit` · the
      capsule collider · `hub_android_<bay>` on a 3 s hold) · the prompts (recruit / dismiss · a non-leader is refused through
      the prompt) · the bot launch slot (ready with no avatar · an `is-bot` card · right click refused) · `getPodStandPose` ·
@@ -382,7 +385,9 @@ const SMOKES = {
      restart events fired **from inside** a frame. `hud/ChatLog` forced an 8.3 ms layout per line and stayed that way because
      this smoke did not exist. */
   'smoke-layout-reads': { file: 'scripts/smoke-layout-reads.mjs', folders: ['ui'] },
-  'smoke-desktop':      { file: 'scripts/smoke-desktop.mjs',      folders: [], standalone: true, exclusive: true },
+  /* Its own relay (9823) and ports, touching 8787 only to pipe to it — it passed beside an 8-lane pool on 2026-09-17.
+     Two lanes: one Electron page, plus the `vite build` it runs when `dist/` is stale. */
+  'smoke-desktop':      { file: 'scripts/smoke-desktop.mjs',      folders: [], standalone: true, lanes: 2 },
   'e2e-mp':             { file: 'scripts/e2e-multiplayer.mjs',    folders: ['net', 'server', 'game', 'extraction', 'hub', 'pickups', 'player', 'enemies'], exclusive: true, freshRelay: true },
 };
 // Anything under these paths touches the engine / bootstrap → run everything.
@@ -588,6 +593,89 @@ function select() {
   return { picked, reason };
 }
 
+// ─── Pool scheduling ───────────────────────────────────────────────────────────────────────────────────────────
+/* 2026-09-21 (E-12): the pool used to start scripts in `SMOKES` order, so the longest one (`smoke-raidflow`, 193 s) left
+   57th of 100 and the run ended on whatever happened to start last, while the three multi-browser scripts waited behind
+   the whole pool as exclusive jobs (~84 s alone). Now:
+   ① **longest first** — each script's last green duration is kept in `<log-dir>/durations.json` (not `last-run.json`,
+     which an `--only` run overwrites with a handful of rows). Unknown scripts count as the longest known, so a new or
+     renamed smoke starts early instead of becoming the tail.
+   ② **`lanes` weights** — a script that opens N browsers holds N lanes, so the number of Chromes rendering at once never
+     exceeds `--jobs`, which is what the old `exclusive` was protecting.
+   ③ **EASY backfill** — when the next script needs more lanes than are free, the moment enough lanes free up is predicted
+     from the running scripts' durations and reserved for it; a later script may jump ahead only if it leaves that
+     reservation intact (it ends before it, or fits in the lanes the reservation does not use). Plain first-fit would starve
+     a 3-lane script behind a stream of 1-lane ones until the pool ran dry.
+   Order never changes a script's result, only when it starts; the lane start ramp (`RAMP_BUDGET_MS`) still spaces the first
+   `--jobs` starts. */
+const DURATIONS_NAME = 'durations.json';
+function loadDurations() {
+  for (const dir of [LOG_DIR, resolve(ROOT, 'scripts/logs')]) {
+    try { return JSON.parse(readFileSync(resolve(dir, DURATIONS_NAME), 'utf8')); } catch { /* try the next place */ }
+  }
+  return {};
+}
+// Only green runs update a duration: a red one may have stopped early or hit the timeout, and either would skew the order.
+function saveDurations(rs) {
+  const d = loadDurations();
+  for (const r of rs) if (r.ok && SMOKES[r.name] && r.seconds > 0) d[r.name] = r.seconds;
+  try { writeFileSync(resolve(LOG_DIR, DURATIONS_NAME), JSON.stringify(d, null, 2)); } catch { /* ordering falls back to SMOKES order */ }
+}
+async function runPool(names, run) {
+  if (!names.length) return;
+  const known = loadDurations();
+  const longest = Math.max(60, ...Object.values(known).filter((v) => typeof v === 'number'));
+  const est = (n) => (typeof known[n] === 'number' ? known[n] : longest) * 1000;
+  const cap = opts.jobs;
+  const lanesOf = (n) => Math.min(cap, Math.max(1, SMOKES[n].lanes ?? 1));
+  // Stable sort: equal estimates (no record at all) keep the `SMOKES` order.
+  const queue = names.map((n, i) => ({ n, i })).sort((a, b) => est(b.n) - est(a.n) || a.i - b.i).map((x) => x.n);
+  const stagger = Math.max(1_000, Math.round(RAMP_BUDGET_MS / Math.max(1, cap)));
+  const t0 = Date.now();
+  const running = new Map(); // name → { lanes, end (predicted, ms) }
+  let used = 0, started = 0, wake = null;
+  const done = [];
+  const start = (n) => {
+    const lanes = lanesOf(n);
+    running.set(n, { lanes, end: Date.now() + est(n) });
+    used += lanes;
+    const slot = started++;
+    // The first `--jobs` starts keep the ramp: vite's warm-up must not meet every Chrome launch at once.
+    const delay = slot < cap ? Math.max(0, t0 + slot * stagger - Date.now()) : 0;
+    done.push((async () => {
+      if (delay) await sleep(delay);
+      running.get(n).end = Date.now() + est(n);
+      try { await run(n); } finally { running.delete(n); used -= lanes; wake?.(); }
+    })());
+  };
+  while (queue.length) {
+    const free = cap - used;
+    const head = lanesOf(queue[0]);
+    if (head <= free) { start(queue.shift()); continue; }
+    // Reservation for the head: the predicted time enough lanes are free, and how many lanes are spare at that time.
+    const now = Date.now();
+    const ends = [...running.values()].map((r) => ({ lanes: r.lanes, end: Math.max(now, r.end) })).sort((a, b) => a.end - b.end);
+    let avail = free, shadow = now;
+    for (const r of ends) { if (avail >= head) break; avail += r.lanes; shadow = r.end; }
+    let spare = avail - head;
+    let backfilled = false;
+    for (let k = 1; k < queue.length; k++) {
+      const n = queue[k], l = lanesOf(n);
+      if (l > cap - used) continue;
+      const endsBefore = now + est(n) <= shadow;
+      if (!endsBefore && l > spare) continue;
+      if (!endsBefore) spare -= l;
+      queue.splice(k--, 1);
+      start(n);
+      backfilled = true;
+    }
+    if (backfilled) continue;
+    await new Promise((r) => { wake = r; });
+    wake = null;
+  }
+  await Promise.all(done);
+}
+
 // ─── Process helpers ───────────────────────────────────────────────────────────────────────────────────────────
 const children = new Set();
 function npmRun(script, logName, extraEnv = {}) {
@@ -766,17 +854,14 @@ try {
       else console.log(`  vite already up (${opts.url})`);
     }
 
-    // 3. Smokes in a pool; exclusive jobs afterwards, one at a time.
+    // 3. Smokes in a pool (longest first, `lanes` weights, EASY backfill); exclusive jobs afterwards, one at a time.
     const pool = picked.filter((n) => !SMOKES[n].exclusive);
     const solo = picked.filter((n) => SMOKES[n].exclusive);
     const runSmoke = async (name) => {
       const s = summarize(name, await runCapture(process.execPath, [...(SMOKES[name].nodeArgs ?? []), SMOKES[name].file, opts.url], name));
       results.push(s); report(s);
     };
-    let next = 0;
-    const stagger = Math.max(1_000, Math.round(RAMP_BUDGET_MS / Math.max(1, opts.jobs)));
-    const lane = async (i) => { await sleep(i * stagger); while (next < pool.length) await runSmoke(pool[next++]); };
-    await Promise.all(Array.from({ length: Math.min(opts.jobs, pool.length) }, (_, i) => lane(i)));
+    await runPool(pool, runSmoke);
     for (const name of solo) await runSmoke(name);
   }
   await Promise.all(slow);
@@ -796,6 +881,7 @@ console.log(`docs line: ${new Date().toISOString().slice(0, 10)}: ${line}`);
 if (failed.length) console.log('re-run only the failures: node scripts/verify.mjs --rerun-failed');
 const record = { time: new Date().toISOString(), totalSeconds: total, results };
 writeFileSync(LAST_RUN, JSON.stringify(record, null, 2));
+saveDurations(results);
 /* 2026-09-17 (E-13): a red job's logs are copied into `failed/`. A failed run's log was always overwritten under the same
    file name by the next run — the 「let me run that one on its own」 one — and when that re-run was green the evidence
    vanished entirely (that is how E-13's three failures of 2026-09-16 were lost). This copy is overwritten only by **the next

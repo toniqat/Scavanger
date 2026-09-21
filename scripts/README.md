@@ -31,7 +31,7 @@ each script's header comment — read it before editing a smoke.
 ## Smokes
 
 Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the script). Flags: **S** standalone (no vite/relay),
-**X** exclusive (runs alone), **R** fresh relay.
+**X** exclusive (runs alone after the pool), **R** fresh relay, **Ln** holds n pool lanes (n browsers).
 
 | Script | Folders | Checks |
 |---|---|---|
@@ -43,7 +43,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-allies-orders.mjs` | allies | Android orders: leader move / caution pings, first-request-wins + `ALLY_REQUEST_COOLDOWN_S`, the "I have none" chat line, heal delivery (ping → approach → drop while the requester stands still), crate looting by the ping's **`containerId`** that stops when a player opens the box, an item ping → ground pickup, extract ping → second call → console press |
 | `smoke-ally-ui.mjs` | ui, allies | Android HUD from a fake `ctx.allies` (`hud.debugAllies`) + bus events: squad rows (badge, shield, bots never drawn as human rows), nameplates, compass ticks, map legend, `ally:ping` marker / callout / `ping:placedV3`, `ally:chat` never relayed, the seven toasts, and the raid-entry loading gauge (above the black plate, `squad` fill, spins at dt 0, hides on release) |
 | `smoke-android-bays.mjs` | hub | Cockpit android bays without a relay lobby (`HubSystem.debugSharedShip`): 3 capsules (bridge half, facing the deck, one-step `exit`, solid collider), `hub_android_<bay>` with the 3 s hold, recruit / dismiss prompts and the leader refusal shown as the prompt, a bot pod seated and ready with an `is-bot` ready cell (no crew-loadout popup), `getPodStandPose`, the match tab's android tile and crew counts, and the raid-entry fade (`ui:screenFade {1, hold}` + `raid:loadBegin` → launch only after `RAID_LOAD_FADE_OUT_S`, un-readying no longer cancels) |
-| `smoke-android-lobby.mjs` | net, server · X (own relay on 8896) | Two clients: `setAndroidBay` recruits bot lobby members (bot · bay · ready · own slot), androids are no peers (no `net:peerJoined`, no remote ref), a human joining evicts the latest one (`net:androidReturned human_joined` — the newcomer too), member `not_host`, a full squad `full` + the notice to the requester only, dismissal, human leave |
+| `smoke-android-lobby.mjs` | net, server · L2 (own relay on 9896) | Two clients: `setAndroidBay` recruits bot lobby members (bot · bay · ready · own slot), androids are no peers (no `net:peerJoined`, no remote ref), a human joining evicts the latest one (`net:androidReturned human_joined` — the newcomer too), member `not_host`, a full squad `full` + the notice to the requester only, dismissal, human leave |
 | `smoke-ballistics.mjs` | weapons, items | Swept projectiles with drop, no tunnelling, distance falloff, laser sight, extended barrel |
 | `smoke-buffs.mjs` | ui, player, net | Buff strip under PC vitals (ship + raid) and squad rows, dimmed pending buffs, `cbuf` sync |
 | `smoke-blast-occlusion.mjs` | enemies, weapons, gadgets, stratagems | Explosions and melee stop at walls, roofs and floors: 3-point body sample on floating boxes, then real paths (enemy `explode`, shell → player, enemy `hitTarget`, player melee) with and without a wall |
@@ -52,7 +52,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-console.mjs` | console, progression, inventory, player, hub | Dev-host gating, toggle, suggestions, history, commands, Home move cheat, Esc capture |
 | `smoke-controls-hub.mjs` | ui, hub, inventory, implants, progression, player, net | Controls diagram + rebinding, hub Tab ship screen, terminal, implant gauge / wielded shield |
 | `smoke-cooking.mjs` | housing, inventory, progression, hub, player | Six cooking judges headless, cooking flow, dining-table gate, dining plates (replace warning, eat without consuming, shared-table squad plates, launch warning, raid-start clear), bench screen |
-| `smoke-desktop.mjs` | — · S X (via `EXTRA_PATHS`) | Real Electron against a relay it starts itself: boot, no relay code / relay port in the shell, `--relay` · `--local` (this PC's 8787) · `server.txt` targets, save = window port, single instance; `--release` checks the 3-entry release folder and the asar |
+| `smoke-desktop.mjs` | — · S L2 (via `EXTRA_PATHS`) | Real Electron against a relay it starts itself: boot, no relay code / relay port in the shell, `--relay` · `--local` (this PC's 8787) · `server.txt` targets, save = window port, single instance; `--release` checks the 3-entry release folder and the asar |
 | `smoke-drone-scan.mjs` | gadgets, inventory | Ground-drone scan aim, 3 s hold gauge, best-grade label matches the real roll |
 | `smoke-ecology.mjs` | world, enemies, items | Per-planet biome, gather weights/density, enemy compositions |
 | `smoke-enemy-alert.mjs` | enemies, implants, weapons | Bullet tracking (`reportShot` → watch → advance), `shotq` forwarding, barrier blocking |
@@ -114,7 +114,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-ship-rooms.mjs` | hub, housing | Personal ship cockpit + rooms, room tracking, 3D housing mode |
 | `smoke-site-spawns.mjs` | world, enemies | `getSiteSpawnPoints` / `getRuinSites` return reachable, clear points |
 | `smoke-social.mjs` | ui, net | ESC social screen, profile cards, context menu (분대 초대 gate), friends, blocks, private chat |
-| `smoke-squad-dock.mjs` | net, hub, server · X (own relay on 8894) | Three clients: invite → undocked squad in personal ships (no hub snapshots), pod / training locks, member dock refused, leader fade vs member countdown → everything closed → dock, lone public join, 도킹 해제 only me, invite into a docked ship, lone private dock |
+| `smoke-squad-dock.mjs` | net, hub, server · L3 (own relay on 9894) | Three clients: invite → undocked squad in personal ships (no hub snapshots), pod / training locks, member dock refused, leader fade vs member countdown → everything closed → dock, lone public join, 도킹 해제 only me, invite into a docked ship, lone private dock |
 | `smoke-stations.mjs` | housing, inventory, items | Shared station frame, upgrade modal hold, timers, harvest/delivery |
 | `smoke-stratagems.mjs` | stratagems, world | G tap/wheel, ground + top-view targeting, call effects |
 | `smoke-structure-reach.mjs` | world | Body-radius flood fill reaches rooms, stairs, upper floor, ladders, basement door |
@@ -322,7 +322,7 @@ after touching `damageSource.ts` is checked by restarting vite, not by debugging
 
 - `--only a,b` · `--folders weapons,ui` · `--rerun-failed` (from `last-run.json`) · `--all` · `--list` · `--dry-run` (print the selection and why, run nothing).
 - `--jobs N` (default 4; 6 is faster but adds timing reds — see “Why the run takes as long as it does” below) · `--serial` · `--base <ref>` · `--build` · `--no-typecheck` · `--no-e2e` · `--url` · `--timeout <min>`.
-- `--log-dir scripts/logs/<name>` gives each concurrent runner its own logs and `last-run.json`; `--keep-relay` keeps a relay already on 8787.
+- `--log-dir scripts/logs/<name>` gives each concurrent runner its own logs, `last-run.json` and `durations.json` (seeded from `scripts/logs/`); `--keep-relay` keeps a relay already on 8787.
 - A **red run copies the failing jobs' logs to `<log-dir>/failed/`** (with that run's `last-run.json`). `scripts/logs/<name>.log` is
   overwritten by the next run of that script, so re-running a failure by hand used to destroy the only evidence of it (E-13);
   the copy is replaced only by the next **red** run.
@@ -362,8 +362,12 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
   — that one was not a timing limit but a one-frame race in `ui`, fixed 2026-09-17 —,
   `smoke-rover` turret hit). The older "8 lanes is slower" result (18 min 30 s → 20 min 00 s) most likely included the close stall (its "groups finish in the same second" is that symptom),
   which grows with lane count — do not quote it as the frame-rate limit.
-- The exclusive scripts run one at a time after the pool (~3.5 min: `smoke-hangar` · `smoke-squad-dock` · `smoke-android-lobby` ·
-  `smoke-desktop` · `e2e-mp`).
+- **The pool starts the longest script first** (last green durations in `<log-dir>/durations.json`, unknown = longest) and a
+  multi-browser script holds one lane per browser (`lanes`), with EASY backfill so a 3-lane script is never starved — the
+  comment above `runPool`. Only `smoke-hangar` and `e2e-mp` still run alone after the pool (~1.7 min; before 2026-09-21
+  `smoke-squad-dock` · `smoke-android-lobby` · `smoke-desktop` joined them, ~3.2 min). Replaying the recorded durations
+  this is worth ~65 s of a full run at 4 or 6 lanes, not more: the old pool was already within ~90 s of lane-seconds ÷ lanes.
+  **What is left is the lane-seconds themselves** — only fewer simulated seconds or more lanes shorten the run now.
 - Before believing a slow run, re-run it; another app holding the fast cores slows the smoke Chromes for as long as it lasts.
 - To make the suite faster from here, cut the simulated seconds a smoke waits through (fewer full reboots — `smoke-raidflow` has 8 page
   loads — and shorter scripted waits), or cut per-frame cost so more lanes stay above the 20 fps floor.
@@ -381,16 +385,8 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-21 — `verify.mjs` pool: longest first from `durations.json`, `lanes` weights with EASY backfill; `smoke-squad-dock` (L3) · `smoke-android-lobby` (L2) · `smoke-desktop` (L2) left the exclusive tail (E-12).
 - 2026-09-21 — 「Known gaps in the net」 gained five: everything the rover gained that day (hit zones · hostility · wreck crates), the ceiling turret, the planet-independence of a key drop, and `check-planet-loot`'s two pre-existing reds. `check-planet-loot` and `smoke-structure-reach` now match key **families** instead of two fixed ids.
 - 2026-09-21 — 「Known gaps in the net」 rewritten where the tree moved: the rover turret check now stands on `rover:fired.targetId` (B-73, the `private` reach is gone), `check-comment-labels` drops a csv's `#` lines so they can no longer justify a near miss elsewhere (B-74, the remaining half is a typo written *into* a csv comment), and a new bullet names the `dev:all` teardown that turned a `verify:all` into 91 reds — `killPort(8787)` takes the adopted vite with it, because `dev-all.mjs` stops both children when either exits.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, csv names and decision headings kept verbatim in backticks / 「」, no string literal touched — a smoke's Korean check names and `console.log` lines are program output and are all unchanged.
 - 2026-09-20 — `docs/PERF_PLAN.md` is gone: the perf record lives in `docs/PERF.md`, and every pointer here and in `verify.mjs` · `smoke-layout-reads.mjs` · `perf-measure.mjs` moved with it. The harness itself is unchanged — its last run was the `--display scale` A/B that closed the plan's one open measurement.
-- 2026-09-19 — `smoke-allies-orders`: `window.__ping` gained `containerId` (crate pings name their container by id, not by
-  the display label), the crate step asserts the android latched onto **that** container, and a new step 6b covers the item
-  ping → ground pickup path that had never been exercised (TODO B-61).
-- 2026-09-17 — `closeBrowser` no longer waits on a stuck `browser.close()` (5 s, then it deletes the temp profile itself) and `verify.mjs` sweeps stale profiles: the middle group of a 4-lane run no longer runs at 2× (E-12).
-- 2026-09-17 — 「Known gaps in the net」 collects what nothing checks (moved out of `docs/TODO.md`); `smoke-tutorial-raid` is mapped to `ui` as well — its liftoff HUD frames are ui's.
-- 2026-09-17 — `verify.mjs` keeps a red run's logs in `<log-dir>/failed/`; `smoke-desktop` says **why** a boot timed out (listening
-  pids, process alive, last fetch error, and whether the port comes up late at all) and notes any boot slower than 3 s (E-13).
-- 2026-09-16 — New `close-browser.mjs`; every smoke and `e2e-mp` closes Chrome through `closeBrowser` (kills the process tree first) — `verify:all` 26 min 46 s → 16 min 40 s on this machine.
-- 2026-09-16 — `verify.mjs`: a `src/shared` change no longer selects everything by itself — narrow ones pick the folders that use the changed exports (`sharedConsumers`); new `--dry-run`.
