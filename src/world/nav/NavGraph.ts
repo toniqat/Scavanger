@@ -96,6 +96,8 @@ export class NavGraph implements NavRef {
   heapId = new Int32Array(4096);
   heapF = new Float32Array(4096);
   heapN = 0;
+  /** Nodes the last `findPath` expanded (debug / smokes: a search's cost as a count, not a timer). */
+  lastExpanded = 0;
   /** Node ids of the last reconstructed path, start first. */
   readonly trail: number[] = [];
 
@@ -178,8 +180,8 @@ export class NavGraph implements NavRef {
   /** Debug / smokes: counts, the last bake's timings and the flow fields' build cost. */
   debugInfo(): {
     ready: boolean; total: number; regions: number; links: number; revision: number; bakeMs: number; linksMs: number; gatesMs: number;
-    gates: number; special: LinkCounts;
-    flow: { live: number; building: boolean; builds: number; lastMs: number; avgMs: number; maxMs: number; lastNodes: number; lastFrames: number; lastBytes: number };
+    gates: number; special: LinkCounts; search: { lastExpanded: number };
+    flow: { live: number; building: boolean; builds: number; lastMs: number; avgMs: number; maxMs: number; lastNodes: number; lastPops: number; maxPops: number; lastFrames: number; lastBytes: number };
   } {
     let links = 0;
     for (const l of this.links.values()) links += l.length;
@@ -187,11 +189,11 @@ export class NavGraph implements NavRef {
     return {
       ready: this.ready, total: this.total, regions: this.regions.length, links, revision: this.revision, bakeMs: this.bakeMs,
       linksMs: this.linksMs, gatesMs: this.gatesMs,
-      gates: this.gates.length, special: { ...this.linkCounts },
+      gates: this.gates.length, special: { ...this.linkCounts }, search: { lastExpanded: this.lastExpanded },
       flow: {
         live: f.fields.filter((x) => x.live).length, building: f.building !== null, builds: f.builds,
         lastMs: f.lastMs, avgMs: f.builds > 0 ? f.sumMs / f.builds : 0, maxMs: f.maxMs,
-        lastNodes: f.lastNodes, lastFrames: f.lastFrames, lastBytes: f.lastBytes,
+        lastNodes: f.lastNodes, lastPops: f.lastPops, maxPops: f.maxPops, lastFrames: f.lastFrames, lastBytes: f.lastBytes,
       },
     };
   }

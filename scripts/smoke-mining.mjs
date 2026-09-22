@@ -362,15 +362,18 @@ try {
      2026-09-16: the wind-back is measured by the cycle the **current** perf sum gives too — the cycle after wear is
      longer than the first one. */
   const cycleWorn = worn.cycleMs;
-  await H(({ u, cycle }) => {
+  /* 2026-09-22 (E-12 ⓐ): wind back · read the wallet · mount in **one** evaluate. Split across three, a housing
+     tick between them could settle the finished cycle on its own first — the wallet read after it already held the
+     deposit and the check saw +0 (a red under 6 lanes). */
+  await giveStash('mat_processor', 1);
+  const { w1, fold } = await H(({ u, cycle }) => {
     const h = window.__game.ctx.housing;
     const s = h.state.clusters.find((x) => x.uid === u);
     const now = h.nowMs();
     s.progress = 0; s.segmentAt = now - cycle * 1.3;
+    const w = h.getCryptoWallet().scrap ?? 0;
+    return { w1: w, fold: h.insertClusterCores(u, 1) };
   }, { u: C1, cycle: cycleWorn });
-  const w1 = await walletOf('scrap');
-  await giveStash('mat_processor', 1);
-  const fold = await H((u) => window.__game.ctx.housing.insertClusterCores(u, 1), C1);
   const s2 = await slot(C1);
   const info7 = await info(C1);
   // the smoke does not work the cycle out itself, it calls **the game's own formula**:

@@ -324,7 +324,7 @@ after touching `damageSource.ts` is checked by restarting vite, not by debugging
 ### Runner options (`node scripts/verify.mjs --help`)
 
 - `--only a,b` · `--folders weapons,ui` · `--rerun-failed` (from `last-run.json`) · `--all` · `--list` · `--dry-run` (print the selection and why, run nothing).
-- `--jobs N` (default 4; 6 is faster but adds load reds — see “Why the run takes as long as it does” below) · `--serial` · `--base <ref>` · `--build` · `--no-typecheck` · `--no-e2e` · `--url` · `--timeout <min>`.
+- `--jobs N` (default 6 since 2026-09-22 — see “Why the run takes as long as it does” below) · `--serial` · `--base <ref>` · `--build` · `--no-typecheck` · `--no-e2e` · `--url` · `--timeout <min>`.
 - `--log-dir scripts/logs/<name>` gives each concurrent runner its own logs, `last-run.json` and `durations.json` (seeded from `scripts/logs/`); `--keep-relay` keeps a relay already on 8787.
 - A **red run copies the failing jobs' logs to `<log-dir>/failed/`** (with that run's `last-run.json`). `scripts/logs/<name>.log` is
   overwritten by the next run of that script, so re-running a failure by hand used to destroy the only evidence of it (E-13);
@@ -374,7 +374,17 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
 - **The lane numbers are per machine.** The reds below are from the 8-core/16-thread box. Measured 2026-09-17 on the 28-thread
   i7-14700K: a 9-script pool at `--jobs 8` (`smoke-tutorial-raid` and `smoke-lights` included) passed with two `smoke-desktop`
   runs alongside it. Re-measure `--jobs` on the machine you run on instead of quoting a number from here.
-- **Lanes: 4 is still the default (2026-09-21).** With the smoke clock the full run on the 28-thread i7-14700KF was
+- **Lanes: 6 is the default (2026-09-22, E-12).** On the 7800X3D (16 threads): 18 full 6-lane runs, each red fixed at its
+  cause — `smoke-nav` bars expanded nodes / heap pops instead of ms, ~25 scripts read at the event or per engine step
+  instead of after a wall-clock wait (the pattern: wrap a system's `update` / `lateUpdate` in the page, or read in the
+  same `evaluate` as the emit), and `Input.holdEdges` stopped showing an early sub-step a button already up with no
+  release edge. Runs 17 · 18 all green in **11 min 29 s · 11 min 38 s** (4 lanes: 16–19 min), then one `--jobs 8` run
+  all green in **10 min 9 s**. 8 is not the default — one run is not a default; measure it twice more before moving.
+- **Headless Chrome gets its modules without the inline sourcemap** (`vite.config.ts` `headlessNoSourcemap`, 2026-09-22):
+  a boot was 880 requests and 41 MB, 28 MB of it base64 maps nobody reads in a smoke. 13 MB now; eight Chromes booting at
+  once went 4.9 → 4.0 s (idle machine). A second vite process did not help (4.3 s) — the cost is on the Chrome side.
+  A normal browser (the developer's DevTools) still gets the maps; the test is the `HeadlessChrome` user agent.
+- History, 2026-09-21: with the smoke clock the full run on the 28-thread i7-14700KF was
   all green once at `--jobs 6` in 14 min 6 s, then 14 · 5 · 6 red in three more 6-lane runs (the machine shared with
   other sessions' tests) — each red green on `--rerun-failed` or alone: `smoke-nav`'s wall-clock search bar,
   `smoke-raidflow`'s rider-on-deck gap (one `MAX_DT` of liftoff lag whenever frames drop to 20 fps), one-frame UI
@@ -391,9 +401,9 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
   this is worth ~65 s of a full run at 4 or 6 lanes, not more: the old pool was already within ~90 s of lane-seconds ÷ lanes.
   **What is left is the lane-seconds themselves** — only fewer simulated seconds or more lanes shorten the run now.
 - Before believing a slow run, re-run it; another app holding the fast cores slows the smoke Chromes for as long as it lasts.
-- To make the suite faster from here: the per-boot cost left is `goto` (~1.8 s of module requests, which is also what stops
-  8 lanes) and the scripted waits. `smoke-raidflow`'s 8 loads are all under test; `smoke-tutorial`'s 4 old-save reloads
-  could go only through a new dev hook that re-runs `TutorialSystem.load` (not done — a `src` change for ~20 s).
+- To make the suite faster from here: the per-boot cost left is `goto` (~1 s of module requests) and the scripted waits.
+  `smoke-raidflow`'s 8 loads are all under test; `smoke-tutorial`'s 4 old-save reloads became in-place re-inits
+  (`TutorialSystem.debugReinit`, 2026-09-22) — the one reload left there is the persistence check itself.
 
 ## Decisions
 
@@ -408,8 +418,9 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-22 — (E-12) `--jobs` default 6; ~25 smokes read at the event / per engine step instead of after wall-clock waits;
+  `smoke-nav` counter bars; `smoke-tutorial` old-save checks via `debugReinit`; headless modules without inline sourcemaps.
 - 2026-09-21 — `verify.mjs` pool: longest first from `durations.json`, `lanes` weights with EASY backfill; `smoke-squad-dock` (L3) · `smoke-android-lobby` (L2) · `smoke-desktop` (L2) left the exclusive tail (E-12).
 - 2026-09-21 — 「Known gaps in the net」 gained five: everything the rover gained that day (hit zones · hostility · wreck crates), the ceiling turret, the planet-independence of a key drop, and `check-planet-loot`'s two pre-existing reds. `check-planet-loot` and `smoke-structure-reach` now match key **families** instead of two fixed ids.
 - 2026-09-21 — 「Known gaps in the net」 rewritten where the tree moved: the rover turret check now stands on `rover:fired.targetId` (B-73, the `private` reach is gone), `check-comment-labels` drops a csv's `#` lines so they can no longer justify a near miss elsewhere (B-74, the remaining half is a typo written *into* a csv comment), and a new bullet names the `dev:all` teardown that turned a `verify:all` into 91 reds — `killPort(8787)` takes the adopted vite with it, because `dev-all.mjs` stops both children when either exits.
 - 2026-09-20 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, csv names and decision headings kept verbatim in backticks / 「」, no string literal touched — a smoke's Korean check names and `console.log` lines are program output and are all unchanged.
-- 2026-09-20 — `docs/PERF_PLAN.md` is gone: the perf record lives in `docs/PERF.md`, and every pointer here and in `verify.mjs` · `smoke-layout-reads.mjs` · `perf-measure.mjs` moved with it. The harness itself is unchanged — its last run was the `--display scale` A/B that closed the plan's one open measurement.

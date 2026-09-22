@@ -324,12 +324,23 @@ try {
 
   const statEv0 = await P(() => window.__ev['progress:statChanged'].length);
   await page.mouse.move(confirmAt.x, confirmAt.y);
+  /* 2026-09-22 (E-12 ⓐ): the mid-hold state is taken **in the page** on the first frame the button shows `is-holding`
+     — the hold is a wall-clock 1 s, and `sleep(550)` plus a CDP round trip under 6 lanes read it after it had confirmed. */
+  await P(() => {
+    window.__midHold = null;
+    const look = () => {
+      const b = window.__shown('.cs-col')?.querySelector('.pg-confirm');
+      if (b && b.classList.contains('is-holding')) {
+        window.__midHold = { step: window.__game.ctx.tutorial.step, holding: true, points: window.__game.ctx.progression.statPoints };
+        return;
+      }
+      requestAnimationFrame(look);
+    };
+    requestAnimationFrame(look);
+  });
   await page.mouse.down();
   await sleep(550);
-  const midHold = await P(() => ({
-    step: window.__game.ctx.tutorial.step, holding: window.__shown('.cs-col').querySelector('.pg-confirm').classList.contains('is-holding'),
-    points: window.__game.ctx.progression.statPoints,
-  }));
+  const midHold = await P(() => window.__midHold ?? { step: window.__game.ctx.tutorial.step, holding: false, points: window.__game.ctx.progression.statPoints });
   await sleep(750);
   await page.mouse.up();
   ok(midHold.step === 'stats' && midHold.holding && midHold.points === pre.points, '누르고 있는 동안은 게이지만 찬다 (0.55 s)', JSON.stringify(midHold));

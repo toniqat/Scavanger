@@ -286,6 +286,8 @@ try {
     const at = spot ?? loose;
     if (at) ctx.player.spawnStanding(new V(at.x, at.y, at.z), Math.atan2(p.x - at.x, p.z - at.z) + Math.PI);
     for (const o of sys.active) if (o !== e && o.isRogue) o.grenadeCd = 999;
+    // 2026-09-22 (E-12): nothing else within 60 m — a bug in reach becomes the rogue's target instead of the player
+    for (const o of sys.active) if (o !== e && o.active && o.state !== 'dead' && Math.hypot(o.position.x - p.x, o.position.z - p.z) < 60) o.kill(false);
     // hide the player from every long ray: LOS / rifle raycasts (≥ 3 m) hit a virtual wall, short grenade steps pass
     window.__rc = world.raycast;
     world.raycast = function (o, d, max) { if (max > 3) return { point: new V(o.x + d.x, o.y + d.y, o.z + d.z), normal: new V(-d.x, -d.y, -d.z), distance: 1 }; return window.__rc.call(world, o, d, max); };
@@ -324,6 +326,25 @@ try {
       }, setup?.id);
       gre.thrown = false;
     }
+    /* 2026-09-22 (E-12 ⓐ): the 0.6 s wind-up (`ROGUE_GRENADE_WINDUP`) is sampled **inside the engine**, after every
+       enemies `update` (every sub-step), not only by the 30 ms poll below — under 6 lanes a poll could land before
+       the wind-up and next after the release, and the whole pose went unseen. The first wind-up step keeps the hint,
+       the LOS hold it started from and whether the hand sphere showed. */
+    await P((id) => {
+      const sys = window.__sys;
+      window.__wind = null;
+      if (!sys.__updOrig) {
+        sys.__updOrig = sys.update;
+        sys.update = function (dt, c) {
+          sys.__updOrig.call(this, dt, c);
+          const e = window.__windId != null ? sys.active.find((x) => x.id === window.__windId) : null;
+          if (!e || !(e.throwTimer > 0)) return;
+          const w = window.__wind || (window.__wind = { hint: sys.debugHint(e.id), hold: e.noLosHold, sphere: false });
+          if (e.rig.grenade && e.rig.grenade.visible) w.sphere = true;
+        };
+      }
+      window.__windId = id;
+    }, setup?.id);
     const t0 = await P(() => window.__game.ctx.time);
     for (;;) {
       const s = await P((a) => {
@@ -335,14 +356,20 @@ try {
         // position used to walk it inside GRENADE_MIN_DIST (6 m) or out of range, and then no grenade was ever
         // thrown inside the 30 s window. The wind-up itself is left alone (it steps out to `popPos` on purpose).
         if (e.throwTimer <= 0 && window.__anchor) e.position.set(window.__anchor[0], window.__anchor[1], window.__anchor[2]);
+        // 2026-09-22 (E-12): a bug that wandered in became its target (`tg: 'ai'` at 4 m in a red run) and it never lobbed
+        // at the player — so the player is its target on every poll (the setup cleared the ground around it once).
+        const me = sys.targets.all.find((t) => t.id === 'local');
+        if (me && e.target !== me) { e.target = me; e.hasLOS = false; e.perceptionTimer = 0; }
         const g = sys.debugGrenade(a.id);
         return { throwing: e.throwTimer > 0, hint: sys.debugHint(a.id), hold: e.noLosHold, los: e.hasLOS, thrown: e.grenadeCd > 5, t: ctx.time,
           sphere: e.rig.grenade ? e.rig.grenade.visible : null, phase: e.roguePhase, state: e.state, mine: g ? [g.x, g.y, g.z] : null, count: sys.grenadeCount,
-          audio: window.__ev['audio:play'].filter((x) => x.id === 'grenade_throw').length };
+          audio: window.__ev['audio:play'].filter((x) => x.id === 'grenade_throw').length, wind: window.__wind,
+          // 2026-09-22: one red read `los: true` for 30 s with the virtual wall up — these say which gate held next time
+          tg: e.target ? e.target.id : null, d: +e.distToTarget.toFixed(1), pt: +e.perceptionTimer.toFixed(2), rt: +e.reloadTimer.toFixed(2), mag: e.magRounds, wall: ctx.world.raycast !== window.__rc };
       }, { id: setup?.id });
       if (!s) break;
-      if (s.throwing && !gre.windup) { gre.windup = true; gre.hint = s.hint; gre.holdAt = s.hold; }
-      if (s.throwing && s.sphere) gre.sphere = true;
+      if (s.wind && !gre.windup) { gre.windup = true; gre.hint = s.wind.hint; gre.holdAt = s.wind.hold; }
+      if (s.wind?.sphere) gre.sphere = true;
       if (s.thrown) { gre.thrown = true; if (!gre.tThrow) gre.tThrow = s.t - t0; gre.last = s; if (!gre.inFlight) gre.inFlight = s; break; }
       if (s.t - t0 > 30) { gre.last = s; break; }
       await sleep(30);
@@ -366,7 +393,10 @@ try {
     if (res.blast3d < REACH || res.attacked >= 1) after = res;
     else misses.push(`${res.blast3d} m (${res.blastDist} m flat)`);
   }
-  await P(() => { const world = window.__game.ctx.world; if (window.__rc) { world.raycast = window.__rc; window.__rc = null; } window.__anchor = null; });
+  await P(() => {
+    const world = window.__game.ctx.world; if (window.__rc) { world.raycast = window.__rc; window.__rc = null; } window.__anchor = null;
+    const sys = window.__sys; if (sys.__updOrig) { sys.update = sys.__updOrig; delete sys.__updOrig; } window.__windId = null;
+  });
   ok(gre.windup, `throw wind-up started (hint ${gre.hint}, LOS hold ${gre.holdAt.toFixed(2)} s at the start)`, JSON.stringify(gre.last));
   ok(gre.windup && gre.hint === 13, 'wire hint 13 during the wind-up');
   ok(gre.windup && gre.holdAt >= constants.HOLD - 0.1, `hold ≥ ROGUE_GRENADE_HOLD_S (${gre.holdAt.toFixed(2)} ≥ ${constants.HOLD})`);
@@ -419,10 +449,12 @@ try {
 
   /* ── live authority round-trip ────────────────────────────────────────── */
   console.log('setAuthority round-trip');
-  const before = await P(() => { const sys = window.__sys; return { n: sys.active.filter((e) => e.active).length, alive: sys.getAliveCount(), maxId: Math.max(...sys.active.map((e) => e.id)), auth: sys.isAuthority }; });
+  // Living bodies are counted (2026-09-22, E-12): a corpse that sinks out mid-section (`CORPSE_EMPTY_*`) is not a body the
+  // authority switch dropped, and under load the section ran long enough for two to go (140 → 138).
+  const before = await P(() => { const sys = window.__sys; return { n: sys.active.filter((e) => e.active && e.state !== 'dead').length, alive: sys.getAliveCount(), maxId: Math.max(...sys.active.map((e) => e.id)), auth: sys.isAuthority }; });
   await P(() => window.__sys.setAuthority(false));
   await waitSim(0.6);
-  const demoted = await P(() => { const sys = window.__sys; return { n: sys.active.filter((e) => e.active).length, replica: sys.replica, auth: sys.isAuthority, buffered: sys.active.filter((e) => e.active && e.state !== 'dead' && e.netBuf && e.netBuf.count > 0).length, aliveNonDead: sys.active.filter((e) => e.active && e.state !== 'dead').length }; });
+  const demoted = await P(() => { const sys = window.__sys; return { n: sys.active.filter((e) => e.active && e.state !== 'dead').length, replica: sys.replica, auth: sys.isAuthority, buffered: sys.active.filter((e) => e.active && e.state !== 'dead' && e.netBuf && e.netBuf.count > 0).length, aliveNonDead: sys.active.filter((e) => e.active && e.state !== 'dead').length }; });
   ok(demoted.replica && !demoted.auth, 'setAuthority(false) → replica mode');
   ok(demoted.n === before.n, `demotion keeps the enemy count (${before.n} → ${demoted.n})`);
   ok(demoted.buffered === demoted.aliveNonDead, `every live enemy has a replica buffer (${demoted.buffered}/${demoted.aliveNonDead})`);
@@ -430,7 +462,7 @@ try {
   const hitRep = await P(() => { const sys = window.__sys; const e = sys.active.find((x) => x.active && x.state !== 'dead'); if (!e) return null; const hp0 = e.hp; e.takeDamage(10); return { hp0, hp1: e.hp }; });
   ok(hitRep && hitRep.hp0 === hitRep.hp1, 'takeDamage on a replica leaves hp untouched (request path)', JSON.stringify(hitRep));
   await P(() => window.__sys.setAuthority(true));
-  const promoted = await P(() => { const sys = window.__sys; return { n: sys.active.filter((e) => e.active).length, replica: sys.replica, auth: sys.isAuthority, states: sys.active.filter((e) => e.active && e.state !== 'dead').map((e) => e.state) }; });
+  const promoted = await P(() => { const sys = window.__sys; return { n: sys.active.filter((e) => e.active && e.state !== 'dead').length, replica: sys.replica, auth: sys.isAuthority, states: sys.active.filter((e) => e.active && e.state !== 'dead').map((e) => e.state) }; });
   ok(promoted.auth && !promoted.replica, 'setAuthority(true) → authority again');
   ok(promoted.n === before.n, `promotion keeps the enemy count (${before.n} → ${promoted.n})`);
   ok(promoted.states.every((s) => s === 'chase' || s === 'idle' || s === 'stagger'), 'promoted enemies restart in chase / idle', JSON.stringify(promoted.states.slice(0, 10)));

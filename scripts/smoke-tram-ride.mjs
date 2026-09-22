@@ -353,18 +353,32 @@ try {
       return { replica: !es.isAuthority };
     });
     ok(!!repStart && repStart.replica, '권한을 내려 리플리카 경로로 바꿨다', JSON.stringify(repStart));
-    const feed = () => page.evaluate(() => {
+    /* 2026-09-22 (E-12 ⓐ): the host's snapshots are fed **inside the engine**, one every `FEED_S` of game time (checked
+       before each enemies `update`, i.e. every sub-step) — the way a host's cadence arrives. Fed from the test loop
+       (`feed` → `waitSim(0.1)`) their spacing followed the harness: under 6 lanes a wait overshot, the gap between two
+       snapshots grew, and the prediction's error was the harness's, not the replica's (1.27 m against 0.6). */
+    await page.evaluate(() => {
       const ctx = window.__game.ctx, w = ctx.world;
       const es = window.__game.getSystem('enemies');
-      const t = w.getTrams()[0];
-      const [lx, lz, ly] = window.__smokeRide.local;
-      const c = Math.cos(t.yaw), s = Math.sin(t.yaw);
-      const p = [t.position.x + lx * c - lz * s, t.position.y + ly, t.position.z + lx * s + lz * c];
-      es.debugApplySnapshot({ t: 'es', seq: ++window.__smokeRide.seq, full: true, e: [{ id: window.__smokeRide.rider, ty: 'warrior', p, yaw: t.yaw, hp: 640, st: 'idle' }] });
+      const FEED_S = 0.1;
+      let next = ctx.time;
+      const upd = es.update;
+      window.__smokeRide.stopFeed = () => { es.update = upd; };
+      es.update = function (dt, c2) {
+        if (ctx.time >= next) {
+          next += FEED_S;
+          if (next < ctx.time) next = ctx.time + FEED_S;
+          const t = w.getTrams()[0];
+          const [lx, lz, ly] = window.__smokeRide.local;
+          const c = Math.cos(t.yaw), s = Math.sin(t.yaw);
+          const p = [t.position.x + lx * c - lz * s, t.position.y + ly, t.position.z + lx * s + lz * c];
+          es.debugApplySnapshot({ t: 'es', seq: ++window.__smokeRide.seq, full: true, e: [{ id: window.__smokeRide.rider, ty: 'warrior', p, yaw: t.yaw, hp: 640, st: 'idle' }] });
+        }
+        upd.call(this, dt, c2);
+      };
     });
     let worst = 0, rawMin = Infinity, speedMin = Infinity, samples = 0, carrierFrames = 0;
     for (let i = 0; i < 24; i++) {
-      await feed();
       await waitSim(page, 0.1);
       if (i < 8) continue;   // until the ring buffer fills and the blend comes up
       const m = await page.evaluate(() => {
@@ -399,6 +413,7 @@ try {
       speedMin = Math.min(speedMin, m.speed);
       if (m.carrier) carrierFrames++;
     }
+    await page.evaluate(() => window.__smokeRide.stopFeed?.());
     if (samples > 0 && speedMin > 5) {
       ok(carrierFrames === samples, `C-18: 리플리카도 탑승을 잡는다 (${carrierFrames}/${samples})`);
       ok(worst < 0.6 && rawMin > 0.8, `C-18: 리플리카가 보간 지연만큼 뒤처지지 않는다 (최대 로컬 오차 ${worst.toFixed(2)} m · 예측 없는 보간 자리는 최소 ${rawMin.toFixed(2)} m 뒤, 전차 ≥ ${speedMin.toFixed(1)} m/s)`);

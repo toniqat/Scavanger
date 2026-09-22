@@ -155,21 +155,43 @@ try {
   console.log('status markers');
   const spot = () => P(() => { const p = window.__game.ctx.player; const f = p.getForward(); return [p.position.x + f.x * 5, p.position.y, p.position.z + f.z * 5]; });
   let s = await spot();
-  await P((v) => { const V = window.__game.ctx.player.position.constructor; window.__game.ctx.bus.emit('enemy:incinerated', { id: 1, position: new V(v[0], v[1], v[2]), duration: 6 }); }, s);
-  await waitSim(0.15);
-  let mk = await P(() => { const e = document.querySelector('.smarker.burn'); return { cls: e ? e.className : '', text: e ? e.textContent : '', op: e ? Number(e.style.opacity) : -1, n: window.__game.getSystem('hud').statusMarkerCount }; });
+  /* 2026-09-22 (E-12 ⓐ): the marker's life is **recorded inside the engine** — its opacity after every hud `lateUpdate`
+     (every step), stamped with the game time since the burst — and judged from that curve. Read at fixed `waitSim`
+     points, a loaded page overshot the 0.6 s hold and then the 1.5 s life, and a correct fade read as 「gone」. */
+  let mk = await P((v) => {
+    const ctx = window.__game.ctx, hud = window.__game.getSystem('hud');
+    const V = ctx.player.position.constructor;
+    const t0 = ctx.time;
+    ctx.bus.emit('enemy:incinerated', { id: 1, position: new V(v[0], v[1], v[2]), duration: 6 });
+    window.__burnCurve = [];
+    const late = hud.lateUpdate;
+    hud.lateUpdate = function (dt, c) {
+      late.call(this, dt, c);
+      const e = document.querySelector('.smarker.burn.show');
+      window.__burnCurve.push({ t: +(ctx.time - t0).toFixed(3), op: e ? Number(e.style.opacity) : -1 });
+      if (ctx.time - t0 > 1.8) hud.lateUpdate = late;
+    };
+    const e = document.querySelector('.smarker.burn');
+    return { cls: e ? e.className : '', text: e ? e.textContent : '', n: hud.statusMarkerCount };
+  }, s);
   ok(/\bshow\b/.test(mk.cls) && mk.text === '🔥 전소' && mk.n === 1, 'enemy:incinerated → 🔥 전소 marker', `${mk.cls} ${mk.text} n=${mk.n}`);
-  ok(mk.op > 0.9, 'burn marker projected in front of the camera (opacity ~1)', String(mk.op));
-  await waitSim(0.9);
-  mk = await P(() => { const e = document.querySelector('.smarker.burn'); return { op: e ? Number(e.style.opacity) : -1 }; });
-  ok(mk.op > 0 && mk.op < 0.95, 'burn marker fading after ~1 s (sim time)', String(mk.op));
-  await waitSim(0.8);
+  await waitSim(1.9);
+  const curve = await P(() => window.__burnCurve);
+  const first = curve[0];
+  ok(first && first.op > 0.9, 'burn marker projected in front of the camera (opacity ~1)', JSON.stringify(first));
+  const fading = curve.filter((c) => c.t >= 0.8 && c.t <= 1.4);
+  ok(fading.length > 0 && fading.every((c) => c.op > 0 && c.op < 0.95), 'burn marker fading after ~1 s (sim time)', JSON.stringify(fading.slice(0, 4)));
   mk = await P(() => ({ n: window.__game.getSystem('hud').statusMarkerCount, any: !!document.querySelector('.smarker.burn.show') }));
   ok(mk.n === 0 && !mk.any, 'burn marker released after 1.5 s', JSON.stringify(mk));
   s = await spot();
-  await P((v) => { const V = window.__game.ctx.player.position.constructor; const b = window.__game.ctx.bus; for (let i = 0; i < 3; i++) b.emit('enemy:shocked', { id: 10 + i, position: new V(v[0] + i, v[1], v[2]) }); }, s);
-  await waitSim(0.15);
-  mk = await P(() => ({ n: document.querySelectorAll('.smarker.shock.show').length, text: document.querySelector('.smarker.shock').textContent, count: window.__game.getSystem('hud').statusMarkerCount }));
+  /* 2026-09-22 (E-12 ⓐ): the sparks are read in the **same** evaluate as their emit (`StatusMarkers.spawn` shows the
+     slot synchronously). The old `waitSim(0.15)` between them could land past the 0.6 s lifetime after a few loaded
+     frames (up to 4 sub-steps of 50 ms each on the smoke clock) — correct sparks, already gone. */
+  mk = await P((v) => {
+    const V = window.__game.ctx.player.position.constructor; const b = window.__game.ctx.bus;
+    for (let i = 0; i < 3; i++) b.emit('enemy:shocked', { id: 10 + i, position: new V(v[0] + i, v[1], v[2]) });
+    return { n: document.querySelectorAll('.smarker.shock.show').length, text: document.querySelector('.smarker.shock')?.textContent, count: window.__game.getSystem('hud').statusMarkerCount };
+  }, s);
   ok(mk.n === 3 && mk.text === '⚡' && mk.count === 3, 'three enemy:shocked → three pooled ⚡ sparks', JSON.stringify(mk));
   await waitSim(0.7);
   mk = await P(() => ({ n: document.querySelectorAll('.smarker.shock.show').length, count: window.__game.getSystem('hud').statusMarkerCount }));

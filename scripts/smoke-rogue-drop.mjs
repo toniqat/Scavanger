@@ -105,13 +105,24 @@ try {
       const sites = [...world.getStructures().map((s) => s.position), ...world.getRailLines().flatMap((l) => l.platforms.map((p) => p.position)),
         ...(typeof world.getRuinSites === 'function' ? world.getRuinSites().map((r) => r.position) : [])];
       let best = null, bestScore = -1;
+      /* 2026-09-22 (E-12): a seeded stream, not `Math.random` — a random spot now and then fell back to the 「best of
+         800」 beside a nest (bug eggs 49–70 m off), the raiders landed `alert` instead of advancing and three checks
+         went red on no load at all. The same seed gives the same spot on the same map, every run. */
+      let seed = (window.__farSeed = ((window.__farSeed ?? 0x5ca7) * 1103515245 + 12345) >>> 0);
+      const rnd = () => { seed = (seed + 0x6d2b79f5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
       for (let k = 0; k < 800; k++) {
-        const x = pp.x + (Math.random() - 0.5) * 420, z = pp.z + (Math.random() - 0.5) * 420;
-        if (!world.isInsideBounds(x, z) || Math.hypot(x - pp.x, z - pp.z) < minD) continue;
+        const x = pp.x + (rnd() - 0.5) * 420, z = pp.z + (rnd() - 0.5) * 420;
+        // ≤ 220 m: past `ROGUE_DROP_ALERT_RADIUS` (260) the danger indicator is not drawn at all (a ±210 m box reaches ~297 m)
+        if (!world.isInsideBounds(x, z) || Math.hypot(x - pp.x, z - pp.z) < minD || Math.hypot(x - pp.x, z - pp.z) > 220) continue;
         const nearSite = sites.some((s) => Math.hypot(s.x - x, s.z - z) < 75);
         const clear = window.__enemyClearance(x, z);
-        if (!nearSite && clear >= ENEMY_CLEAR) return new V(x, world.getHeightAt(x, z), z);
-        const score = (nearSite ? 0 : 1000) + Math.min(clear, 500);
+        // 2026-09-22: **out of sight** is measured, not assumed from distance — the seeded spot 130–150 m off had a
+        // clear line to the player, and two of three raiders landed `aware` of the local player instead of advancing.
+        const eye = new V(x, world.getHeightAt(x, z) + 1.7, z), head = new V(pp.x, pp.y + 1.6, pp.z);
+        const to = head.clone().sub(eye), len = to.length();
+        const hidden = !!world.raycast(eye, to.divideScalar(len), len - 0.5);
+        if (!nearSite && hidden && clear >= ENEMY_CLEAR) return new V(x, world.getHeightAt(x, z), z);
+        const score = (nearSite ? 0 : 1000) + (hidden ? 600 : 0) + Math.min(clear, 500);
         if (score > bestScore) { bestScore = score; best = new V(x, world.getHeightAt(x, z), z); }
       }
       return best;
@@ -171,13 +182,18 @@ try {
   // and accumulated.
   // 2026-09-13: ui/ is in the middle of changing the wording to "레이더 강하", so only `강하` is looked for.
   let alerted = { toast: false, danger: 0 };
-  const seenAlert = () => {
+  /* 2026-09-22 (E-12 ⓐ): the watch runs until the pod **lands in game time** (`landsAt`), not for 6 wall-clock seconds —
+     a page loaded by 6 lanes could spend those 6 s on a few frames and never draw the indicator it would draw a frame
+     later. The wall cap only guards a hung page. */
+  const seenAlert = (landsAt) => {
     const a = window.__alert || (window.__alert = { toast: false, danger: 0 });
     if ([...document.querySelectorAll('.notif')].some((n) => /강하/.test(n.textContent || ''))) a.toast = true;
     a.danger = Math.max(a.danger, document.querySelectorAll('.dgr-head:not([hidden]), .dgr-arc:not([hidden])').length);
-    return a.toast && a.danger > 0 ? a : null;
+    if (a.toast && a.danger > 0) return a;
+    if (window.__game.ctx.time >= landsAt) return { ...a, landed: true };   // waitFor swallows throws — a value ends it
+    return null;
   };
-  try { alerted = await waitFor(page, seenAlert, '강하 알림', 6000); }
+  try { alerted = await waitFor(page, seenAlert, '강하 알림', 60000, view ? view.landsAt : 0); }
   catch { alerted = await P(() => window.__alert ?? { toast: false, danger: 0 }); }
   ok(alerted.toast, '강하 토스트가 뜬다');
   ok(alerted.danger > 0, '위험 인디케이터(머리 마커 · 방향 호)가 강하를 가리킨다', JSON.stringify(alerted));
@@ -200,6 +216,17 @@ try {
     return n;
   });
   if (swept === null) console.log('  note  강하가 이미 착지한 뒤라 착지 전 정리를 건너뛰었다');
+  /* 2026-09-22 (E-12): 「lands in investigate」 is read **at the landing** — a microtask after `rogueDrop:landed` (the
+     spawn runs right after the emit in `RogueDrop.land`), i.e. the end of that frame. Read at `landsAt + 0.6` by a
+     poll, a loaded page could be a second later, and a raider that had already spotted something read `alert`. */
+  await P((before) => {
+    window.__landInv = null;
+    const off = window.__game.ctx.bus.on('rogueDrop:landed', () => queueMicrotask(() => {
+      off?.();
+      const fresh = window.__sys.active.filter((e) => e.active && e.isHumanoid && e.state !== 'dead' && !before.includes(e.id));
+      window.__landInv = { n: fresh.length, inv: fresh.filter((e) => e.investigating).length };
+    }));
+  }, call.before);
   await waitTime(view.landsAt + 0.6, 'landed');
   const landed = await P((a) => {
     const ctx = window.__game.ctx; const sys = window.__sys;
@@ -217,6 +244,7 @@ try {
       dist: fresh.map((e) => Math.hypot(e.position.x - d.x, e.position.z - d.z)),
       guard: fresh.map((e) => Math.hypot(e.guardPos.x - d.x, e.guardPos.z - d.z)),
       investigating: fresh.filter((e) => e.investigating).length,
+      atLanding: window.__landInv,
       // So the reason the advance was released can be read straight off (opened fire? took damage? what is nearby)
       why: fresh.map((e) => {
         let nd = Infinity, nt = '';
@@ -225,7 +253,7 @@ try {
           const dd = Math.hypot(o.position.x - e.position.x, o.position.z - e.position.z);
           if (dd < nd) { nd = dd; nt = o.type; }
         }
-        return { inv: e.investigating, aware: e.aware, st: e.state, hp: Math.round(e.hp), near: `${nt}@${nd === Infinity ? '-' : nd.toFixed(0)}` };
+        return { inv: e.investigating, aware: e.aware, st: e.state, hp: Math.round(e.hp), tg: e.target ? (e.target.id ?? e.target.type ?? '?') : null, pd: +Math.hypot(e.position.x - window.__game.ctx.player.position.x, e.position.z - window.__game.ctx.player.position.z).toFixed(0), near: `${nt}@${nd === Infinity ? '-' : nd.toFixed(0)}` };
       }),
       origin: fresh.map((e) => Math.hypot(e.shotOrigin.x - d.x, e.shotOrigin.z - d.z)),
       ids: fresh.map((e) => e.id),
@@ -243,7 +271,8 @@ try {
   ok(landed.boss === 0, 'enemy:bossSpawned 없음');
   ok(landed.dist.length > 0 && landed.dist.every((d) => d <= RADIUS + 3), `착지 지점이 ROGUE_DROP_RADIUS(${RADIUS} m) 안이다 (${landed.dist.map((d) => d.toFixed(1)).join(', ')})`);
   ok(landed.guard.every((d) => d < 0.01), 'guardPos = 트리거 지점 (진격이 끝나면 구조물을 지킨다)', JSON.stringify(landed.guard));
-  ok(landed.investigating === landed.spawned, `전원이 진격(investigate) 상태로 내린다 (${landed.investigating} / ${landed.spawned})`, JSON.stringify(landed.why));
+  ok(!!landed.atLanding && landed.atLanding.n === landed.spawned && landed.atLanding.inv === landed.atLanding.n,
+    `전원이 진격(investigate) 상태로 내린다 (착지 순간 ${landed.atLanding?.inv} / ${landed.atLanding?.n} · +0.6 s ${landed.investigating} / ${landed.spawned})`, JSON.stringify(landed.why));
   ok(landed.origin.every((d) => d < 0.01), '진격 목표 = 트리거 지점', JSON.stringify(landed.origin));
   ok(landed.impact > 0, `착지 충격음 (rogue_pod_impact ×${landed.impact})`);
 

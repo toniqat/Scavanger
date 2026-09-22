@@ -72,6 +72,7 @@ export function findPath(
   g: NavGraph, from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }, can: number, out: NavPath,
 ): NavPathStatus {
   out.count = 0;
+  g.lastExpanded = 0;
   if (!g.ready) { out.status = 'pending'; return out.status; }
   const s = snap(g, from.x, from.y, from.z, NAV_SNAP_M, can);
   const t = snap(g, to.x, to.y, to.z, NAV_SNAP_M, can);
@@ -106,6 +107,7 @@ export function findPath(
       push(g, m, ng + heur(g, m));
     }
   }
+  g.lastExpanded = expanded;
   if (!reached && exhausted) { out.status = 'none'; return out.status; }
   const end = reached ? t : best;
   if (end === s) { out.status = reached ? 'ok' : 'none'; return out.status; }

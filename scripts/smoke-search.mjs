@@ -615,8 +615,11 @@ try {
     const next = c.nextToSearch();
     return { open: window.__game.ctx.inventory.isOpen, uid: next.item.uid, progress: c.searchProgress.get(next.item.uid) ?? 0, paused: document.querySelector('.inv-search-status')?.classList.contains('is-paused') };
   });
+  /* 2026-09-22 (E-12 ⓐ): back in range for **one engine frame** (game time moved once), not `waitSim(0.08)` — under
+     6 lanes that wait overshot to ~0.5 s of searching and the gauge read 0.65 against the old `< 0.35` bar. The bar is
+     now 「it filled and is still the same item」. */
   await away(0);
-  await waitSim(0.08);
+  await page.evaluate(() => new Promise((r) => { const t = window.__game.ctx.time; const k = () => (window.__game.ctx.time > t ? r() : setTimeout(k, 5)); k(); }));
   await away(5);
   const kept = await page.evaluate(() => {
     const sys = window.__game.getSystem('inventory');
@@ -630,7 +633,7 @@ try {
   const evAfter = await evCount('container:searchProgress');
   const stillPaused = await page.evaluate((k) => { const c = window.__game.getSystem('inventory').getActiveContainer(); return { open: window.__game.ctx.inventory.isOpen, progress: c.searchProgress.get(k.uid) ?? 0, unsearched: c.unsearchedCount, paused: document.querySelector('.inv-search-status')?.classList.contains('is-paused') }; }, kept);
   ok(left0.dist > 4 && left0.dist < 6 && paused0.open && paused0.paused && paused0.uid === left0.uid && paused0.progress === left0.progress, 'out of SEARCH_MAX_DISTANCE: window stays open, readout dims, nothing accumulates', JSON.stringify({ left0, paused0 }));
-  ok(kept.progress > 0 && kept.progress < 0.35 && stillPaused.paused && stillPaused.open && stillPaused.progress === kept.progress && stillPaused.unsearched === kept.unsearched && evAfter === evBefore,
+  ok(kept.progress > left0.progress && kept.uid === left0.uid && stillPaused.paused && stillPaused.open && stillPaused.progress === kept.progress && stillPaused.unsearched === kept.unsearched && evAfter === evBefore,
     'back in range the gauge fills; stepping out again freezes the progress (no progress events)', JSON.stringify({ kept, stillPaused, evBefore, evAfter }));
   // close the window: progress + flags are kept on the container
   await closeWindow();

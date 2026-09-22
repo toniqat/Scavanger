@@ -323,9 +323,13 @@ try {
   await waitSim(1.2);
   const camNow = await H((want) => { const c = window.__game.ctx.camera.position; return Math.hypot(c.x - want[0], c.y - want[1], c.z - want[2]); }, start.camWant);
   ok(camNow < 0.35, `the camera settles on the fixed shot (${camNow.toFixed(3)} m away)`);
-  await H((u) => window.__game.ctx.bus.emit('housing:gameBeat', { tvUid: u.tv, quality: 'perfect', index: 0, total: 4 }), U);
-  await waitSim(0.05);
-  const beat = await H(() => ({ stage: window.__game.getSystem('hub').furnitureLayer.gameStage, lights: window.__count() }));
+  /* 2026-09-22 (E-12 ⓐ): the beat is read in the **same** evaluate as its emit. `kick` decays over `KICK_S`, and the old
+     `waitSim(0.05)` between them could land after one loaded frame (4 sub-steps of 50 ms on the smoke clock) had already
+     taken it under the 0.3 bar — a correct kick, read late. */
+  const beat = await H((u) => {
+    window.__game.ctx.bus.emit('housing:gameBeat', { tvUid: u.tv, quality: 'perfect', index: 0, total: 4 });
+    return { stage: window.__game.getSystem('hub').furnitureLayer.gameStage, lights: window.__count() };
+  }, U);
   // 2026-09-14 (user's decision): the screen flash on every judgement (`flash` · `SCREEN_FLASH`) is gone — the
   // reaction is told by the marker **inside** the screen (`kick`) and the progress bar, and the screen's glow is only
   // the base intensity + a gentle pulse (`SCREEN_BASE ± SCREEN_PULSE`).

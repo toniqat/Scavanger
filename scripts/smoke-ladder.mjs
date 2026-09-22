@@ -271,14 +271,16 @@ try {
     const c = sys.controller;
     const before = c.position.y;
     c.position.y += 0.3;   // a one-frame 0.3 m discontinuity; the ground snap takes it back inside `update`
-    let maxOff = 0, maxRoot = 0, frames = 0;
-    const tick = () => {
+    /* 2026-09-22 (E-12 ⓐ): sampled after every player `lateUpdate` (every engine step), not per `requestAnimationFrame` —
+       one loaded frame is up to 4 sub-steps, and by the first rAF after it the offset had already eased down to 0.05. */
+    let maxOff = 0, maxRoot = 0, steps = 0;
+    const late = sys.lateUpdate;
+    sys.lateUpdate = function (dt, ctx) {
+      late.call(this, dt, ctx);
       maxOff = Math.max(maxOff, sys.bodyOffset.y);
       maxRoot = Math.max(maxRoot, sys.model.root.position.y - c.position.y);
-      if (++frames < 90) requestAnimationFrame(tick);
-      else resolve({ maxOff, maxRoot, end: sys.bodyOffset.y, dy: c.position.y - before });
+      if (++steps >= 90) { sys.lateUpdate = late; resolve({ maxOff, maxRoot, end: sys.bodyOffset.y, dy: c.position.y - before }); }
     };
-    requestAnimationFrame(tick);
   }));
   ok(Math.abs(step.dy) < 0.05, `the physics position snapped back to the ground (Δ ${step.dy.toFixed(3)})`);
   ok(step.maxOff > 0.1 && step.maxRoot > 0.05, `the model keeps the old height for a moment (offset ${step.maxOff.toFixed(2)}, root ${step.maxRoot.toFixed(2)})`);

@@ -618,10 +618,14 @@ try {
   });
   ok(walkers.length === 3, `rogue, raider and scavenger placed 14 m in front of the player (${walkers.join(', ')})`);
   if (walkers.length) {
-    const t0 = await P(() => window.__game.ctx.time);
-    for (;;) {
-      const t = await P(() => {
-        const ctx = window.__game.ctx; const sys = window.__sys; const r = window.__range;
+    /* 2026-09-22 (E-12 ⓐ): the walkers are steered **before every enemies `update`** (every engine step) for 5 s of game
+       time, not from a 40 ms poll — under 6 lanes the poll came late, the AI had already stopped a walker at its leg's
+       end, and a rogue walked 2.1 m in 5 s against the 3 m bar. */
+    await P(() => new Promise((resolve) => {
+      const ctx = window.__game.ctx; const sys = window.__sys; const r = window.__range;
+      const t0 = ctx.time;
+      const upd = sys.update;
+      sys.update = function (dt, c) {
         ctx.player.hp = ctx.player.maxHp;
         for (const w of window.__walkers) {
           const e = sys.find(w.id);
@@ -633,11 +637,10 @@ try {
           e.aware = false; e.state = 'wander'; e.hasMoveTarget = true;
           e.moveTarget.set(w.home[0] - r.dz * s2, 0, w.home[1] + r.dx * s2);
         }
-        return ctx.time;
-      });
-      if (t - t0 > 5) break;
-      await sleep(40);
-    }
+        upd.call(this, dt, c);
+        if (ctx.time - t0 > 5) { sys.update = upd; resolve(true); }
+      };
+    }));
   }
   const steps = await P(() => {
     const out = {};

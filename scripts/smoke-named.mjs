@@ -330,11 +330,21 @@ try {
     return !!e && Math.hypot(e.position.x - cam.x, e.position.z - cam.z) > 80;
   });
   ok(lodBug, 'a bug stands past the freeze distance for the zoom test');
-  const poseMoves = async () => {
-    const read = async () => { await P(() => { window.__lodBug.anim.shake = 1; }); await waitSim(0.12); return P(() => window.__lodBug.rig.body.position.x); };
-    const a = await read(); const b = await read();
-    return a !== b;
-  };
+  /* 2026-09-22 (E-12 ⓐ): the pose is sampled **after every enemies `update`** (every engine step) for 8 steps with the
+     shake held up, not twice across `waitSim(0.12)` — under 6 lanes a wait overshot the shake's decay and both reads
+     found the body at rest, so an animated body read as frozen. Moving = more than one distinct offset. */
+  const poseMoves = () => P(() => new Promise((resolve) => {
+    const sys = window.__sys, e = window.__lodBug;
+    const seen = new Set();
+    let n = 0;
+    const upd = sys.update;
+    sys.update = function (dt, c) {
+      e.anim.shake = 1;
+      upd.call(this, dt, c);
+      seen.add(e.rig.body.position.x);
+      if (++n >= 8) { sys.update = upd; resolve(seen.size > 1); }
+    };
+  }));
   ok(!(await poseMoves()), 'at the base FOV that pose is frozen (the LOD itself still works)');
   await P(() => {
     // an 8× scope, held against `CameraRig`, which rewrites `camera.fov` every frame

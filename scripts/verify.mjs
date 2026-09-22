@@ -13,7 +13,7 @@
  *   node scripts/verify.mjs --dry-run            # what the current change would run, and why — runs nothing
  *   node scripts/verify.mjs --help               # this text (an unknown option prints it too and runs nothing)
  *
- * Options: --jobs N (parallel Chrome instances, default 4 — 6 is faster but adds load reds, see the note at `opts.jobs`;
+ * Options: --jobs N (parallel Chrome instances, default 6 — measured, see the note at `opts.jobs`;
  *          use 1–2 with SMOKE_GL=swiftshader, which is CPU-bound) · --serial · --base <git ref> (diff base for --changed,
  *          default = working tree vs HEAD, falling back to HEAD~1) · --build · --no-typecheck · --no-e2e ·
  *          --keep-relay (do not restart a relay already listening on 8787) · --url http://host:port/ · --timeout <min> ·
@@ -473,8 +473,15 @@ const opts = {
      other sessions' tests) went 14 · 5 · 6 red, each green on `--rerun-failed` or alone: wall-clock bars
      (`smoke-nav` search ms), `smoke-raidflow`'s rider-on-deck gap (one `MAX_DT` of liftoff lag at ≤ 20 fps) and a
      few one-frame UI reads. One green run in four is not a default — it stays 4; `--jobs 6` when you want the ~2 min
-     and are ready to re-run a red (TODO E-12). */
-  jobs: has('--serial') ? 1 : Math.max(1, Number(val('--jobs', 4)) || 4),
+     and are ready to re-run a red (TODO E-12).
+     2026-09-22 (E-12 ⓐ, user's decision: the default moves to 6 after two green full runs in a row) — **6 lanes.** On
+     the 7800X3D (16 threads) 18 full 6-lane runs: the reds went 1 · 5 · 3 · 1 · 3 · 2 · 2 · 2 · 4 · 1 · 3 · 2 · 2 · 2 ·
+     1 · 1 and each was fixed at its cause — wall-clock bars became counters (`smoke-nav`), reads one frame or one
+     CDP round trip late became in-page / per-step records (~25 scripts), and the smoke clock itself stopped showing a
+     sub-step a button already up with no release edge (`Input.holdEdges`). Runs 17 and 18 were all green in
+     11 min 29 s and 11 min 38 s (4 lanes: 16–19 min). A red at 6 is a bug in that script's timing, not 「load」 —
+     fix it the same way rather than dropping the lanes. */
+  jobs: has('--serial') ? 1 : Math.max(1, Number(val('--jobs', 6)) || 6),
   build: has('--build') || has('--all'),
   typecheck: !has('--no-typecheck'),
   e2e: !has('--no-e2e'),

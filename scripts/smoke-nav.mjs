@@ -15,7 +15,8 @@
 //   5. The lab's locked room while it is locked: **not** `ok` (the door is a wall). After the door opens and the
 //      re-measure ran: `ok`, walked to the end — the hash change reached the graph.
 //   6. `walkable`: straight through a building's wall is false; a straight line inside one room is true.
-//   7. Cost: a long open-ground search and a search to an unreachable goal each stay under a frame budget.
+//   7. Cost, counted in expanded nodes (not ms): a long open-ground search stays narrow and a search to an
+//      unreachable goal stops at `NAV_SEARCH_MAX_NODES`; a flow-field build's heap pops stay under a bar.
 //   9. Phase 2 (2026-09-21, small bugs · flow fields · gates), per seed on its first roofed building:
 //      a. special links exist per kind (ladder · climb · window) and gates exist; every roofed building has a gate
 //         in its front doorway;
@@ -34,16 +35,23 @@
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const BASE = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'http://localhost:5273/';
 /** `--android`: only the android trips (section 8) — the graph checks take a minute and a half on their own. */
 const ONLY_ANDROID = process.argv.includes('--android');
 const SEEDS = [21, 7, 1234, 42, 99, 2026];
-/** A search may take at most this long (ms) — it runs on the authority's frame. */
-const SEARCH_MS_MAX = 25;
-/** One flow-field build may cost at most this much cpu in total (ms, spread over frames by `NAV_FLOW_BUDGET_MS`) — measured ~10. */
-const FLOW_BUILD_MS_MAX = 60;
+/* 2026-09-22 (E-12 ⓐ): the cost bars are **counts**, not timers. They used to be 25 ms a search and 60 ms a field build,
+   read off `performance.now()`, and on a loaded machine (6 lanes, other sessions' tests) a search that takes a few ms
+   read over the bar. The work a search or a build does is the same on every machine; its milliseconds are not
+   (`docs/PERF.md`). The ms are still printed. Measured 2026-09-22 over the six seeds: open-ground searches expand
+   473–1433 nodes, an unreachable goal stops at the budget, a field build pops 17.3–20.0 k heap entries for 15–17 k nodes. */
+/** `NAV_SEARCH_MAX_NODES` (data/constants.csv) — an unreachable goal must stop there. */
+const SEARCH_MAX_NODES = Number(readFileSync(new URL('../data/constants.csv', import.meta.url), 'utf8').match(/^NAV_SEARCH_MAX_NODES,(\d+)/m)?.[1]);
+/** A long open-ground search stays narrow (the heuristic works): ~3.5× the widest measured. */
+const OPEN_SEARCH_EXPANDED_MAX = 5000;
+/** One flow-field build's heap pops (settled nodes + stale duplicates): 2× the most measured. */
+const FLOW_BUILD_POPS_MAX = 40000;
 
 const CHROME = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -109,7 +117,7 @@ function probe({ phase }) {
     const kinds = [];
     for (let i = 0; i < path.count; i++) kinds.push(path.points[i].kind === 'ladder' ? `ladder:${path.points[i].ladderId}` : path.points[i].kind);
     const last = path.count > 0 ? path.points[path.count - 1].position : null;
-    return { st, ms: +ms.toFixed(2), n: path.count, kinds, lastY: last ? +last.y.toFixed(2) : null, walked: st === 'ok' || st === 'partial' ? walk(from) : null };
+    return { st, ms: +ms.toFixed(2), exp: g.lastExpanded, n: path.count, kinds, lastY: last ? +last.y.toFixed(2) : null, walked: st === 'ok' || st === 'partial' ? walk(from) : null };
   };
 
   const rows = [];
@@ -435,9 +443,11 @@ try {
       if (r.inRoom !== undefined) ok(r.inRoom === true, `${tag} walkable() just inside the door is true`, JSON.stringify(r.inRoomProbe));
       if (r.locked) { seen.locked++; ok(r.locked.st !== 'ok', `${tag} locked room unreachable while locked`, JSON.stringify(r.locked)); }
     }
-    ok(before.long.ms <= SEARCH_MS_MAX, `seed ${seed} long open-ground search ${before.long.ms} ms (${before.long.st}, ${before.long.n} pts)`);
-    const lockedCost = before.rows.filter((r) => r.locked).map((r) => r.locked.ms);
-    for (const ms of lockedCost) ok(ms <= SEARCH_MS_MAX, `seed ${seed} unreachable-goal search ${ms} ms`);
+    ok(before.long.st === 'ok' && before.long.exp <= OPEN_SEARCH_EXPANDED_MAX,
+      `seed ${seed} long open-ground search expands ${before.long.exp} nodes ≤ ${OPEN_SEARCH_EXPANDED_MAX} (${before.long.ms} ms, ${before.long.n} pts)`);
+    for (const r of before.rows.filter((x) => x.locked)) {
+      ok(r.locked.exp <= SEARCH_MAX_NODES + 1, `seed ${seed} unreachable-goal search stops at the budget (${r.locked.exp} nodes ≤ ${SEARCH_MAX_NODES} + 1, ${r.locked.ms} ms)`);
+    }
 
     // 9. phase 2 — before the doors open, so the person-mask walker has the building as generated
     const p2 = await page.evaluate(probePhase2);
@@ -475,7 +485,7 @@ try {
             `${tag} small-bug walker reaches the roof by ${B.bugWalk.links.join(' + ') || '—'}`, JSON.stringify(B.bugWalk));
         }
         console.log(`seed ${seed}: flow builds ${B.flow.builds} · last ${B.flow.lastMs.toFixed(1)} ms · avg ${B.flow.avgMs.toFixed(1)} ms · max ${B.flow.maxMs.toFixed(1)} ms · ${B.flow.lastNodes} nodes · ${(B.flow.lastBytes / 1024).toFixed(0)} KiB a buffer`);
-        ok(B.flow.maxMs <= FLOW_BUILD_MS_MAX, `${tag} a field build stays under ${FLOW_BUILD_MS_MAX} ms cpu in total (max ${B.flow.maxMs.toFixed(1)})`);
+        ok(B.flow.maxPops <= FLOW_BUILD_POPS_MAX, `${tag} a field build pops at most ${FLOW_BUILD_POPS_MAX} heap entries (max ${B.flow.maxPops}, ${B.flow.maxMs.toFixed(1)} ms cpu)`);
       }
     }
 

@@ -41,6 +41,10 @@ folders, and other folders do not know its steps. When inactive, both always ret
   draws (track label · step · `index`/`count` · the **visible** objective rows with `done` and their counts · the
   credit `gauge` on the 「출격 안내」 raid step). `ui/map/QuestPanels` is the only consumer — the map's left column
   draws the same rows above the NPC quest list. Null while no track runs, so the map draws nothing.
+- **`TutorialSystem.debugReinit()`** (2026-09-22, smokes only — not on `TutorialRef`) — what a page reload does to this
+  system without the reload: `dispose`, every field back to its initializer, `init` again, so `load()` reads the stored
+  save as a boot does. `smoke-tutorial`'s old-save checks call it from the title (after `game:abort`) and then enter the
+  ship. Nothing in the game calls it.
 - **Emits**: `tutorial:changed {active, step, index, count, track?}` (also re-emitted when stamina is first used, so HUD
   gates re-query), `tutorial:finished {skipped, track}`, `ui:screenFade` (raid skip), `ui:notify`.
 - **Consumes** (main ones): `hub:entered`, `hub:left`, `game:newMission`, `world:ready`, `game:phaseChanged`,
@@ -299,8 +303,8 @@ the line; a choice with nothing left to reject → delete it. Everything else ab
 ## Recent changes
 
 Last 5 only — older: `git log -- src/tutorial`.
+- 2026-09-22 — (E-12 ⓒ) `debugReinit()` for smokes: `smoke-tutorial`'s four old-save reloads became in-place re-inits.
 - 2026-09-20 — Code comments in `*.css` translated to English (`docs/TODO.md` B-65 — the file type §4.1's pass had filtered out; 1,335 lines in 34 stylesheets tree-wide). Korean on-screen labels, csv names and decision headings kept verbatim; no selector, class name, custom property or `content:` string touched, proved by stripping every comment from both sides and comparing the whole text.
 - 2026-09-19 — (B-44 · B-45) Comments realigned with the code: four tracks, not three; 「증축 안내」's last raid renamed 「출격 안내」's raid everywhere; retired steps (`openBag` · `benchPlace` · `levelUp`) described as the rows that absorbed them; the dangling 「wakes up on low HP」 line removed; pointers fixed (`TUTORIAL_CONTROL_HINTS`, `setFolded`, `bar(angle)`, `openCraft` → `craftGun`); the `TUTORIAL_STEP_DELAY_S` and panel-width numbers taken out of prose. README: ship track is 1 step.
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, the four track names and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-18 — 「증축 안내」 split in two: `build` now ends at `equipGun` (5 steps) and the new 4th track `raid2` 「출격 안내」 (`terminal` · `raid`) starts by itself the moment it is completed (`pendingRaid2`); old saves standing on `terminal` / `raid` are moved into it by `load()`; `training` · `launchWarn` · `stashItem` now key off `BUILD_TRACKS`.
-- 2026-09-18 — `equipGun` is skipped at the moment the **inventory opens** too, not only on entry (`equipGunSkipIfMoot`; asked at those transitions only — a per-frame check ended the step as soon as 주무기 II was filled, which killed 2026-09-17's 「wait for the window to close」); a step with every required objective done clears its floor guide and spotlight (the launch-slot wait no longer points back at the cockpit); the 「출격 안내」 raid step's progress bar measures carried `raidFound` value with the real number above it (`1,400 C / 1,000 C`, `.tut-bar-n`); `panelInfo()` lets the tactical map draw the same objectives (`ui/map/QuestPanels`, counts through the shared `tutorialCountLabel`) and the floating panel hides while the map is open.

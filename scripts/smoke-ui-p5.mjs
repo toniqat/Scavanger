@@ -171,8 +171,14 @@ try {
   ok(gaugeDom.off <= 2 && gaugeDom.size === 120 && /matrix\(0,\s*-1,\s*1,\s*0/.test(gaugeDom.rot), `reload ring is reticle-centred (SIZE 120, off ${gaugeDom.off}px) and rotated -90deg (fills from 12 o clock)`, JSON.stringify(gaugeDom));
   ok(gaugeDom.hidden, 'reload ring starts hidden');
   const reloadRing = () => P(() => { const e = document.querySelector('.reload'); const h = window.__game.getSystem('hud'); return { cls: e.className, dash: e.querySelector('.fill').style.strokeDasharray, lbl: e.querySelector('.lbl').textContent, on: h.isReloadGaugeOn, t: h.reloadProgress }; });
-  await emit('weapon:reloadStarted', { weaponId: 'ar', duration: 2 });
-  let rg = await reloadRing();
+  /* 2026-09-22 (E-12 ⓐ): 「empty right after the start」 is read in the **same** evaluate as the emit. Two evaluates
+     let a frame run between them, and one loaded frame (4 sub-steps of 50 ms on the smoke clock) fills a 2 s ring
+     past the 2 % bar — a correct ring, read one frame late. */
+  let rg = await P(() => {
+    window.__game.ctx.bus.emit('weapon:reloadStarted', { weaponId: 'ar', duration: 2 });
+    const e = document.querySelector('.reload'); const h = window.__game.getSystem('hud');
+    return { cls: e.className, dash: e.querySelector('.fill').style.strokeDasharray, lbl: e.querySelector('.lbl').textContent, on: h.isReloadGaugeOn, t: h.reloadProgress };
+  });
   ok(/\bshow\b/.test(rg.cls) && rg.on && dashT(rg.dash) < 0.02 && rg.lbl === '재장전 2.0 s', 'weapon:reloadStarted {duration:2} -> ring shown, empty, 재장전 2.0 s', JSON.stringify(rg));
   await waitSim(0.9);
   rg = await reloadRing();

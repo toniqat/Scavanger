@@ -259,12 +259,27 @@ try {
   console.log('hold → pin');
   const gc = await center(tileSel('stash', S.gun));
   await page.mouse.move(gc.x, gc.y);
+  /* 2026-09-22 (E-12 ⓐ): 「mid-hold」 is captured **in the page, at the moment** a `ui:cursorHold` in the middle of the
+     fill is emitted (the ring is drawn in that same frame), not by one read after `sleep(450)` — the hold is a
+     wall-clock 1 s, and under 6 lanes the sleep plus two CDP round trips landed after it had already pinned. */
+  await page.evaluate(() => {
+    window.__midHold = null;
+    const inv = window.__game.getSystem('inventory');
+    const off = window.__game.ctx.bus.on('ui:cursorHold', (e) => {
+      if (window.__midHold || e.progress == null || e.progress <= 0.2 || e.progress >= 0.9) return;
+      requestAnimationFrame(() => {
+        if (window.__midHold) return;
+        window.__midHold = { ring: !!document.querySelector('.cursor-hold.show'), holding: inv.ui.pin.isHolding, last: e, pinned: inv.ui.pin.isPinned };
+        off();
+      });
+    });
+  });
   await page.mouse.down();
   await sleep(450);
-  const mid = await page.evaluate(() => ({
+  const mid = await page.evaluate(() => window.__midHold ?? {
     ring: !!document.querySelector('.cursor-hold.show'), holding: window.__game.getSystem('inventory').ui.pin.isHolding,
     last: window.__ev['ui:cursorHold'].slice(-1)[0] ?? null, pinned: window.__game.getSystem('inventory').ui.pin.isPinned,
-  }));
+  });
   ok(mid.ring && mid.holding && !mid.pinned && mid.last && mid.last.progress > 0.2 && mid.last.progress < 0.9 && Math.abs(mid.last.x - gc.x) < 2,
     'holding still: the cursor ring shows and fills (`ui:cursorHold` with the cursor position)', JSON.stringify(mid));
   await sleep(HOLD_MS - 450);

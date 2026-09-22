@@ -133,7 +133,9 @@ try {
   await toHub();
   await P(() => {
     const gate = window.__game.getSystem('gameflow').loadGate;
-    gate.debugSetTimeout(4);          // does not really wait `RAID_LOAD_TIMEOUT_S` out
+    // does not really wait `RAID_LOAD_TIMEOUT_S` out. 6 s, not 4 (2026-09-22, E-12): the 「a second later」 read lands
+    // ~2.6 s in plus every poll's overshoot, and under 6 lanes that crossed 4 s and read a released gate.
+    gate.debugSetTimeout(6);
     gate.debugAddMember('peer-x', 0.5);   // a fake squadmate that never reaches 1
   });
   await resetEv();
@@ -152,7 +154,7 @@ try {
   const rel2 = await lastEv('raid:loadReleased');
   ok(rel2 && rel2.timedOut === true, 'release after the timeout is marked timedOut', JSON.stringify(rel2));
   const m2 = await P(() => window.__mark);
-  ok(m2.releasedAt - m2.startedAt >= 3.5, 'the host really waited out the (shortened) timeout', `${(m2.releasedAt - m2.startedAt).toFixed(2)}s`);
+  ok(m2.releasedAt - m2.startedAt >= 5.5, 'the host really waited out the (shortened) timeout', `${(m2.releasedAt - m2.startedAt).toFixed(2)}s`);
   await P(() => { const g = window.__game.getSystem('gameflow').loadGate; g.debugClearMembers(); g.debugSetTimeout(null); });
 
   console.log('③ 재접속 · 훈련장은 게이트를 타지 않는다');

@@ -49,9 +49,9 @@ npm run app        # run the built desktop app (local http; no address → this 
 npm run app:dist   # full deploy folder release/SCAVANGER/ (3 entries, no server)
 npm run icon       # redraw electron/resources/icon.ico from code (--png = preview)
 
-npm run verify     # after a feature: typecheck + selftest + smokes mapped to touched folders (4 lanes)
+npm run verify     # after a feature: typecheck + selftest + smokes mapped to touched folders (6 lanes)
 node scripts/verify.mjs --dry-run   # what the current change would run, and why — runs nothing
-npm run verify:all # end of a work session / before merge: everything + build + e2e:mp (~17 min; --jobs 4 default)
+npm run verify:all # end of a work session / before merge: everything + build + e2e:mp (~12 min; --jobs 6 default)
 npm run net:selftest   # relay protocol self-test (no browser)
 npm run e2e:mp         # two headless Chromes through relay + vite
 
@@ -387,7 +387,7 @@ AAA feel in the browser: readable silhouettes, strong lighting (sun + hemisphere
 ## 6. Verification & recording (details: [docs/VERIFICATION.md](docs/VERIFICATION.md))
 
 - **After every edit**: `npm run typecheck`; `npm run data:check` if `data/*.csv` changed.
-- **After a feature**: `npm run verify` (smokes mapped to touched folders, 4 GPU lanes; the runner starts vite/relay). `--dry-run` first if you want to see what it picked.
+- **After a feature**: `npm run verify` (smokes mapped to touched folders, 6 GPU lanes; the runner starts vite/relay). `--dry-run` first if you want to see what it picked.
 - **End of a work session, and before merge**: `npm run verify:all` (+ build + `e2e:mp`, ~17 min). Once, not per commit — during the session `verify` is the check. Don't run smokes one by one by hand.
 - **Deploy files touched** (`pack-release.mjs`, `electron/`): `verify` runs `smoke-desktop`; run `npm run app:dist` once and check `release/SCAVANGER/` has exactly three entries (`node scripts/smoke-desktop.mjs --release` checks it).
 - Debug hooks: `window.__game.ctx`, `window.__game.getSystem('player'|'weapons'|'net'|'enemies'|…)`.

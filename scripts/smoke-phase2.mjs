@@ -128,12 +128,15 @@ try {
   const pl0 = await look();
   ok(pl0.locked === false, 'look unlocked before the ping press', JSON.stringify(pl0));
   await P(() => { window.__ev['ping:placed'].length = 0; window.__ev['ping:wheelChanged'].length = 0; });
+  /* 2026-09-22 (E-12 ⓐ): 0.05 s waits, not 0.3 + 0.2 — the hold ends itself at `PING_HOLD_MAX` (1.2 s of game time),
+     and under 6 lanes the two waits plus their overshoot ran past it: the wheel had closed as a plain ping and the look
+     was unlocked before the drag was read. One step is all the lock and the drag need. */
   await mouseDown(1);
-  await waitSim(0.3);
+  await waitSim(0.05);
   const plHeld = await look();
   ok(plHeld.locked === true, 'ping press locks the look (setLookLocked) from the start of the hold', JSON.stringify(plHeld));
   await P(() => { window.__game.ctx.input.mouseDX += 200; });
-  await waitSim(0.2);
+  await waitSim(0.05);
   const plDrag = await look();
   const pwDrag = await lastEv('ping:wheelChanged');
   ok(plDrag.locked && Math.abs(plDrag.yaw - plHeld.yaw) < 1e-6, `dragging right while held does not turn the camera (yaw ${plHeld.yaw.toFixed(3)} → ${plDrag.yaw.toFixed(3)})`);

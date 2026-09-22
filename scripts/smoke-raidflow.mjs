@@ -404,11 +404,15 @@ try {
   await P(() => {
     window.__ride = [];
     const sys = window.__game.getSystem('extraction'), ctx = window.__game.ctx;
+    // The ship's own rise in the last simulated step (the one the rider has not caught up with yet).
+    let stepDy = 0;
+    const upd = sys.update;
+    sys.update = function (dt, c) { const y0 = sys.ship.root.position.y; upd.call(this, dt, c); stepDy = sys.ship.root.position.y - y0; };
     sys.liftoff();
     const id = setInterval(() => {
       const pos = ctx.player.position;
-      window.__ride.push({ t: ctx.time, shipY: sys.ship.root.position.y, py: pos.y, gap: pos.y - sys.ship.floorYAt(pos.x, pos.z) });
-      if (window.__ride.length > 60) clearInterval(id);
+      window.__ride.push({ t: ctx.time, shipY: sys.ship.root.position.y, py: pos.y, gap: pos.y - sys.ship.floorYAt(pos.x, pos.z), stepDy });
+      if (window.__ride.length > 60) { clearInterval(id); sys.update = upd; }
     }, 60);
   });
   await waitSim(4.0);
@@ -419,14 +423,11 @@ try {
      one engine step of ship motion — ship speed × dt. The climb accelerates (`6a² + 2a`), so at 60 fps that is well
      under 0.35 m, but a step is `MAX_DT` (0.05 s) whenever a loaded page drops to 20 fps, and on the smoke clock game
      time keeps pace with the wall-clock sample window, so the ship is faster by its end: 0.35–0.38 m reds under load.
-     The bar is 0.35 m **plus that one step** (speed from the neighbouring samples × 0.05 s). Falling off the deck
-     grows without bound and still fails. */
-  const STEP_S = 0.05;
-  const worstGap = Math.max(...ride.map((s, i) => {
-    const a = ride[Math.max(0, i - 1)], b = ride[Math.min(ride.length - 1, i + 1)];
-    const v = b.t > a.t ? Math.abs(b.shipY - a.shipY) / (b.t - a.t) : 0;
-    return Math.abs(s.gap) - v * STEP_S;
-  }));
+     The bar is 0.35 m **plus that one step**. Falling off the deck grows without bound and still fails.
+     2026-09-22 (E-12 ⓐ): the step is the ship's **measured** rise in the last `ExtractionSystem.update` (`stepDy`, the
+     update wrapped for the sample window), not speed × 0.05 s estimated from neighbouring samples — under 6 lanes the
+     estimate lagged the accelerating ship and a correct ride read 0.35–0.37 m. */
+  const worstGap = Math.max(...ride.map((s) => Math.abs(s.gap) - Math.abs(s.stepDy)));
   ok(climb > 10, '함선이 실제로 올라간다', `${climb.toFixed(2)} m`);
   ok(Math.abs(rider - climb) < 0.6, '탑승자가 함선과 함께 올라간다', `ship ${climb.toFixed(2)} m vs player ${rider.toFixed(2)} m`);
   ok(worstGap < 0.35, '탑승자가 데크에서 떨어지지 않는다', `worst ${worstGap.toFixed(3)} m beyond one step of ship motion`);
@@ -789,10 +790,12 @@ try {
   // recorder is hooked here
   const ret0 = await P(() => {
     const ctx = window.__game.ctx;
-    const rec = window.__ret = { died: 0, over: 0, hub: [] };
-    ctx.bus.on('player:died', () => { rec.died++; });
+    // The death and the arrival are **stamped with `ctx.time` as they happen** (2026-09-22, E-12): the gap used to be
+    // measured from a poll that noticed the death — under 6 lanes that poll was 0.2 s late and a 2 s beat read 1.83 s.
+    const rec = window.__ret = { died: 0, over: 0, hub: [], diedAt: -1, hubAt: -1 };
+    ctx.bus.on('player:died', () => { rec.died++; if (rec.diedAt < 0) rec.diedAt = ctx.time; });
     ctx.bus.on('game:over', () => { rec.over++; });
-    ctx.bus.on('hub:entered', (e) => { rec.hub.push(e.ship); });
+    ctx.bus.on('hub:entered', (e) => { rec.hub.push(e.ship); rec.hubAt = ctx.time; });
     ctx.inventory.tryAddItem(ctx.loot.createItem('heal_bandage', 2));
     return { items: ctx.inventory.countWhere(() => true), raids: ctx.progression.profile.raids };
   });
@@ -812,10 +815,10 @@ try {
   await waitFor(page, () => window.__ret.hub.length > 0 && window.__game.ctx.phase === 'hub', 'return: hub', 20000);
   const ret1 = await P(() => {
     const ctx = window.__game.ctx;
-    return { t: ctx.time, items: ctx.inventory.countWhere(() => true), raids: ctx.progression.profile.raids, over: window.__ret.over,
+    return { t: ctx.time, gap: window.__ret.hubAt - window.__ret.diedAt, items: ctx.inventory.countWhere(() => true), raids: ctx.progression.profile.raids, over: window.__ret.over,
       ship: window.__ret.hub[window.__ret.hub.length - 1], deathScreen: !document.querySelector('.menu.death').classList.contains('hidden') };
   });
-  ok(ret1.ship === 'personal' && ret1.t - retMid.t >= 2, `귀환: 사망 연출 뒤 개인 함선 (${(ret1.t - retMid.t).toFixed(2)} s)`, JSON.stringify(ret1));
+  ok(ret1.ship === 'personal' && ret1.gap >= 2, `귀환: 사망 연출 뒤 개인 함선 (${ret1.gap.toFixed(2)} s)`, JSON.stringify(ret1));
   ok(ret1.over === 1 && ret1.raids === ret0.raids + 1 && !ret1.deathScreen,
     '귀환: 솔로 결산은 레이드 실패와 같다 (game:over · 레이드 수 +1) · 결과 화면은 남지 않는다', JSON.stringify({ ret0, ret1 }));
   ok(ret0.items > 0 && ret1.items === 0, `귀환: 들고 있던 것을 모두 잃었다 (${ret0.items} → ${ret1.items})`);

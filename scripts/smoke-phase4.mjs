@@ -6,7 +6,10 @@
 import puppeteer from 'puppeteer-core';
 import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+
+/** `SLASH_DURATION` (data/constants.csv) — how long a heavy melee keeps `isMeleeing`. */
+const SLASH_DURATION = Number(readFileSync(new URL('../data/constants.csv', import.meta.url), 'utf8').match(/^SLASH_DURATION,([\d.]+)/m)?.[1]);
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
 const CHROME = [
@@ -132,6 +135,16 @@ try {
     return { id: rogue.id, dist: -1 };
   });
   ok(placed && placed.dist > 0, 'player placed 22 m from a rogue with LOS', JSON.stringify(placed));
+  /* The heal guard (see below) goes up **before** the fire test and runs after every enemies `update` — each engine
+     step. 2026-09-22 (E-12): it used to be a 100 ms `setInterval` raised after the fire test, and under 6 lanes the rogue
+     landed 12 hits inside that test's `waitSim(3)` — hp 0, raid failed, and every later section read an empty world.
+     Hits still land (they are what the fire test counts); the body just never reaches 0. */
+  await P(() => {
+    const pl = window.__game.ctx.player, sys = window.__sys;
+    const upd = sys.update;
+    sys.update = function (dt, c) { upd.call(this, dt, c); if (pl.hp < pl.maxHp && !pl.isDead) pl.heal(pl.maxHp - pl.hp); };
+    window.__healGuardOff = () => { sys.update = upd; };
+  });
   let shots = [];
   const tShot0 = await P(() => window.__game.ctx.time);
   await waitEv('enemy:shot', 25);
@@ -150,10 +163,6 @@ try {
      does not bring that raid back (the phase only goes to the ship after `RAID_FAILED_AUTO_RETURN_S`, and 'menu' stays in
      `uiBlockers`). So the body is kept from dying in the first place rather than revived afterwards — every section below
      checks the enemy side only. */
-  await P(() => {
-    const pl = window.__game.ctx.player;
-    window.__healGuard = setInterval(() => { if (pl.hp < pl.maxHp) pl.heal(pl.maxHp - pl.hp); }, 100);
-  });
 
   console.log('faction clash');
   const clash = await P((id) => {
@@ -210,6 +219,9 @@ try {
   // let a second shell land for the blast path
   let landed = [];
   await waitEv('enemy:shellLanded', 20); landed = await ev('enemy:shellLanded');
+  // 2026-09-22 (E-12): a shell still **in the air** when the window closes (`fired: 2, live: 1`, red in several full
+  // runs) is given its flight — the window measured the piece's cadence, not whether a shell lands and blasts.
+  if (!landed.length && await P(() => window.__sys.shellCount > 0)) { await waitEv('enemy:shellLanded', 12); landed = await ev('enemy:shellLanded'); }
   const artAfter = await P((id) => { const e = window.__sys.active.find((x) => x.id === id); return { fired: window.__ev['enemy:shellFired'].length, live: window.__sys.shellCount, art: e ? { state: e.state, dug: e.dug, dist: e.distToTarget, timer: e.shellTimer, aware: e.aware, hp: e.hp, target: e.target ? e.target.id : null, phase: e.chargePhase } : 'gone' }; }, art?.id);
   ok(landed.length > 0 && landed[0].radius === 5, `a later shell landed (enemy:shellLanded radius ${landed[0]?.radius})`, JSON.stringify(artAfter));
 
@@ -479,6 +491,22 @@ try {
     a.summonDone = true; sys.debugSpawn('scavenger', { x: p.x + 2, z: p.z - 2 }, false);   // 2026-09-17: the firing condition (a bug beside the target) · the one summon taken out of the way
     a.dug = 1; a.shellTimer = 0; a.shellRefusals = 0;
     window.__art = { id: a.id, legs: [] };
+    /* 2026-09-22 (E-12): each new move target is stamped **in the step it is chosen** — with the body's position and
+       the target's at that step. The side used to be worked out from the position at the next 0.25 s poll, and under
+       6 lanes the body had walked most of the leg by then, so one leg read as the other side. */
+    let lastKey = '';
+    const upd = sys.update;
+    window.__art.stop = () => { sys.update = upd; };
+    sys.update = function (dt, c) {
+      upd.call(this, dt, c);
+      const b = sys.active.find((x) => x.id === a.id);
+      if (!b || !(b.fireBlockTimer > 0)) return;
+      const key = `${b.shellSpot.x.toFixed(2)},${b.shellSpot.z.toFixed(2)}`;
+      if (key === lastKey) return;
+      lastKey = key;
+      const t = b.target;
+      window.__art.legs.push({ p: [b.position.x, b.position.z], mt: [b.shellSpot.x, b.shellSpot.z], t: t ? [t.position.x, t.position.z] : null });
+    };
     return { id: a.id, p: [a.position.x, a.position.z] };
   });
   const legs = [];
@@ -494,12 +522,13 @@ try {
     if (s.block > 0 && (legs.length === 0 || legs[legs.length - 1].key !== key)) legs.push({ key, ...s });
     else if (legs.length >= 2 && s.refusals === 0 && s.timer > 5) { legs.push({ key: 'cap', ...s }); break; }
   }
+  const stamped = await P(() => { window.__art.stop(); return window.__art.legs; });
   await P(() => { delete window.__sys.fireShell; const a = window.__sys.active.find((x) => x.id === window.__art.id); if (a) a.kill(false); });
   // The sidestep's direction = the sign of (direction to the target) × (direction of travel). The old rule flipped that sign on every refusal.
   const side = (l) => { const tx = l.t[0] - l.p[0], tz = l.t[1] - l.p[1]; const mx = l.mt[0] - l.p[0], mz = l.mt[1] - l.p[1]; return Math.sign(tx * mz - tz * mx); };
   const walked = legs.slice(0, 2).map((l) => Math.hypot(l.mt[0] - l.p[0], l.mt[1] - l.p[1]));
   ok(legs.length >= 2 && walked.every((d) => d >= 6), `C-24: 거절되면 사전 검사한 자리로 옮긴다 (다리 ${legs.length}, 거리 ${walked.map((d) => d.toFixed(1)).join(' · ')} m)`, JSON.stringify(legs));
-  ok(legs.length >= 2 && side(legs[0]) !== 0 && side(legs[0]) === side(legs[1]), 'C-24: 연속 거절에도 좌우를 번갈아 뒤집지 않는다 (X-4 핑퐁 없음)', JSON.stringify(legs.map((l) => ({ side: side(l), mt: l.mt }))));
+  ok(stamped.length >= 2 && stamped[0].t && side(stamped[0]) !== 0 && side(stamped[0]) === side(stamped[1]), 'C-24: 연속 거절에도 좌우를 번갈아 뒤집지 않는다 (X-4 핑퐁 없음)', JSON.stringify(stamped.map((l) => ({ side: l.t ? side(l) : null, mt: l.mt }))));
   ok(legs.some((l) => l.key === 'cap' || l.refusals === 0 && l.timer > 5), `C-24: 연속 ARTILLERY_AI.maxRefusals(3) 번이면 거절 카운터를 비우고 refusalCooldown 동안 쉰다`, JSON.stringify(legs.map((l) => ({ r: l.refusals, timer: +l.timer.toFixed(1) }))));
   // player hooks: the rogues have been shooting at the player for minutes — clear the field and get back on our feet first
   /* 2026-09-09: a downed body gets up with `revive()`, but **full death has no auto-revive** — only the rescue drop, and
@@ -515,7 +544,7 @@ try {
     return was;
   });
   /* The heal guard is taken down here — the hooks below (stamina · melee · knockback) do not touch hp. */
-  await P(() => { clearInterval(window.__healGuard); window.__healGuard = 0; });
+  await P(() => { window.__healGuardOff?.(); window.__healGuardOff = null; });
   /* `revive()` / `respawnAt` are immediate, but the downed screen takes a few frames to close and empty `uiBlockers`.
      `canAct()` reads `ctx.isControlActive()`, so calling `startMelee` before that is refused silently (2026-09-09).
      This does not wait a fixed time — it waits on the condition that control really came back. */
@@ -553,13 +582,20 @@ try {
     // Prints why on a refusal — `canAct()` is an AND of several gates, so the failure message alone does not narrow the cause down
     const gate = { dead: pl.isDead, downed: pl.isDowned, phase: ctx.phase, blockers: [...ctx.uiBlockers], control: ctx.isControlActive() };
     const started = pl.startMelee('heavy');
+    /* 2026-09-22 (E-12 ⓐ): the end of the swing is stamped **inside the engine** (after each player `update`, every
+       sub-step) instead of reading `isMeleeing` at 0.3 s and 0.8 s — the 0.3 s read overshot past the 0.6 s swing
+       under 6 lanes. */
+    const sys = window.__game.getSystem('player');
+    const t0 = ctx.missionTime;   // mission time stands still in a shader hold, like the swing
+    window.__meleeEnd = null;
+    const upd = sys.update;
+    sys.update = function (dt, c) { upd.call(this, dt, c); if (window.__meleeEnd === null && !pl.isMeleeing) { window.__meleeEnd = ctx.missionTime - t0; sys.update = upd; } };
     return { started, meleeing: pl.isMeleeing, fov0: ctx.camera.fov, gate };
   });
-  await waitSim(0.3);
-  const hv2 = await P(() => ({ meleeing: window.__game.ctx.player.isMeleeing }));
-  await waitSim(0.5);
-  const hv3 = await P(() => ({ meleeing: window.__game.ctx.player.isMeleeing }));
-  ok(hv && hv.started && hv.meleeing && hv2.meleeing && !hv3.meleeing, `startMelee('heavy') → isMeleeing for ~SLASH_DURATION (0.3 s: ${hv2.meleeing}, 0.8 s: ${hv3.meleeing})`, JSON.stringify(hv));
+  await waitSim(SLASH_DURATION + 0.4);
+  const hvEnd = await P(() => window.__meleeEnd);
+  ok(hv && hv.started && hv.meleeing && hvEnd !== null && hvEnd >= SLASH_DURATION - 0.1 && hvEnd <= SLASH_DURATION + 0.15,
+    `startMelee('heavy') → isMeleeing for ~SLASH_DURATION (ended after ${hvEnd?.toFixed(2)} s of game time, SLASH_DURATION ${SLASH_DURATION})`, JSON.stringify(hv));
   await P(() => window.__game.ctx.player.setViewWiden(true));
   await waitSim(1.0);
   const wide = await P(() => window.__game.ctx.camera.fov);

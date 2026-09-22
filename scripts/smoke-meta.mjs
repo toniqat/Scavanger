@@ -809,11 +809,15 @@ try {
     const b = document.querySelector('.cv-confirm');
     const r = b.getBoundingClientRect();
     const o = { bubbles: true, cancelable: true, button: 0, pointerId: 1, clientX: r.left + 5, clientY: r.top + 5 };
+    const before = window.__game.ctx.meta.credits;
     b.dispatchEvent(new PointerEvent('pointerdown', o));
-    return { before: window.__game.ctx.meta.credits };
+    // 2026-09-22 (E-12): the mid-hold state is read in the page two frames after the press — `sleep(450)` plus a CDP
+    // round trip could land past the 1 s wall-clock hold under 6 lanes
+    return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r({ before,
+      mid: { credits: window.__game.ctx.meta.credits, holding: b.classList.contains('is-holding'), fill: document.querySelector('.cv-confirm-fill').style.transform } }))));
   });
   await sleep(450);
-  const midHold = await P(() => ({ credits: window.__game.ctx.meta.credits, holding: document.querySelector('.cv-confirm').classList.contains('is-holding'), fill: document.querySelector('.cv-confirm-fill').style.transform }));
+  const midHold = holdStart.mid;
   // (the gauge rides rAF, which a hidden headless tab may not tick — so only the state is asserted, the fill is reported)
   ok(midHold.credits === holdStart.before && midHold.holding, `홀드 중간(0.45 s): 아직 거래 안 됨, 홀드 중 (게이지 ${midHold.fill})`, JSON.stringify(midHold));
   await sleep(900);

@@ -621,6 +621,13 @@ try {
 
   /* ── 2026-09-15 4th pass (user's decision): the craft layout — no 창고 · 가방 grids · the recipe list is 5
      columns · the detail is a separate card on the right · hovering a cell = the output tooltip ── */
+  /* 2026-09-22 (E-12): the layout is read once it has **settled** (the detail card beside the panel, up to 3 s), not
+     on the first frame after the bench opened — under 6 lanes a red read the card still overlapping the panel, and the
+     hover below then aimed at a cell that had not reached its place yet. */
+  await waitFor(page, () => {
+    const p = document.querySelector('.inv-root .inv-panel-craft')?.getBoundingClientRect(), c = document.querySelector('.inv-root .inv-panel-craft-detail')?.getBoundingClientRect();
+    return !!p && !!c && c.left >= p.right - 1;
+  }, 'craft layout settled', 3000).catch(() => { /* reported by the check below */ });
   const craftLayout = await page.evaluate(() => {
     const root = document.querySelector('.inv-root');
     // when the ancestor card (`.inv-panel-grids`) is `display: none` a child's computed display is unchanged, so
@@ -658,7 +665,8 @@ try {
     const cellSel = `.inv-craft-cell[data-recipe="${openIds[0]}"]`;
     const at = await centre(cellSel);
     await page.mouse.move(at.x, at.y, { steps: 3 });
-    await sleep(120);
+    // the tooltip is waited for (up to 3 s), not given a fixed 120 ms (2026-09-22, E-12)
+    await waitFor(page, () => { const tip = document.querySelector('.inv-tooltip'); return !!tip && !tip.hidden; }, 'craft cell tooltip', 3000).catch(() => { /* reported below */ });
     const hov = await page.evaluate((sel) => {
       const tip = document.querySelector('.inv-tooltip');
       const cell = document.querySelector(sel);

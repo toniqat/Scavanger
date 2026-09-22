@@ -139,8 +139,6 @@ try {
       buttons: [...a.querySelectorAll('button')].map((b) => b.querySelector('.sh-ask-label')?.textContent ?? b.textContent),
       holdCaps: a.querySelectorAll('button[data-hold] .keycap.kc-btn').length } : null;
   }, id);
-  const askHold = (id) => H((id) => document.querySelector(`.sh-ask[data-ask="${id}"] button[data-hold]`)
-    ?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 })), id);
   const askCancel = (id) => H((id) => document.querySelector(`.sh-ask[data-ask="${id}"] button[data-cancel]`)?.click(), id);
 
   /**
@@ -500,9 +498,13 @@ try {
     await tap('Enter');
     const idx = slots > 1 ? 1 : 0;
     ok((await growInfo('0:0')).sockets[idx] === 'sock_soil_speed_1' && (await ownQty('sock_soil_yield_1')) === yield0, '클릭 · Enter 로는 교체되지 않는다');
-    await askHold('hs-socket-replace');
-    await sleep(400);
-    ok((await growInfo('0:0')).sockets[idx] === 'sock_soil_speed_1', '홀드 도중에는 아직 교체되지 않는다');
+    /* 2026-09-22 (E-12): pressed and read **in the page**, two frames apart — a 1 s hold (`UI_HOLD_CONFIRM_S`) read after
+       `sleep(400)` plus two CDP round trips could already be over under 6 lanes. */
+    const midHold = await H(({ u, i }) => new Promise((r) => {
+      document.querySelector('.sh-ask[data-ask="hs-socket-replace"] button[data-hold]')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+      requestAnimationFrame(() => requestAnimationFrame(() => r(window.__game.ctx.housing.getGrowSlots(u).find((s) => s.tier === 0 && s.slot === 0)?.sockets[i])));
+    }), { u: GS, i: idx });
+    ok(midHold === 'sock_soil_speed_1', '홀드 도중에는 아직 교체되지 않는다', String(midHold));
     try { await waitFor(page, ({ u, i }) => window.__game.ctx.housing.getGrowSlots(u).find((s) => s.tier === 0 && s.slot === 0)?.sockets[i] === 'sock_soil_yield_1', '1초 홀드 → 교체', 4000, { u: GS, i: idx }); } catch { /* reported below */ }
     const replaced = await growInfo('0:0');
     ok(replaced.sockets[idx] === 'sock_soil_yield_1' && replaced.sockets.length === slots && (await ownQty('sock_soil_yield_1')) === yield0 - 1
@@ -551,9 +553,13 @@ try {
   await tap('Tab');
   ok(await H(() => document.querySelector('.menu.grow-station .hs-modal').hidden && !document.querySelector('.menu.grow-station').hidden), 'Tab 은 모달만 닫는다 (패널은 그대로)');
   await H(() => document.querySelector('.menu.grow-station .hs-up-open').click());
-  await H(() => document.querySelector('.menu.grow-station .hs-modal-ok').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 })));
+  // pressed and read in the page two frames apart (2026-09-22, E-12 — the same 1 s wall-clock hold race as the socket
+  // replace above: `sleep(450)` + a CDP round trip under 6 lanes read it after it had confirmed)
+  const mid = await H((u) => new Promise((r) => {
+    document.querySelector('.menu.grow-station .hs-modal-ok').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+    requestAnimationFrame(() => requestAnimationFrame(() => r({ level: window.__game.ctx.housing.getPlacedByUid(u).level, hold: window.__game.ctx.housing.growStation.modal?.holdProgress ?? null })));
+  }), GS);
   await sleep(450);
-  const mid = await H((u) => ({ level: window.__game.ctx.housing.getPlacedByUid(u).level, hold: window.__game.ctx.housing.growStation.modal?.holdProgress ?? null }), GS);
   ok(mid.level === 1, `홀드 도중에는 아직 강화되지 않는다 (${JSON.stringify(mid)})`);
   await waitFor(page, (u) => window.__game.ctx.housing.getPlacedByUid(u).level === 2, '1초 홀드 → Lv.2', 4000, GS);
   await sleep(30);
@@ -656,8 +662,10 @@ try {
   ok(!dex.dexHidden && dex.slotsHidden && dex.rows > 0 && dex.active === 'dex', `분석 도감 탭 (${dex.rows}행)`);
   ok(dex.fams.length === 3 && dex.lv.every((t) => /^Lv\.\d/.test(t)) && /해석 시간 ×/.test(dex.mul), `계열 3구획 · Lv · 해석 시간 배수 (${JSON.stringify({ fams: dex.fams, lv: dex.lv, mul: dex.mul })})`);
   ok(dex.owned, `회수한 산출물은 도감에 아이템 칩으로 (${reward})`);
-  ok(dex.leak === 0 && dex.unknown.every((t) => t === '???') && dex.locked.every((t) => /^Lv\.\d 해금$/.test(t)) && dex.locked.length > 0,
-    `미발견 = 실루엣 + 「???」 (호버 카드로 이름이 새지 않는다) · 잠김 = 「Lv.n 해금」 (${JSON.stringify({ leak: dex.leak, unknown: dex.unknown.length, locked: dex.locked.slice(0, 2) })})`);
+  // 2026-09-22 (E-12): a red here printed only counts; the offending titles are printed now (and `Lv.n` may be 2 digits).
+  const badUnknown = dex.unknown.filter((t) => t !== '???'), badLocked = dex.locked.filter((t) => !/^Lv\.\d+ 해금$/.test(t));
+  ok(dex.leak === 0 && badUnknown.length === 0 && badLocked.length === 0 && dex.locked.length > 0,
+    `미발견 = 실루엣 + 「???」 (호버 카드로 이름이 새지 않는다) · 잠김 = 「Lv.n 해금」 (${JSON.stringify({ leak: dex.leak, unknown: dex.unknown.length, locked: dex.locked.length, badUnknown, badLocked })})`);
   await tap('Tab');
 
   /* ══ 3. The culture tank ═══════════════════════════════════════════════ */

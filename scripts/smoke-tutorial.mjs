@@ -192,6 +192,19 @@ try {
     await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
     await sleep(400);
   };
+  /* 2026-09-22 (TODO E-12 ⓒ): the old-save checks used to reload the page — a whole boot each (~5 s) to make
+     `TutorialSystem.load` read an edited save. Now: back to the title (`game:abort`, what 「타이틀로」 does), the save
+     edited **after** that (so nothing the running tutorial persists on the way out can overwrite it), the tutorial
+     re-initialised in place (`debugReinit` = dispose + fresh fields + `init`) and the ship entered from the title as a
+     boot does. The one reload kept (section 6) is the persistence check itself. */
+  const softReload = async (edit) => {
+    await P(() => window.__game.ctx.bus.emit('game:abort', {}));
+    await waitFor(page, () => window.__game.ctx.phase === 'menu', 'title phase');
+    await P(edit);
+    await P(() => window.__game.getSystem('tutorial').debugReinit());
+    await enterShip();
+    await sleep(300);
+  };
   const clickPopup = (label) => P((l) => {
     const b = [...document.querySelectorAll('.tut-popup-card .acts .ui-btn')].find((x) => x.textContent === l);
     if (!b) return false;
@@ -990,15 +1003,11 @@ try {
   /* 2026-09-09: `openCraft` left the order but its id stays in the contract (`TutorialStepId`) — a save holding that
      step continues at `craftAmmo`, which took its place (`Steps.normalizeStep`). The save does not break and start
      over. */
-  await P(() => {
+  await softReload(() => {
     const s = JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? '{}');
     s.tracks.build.step = 'openCraft';
     localStorage.setItem('scav.s1.tutorial', JSON.stringify(s));
   });
-  await page.reload({ waitUntil: 'load' });
-  await setup();
-  await enterShip();
-  await sleep(300);
   const stale = await P(() => {
     const t = window.__game.ctx.tutorial;
     return { active: t.active, step: t.step, index: t.stepIndex, count: t.stepCount };
@@ -1009,15 +1018,11 @@ try {
   ok(['craftGunWalk', 'craftGunOpen', 'craftGunMade'].every((id) => staleObjs.includes(id)) && !staleObjs.includes('craftAmmoMade'),
     '그 자리에서 이미 한 줄(이동 · 작동 · 소총)이 채워진다 — 준중량탄부터 이어진다', JSON.stringify(staleObjs));
   // 2026-09-17: and the other ids that vanished into a group — `manageDone` arrives with bench filled to its last row
-  await P(() => {
+  await softReload(() => {
     const s = JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? '{}');
     s.tracks.build.step = 'manageDone';
     localStorage.setItem('scav.s1.tutorial', JSON.stringify(s));
   });
-  await page.reload({ waitUntil: 'load' });
-  await setup();
-  await enterShip();
-  await sleep(300);
   const staleBench = await P(() => ({ step: window.__game.ctx.tutorial.step, done: [...window.__game.getSystem('tutorial').done] }));
   // The reload left ship management closed → 「하우징 모드 닫기」 has nothing to do, so it goes straight on (the old
   // `manageDone`'s silent pass)
@@ -1027,16 +1032,12 @@ try {
      would lose that player's guidance whole, so `load()` **moves** it to that track and writes the build track it
      already passed as done (it is not run again). The rows already ticked there (`Steps.retiredObjectives`) come
      along too. */
-  await P(() => {
+  await softReload(() => {
     const s = JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? '{}');
     s.tracks.build = { step: 'board', done: false };
     delete s.tracks.raid2;
     localStorage.setItem('scav.s1.tutorial', JSON.stringify(s));
   });
-  await page.reload({ waitUntil: 'load' });
-  await setup();
-  await enterShip();
-  await sleep(300);
   const moved = await P(() => {
     const sys = window.__game.getSystem('tutorial');
     return {
@@ -1270,11 +1271,7 @@ try {
 
   /* ── 9. It never turns on for a profile already in play ─────────────── */
   console.log('기존 프로필');
-  await P(() => { try { localStorage.removeItem('scav.s1.tutorial'); } catch { /* off */ } });
-  await page.reload({ waitUntil: 'load' });
-  await setup();
-  await enterShip();
-  await sleep(300);
+  await softReload(() => { try { localStorage.removeItem('scav.s1.tutorial'); } catch { /* off */ } });
   const existing = await P(() => ({
     step: window.__game.ctx.tutorial.step,
     saved: JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'),

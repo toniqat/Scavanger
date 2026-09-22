@@ -193,6 +193,13 @@ try {
     ctx.enemies?.killAll?.();
     if (p.isDowned) p.revive();
     p.heal(1000);
+    /* 2026-09-22 (E-12): and nothing below may take the body to 0. The quiet field was not enough — under 6 lanes the
+       `timeScale 4` waits ran long past their event (a poll's latency is 4× in game time) and the body was dead
+       (hp 0, phase `dead`) before the crate was opened. Damage still arrives; `applyDamage` (every damage path's one
+       entry) just never takes the last point. */
+    const sys = window.__game.getSystem('player');
+    const apply = sys.applyDamage;
+    sys.applyDamage = function (amount, ...rest) { return apply.call(this, Math.min(amount, Math.max(0, sys.hp - 1)), ...rest); };
   });
   await P(() => { const s = window.__game.getSystem('stratagems'); s.debugCooldownReset?.(); });
   const sTarget = await P(() => { const ctx = window.__game.ctx; const p = ctx.player.position; const f = ctx.player.getForward(); const t = [p.x + f.x * 3, 0, p.z + f.z * 3]; t[1] = ctx.world.getHeightAt(t[0], t[2]); return t; });

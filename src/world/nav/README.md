@@ -8,7 +8,7 @@ range, the tutorial and before the first raid). The contract is `src/shared/nav.
 
 | File | Responsibility |
 |---|---|
-| `NavGraph.ts` | The class behind `NavRef`: outdoor arrays (`oh` · `of`), regions, explicit links, the special-link table (`specials`), window flags, gates + gate loads, the flow state, the re-measure queue, the search scratch; `start` · `clear` · `update` · `onHashChange` · `findPath` · `walkable` · `flowTo` · `createFlowStep` · `setGateLoad` · `windowWhole` · `breakWindow` · `noteWindowBroken` · `debugInfo` · `debugGateAt` · `debugWalkableAt` · `debugSpecials`. |
+| `NavGraph.ts` | The class behind `NavRef`: outdoor arrays (`oh` · `of`), regions, explicit links, the special-link table (`specials`), window flags, gates + gate loads, the flow state, the re-measure queue, the search scratch; `start` · `clear` · `update` · `onHashChange` · `findPath` · `walkable` · `flowTo` · `createFlowStep` · `setGateLoad` · `windowWhole` · `breakWindow` · `noteWindowBroken` · `debugInfo` (counts, bake timings, `search.lastExpanded`, the flow builds' ms **and heap pops**) · `debugGateAt` · `debugWalkableAt` · `debugSpecials`. |
 | `model.ts` | Vocabulary, no state: node flags (`F_WALK` · `F_TERRAIN` · `F_OWNED` · `F_RAMP`), link kinds (`L_*`, `LINK_KINDS`), `NavLink`, `SpecialLink`, `RegionSpec` · `Region`, `NavWindow` · `NavBuilding`, `NavWorld` (what the graph asks the world), `regionToWorld` · `worldToRegion`. |
 | `parts/Bake.ts` | The bake as a generator spread over frames (`NAV_BAKE_BUDGET_MS`): regions + owned outdoor cells → near-a-collider mask → outdoor rows → region columns (candidate floors from box / ramp / hull tops) → region seams → `Links` → `Gates` → search arrays. `probeOutdoor` · `probeRegionNode` · `fits` are shared with the re-measure. |
 | `parts/Graph.ts` | Reading the graph: `linkOk` (the link rules), `nodePos` · `nodeH` · `nodeF` · `regionOf` · `regionOfHint`, `neighbours` (8-way on the fly + explicit links, filtered by the `NAV_CAN` mask; a whole pane's cost is added here), `snap`, `walkLine`, debug `gateAt` · `walkableAt`. |
@@ -107,6 +107,8 @@ range, the tutorial and before the first raid). The contract is `src/shared/nav.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world/nav`.
+- 2026-09-22 — (E-12 ⓐ) Cost as counts for `smoke-nav`: `lastExpanded` (nodes the last `findPath` expanded) and the flow
+  builds' heap pops (`lastPops` · `maxPops`) in `debugInfo`; the smoke bars those instead of its old wall-clock ms.
 - 2026-09-21 — `Flow.reset` also drops the region hint (`lastRegion`) of the cleared graph; the climb's descending `via`
   documented; the special-link load limit recorded. (The `smoke-nav` second-seed hang was the harness serializing the
   graph — see Rules.)

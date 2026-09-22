@@ -41,8 +41,14 @@ const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok 
 const note = (s) => console.log(`  note ${s}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** The window · thresholds for measuring whether the screen flows with no input (2026-09-12 F) — on a headless GPU at
-    60 fps it changes ~50 times during the window. The parallel runner's slow frames get generous room. */
-const FLOW_WINDOW_MS = 900, FLOW_MIN_CHANGES = 12, FLOW_MAX_GAP_MS = 250;
+    60 fps it changes ~50 times during the window.
+    2026-09-22 (E-12 ⓐ): judged **per drawn frame**, not by a wall-clock gap. The old bars (≥ 12 changes, no gap
+    ≥ 250 ms) measured the machine: under 6 lanes one 258 ms frame failed a marker that moved on every frame it got.
+    What 「flows with no input」 means is that the value changes on (nearly) every frame the page draws —
+    `FLOW_MIN_PER_FRAME` of the `requestAnimationFrame` ticks in the window, and at least `FLOW_MIN_CHANGES`. The
+    gap is still printed. */
+const FLOW_WINDOW_MS = 900, FLOW_MIN_CHANGES = 4, FLOW_MIN_PER_FRAME = 0.7;
+const flowOk = (f) => f.changes >= FLOW_MIN_CHANGES && f.changes >= f.frames * FLOW_MIN_PER_FRAME;
 async function waitFor(page, fn, label, timeout = 60000, arg) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
@@ -88,6 +94,8 @@ try {
     const read = () => (prop === 'left' ? target.style.left : target.style.getPropertyValue(prop));
     const t0 = performance.now();
     const times = [t0], values = [read()];
+    let frames = 0, live = true;
+    (function tick() { if (!live) return; frames++; requestAnimationFrame(tick); })();
     const mo = new MutationObserver(() => {
       const v = read();
       if (v !== values[values.length - 1]) { times.push(performance.now()); values.push(v); }
@@ -95,11 +103,12 @@ try {
     mo.observe(target, { attributes: true, attributeFilter: ['style'] });
     setTimeout(() => {
       mo.disconnect();
+      live = false;
       const end = performance.now();
       times.push(end);
       let maxGap = 0;
       for (let i = 1; i < times.length; i++) maxGap = Math.max(maxGap, times[i] - times[i - 1]);
-      res({ wall: Math.round(end - t0), changes: values.length - 1, distinct: new Set(values).size, maxGap: Math.round(maxGap),
+      res({ wall: Math.round(end - t0), frames, changes: values.length - 1, distinct: new Set(values).size, maxGap: Math.round(maxGap),
         first: values[0], last: values[values.length - 1], nums: values.map((v) => parseFloat(v)) });
     }, ms);
   }), { sel, prop, ms: FLOW_WINDOW_MS });
@@ -333,8 +342,8 @@ try {
   // 2026-09-12: the cursor **on screen** flows even with no input — the DOM (`style.left`) is measured while the 3D
   // scene keeps drawing, not the judge object
   const pressFlow = await sampleFlow('.gym-press-cursor', 'left');
-  ok(pressFlow.changes >= FLOW_MIN_CHANGES && pressFlow.distinct >= FLOW_MIN_CHANGES && pressFlow.maxGap < FLOW_MAX_GAP_MS,
-    `입력 없이 벤치프레스 커서가 흐른다 (${pressFlow.wall} ms 동안 left 변경 ${pressFlow.changes}회 · 값 ${pressFlow.distinct}개 · 최대 간격 ${pressFlow.maxGap} ms)`, JSON.stringify(pressFlow));
+  ok(flowOk(pressFlow) && pressFlow.distinct >= FLOW_MIN_CHANGES,
+    `입력 없이 벤치프레스 커서가 흐른다 (${pressFlow.wall} ms · 프레임 ${pressFlow.frames} 동안 left 변경 ${pressFlow.changes}회 · 값 ${pressFlow.distinct}개 · 최대 간격 ${pressFlow.maxGap} ms)`, JSON.stringify(pressFlow));
   // a real keydown while the cursor is near the centre — the handler pushes the game **up to now**, judges, and
   // draws that position **at once**
   const live = await H(() => new Promise((res) => {
@@ -453,8 +462,8 @@ try {
     // line — `--x` shrinks throughout the window
     const flow = await sampleFlow('.gym-panel .gym-note', '--x');
     const falling = flow.nums.length > 1 && flow.nums.every((v, i) => i === 0 || v < flow.nums[i - 1]);
-    ok(flow.changes >= FLOW_MIN_CHANGES && flow.maxGap < FLOW_MAX_GAP_MS && falling,
-      `입력 없이 ${label} 표식이 흘러온다 (${flow.wall} ms 동안 --x ${flow.first} → ${flow.last} · 변경 ${flow.changes}회 · 최대 간격 ${flow.maxGap} ms)`, JSON.stringify({ ...flow, nums: flow.nums.slice(0, 8) }));
+    ok(flowOk(flow) && falling,
+      `입력 없이 ${label} 표식이 흘러온다 (${flow.wall} ms · 프레임 ${flow.frames} 동안 --x ${flow.first} → ${flow.last} · 변경 ${flow.changes}회 · 최대 간격 ${flow.maxGap} ms)`, JSON.stringify({ ...flow, nums: flow.nums.slice(0, 8) }));
     const stopped = await H(() => { const h = window.__game.ctx.housing; h.cancelGymSession(); return { ticking: h.gymScreen?.ticking, info: h.gymSession }; });
     ok(stopped.ticking === false && stopped.info === null, `${label} 취소 → 화면 루프가 멈춘다 (ticking=${stopped.ticking})`);
   }

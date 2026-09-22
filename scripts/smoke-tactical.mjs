@@ -720,17 +720,26 @@ try {
     const onPad = () => page.evaluate(() => {
       const ctx = window.__game.ctx, p = ctx.gadgets.getDeployables().find((d) => d.kind === 'jumpPad');
       ctx.player.respawnAt(new (ctx.player.position.constructor)(p.position.x, p.position.y, p.position.z), 0);
+      return ctx.time;
     });
-    await gameSleep(page, 1.8);
+    // 1.0 s, not 1.8 (2026-09-22, E-12): the re-stand below must land inside the 2.5 s window, and 1.8 s plus two
+    // overshooting waits reached 2.44 s under 6 lanes
+    await gameSleep(page, 1.0);
     const launches = await page.evaluate(() => window.__launches);
-    ok(launches.length === 1 && launches[0].y > 5, `jump pad launched the player exactly once in 1.8 s (impulse.y ${launches[0]?.y?.toFixed(2)}, ${launches.length} launches)`);
+    ok(launches.length === 1 && launches[0].y > 5, `jump pad launched the player exactly once in 1.0 s (impulse.y ${launches[0]?.y?.toFixed(2)}, ${launches.length} launches)`);
     // Phase 9: per-player re-trigger gate — standing on the pad again inside JUMP_PAD_RETRIGGER_S (2.5 s) does nothing
-    await onPad();
+    /* 2026-09-22 (E-12 ⓐ): judged on the launch **timestamps**, not on a count read 「at ~2.1 s」. The two `gameSleep`s
+       overshoot under a loaded page (a frame is up to 4 sub-steps of 50 ms), and a count read past 2.5 s saw the
+       legitimate second launch. What the gate promises: back on the pad inside the window, the next launch is not
+       before the window ends. */
+    const standT = await onPad();
     await gameSleep(page, 0.3);
-    const inside = await page.evaluate(() => window.__launches.length);
-    ok(inside === 1, `no re-launch inside JUMP_PAD_RETRIGGER_S (${inside} launches at ~2.1 s)`);
+    const inside = await page.evaluate(() => window.__launches);
+    const firstT = inside[0]?.t ?? 0;
+    ok(standT - firstT < 2.4 && inside.slice(1).every((l) => l.t - firstT >= 2.4),
+      `no re-launch inside JUMP_PAD_RETRIGGER_S (back on the pad ${(standT - firstT).toFixed(2)} s after the launch; later launches at ${inside.slice(1).map((l) => (l.t - firstT).toFixed(2)).join(', ') || '—'} s)`);
     await onPad();
-    await gameSleep(page, 0.8);
+    await gameSleep(page, 1.6);   // 1.0 + 0.3 + 1.6 s ends past the 2.5 s window (the first wait was 1.8 before 2026-09-22)
     const later = await page.evaluate(() => window.__launches);
     ok(later.length >= 2 && later[1].t - later[0].t >= 2.4, `second launch after the retrigger window (${later.length} launches, gap ${later[1] ? (later[1].t - later[0].t).toFixed(2) : '-'} s)`);
   }

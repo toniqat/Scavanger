@@ -99,12 +99,16 @@ export class FlowState {
   closed = new Uint8Array(0);
   buildMs = 0;
   buildFrames = 0;
+  /** Heap pops of the build in progress — its work as a count (a smoke bars this; `buildMs` is only printed). */
+  buildPops = 0;
   /* stats (`NavGraph.debugInfo`) */
   builds = 0;
   lastMs = 0;
   maxMs = 0;
   sumMs = 0;
   lastNodes = 0;
+  lastPops = 0;
+  maxPops = 0;
   lastFrames = 0;
   lastBytes = 0;
 }
@@ -228,6 +232,7 @@ function begin(g: NavGraph, f: FlowField): void {
   s.heapN = 0;
   s.buildMs = 0;
   s.buildFrames = 0;
+  s.buildPops = 0;
   const t = snap(g, f.goal.x, f.goal.y, f.goal.z, NAV_SNAP_M, f.can);
   if (t < 0) return;                       // no node under the goal: an empty field, every sample answers false
   const st = slotOf(g, b, t, null);
@@ -250,6 +255,8 @@ function finish(g: NavGraph): void {
   s.sumMs += s.buildMs;
   if (s.buildMs > s.maxMs) s.maxMs = s.buildMs;
   s.lastNodes = b.nodes;
+  s.lastPops = s.buildPops;
+  if (s.buildPops > s.maxPops) s.maxPops = s.buildPops;
   s.lastFrames = s.buildFrames;
   s.lastBytes = b.next.byteLength + b.link.byteLength + b.dist.byteLength;
 }
@@ -322,6 +329,7 @@ function step(g: NavGraph, t0: number, budgetMs: number): void {
   let pops = 0;
   while (s.heapN > 0) {
     pop(s);
+    s.buildPops++;
     const n = popId, sn = popSlot;
     if (closed[sn] === 1) continue;
     closed[sn] = 1;

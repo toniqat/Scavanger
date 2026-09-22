@@ -691,6 +691,19 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     if (this.ctx) this.ctx.tutorial = null;
   }
 
+  /**
+   * Smokes only (2026-09-22, TODO E-12 ⓒ): what a page reload does to this system, without the reload — `dispose`,
+   * every field back to its initializer (a fresh instance's own fields copied over), then `init` again, so `load()`
+   * reads the stored save exactly as a boot does. `smoke-tutorial` edits the save, calls this and re-enters the ship
+   * to check the old-save migrations; a reload cost it a whole boot each time. Nothing in the game calls it.
+   */
+  debugReinit(): void {
+    const ctx = this.ctx;
+    this.dispose();
+    Object.assign(this, new TutorialSystem());
+    this.init(ctx);
+  }
+
   /* ── TutorialRef ───────────────────────────────────────────────────────── */
 
   /** The track running right now (**exactly one** track holds a step at any time). */

@@ -474,13 +474,19 @@ export class Input {
    * fired in an earlier sub-step would leave the screen's crosshair (and aim sway) behind it. Handing the edges to
    * the first sub-step instead failed `smoke-aim-sway`'s "shot lands on the rendered crosshair ray". Nested calls
    * are not supported; input events cannot arrive in between (the frame is one synchronous task).
+   * 2026-09-22: the **held state** is wound back with the edges — the earlier sub-steps see the keys and buttons as they
+   * were before this frame's events. Hiding only the edges let a sub-step read a button already up with no release
+   * edge, which `ui/hud/Pings` takes for 「reset without a release」 and cancels the ping (`smoke-phase2`, 6 lanes).
+   * A key both pressed and released this frame keeps its current state (a tap is up before and after).
    */
   holdEdges(): void {
     if (this.held) return;
     this.held = {
       pressed: this.pressed, released: this.released, mousePressed: this.mousePressed, mouseReleased: this.mouseReleased,
-      dx: this.mouseDX, dy: this.mouseDY, wheel: this.wheelDelta,
+      dx: this.mouseDX, dy: this.mouseDY, wheel: this.wheelDelta, down: this.down, mouseDown: this.mouseDown,
     };
+    this.down = Input.before(this.down, this.pressed, this.released);
+    this.mouseDown = Input.before(this.mouseDown, this.mousePressed, this.mouseReleased);
     this.pressed = new Set(); this.released = new Set();
     this.mousePressed = new Set(); this.mouseReleased = new Set();
     this.mouseDX = 0; this.mouseDY = 0; this.wheelDelta = 0;
@@ -494,10 +500,18 @@ export class Input {
     this.pressed = h.pressed; this.released = h.released;
     this.mousePressed = h.mousePressed; this.mouseReleased = h.mouseReleased;
     this.mouseDX = h.dx; this.mouseDY = h.dy; this.wheelDelta = h.wheel;
+    this.down = h.down; this.mouseDown = h.mouseDown;
+  }
+  /** The held set as it was before this frame's `pressed` / `released` edges (`holdEdges`). */
+  private static before<T>(now: Set<T>, pressed: Set<T>, released: Set<T>): Set<T> {
+    const was = new Set(now);
+    for (const k of pressed) if (!released.has(k)) was.delete(k);
+    for (const k of released) if (!pressed.has(k)) was.add(k);
+    return was;
   }
   private held: {
     pressed: Set<string>; released: Set<string>; mousePressed: Set<number>; mouseReleased: Set<number>;
-    dx: number; dy: number; wheel: number;
+    dx: number; dy: number; wheel: number; down: Set<string>; mouseDown: Set<number>;
   } | null = null;
 
   /** Sends the deferred relock (the gate in `requestPointerLock` above) exactly once, on the first frame the conditions clear. */

@@ -55,7 +55,7 @@ indoor step → atmosphere → `shaders.update()` → `shaders.beforeRender()` �
   once at construction) a frame longer than `MAX_DT` is simulated as up to `SMOKE_MAX_SUBSTEPS` sub-steps of ≤ `MAX_DT`
   and drawn once, so a smoke's game clock keeps pace with the wall clock below 20 fps (E-12 — that floor is what capped
   the verify runner's lanes). No system ever sees a dt above `MAX_DT`; input edges are held for the **last**
-  sub-step (`Input.holdEdges`), so a press lands in exactly one — the one that is drawn; the perf guard judges the real frame. `__game.simWarp` (smoke
+  sub-step (`Input.holdEdges`, which also shows the earlier sub-steps the keys as held before the frame), so a press lands in exactly one — the one that is drawn; the perf guard judges the real frame. `__game.simWarp` (smoke
   clock only) runs game time faster than wall time through the same sub-steps. In play one step, cut to `MAX_DT`, as
   always. — `Engine.frame` / `simulate`
 - **Compile through `ctx.shaders`, never `renderer.compile` mid-update.** The program key's colour space / tone mapping

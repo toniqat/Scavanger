@@ -1764,6 +1764,14 @@ async function main(): Promise<void> {
         let n = 0;
         for (;;) { try { await cl.wait(t, undefined, 0); n++; } catch { return n; } }
       };
+      /**
+       * 2026-09-22 (E-12 ⓐ): wait until `cl` has been sent no `t` for one whole window, dropping what came. A fixed
+       * `sleep(window + 200)` before a count assumed every earlier coalescing timer had fired by then; under a loaded
+       * machine (6 smoke lanes) a late timer landed inside the next count and read 2 where the relay sent 1 + 1.
+       */
+      const settleQuiet = async (cl: TestClient, t: ServerToClient['t'], windowMs: number): Promise<void> => {
+        for (let i = 0; i < 20 && (await countQueued(cl, t, windowMs)) > 0; i++) { /* drained — look again */ }
+      };
       const openedLobby = async (p: P): Promise<string> => {
         p.c.send({ t: 'lobby:create', name: 'x' });
         return (await p.c.wait('lobby:state', (mm) => mm.lobby.players.length === 1)).lobby.code;
@@ -2007,7 +2015,7 @@ async function main(): Promise<void> {
         await pickPlanet(M[0].c, 'mossy', M.slice(1).map((m) => m.c));
         for (const m of M) m.c.send({ t: 'lobby:ready', ready: true });
         await Promise.all(M.map((m) => m.c.wait('lobby:state', (mm) => mm.lobby.players.length === 4 && mm.lobby.players.every((p) => p.ready))));
-        await sleep(SOCIAL_PUSH_COALESCE_MS + 200);
+        await settleQuiet(G.c, 'social:state', SOCIAL_PUSH_COALESCE_MS + 200);
         G.c.flush();
         M[0].c.send({ t: 'lobby:start', seed: 88 });
         await Promise.all(M.map((m) => m.c.wait('game:start')));
